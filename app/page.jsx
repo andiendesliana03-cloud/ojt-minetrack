@@ -15,20 +15,34 @@ const kategori = [
 ];
 
 const card = {
-  background: "#ffffff",
+  background: "rgba(255, 255, 255, 0.94)",
   border: "1px solid #e2e8f0",
   borderRadius: 14,
   padding: 18,
+  boxShadow: "0 4px 16px rgba(15, 23, 42, 0.06)",
 };
 
 const tombol = {
   background: "#2563eb",
-  color: "white",
+  color: "#ffffff",
   border: "none",
   borderRadius: 10,
   padding: "12px 16px",
   cursor: "pointer",
   fontWeight: "bold",
+};
+
+const halaman = {
+  minHeight: "100vh",
+  backgroundImage:
+    'linear-gradient(rgba(241,245,249,0.82), rgba(241,245,249,0.93)), url("/background-erg.png")',
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
+  backgroundRepeat: "no-repeat",
+  padding: 18,
+  fontFamily: "Arial, sans-serif",
+  color: "#0f172a",
 };
 
 export default function Home() {
@@ -141,14 +155,6 @@ export default function Home() {
     router.refresh();
   }
 
-  const halaman = {
-    minHeight: "100vh",
-    background: "#f1f5f9",
-    padding: 18,
-    fontFamily: "Arial, sans-serif",
-    color: "#0f172a",
-  };
-
   if (memeriksaLogin) {
     return (
       <main style={halaman}>
@@ -185,16 +191,19 @@ export default function Home() {
       <div style={{ maxWidth: 1000, margin: "0 auto" }}>
         <header
           style={{
-            background: "#0f172a",
-            color: "white",
+            background: "rgba(15, 23, 42, 0.94)",
+            color: "#ffffff",
             borderRadius: 16,
             padding: 24,
             marginBottom: 24,
+            border: "1px solid rgba(255,255,255,0.15)",
           }}
         >
           <h1>OJT MineTrack v2.0</h1>
           <p>Sistem Monitoring dan Evaluasi OJT</p>
-          <small>Dashboard Monitoring Mentor</small>
+          <small>
+            Emergency Response Group — Dashboard Mentor
+          </small>
 
           <div style={{ marginTop: 20 }}>
             <p>
@@ -374,10 +383,11 @@ export default function Home() {
           style={{
             textAlign: "center",
             padding: 24,
-            color: "#64748b",
+            color: "#475569",
+            fontWeight: 600,
           }}
         >
-          OJT MineTrack v2.0 — Dashboard Mentor
+          OJT MineTrack v2.0 — Emergency Response Group
         </footer>
       </div>
     </main>
