@@ -36,7 +36,6 @@ export default function Home() {
 
   const [mentor, setMentor] = useState(null);
   const [memeriksaLogin, setMemeriksaLogin] = useState(true);
-
   const [peserta, setPeserta] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -63,9 +62,7 @@ export default function Home() {
             .eq("id", user.id)
             .single();
 
-        if (profilError) {
-          throw profilError;
-        }
+        if (profilError) throw profilError;
 
         if (!profil || profil.role !== "mentor") {
           if (aktif) {
@@ -155,10 +152,8 @@ export default function Home() {
   if (memeriksaLogin) {
     return (
       <main style={halaman}>
-        <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-          <h2>OJT MineTrack v2.0</h2>
-          <p>Memeriksa sesi login...</p>
-        </div>
+        <h2>OJT MineTrack v2.0</h2>
+        <p>Memeriksa sesi login...</p>
       </main>
     );
   }
@@ -229,16 +224,14 @@ export default function Home() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gridTemplateColumns:
+              "repeat(2, minmax(0, 1fr))",
             gap: 12,
             marginBottom: 26,
           }}
         >
           {[
-            [
-              "Peserta Aktif",
-              loading ? "..." : peserta.length,
-            ],
+            ["Peserta Aktif", loading ? "..." : peserta.length],
             ["Pencapaian OJT", "6 Kategori"],
             ["Post-Test", "Selasa & Kamis"],
             ["Praktik", "Mingguan"],
@@ -301,8 +294,7 @@ export default function Home() {
           {peserta.map((item) => (
             <div key={item.id} style={card}>
               <h3>
-                {item.peserta?.full_name ||
-                  "Peserta OJT"}
+                {item.peserta?.full_name || "Peserta OJT"}
               </h3>
 
               <p>
@@ -313,6 +305,20 @@ export default function Home() {
               <p>Mulai: {item.start_date}</p>
               <p>Selesai: {item.end_date}</p>
               <p>Status: {item.status}</p>
+
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(`/peserta/${item.id}`)
+                }
+                style={{
+                  ...tombol,
+                  width: "100%",
+                  marginTop: 12,
+                }}
+              >
+                Lihat Detail Peserta
+              </button>
             </div>
           ))}
         </div>
