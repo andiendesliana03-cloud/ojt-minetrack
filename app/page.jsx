@@ -15,11 +15,11 @@ const kategori = [
 ];
 
 const card = {
-  background: "rgba(255, 255, 255, 0.94)",
+  background: "rgba(255,255,255,0.94)",
   border: "1px solid #e2e8f0",
   borderRadius: 14,
   padding: 18,
-  boxShadow: "0 4px 16px rgba(15, 23, 42, 0.06)",
+  boxShadow: "0 4px 16px rgba(15,23,42,0.06)",
 };
 
 const tombol = {
@@ -35,7 +35,7 @@ const tombol = {
 const halaman = {
   minHeight: "100vh",
   backgroundImage:
-    'linear-gradient(rgba(241,245,249,0.72), rgba(241,245,249,0.85)), url("/background-erg.png.PNG")',
+    'linear-gradient(rgba(241,245,249,0.82), rgba(241,245,249,0.93)), url("/background-erg.png")',
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundAttachment: "fixed",
@@ -111,29 +111,36 @@ export default function Home() {
     setLoading(true);
     setError("");
 
-    const { data, error: queryError } = await supabase
-      .from("ojt_programs")
-      .select(`
-        id,
-        start_date,
-        end_date,
-        status,
-        peserta:profiles!ojt_programs_participant_id_fkey(
-          full_name,
-          department
-        )
-      `)
-      .eq("status", "active")
-      .order("start_date", { ascending: false });
+    try {
+      const { data, error: queryError } =
+        await supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            start_date,
+            end_date,
+            status,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
+            )
+          `)
+          .eq("status", "active")
+          .order("start_date", {
+            ascending: false,
+          });
 
-    if (queryError) {
-      setError(queryError.message);
-      setPeserta([]);
-    } else {
+      if (queryError) throw queryError;
+
       setPeserta(data || []);
+    } catch (err) {
+      setError(
+        err.message || "Gagal mengambil data peserta."
+      );
+      setPeserta([]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -158,7 +165,7 @@ export default function Home() {
   if (memeriksaLogin) {
     return (
       <main style={halaman}>
-        <h2>OJT MineTrack v2.0</h2>
+        <h2>Monitoring OJT</h2>
         <p>Memeriksa sesi login...</p>
       </main>
     );
@@ -203,7 +210,7 @@ export default function Home() {
       >
         <header
           style={{
-            background: "rgba(15, 23, 42, 0.94)",
+            background: "rgba(15,23,42,0.94)",
             color: "#ffffff",
             borderRadius: 16,
             padding: 24,
@@ -212,20 +219,34 @@ export default function Home() {
               "1px solid rgba(255,255,255,0.15)",
           }}
         >
-          <h1>OJT MineTrack v2.0</h1>
+          <h1
+            style={{
+              fontSize: 30,
+              marginBottom: 12,
+            }}
+          >
+            Monitoring OJT
+          </h1>
 
-          <p>
-            Sistem Monitoring dan Evaluasi OJT
+          <p
+            style={{
+              fontSize: 18,
+              marginBottom: 10,
+            }}
+          >
+            Emergency Response Group
           </p>
 
           <small>
-            Emergency Response Group — Dashboard Mentor
+            PT Berau Coal 2026 — Dashboard Mentor
           </small>
 
           <div style={{ marginTop: 20 }}>
             <p>
               Login sebagai:{" "}
-              <strong>{mentor.full_name}</strong>
+              <strong>
+                {mentor.full_name}
+              </strong>
             </p>
 
             <small>
@@ -263,26 +284,11 @@ export default function Home() {
               "Peserta Aktif",
               loading ? "..." : peserta.length,
             ],
-            [
-              "Pencapaian OJT",
-              "6 Kategori",
-            ],
-            [
-              "Post-Test",
-              "Selasa & Kamis",
-            ],
-            [
-              "Praktik",
-              "Mingguan",
-            ],
-            [
-              "Samapta",
-              "Monitoring",
-            ],
-            [
-              "SIMPER",
-              "Monitoring",
-            ],
+            ["Pencapaian OJT", "6 Kategori"],
+            ["Post-Test", "Selasa & Kamis"],
+            ["Praktik", "Mingguan"],
+            ["Samapta", "Monitoring"],
+            ["SIMPER", "Monitoring"],
           ].map(([judul, nilai]) => (
             <div key={judul} style={card}>
               <p
@@ -302,13 +308,16 @@ export default function Home() {
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
+            justifyContent:
+              "space-between",
             alignItems: "center",
             gap: 12,
             flexWrap: "wrap",
           }}
         >
-          <h2>Daftar Peserta OJT Aktif</h2>
+          <h2>
+            Daftar Peserta OJT Aktif
+          </h2>
 
           <button
             type="button"
@@ -351,7 +360,10 @@ export default function Home() {
           }}
         >
           {peserta.map((item) => (
-            <div key={item.id} style={card}>
+            <div
+              key={item.id}
+              style={card}
+            >
               <h3>
                 {item.peserta?.full_name ||
                   "Peserta OJT"}
@@ -359,7 +371,8 @@ export default function Home() {
 
               <p>
                 Departemen:{" "}
-                {item.peserta?.department || "-"}
+                {item.peserta?.department ||
+                  "-"}
               </p>
 
               <p>
@@ -403,19 +416,25 @@ export default function Home() {
             gap: 12,
           }}
         >
-          {kategori.map((nama, index) => (
-            <div key={nama} style={card}>
-              <small>
-                Pencapaian {index + 1}
-              </small>
+          {kategori.map(
+            (nama, index) => (
+              <div
+                key={nama}
+                style={card}
+              >
+                <small>
+                  Pencapaian {index + 1}
+                </small>
 
-              <h3>{nama}</h3>
+                <h3>{nama}</h3>
 
-              <p>
-                Monitoring pencapaian peserta
-              </p>
-            </div>
-          ))}
+                <p>
+                  Monitoring pencapaian
+                  peserta
+                </p>
+              </div>
+            )
+          )}
         </div>
 
         <h2 style={{ marginTop: 28 }}>
@@ -445,17 +464,23 @@ export default function Home() {
               "SIMPER",
               "Monitoring proses dan kelulusan",
             ],
-          ].map(([nama, keterangan]) => (
-            <div key={nama} style={card}>
-              <h3>{nama}</h3>
+          ].map(
+            ([nama, keterangan]) => (
+              <div
+                key={nama}
+                style={card}
+              >
+                <h3>{nama}</h3>
 
-              <p>{keterangan}</p>
+                <p>{keterangan}</p>
 
-              <small>
-                Data penilaian belum ditampilkan
-              </small>
-            </div>
-          ))}
+                <small>
+                  Data penilaian belum
+                  ditampilkan
+                </small>
+              </div>
+            )
+          )}
         </div>
 
         <footer
@@ -466,7 +491,8 @@ export default function Home() {
             fontWeight: 600,
           }}
         >
-          OJT MineTrack v2.0 — Emergency Response Group
+          Monitoring OJT — Emergency Response
+          Group — PT Berau Coal 2026
         </footer>
       </div>
     </main>
