@@ -2,8 +2,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "../lib/supabase";
+import { useParams, useRouter } from "next/navigation";
+import { supabase } from "../../../lib/supabase";
 
 const kategori = [
   "Fisik",
@@ -19,312 +19,201 @@ const card = {
   border: "1px solid #e2e8f0",
   borderRadius: 14,
   padding: 18,
+  marginBottom: 12,
 };
 
-const button = {
-  background: "#2563eb",
-  color: "white",
-  border: "none",
-  borderRadius: 10,
-  padding: "12px 16px",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
-export default function Home() {
+export default function DetailPeserta() {
+  const params = useParams();
   const router = useRouter();
+  const programId = params?.id;
 
-  const [mentor, setMentor] = useState(null);
-  const [checking, setChecking] = useState(true);
-  const [peserta, setPeserta] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [program, setProgram] = useState(null);
+  const [jumlah, setJumlah] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let active = true;
+    if (!programId) return;
 
-    async function checkLogin() {
+    let aktif = true;
+
+    async function ambilData() {
       try {
-        const { data, error: authError } =
+        const { data: authData, error: authError } =
           await supabase.auth.getUser();
 
-        if (authError || !data.user) {
+        if (authError || !authData.user) {
           router.replace("/login");
           return;
         }
 
-        const { data: profile, error: profileError } =
+        const { data: profil, error: profilError } =
           await supabase
             .from("profiles")
-            .select("id, full_name, role, department")
-            .eq("id", data.user.id)
+            .select("role")
+            .eq("id", authData.user.id)
             .single();
 
-        if (profileError) throw profileError;
+        if (profilError) throw profilError;
 
-        if (profile?.role !== "mentor") {
-          throw new Error(
-            "Akun ini tidak memiliki akses Mentor."
-          );
+        if (profil?.role !== "mentor") {
+          throw new Error("Halaman ini khusus Mentor.");
         }
 
-        if (active) {
-          setMentor(profile);
-          setChecking(false);
+        const { data, error: programError } =
+          await supabase
+            .from("ojt_programs")
+            .select(`
+              id,
+              start_date,
+              end_date,
+              status,
+              peserta:profiles!ojt_programs_participant_id_fkey(
+                full_name,
+                department
+              )
+            `)
+            .eq("id", programId)
+            .single();
+
+        if (programError) throw programError;
+
+        const { count, error: countError } =
+          await supabase
+            .from("achievement_records")
+            .select("id", { count: "exact", head: true })
+            .eq("program_id", programId);
+
+        if (countError) throw countError;
+
+        if (aktif) {
+          setProgram(data);
+          setJumlah(count ?? 0);
         }
       } catch (err) {
-        if (active) {
-          setError(err.message);
-          setChecking(false);
+        if (aktif) {
+          setError(err.message || "Terjadi kesalahan.");
         }
+      } finally {
+        if (aktif) setLoading(false);
       }
     }
 
-    checkLogin();
+    ambilData();
 
     return () => {
-      active = false;
+      aktif = false;
     };
-  }, [router]);
+  }, [programId, router]);
 
-  useEffect(() => {
-    if (!mentor) return;
-
-    let active = true;
-
-    async function loadPeserta() {
-      setLoading(true);
-      setError("");
-
-      const { data, error: queryError } =
-        await supabase
-          .from("ojt_programs")
-          .select(`
-            id,
-            start_date,
-            end_date,
-            status,
-            peserta:profiles!ojt_programs_participant_id_fkey(
-              full_name,
-              department
-            )
-          `)
-          .eq("status", "active")
-          .order("start_date", {
-            ascending: false,
-          });
-
-      if (!active) return;
-
-      if (queryError) {
-        setError(queryError.message);
-      } else {
-        setPeserta(data || []);
-      }
-
-      setLoading(false);
-    }
-
-    loadPeserta();
-
-    return () => {
-      active = false;
-    };
-  }, [mentor]);
-
-  async function logout() {
-    const { error: logoutError } =
-      await supabase.auth.signOut();
-
-    if (logoutError) {
-      setError(logoutError.message);
-      return;
-    }
-
-    router.replace("/login");
-    router.refresh();
-  }
-
-  const page = {
-    minHeight: "100vh",
-    background: "#f1f5f9",
-    padding: 18,
-    fontFamily: "Arial, sans-serif",
-    color: "#0f172a",
+  const tombol = {
+    background: "#2563eb",
+    color: "white",
+    border: "none",
+    borderRadius: 10,
+    padding: "12px 16px",
+    cursor: "pointer",
+    marginBottom: 20,
   };
 
-  if (checking) {
-    return (
-      <main style={page}>
-        <h2>OJT MineTrack v2.0</h2>
-        <p>Memeriksa login...</p>
-      </main>
-    );
-  }
-
-  if (!mentor) {
-    return (
-      <main style={page}>
-        <div style={card}>
-          <h2>Akses Ditolak</h2>
-          <p style={{ color: "#b91c1c" }}>
-            {error || "Akses tidak diizinkan."}
-          </p>
-          <button onClick={logout} style={button}>
-            Logout
-          </button>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main style={page}>
-      <div style={{ maxWidth: 1000, margin: "auto" }}>
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#f1f5f9",
+        padding: 18,
+        fontFamily: "Arial, sans-serif",
+        color: "#0f172a",
+      }}
+    >
+      <div style={{ maxWidth: 900, margin: "auto" }}>
         <header
           style={{
             background: "#0f172a",
             color: "white",
-            padding: 24,
             borderRadius: 16,
-            marginBottom: 24,
+            padding: 24,
+            marginBottom: 20,
           }}
         >
-          <h1>OJT MineTrack v2.0</h1>
-          <p>Sistem Monitoring dan Evaluasi OJT</p>
-          <small>Dashboard Monitoring Mentor</small>
-
-          <p style={{ marginTop: 22 }}>
-            Login sebagai:{" "}
-            <strong>{mentor.full_name}</strong>
-          </p>
-          <p>
-            Departemen: {mentor.department || "-"}
-          </p>
-
-          <button
-            onClick={logout}
-            style={{
-              ...button,
-              background: "#dc2626",
-            }}
-          >
-            Logout
-          </button>
+          <h1>Detail Peserta OJT</h1>
+          <p>OJT MineTrack v2.0</p>
+          <small>Monitoring dan Evaluasi Mentor</small>
         </header>
 
-        <h2>Ringkasan Monitoring</h2>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(2, minmax(0, 1fr))",
-            gap: 12,
-            marginBottom: 28,
-          }}
+        <button
+          onClick={() => router.push("/")}
+          style={tombol}
         >
-          {[
-            ["Peserta Aktif", loading ? "..." : peserta.length],
-            ["Pencapaian OJT", "6 Kategori"],
-            ["Post-Test", "Selasa & Kamis"],
-            ["Praktik", "Mingguan"],
-            ["Samapta", "Monitoring"],
-            ["SIMPER", "Monitoring"],
-          ].map(([title, value]) => (
-            <div key={title} style={card}>
-              <p style={{ color: "#64748b", fontSize: 13 }}>
-                {title}
-              </p>
-              <strong>{value}</strong>
-            </div>
-          ))}
-        </div>
-
-        <h2>Daftar Peserta OJT Aktif</h2>
+          ← Kembali ke Dashboard
+        </button>
 
         {loading && <p>Memuat data peserta...</p>}
 
         {error && (
-          <p style={{ color: "#b91c1c" }}>{error}</p>
-        )}
-
-        {!loading && !error && peserta.length === 0 && (
           <div style={card}>
-            Belum ada peserta aktif.
+            <p style={{ color: "#b91c1c" }}>
+              {error}
+            </p>
           </div>
         )}
 
-        <div style={{ display: "grid", gap: 12 }}>
-          {peserta.map((item) => (
-            <div key={item.id} style={card}>
-              <h3>
-                {item.peserta?.full_name ||
-                  "Peserta OJT"}
-              </h3>
+        {!loading && !error && program && (
+          <>
+            <section style={card}>
+              <h2>
+                {program.peserta?.full_name || "Peserta OJT"}
+              </h2>
 
               <p>
                 Departemen:{" "}
-                {item.peserta?.department || "-"}
+                {program.peserta?.department || "-"}
               </p>
-              <p>Mulai: {item.start_date}</p>
-              <p>Selesai: {item.end_date}</p>
-              <p>Status: {item.status}</p>
 
-              <button
-                onClick={() =>
-                  router.push(`/peserta/${item.id}`)
-                }
-                style={button}
-              >
-                Lihat Detail Peserta
-              </button>
-            </div>
-          ))}
-        </div>
+              <p>Mulai: {program.start_date}</p>
+              <p>Selesai: {program.end_date}</p>
+              <p>Status: {program.status}</p>
+            </section>
 
-        <h2 style={{ marginTop: 28 }}>
-          Enam Pencapaian OJT
-        </h2>
+            <section style={card}>
+              <h2>Ringkasan Pencapaian</h2>
+              <p>Total catatan pencapaian:</p>
+              <h1>{jumlah}</h1>
+              <small>
+                Berdasarkan data achievement_records
+              </small>
+            </section>
 
-        <div style={{ display: "grid", gap: 12 }}>
-          {kategori.map((nama, index) => (
-            <div key={nama} style={card}>
-              <small>Pencapaian {index + 1}</small>
-              <h3>{nama}</h3>
-              <p>Monitoring pencapaian peserta</p>
-            </div>
-          ))}
-        </div>
+            <h2>Enam Pencapaian OJT</h2>
 
-        <h2 style={{ marginTop: 28 }}>
-          Monitoring Penilaian
-        </h2>
+            {kategori.map((nama, index) => (
+              <div key={nama} style={card}>
+                <small>Kategori {index + 1}</small>
+                <h3>{nama}</h3>
+                <p>
+                  Monitoring pencapaian {nama}
+                </p>
+              </div>
+            ))}
 
-        <div style={{ display: "grid", gap: 12 }}>
-          {[
-            ["Post-Test Teori", "Selasa dan Kamis"],
-            ["Praktik Mingguan", "Setiap minggu"],
-            ["Samapta", "Selama masa OJT"],
-            ["SIMPER", "Proses dan kelulusan"],
-          ].map(([nama, info]) => (
-            <div key={nama} style={card}>
-              <h3>{nama}</h3>
-              <p>{info}</p>
-              <small>Monitoring penilaian</small>
-            </div>
-          ))}
-        </div>
+            <h2>Monitoring Penilaian</h2>
 
-        <footer
-          style={{
-            textAlign: "center",
-            color: "#64748b",
-            padding: 24,
-          }}
-        >
-          OJT MineTrack v2.0 — Dashboard Mentor
-        </footer>
+            {[
+              ["Post-Test Teori", "Selasa dan Kamis"],
+              ["Praktik Mingguan", "Setiap minggu"],
+              ["Samapta", "Selama masa OJT"],
+              ["SIMPER", "Proses dan kelulusan"],
+            ].map(([nama, info]) => (
+              <div key={nama} style={card}>
+                <h3>{nama}</h3>
+                <p>{info}</p>
+                <small>
+                  Detail penilaian akan ditambahkan
+                </small>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </main>
   );
