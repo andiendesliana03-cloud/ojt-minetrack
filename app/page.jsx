@@ -19,7 +19,7 @@ const card = {
   border: "1px solid #e2e8f0",
   borderRadius: 14,
   padding: 18,
-  boxShadow: "0 4px 16px rgba(15,23,42,0.06)",
+  boxShadow: "0 4px 16px rgba(15,23,42,0.08)",
 };
 
 const tombol = {
@@ -34,8 +34,9 @@ const tombol = {
 
 const halaman = {
   minHeight: "100vh",
+  backgroundColor: "#f1f5f9",
   backgroundImage:
-    'linear-gradient(rgba(241,245,249,0.82), rgba(241,245,249,0.93)), url("/background-erg.png")',
+    'linear-gradient(rgba(241,245,249,0.65), rgba(241,245,249,0.80)), url("/background-erg.png.PNG")',
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundAttachment: "fixed",
@@ -49,7 +50,8 @@ export default function Home() {
   const router = useRouter();
 
   const [mentor, setMentor] = useState(null);
-  const [memeriksaLogin, setMemeriksaLogin] = useState(true);
+  const [memeriksaLogin, setMemeriksaLogin] =
+    useState(true);
   const [peserta, setPeserta] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -69,12 +71,16 @@ export default function Home() {
           return;
         }
 
-        const { data: profil, error: profilError } =
-          await supabase
-            .from("profiles")
-            .select("id, full_name, role, department")
-            .eq("id", user.id)
-            .single();
+        const {
+          data: profil,
+          error: profilError,
+        } = await supabase
+          .from("profiles")
+          .select(
+            "id, full_name, role, department"
+          )
+          .eq("id", user.id)
+          .single();
 
         if (profilError) throw profilError;
 
@@ -94,7 +100,10 @@ export default function Home() {
         }
       } catch (err) {
         if (aktif) {
-          setError(err.message || "Gagal memeriksa akun.");
+          setError(
+            err.message ||
+              "Gagal memeriksa akun."
+          );
           setMemeriksaLogin(false);
         }
       }
@@ -112,30 +121,33 @@ export default function Home() {
     setError("");
 
     try {
-      const { data, error: queryError } =
-        await supabase
-          .from("ojt_programs")
-          .select(`
-            id,
-            start_date,
-            end_date,
-            status,
-            peserta:profiles!ojt_programs_participant_id_fkey(
-              full_name,
-              department
-            )
-          `)
-          .eq("status", "active")
-          .order("start_date", {
-            ascending: false,
-          });
+      const {
+        data,
+        error: queryError,
+      } = await supabase
+        .from("ojt_programs")
+        .select(`
+          id,
+          start_date,
+          end_date,
+          status,
+          peserta:profiles!ojt_programs_participant_id_fkey(
+            full_name,
+            department
+          )
+        `)
+        .eq("status", "active")
+        .order("start_date", {
+          ascending: false,
+        });
 
       if (queryError) throw queryError;
 
       setPeserta(data || []);
     } catch (err) {
       setError(
-        err.message || "Gagal mengambil data peserta."
+        err.message ||
+          "Gagal mengambil data peserta."
       );
       setPeserta([]);
     } finally {
@@ -150,8 +162,9 @@ export default function Home() {
   }, [mentor]);
 
   async function keluar() {
-    const { error: logoutError } =
-      await supabase.auth.signOut();
+    const {
+      error: logoutError,
+    } = await supabase.auth.signOut();
 
     if (logoutError) {
       setError(logoutError.message);
@@ -184,7 +197,8 @@ export default function Home() {
             <h2>Akses Dashboard Mentor</h2>
 
             <p style={{ color: "#b91c1c" }}>
-              {error || "Akses tidak diizinkan."}
+              {error ||
+                "Akses tidak diizinkan."}
             </p>
 
             <button
@@ -210,7 +224,8 @@ export default function Home() {
       >
         <header
           style={{
-            background: "rgba(15,23,42,0.94)",
+            background:
+              "rgba(15,23,42,0.94)",
             color: "#ffffff",
             borderRadius: 16,
             padding: 24,
@@ -282,15 +297,35 @@ export default function Home() {
           {[
             [
               "Peserta Aktif",
-              loading ? "..." : peserta.length,
+              loading
+                ? "..."
+                : peserta.length,
             ],
-            ["Pencapaian OJT", "6 Kategori"],
-            ["Post-Test", "Selasa & Kamis"],
-            ["Praktik", "Mingguan"],
-            ["Samapta", "Monitoring"],
-            ["SIMPER", "Monitoring"],
+            [
+              "Pencapaian OJT",
+              "6 Kategori",
+            ],
+            [
+              "Post-Test",
+              "Selasa & Kamis",
+            ],
+            [
+              "Praktik",
+              "Mingguan",
+            ],
+            [
+              "Samapta",
+              "Monitoring",
+            ],
+            [
+              "SIMPER",
+              "Monitoring",
+            ],
           ].map(([judul, nilai]) => (
-            <div key={judul} style={card}>
+            <div
+              key={judul}
+              style={card}
+            >
               <p
                 style={{
                   color: "#64748b",
@@ -365,14 +400,15 @@ export default function Home() {
               style={card}
             >
               <h3>
-                {item.peserta?.full_name ||
+                {item.peserta
+                  ?.full_name ||
                   "Peserta OJT"}
               </h3>
 
               <p>
                 Departemen:{" "}
-                {item.peserta?.department ||
-                  "-"}
+                {item.peserta
+                  ?.department || "-"}
               </p>
 
               <p>
