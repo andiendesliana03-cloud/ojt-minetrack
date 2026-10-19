@@ -23,14 +23,25 @@ const tombol = {
   cursor: "pointer",
 };
 
-const kategoriNama = {
-  Fisik: "Fisik",
-  Training: "Training",
-  Sosialisasi: "Sosialisasi",
-  Coaching: "Coaching",
-  "Orientasi Area": "Orientasi Area",
-  Hazard: "Hazard",
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: 12,
+  borderRadius: 10,
+  border: "1px solid #cbd5e1",
+  marginBottom: 16,
+  fontFamily: "inherit",
+  fontSize: 15,
 };
+
+function tanggalHariIni() {
+  const sekarang = new Date();
+  const lokal = new Date(
+    sekarang.getTime() -
+      sekarang.getTimezoneOffset() * 60000
+  );
+  return lokal.toISOString().slice(0, 10);
+}
 
 export default function DetailPeserta() {
   const params = useParams();
@@ -43,13 +54,14 @@ export default function DetailPeserta() {
   const [catatan, setCatatan] = useState([]);
 
   const [jenis, setJenis] = useState("");
-  const [tanggal, setTanggal] = useState(
-    new Date().toLocaleDateString("en-CA")
-  );
+  const [tanggal, setTanggal] = useState(tanggalHariIni);
   const [deskripsi, setDeskripsi] = useState("");
 
+  const [editId, setEditId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [menyimpan, setMenyimpan] = useState(false);
+  const [aksiId, setAksiId] = useState(null);
+
   const [error, setError] = useState("");
   const [pesan, setPesan] = useState("");
 
@@ -63,6 +75,7 @@ export default function DetailPeserta() {
       .order("activity_date", { ascending: false });
 
     if (err) throw err;
+
     setCatatan(data || []);
   }
 
@@ -73,7 +86,6 @@ export default function DetailPeserta() {
 
     async function mulai() {
       setLoading(true);
-      setError("");
 
       try {
         const { data: auth, error: authError } =
@@ -93,9 +105,9 @@ export default function DetailPeserta() {
 
         if (profilError) throw profilError;
 
-        if (profil.role !== "mentor") {
+        if (profil?.role !== "mentor") {
           throw new Error(
-            "Halaman input pencapaian hanya untuk Mentor."
+            "Halaman ini hanya dapat diakses Mentor."
           );
         }
 
@@ -120,11 +132,10 @@ export default function DetailPeserta() {
         const { data: jenisData, error: jenisError } =
           await supabase
             .from("achievement_types")
-            .select("*");
+            .select("code, name")
+            .order("name");
 
         if (jenisError) throw jenisError;
-
-        const daftar = jenisData || [];
 
         const { data: riwayat, error: riwayatError } =
           await supabase
@@ -141,11 +152,11 @@ export default function DetailPeserta() {
 
         setMentor(profil);
         setProgram(dataProgram);
-        setKategori(daftar);
+        setKategori(jenisData || []);
         setCatatan(riwayat || []);
 
-        if (daftar.length > 0) {
-          setJenis(daftar[0].code);
+        if (jenisData?.length) {
+          setJenis(jenisData[0].code);
         }
       } catch (err) {
         if (aktif) {
@@ -163,19 +174,21 @@ export default function DetailPeserta() {
     };
   }, [programId, router]);
 
+  function bersihkanForm() {
+    setEditId(null);
+    setJenis(kategori[0]?.code || "");
+    setTanggal(tanggalHariIni());
+    setDeskripsi("");
+  }
+
   async function simpanPencapaian(e) {
     e.preventDefault();
 
-    if (!mentor || !program) return;
+    if (!mentor || !program || menyimpan) return;
 
-    if (!jenis || !tanggal || !deskripsi.trim()) {
-      setError("Semua kolom wajib diisi.");
-      return;
-    }
-
-    if (deskripsi.trim().length < 10) {
+    if (!jenis || !tanggal || deskripsi.trim().length < 10) {
       setError(
-        "Keterangan minimal 10 karakter."
+        "Lengkapi semua kolom. Keterangan minimal 10 karakter."
       );
       return;
     }
@@ -185,45 +198,170 @@ export default function DetailPeserta() {
     setPesan("");
 
     try {
-      const { error: simpanError } = await supabase
-        .from("achievement_records")
-        .insert({
-          program_id: programId,
-          type_code: jenis,
-          activity_date: tanggal,
-          description: deskripsi.trim(),
-          status: "pending",
-          verified_by: null,
-        });
+      const dataInput = {
+        type_code: jenis,
+        activity_date: tanggal,
+        description: deskripsi.trim(),
+        status: "pending",
+        verified_by: null,
+      };
 
-      if (simpanError) throw simpanError;
+      let hasil;
+
+      if (editId) {
+        hasil = await supabase
+          .from("achievement_records")
+          .update(dataInput)
+          .eq("id", editId)
+          .eq("program_id", programId)
+          .select("id");
+      } else {
+        hasil = await supabase
+          .from("achievement_records")
+          .insert({
+            ...dataInput,
+            program_id: programId,
+          })
+          .select("id");
+      }
+
+      if (hasil.error) throw hasil.error;
+
+      if (!hasil.data?.length) {
+        throw new Error(
+          "Data tidak berubah. Periksa izin Mentor."
+        );
+      }
+
+      const sedangEdit = Boolean(editId);
 
       await muatCatatan();
+      bersihkanForm();
 
-      setDeskripsi("");
       setPesan(
-        "Pencapaian berhasil disimpan. Status: Pending."
+        sedangEdit
+          ? "Pencapaian berhasil diperbarui. Status kembali Pending."
+          : "Pencapaian berhasil disimpan. Menunggu verifikasi Mentor."
       );
     } catch (err) {
-      setError(
-        err.message || "Gagal menyimpan pencapaian."
-      );
+      setError(err.message || "Gagal menyimpan data.");
     } finally {
       setMenyimpan(false);
     }
   }
 
-  function namaKategori(code) {
-    const item = kategori.find(
-      (k) => k.code === code
+  function mulaiEdit(item) {
+    setEditId(item.id);
+    setJenis(item.type_code);
+    setTanggal(item.activity_date);
+    setDeskripsi(item.description);
+    setError("");
+    setPesan("");
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  }
+
+  async function verifikasi(item) {
+    if (!mentor || aksiId) return;
+
+    const setuju = window.confirm(
+      "Verifikasi pencapaian ini sebagai Mentor?"
     );
 
+    if (!setuju) return;
+
+    setAksiId(item.id);
+    setError("");
+    setPesan("");
+
+    try {
+      const { data, error: err } = await supabase
+        .from("achievement_records")
+        .update({
+          status: "verified",
+          verified_by: mentor.id,
+        })
+        .eq("id", item.id)
+        .eq("program_id", programId)
+        .eq("status", "pending")
+        .select("id");
+
+      if (err) throw err;
+
+      if (!data?.length) {
+        throw new Error(
+          "Pencapaian tidak dapat diverifikasi."
+        );
+      }
+
+      await muatCatatan();
+      setPesan("Pencapaian berhasil diverifikasi.");
+    } catch (err) {
+      setError(err.message || "Gagal verifikasi.");
+    } finally {
+      setAksiId(null);
+    }
+  }
+
+  async function hapusPencapaian(item) {
+    if (!mentor || aksiId) return;
+
+    const setuju = window.confirm(
+      "Yakin ingin menghapus pencapaian ini? Data yang dihapus tidak dapat dikembalikan."
+    );
+
+    if (!setuju) return;
+
+    setAksiId(item.id);
+    setError("");
+    setPesan("");
+
+    try {
+      const { data, error: err } = await supabase
+        .from("achievement_records")
+        .delete()
+        .eq("id", item.id)
+        .eq("program_id", programId)
+        .select("id");
+
+      if (err) throw err;
+
+      if (!data?.length) {
+        throw new Error(
+          "Data tidak terhapus. Periksa izin Mentor."
+        );
+      }
+
+      if (editId === item.id) {
+        bersihkanForm();
+      }
+
+      await muatCatatan();
+      setPesan("Pencapaian berhasil dihapus.");
+    } catch (err) {
+      setError(err.message || "Gagal menghapus data.");
+    } finally {
+      setAksiId(null);
+    }
+  }
+
+  function namaKategori(code) {
     return (
-      item?.name ||
-      kategoriNama[code] ||
+      kategori.find((item) => item.code === code)?.name ||
       code
     );
   }
+
+  const totalVerified = catatan.filter(
+    (item) => item.status === "verified"
+  ).length;
+
+  const totalPending = catatan.filter(
+    (item) => item.status === "pending"
+  ).length;
 
   const halaman = {
     minHeight: "100vh",
@@ -245,30 +383,23 @@ export default function DetailPeserta() {
   if (!mentor || !program) {
     return (
       <main style={halaman}>
-        <div style={card}>
+        <section style={card}>
           <h2>Data Tidak Dapat Ditampilkan</h2>
-          <p style={{ color: "#b91c1c" }}>
-            {error}
-          </p>
+          <p style={{ color: "#b91c1c" }}>{error}</p>
           <button
             style={tombol}
             onClick={() => router.push("/")}
           >
-            Kembali
+            Kembali ke Dashboard
           </button>
-        </div>
+        </section>
       </main>
     );
   }
 
   return (
     <main style={halaman}>
-      <div
-        style={{
-          maxWidth: 900,
-          margin: "0 auto",
-        }}
-      >
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <header
           style={{
             background: "#0f172a",
@@ -280,16 +411,14 @@ export default function DetailPeserta() {
         >
           <h1>Detail Peserta OJT</h1>
           <p>OJT MineTrack v2.0</p>
-          <small>
-            Monitoring dan Input Pencapaian Mentor
-          </small>
+          <small>Monitoring dan Evaluasi Mentor</small>
+          <p>
+            Mentor: <strong>{mentor.full_name}</strong>
+          </p>
         </header>
 
         <button
-          style={{
-            ...tombol,
-            marginBottom: 20,
-          }}
+          style={{ ...tombol, marginBottom: 20 }}
           onClick={() => router.push("/")}
         >
           ← Kembali ke Dashboard
@@ -297,10 +426,8 @@ export default function DetailPeserta() {
 
         <section style={card}>
           <h2>
-            {program.peserta?.full_name ||
-              "Peserta OJT"}
+            {program.peserta?.full_name || "Peserta OJT"}
           </h2>
-
           <p>
             Departemen:{" "}
             {program.peserta?.department || "-"}
@@ -312,189 +439,152 @@ export default function DetailPeserta() {
 
         <section style={card}>
           <h2>Ringkasan Pencapaian</h2>
-          <p>Total catatan pencapaian:</p>
-
-          <h1 style={{ fontSize: 36 }}>
-            {catatan.length}
-          </h1>
-
-          <p>
-            Terverifikasi:{" "}
-            <strong>
-              {
-                catatan.filter(
-                  (c) => c.status === "verified"
-                ).length
-              }
-            </strong>
-          </p>
-
-          <p>
-            Menunggu verifikasi:{" "}
-            <strong>
-              {
-                catatan.filter(
-                  (c) => c.status === "pending"
-                ).length
-              }
-            </strong>
-          </p>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: 10,
+            }}
+          >
+            {[
+              ["Total", catatan.length],
+              ["Terverifikasi", totalVerified],
+              ["Pending", totalPending],
+            ].map(([nama, nilai]) => (
+              <div
+                key={nama}
+                style={{
+                  background: "#f8fafc",
+                  padding: 12,
+                  borderRadius: 10,
+                  textAlign: "center",
+                }}
+              >
+                <small>{nama}</small>
+                <h2>{nilai}</h2>
+              </div>
+            ))}
+          </div>
         </section>
 
         <section style={card}>
-          <h2>Input Pencapaian OJT</h2>
+          <h2>
+            {editId
+              ? "Edit Pencapaian OJT"
+              : "Input Pencapaian OJT"}
+          </h2>
 
           <p style={{ color: "#64748b" }}>
-            Penginputan hanya dapat dilakukan
-            oleh Mentor.
+            Hanya Mentor yang dapat mengelola pencapaian.
           </p>
 
           <form onSubmit={simpanPencapaian}>
-            <label
-              style={{
-                display: "block",
-                marginBottom: 8,
-                fontWeight: 600,
-              }}
-            >
-              Kategori Pencapaian
-            </label>
-
+            <label>Kategori Pencapaian</label>
             <select
               value={jenis}
-              onChange={(e) =>
-                setJenis(e.target.value)
-              }
+              onChange={(e) => setJenis(e.target.value)}
               required
-              style={{
-                width: "100%",
-                padding: 12,
-                borderRadius: 10,
-                border: "1px solid #cbd5e1",
-                marginBottom: 18,
-                background: "white",
-              }}
+              style={inputStyle}
             >
               {kategori.length === 0 && (
-                <option value="">
-                  Belum ada kategori
-                </option>
+                <option value="">Belum ada kategori</option>
               )}
 
               {kategori.map((item) => (
-                <option
-                  key={item.code}
-                  value={item.code}
-                >
+                <option key={item.code} value={item.code}>
                   {item.name}
                 </option>
               ))}
             </select>
 
-            <label
-              style={{
-                display: "block",
-                marginBottom: 8,
-                fontWeight: 600,
-              }}
-            >
-              Tanggal Kegiatan
-            </label>
-
+            <label>Tanggal Kegiatan</label>
             <input
               type="date"
               value={tanggal}
-              onChange={(e) =>
-                setTanggal(e.target.value)
-              }
+              onChange={(e) => setTanggal(e.target.value)}
               required
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: 12,
-                borderRadius: 10,
-                border: "1px solid #cbd5e1",
-                marginBottom: 18,
-              }}
+              style={inputStyle}
             />
 
-            <label
-              style={{
-                display: "block",
-                marginBottom: 8,
-                fontWeight: 600,
-              }}
-            >
-              Keterangan Pencapaian
-            </label>
-
+            <label>Keterangan Pencapaian</label>
             <textarea
               value={deskripsi}
-              onChange={(e) =>
-                setDeskripsi(e.target.value)
-              }
+              onChange={(e) => setDeskripsi(e.target.value)}
               placeholder="Tuliskan kegiatan atau pencapaian peserta..."
               rows={5}
               required
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: 12,
-                borderRadius: 10,
-                border: "1px solid #cbd5e1",
-                marginBottom: 18,
-                fontFamily: "inherit",
-              }}
+              style={inputStyle}
             />
 
-            {error && (
-              <p style={{ color: "#b91c1c" }}>
-                {error}
-              </p>
-            )}
-
-            {pesan && (
-              <p style={{ color: "#15803d" }}>
-                {pesan}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={
-                menyimpan ||
-                kategori.length === 0
-              }
+            <div
               style={{
-                ...tombol,
-                opacity: menyimpan ? 0.6 : 1,
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
               }}
             >
-              {menyimpan
-                ? "Menyimpan..."
-                : "Simpan Pencapaian"}
-            </button>
+              <button
+                type="submit"
+                disabled={menyimpan || !kategori.length}
+                style={{
+                  ...tombol,
+                  opacity: menyimpan ? 0.6 : 1,
+                }}
+              >
+                {menyimpan
+                  ? "Menyimpan..."
+                  : editId
+                  ? "Simpan Perubahan"
+                  : "Simpan Pencapaian"}
+              </button>
+
+              {editId && (
+                <button
+                  type="button"
+                  onClick={bersihkanForm}
+                  style={{
+                    ...tombol,
+                    background: "#64748b",
+                  }}
+                >
+                  Batal Edit
+                </button>
+              )}
+            </div>
           </form>
         </section>
+
+        {error && (
+          <section style={card}>
+            <p style={{ color: "#b91c1c" }}>{error}</p>
+          </section>
+        )}
+
+        {pesan && (
+          <section style={card}>
+            <p style={{ color: "#15803d" }}>{pesan}</p>
+          </section>
+        )}
 
         <h2>Enam Pencapaian OJT</h2>
 
         {kategori.map((item) => {
-          const total = catatan.filter(
+          const daftar = catatan.filter(
             (c) => c.type_code === item.code
-          ).length;
+          );
 
-          const verified = catatan.filter(
-            (c) =>
-              c.type_code === item.code &&
-              c.status === "verified"
+          const verified = daftar.filter(
+            (c) => c.status === "verified"
           ).length;
 
           return (
             <section key={item.code} style={card}>
               <h3>{item.name}</h3>
-              <p>Total catatan: {total}</p>
+              <p>Total catatan: {daftar.length}</p>
               <p>Terverifikasi: {verified}</p>
+              <p>
+                Menunggu: {daftar.length - verified}
+              </p>
             </section>
           );
         })}
@@ -503,28 +593,26 @@ export default function DetailPeserta() {
 
         {catatan.length === 0 && (
           <section style={card}>
-            <p>
-              Belum ada pencapaian yang
-              diinput.
-            </p>
+            Belum ada pencapaian yang diinput.
           </section>
         )}
 
         {catatan.map((item) => (
           <section key={item.id} style={card}>
-            <h3>
-              {namaKategori(item.type_code)}
-            </h3>
-
-            <p>
-              Tanggal: {item.activity_date}
-            </p>
-
+            <h3>{namaKategori(item.type_code)}</h3>
+            <p>Tanggal: {item.activity_date}</p>
             <p>{item.description}</p>
 
             <p>
               Status:{" "}
-              <strong>
+              <strong
+                style={{
+                  color:
+                    item.status === "verified"
+                      ? "#15803d"
+                      : "#b45309",
+                }}
+              >
                 {item.status === "verified"
                   ? "Terverifikasi"
                   : item.status === "pending"
@@ -532,6 +620,52 @@ export default function DetailPeserta() {
                   : item.status}
               </strong>
             </p>
+
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                marginTop: 14,
+              }}
+            >
+              {item.status === "pending" && (
+                <button
+                  type="button"
+                  disabled={Boolean(aksiId)}
+                  onClick={() => verifikasi(item)}
+                  style={{
+                    ...tombol,
+                    background: "#16a34a",
+                  }}
+                >
+                  {aksiId === item.id
+                    ? "Memproses..."
+                    : "✓ Verifikasi"}
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={Boolean(aksiId)}
+                onClick={() => mulaiEdit(item)}
+                style={tombol}
+              >
+                Edit
+              </button>
+
+              <button
+                type="button"
+                disabled={Boolean(aksiId)}
+                onClick={() => hapusPencapaian(item)}
+                style={{
+                  ...tombol,
+                  background: "#dc2626",
+                }}
+              >
+                Hapus
+              </button>
+            </div>
           </section>
         ))}
 
@@ -542,7 +676,7 @@ export default function DetailPeserta() {
             color: "#64748b",
           }}
         >
-          OJT MineTrack v2.0 — Mentor
+          OJT MineTrack v2.0 — Dashboard Mentor
         </footer>
       </div>
     </main>
