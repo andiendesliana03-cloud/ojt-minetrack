@@ -78,10 +78,10 @@ export default function LoginPage() {
           marginBottom: 24,
         }}>
           <h1 style={{ margin: 0, fontSize: 25 }}>
-            OJT MineTrack v2.0
+            Monitoring OJT - Emergency Response Group
           </h1>
           <p style={{ marginBottom: 0 }}>
-            Login Mentor & Peserta OJT
+            PT Berau Coal 2026
           </p>
         </header>
 
