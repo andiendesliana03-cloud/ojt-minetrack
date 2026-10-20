@@ -4,27 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Jangan aktifkan sebelum proses pendaftaran
-// dan keamanan database selesai diuji.
+// Tetap FALSE sampai pengujian selesai.
 const REGISTRATION_ENABLED = false;
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error(
-      "Konfigurasi Supabase server belum lengkap."
-    );
-  }
-
-  return createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-}
 
 function respond(data, status = 200) {
   return NextResponse.json(data, {
@@ -37,6 +18,16 @@ function respond(data, status = 200) {
 
 export async function POST(request) {
   try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey =
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!url || !anonKey) {
+      throw new Error(
+        "Konfigurasi Supabase belum lengkap."
+      );
+    }
+
     const authorization =
       request.headers.get("authorization") || "";
 
@@ -46,44 +37,75 @@ export async function POST(request) {
 
     if (!token) {
       return respond(
-        { error: "Silakan login terlebih dahulu." },
+        {
+          error: "Silakan login terlebih dahulu.",
+        },
         401
       );
     }
 
-    const admin = getAdminClient();
+    // Client menggunakan token peserta.
+    // auth.uid() pada SQL akan membaca user ini.
+    const supabase = createClient(url, anonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
 
-    // Verifikasi token langsung ke Supabase Auth.
     const {
       data: { user },
       error: authError,
-    } = await admin.auth.getUser(token);
+    } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
       return respond(
-        { error: "Sesi login tidak valid." },
+        {
+          error: "Sesi login tidak valid.",
+        },
         401
       );
     }
 
-    // Email wajib sudah diverifikasi.
     if (!user.email_confirmed_at) {
       return respond(
         {
           error:
-            "Silakan verifikasi email sebelum mengajukan pendaftaran.",
+            "Silakan verifikasi email terlebih dahulu.",
         },
         403
       );
     }
 
-    const body = await request.json();
+    let body;
+
+    try {
+      body = await request.json();
+    } catch {
+      return respond(
+        {
+          error: "Format permintaan tidak valid.",
+        },
+        400
+      );
+    }
+
     const fullName =
       typeof body?.full_name === "string"
-        ? body.full_name.trim().replace(/\s+/g, " ")
+        ? body.full_name
+            .trim()
+            .replace(/\s+/g, " ")
         : "";
 
-    if (fullName.length < 3 || fullName.length > 120) {
+    if (
+      fullName.length < 3 ||
+      fullName.length > 120
+    ) {
       return respond(
         {
           error:
@@ -93,113 +115,66 @@ export async function POST(request) {
       );
     }
 
-    const { data: existingProfile, error: profileError } =
-      await admin
-        .from("profiles")
-        .select("id,role,full_name")
-        .eq("id", user.id)
-        .maybeSingle();
-
-    if (profileError) {
-      throw profileError;
-    }
-
-    // Jangan mengubah akun mentor.
-    if (
-      existingProfile &&
-      existingProfile.role !== "participant" &&
-      existingProfile.role !== "peserta"
-    ) {
-      return respond(
-        {
-          error:
-            "Akun ini tidak dapat digunakan untuk pendaftaran peserta.",
-        },
-        403
-      );
-    }
-
-    const {
-      data: existingRegistration,
-      error: registrationError,
-    } = await admin
-      .from("participant_registrations")
-      .select("id,status,created_at")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (registrationError) {
-      throw registrationError;
-    }
-
-    if (existingRegistration) {
-      return respond(
-        {
-          success: true,
-          already_registered: true,
-          status: existingRegistration.status,
-          message:
-            "Akun ini sudah memiliki pengajuan pendaftaran.",
-        },
-        200
-      );
-    }
-
-    // Akun yang sudah memiliki program OJT
-    // tidak boleh membuat pengajuan baru.
-    const {
-      data: existingPrograms,
-      error: programError,
-    } = await admin
-      .from("ojt_programs")
-      .select("id")
-      .eq("participant_id", user.id)
-      .limit(1);
-
-    if (programError) {
-      throw programError;
-    }
-
-    if ((existingPrograms || []).length > 0) {
-      return respond(
-        {
-          error:
-            "Akun ini sudah memiliki program OJT. Hubungi mentor.",
-        },
-        409
-      );
-    }
-
-    // Mode simulasi:
-    // Tidak ada perubahan database.
+    // Mode pengujian: tidak menulis database.
     if (!REGISTRATION_ENABLED) {
       return respond({
         success: true,
         dry_run: true,
         message:
-          "Simulasi pengajuan berhasil. Profil dan pendaftaran belum disimpan.",
+          "Simulasi pendaftaran berhasil. Data belum disimpan.",
         preview: {
           user_id: user.id,
           full_name: fullName,
           email: user.email,
           department: "ER & SS",
           role: "participant",
-          registration_status: "pending",
+          status: "pending",
         },
       });
     }
 
-    // Pendaftaran asli sengaja belum diaktifkan.
-    // Penyimpanan profil dan pengajuan harus
-    // dilakukan secara atomik melalui transaksi
-    // database agar tidak terjadi data sebagian.
-    return respond(
+    // Fungsi SQL melakukan penyimpanan profil
+    // dan pengajuan dalam satu transaksi.
+    const { data, error } = await supabase.rpc(
+      "submit_ojt_registration",
       {
-        error:
-          "Pendaftaran asli belum diaktifkan. Gunakan mode simulasi.",
-      },
-      503
+        p_full_name: fullName,
+      }
     );
+
+    if (error) {
+      console.error(
+        "submit_ojt_registration:",
+        error
+      );
+
+      return respond(
+        {
+          error:
+            "Pendaftaran gagal diproses. Hubungi mentor jika masalah berlanjut.",
+        },
+        400
+      );
+    }
+
+    const registration = data?.[0];
+
+    if (!registration) {
+      throw new Error(
+        "Fungsi pendaftaran tidak mengembalikan hasil."
+      );
+    }
+
+    return respond({
+      success: true,
+      dry_run: false,
+      registration_id:
+        registration.registration_id,
+      status:
+        registration.registration_status,
+      message:
+        "Pengajuan pendaftaran berhasil diproses.",
+    });
   } catch (error) {
     console.error(
       "POST participant registration:",
