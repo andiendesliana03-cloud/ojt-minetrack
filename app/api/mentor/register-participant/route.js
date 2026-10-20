@@ -4,6 +4,18 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
+const ALLOWED_SITES = [
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
+];
+
 export async function POST(request) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -18,31 +30,30 @@ export async function POST(request) {
       );
     }
 
-    const authorization =
+    // Periksa token login.
+    const authHeader =
       request.headers.get("authorization") || "";
 
-    if (!authorization.startsWith("Bearer ")) {
+    if (!authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
         { error: "Silakan login terlebih dahulu." },
         { status: 401 }
       );
     }
 
-    const token = authorization.slice(7).trim();
+    const token = authHeader.slice(7).trim();
 
     const authClient = createClient(url, publicKey, {
       auth: {
-        autoRefreshToken: false,
         persistSession: false,
+        autoRefreshToken: false,
       },
     });
 
-    const {
-      data: { user },
-      error: authError,
-    } = await authClient.auth.getUser(token);
+    const { data: authData, error: authError } =
+      await authClient.auth.getUser(token);
 
-    if (authError || !user) {
+    if (authError || !authData?.user) {
       return NextResponse.json(
         { error: "Sesi login tidak valid." },
         { status: 401 }
@@ -51,59 +62,97 @@ export async function POST(request) {
 
     const admin = createClient(url, secretKey, {
       auth: {
-        autoRefreshToken: false,
         persistSession: false,
+        autoRefreshToken: false,
       },
     });
 
+    // Hanya mentor yang boleh mendaftarkan peserta.
     const { data: mentor, error: mentorError } =
       await admin
         .from("profiles")
         .select("id,role")
-        .eq("id", user.id)
+        .eq("id", authData.user.id)
         .single();
 
     if (mentorError || mentor?.role !== "mentor") {
       return NextResponse.json(
-        { error: "Hanya mentor yang dapat mendaftarkan peserta." },
+        { error: "Akses hanya untuk mentor." },
         { status: 403 }
       );
     }
 
+    // Data formulir pendaftaran.
     const body = await request.json();
 
-    const fullName = String(body.full_name || "").trim();
-    const email = String(body.email || "")
-      .trim()
-      .toLowerCase();
+    const fullName = String(
+      body.full_name || ""
+    ).trim();
+
+    const email = String(
+      body.email || ""
+    ).trim().toLowerCase();
+
     const department = String(
       body.department || "ER & SS"
     ).trim();
 
-    if (
-      fullName.length < 3 ||
-      fullName.length > 120 ||
-      email.length > 254 ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-      department.length < 2 ||
-      department.length > 100
-    ) {
+    const site = String(
+      body.site || ""
+    ).trim().toUpperCase();
+
+    if (!fullName || !email) {
       return NextResponse.json(
-        { error: "Nama, email, atau departemen tidak valid." },
+        {
+          error:
+            "Nama dan email peserta wajib diisi.",
+        },
         { status: 400 }
       );
     }
 
-    // Buat undangan melalui Supabase Auth.
-    // Password tidak dikirim atau disimpan oleh mentor.
-    const { data: invited, error: inviteError } =
-      await admin.auth.admin.inviteUserByEmail(email, {
-        data: { full_name: fullName },
-      });
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Format email peserta tidak valid.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!ALLOWED_SITES.includes(site)) {
+      return NextResponse.json(
+        {
+          error:
+            "Silakan pilih site penempatan yang valid.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Kirim undangan aktivasi akun.
+    const {
+      data: invited,
+      error: inviteError,
+    } = await admin.auth.admin.inviteUserByEmail(
+      email,
+      {
+        data: {
+          full_name: fullName,
+        },
+      }
+    );
 
     if (inviteError) {
       return NextResponse.json(
-        { error: inviteError.message },
+        {
+          error:
+            inviteError.message ||
+            "Gagal mengirim undangan peserta.",
+        },
         { status: 400 }
       );
     }
@@ -112,12 +161,18 @@ export async function POST(request) {
 
     if (!participantId) {
       return NextResponse.json(
-        { error: "Undangan tidak menghasilkan ID peserta." },
+        {
+          error:
+            "Akun peserta tidak berhasil dibuat.",
+        },
         { status: 500 }
       );
     }
 
-    const { error: profileError } = await admin
+    // Simpan profil dan site peserta.
+    const {
+      error: profileError,
+    } = await admin
       .from("profiles")
       .upsert(
         {
@@ -125,16 +180,23 @@ export async function POST(request) {
           full_name: fullName,
           department,
           role: "participant",
+          site,
         },
-        { onConflict: "id" }
+        {
+          onConflict: "id",
+        }
       );
 
     if (profileError) {
+      console.error(
+        "Gagal menyimpan profil peserta:",
+        profileError
+      );
+
       return NextResponse.json(
         {
           error:
-            "Undangan dibuat, tetapi profil gagal disimpan: " +
-            profileError.message,
+            "Undangan akun berhasil dibuat, tetapi profil atau site gagal disimpan. Periksa data sebelum mencoba lagi.",
         },
         { status: 500 }
       );
@@ -143,12 +205,21 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       message:
-        "Undangan peserta berhasil dibuat. Peserta perlu membuka email undangan.",
+        "Undangan peserta berhasil dibuat dan site penempatan tersimpan. Peserta perlu membuka email undangan.",
       participant_id: participantId,
+      site,
     });
-  } catch {
+  } catch (error) {
+    console.error(
+      "Register participant:",
+      error
+    );
+
     return NextResponse.json(
-      { error: "Terjadi kesalahan pada server." },
+      {
+        error:
+          "Terjadi kesalahan pada server.",
+      },
       { status: 500 }
     );
   }
