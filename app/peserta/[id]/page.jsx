@@ -145,7 +145,7 @@ export default function DetailPeserta() {
         if (profilError) throw profilError;
 
         if (profil?.role === "participant") {
-          router.replace("/peserta");
+          router.replace("/dashboard-peserta");
           return;
         }
 
@@ -987,6 +987,60 @@ export default function DetailPeserta() {
           >
             🚗 Buka Monitoring SIMPER →
           </button>
+        </section>
+
+        {/* FITUR BARU: ANALISIS DAN LAPORAN OJT */}
+        <section style={card}>
+          <h2>Analisis dan Laporan OJT</h2>
+
+          <p style={{ color: "#64748b" }}>
+            Lihat grafik perkembangan peserta,
+            evaluasi kesiapan kelulusan, dan
+            laporan monitoring OJT.
+          </p>
+
+          <div style={{ display: "grid", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() =>
+                router.push(`/analisis/${programId}`)
+              }
+              style={{
+                ...tombol,
+                width: "100%",
+              }}
+            >
+              📊 Grafik Perkembangan OJT →
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(`/evaluasi/${programId}`)
+              }
+              style={{
+                ...tombol,
+                background: "#16a34a",
+                width: "100%",
+              }}
+            >
+              ✓ Evaluasi Kesiapan Kelulusan →
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(`/laporan/${programId}`)
+              }
+              style={{
+                ...tombol,
+                background: "#7c3aed",
+                width: "100%",
+              }}
+            >
+              📄 Laporan OJT / PDF →
+            </button>
+          </div>
         </section>
 
         <h2>Enam Pencapaian OJT</h2>
