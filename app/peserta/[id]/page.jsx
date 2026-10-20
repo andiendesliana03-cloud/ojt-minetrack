@@ -15,7 +15,7 @@ const card = {
 
 const tombol = {
   background: "#2563eb",
-  color: "white",
+  color: "#ffffff",
   border: "none",
   borderRadius: 10,
   padding: "12px 16px",
@@ -915,6 +915,30 @@ export default function DetailPeserta() {
               </div>
             </div>
           ))}
+        </section>
+
+        {/* HALAMAN PRAKTIK MINGGUAN */}
+        <section style={card}>
+          <h2>Penilaian Praktik Mingguan</h2>
+
+          <p style={{ color: "#64748b" }}>
+            Input nilai praktik, tanggal pelaksanaan,
+            jenis praktik, dan evaluasi Mentor.
+          </p>
+
+          <button
+            type="button"
+            onClick={() =>
+              router.push(`/praktik/${programId}`)
+            }
+            style={{
+              ...tombol,
+              background: "#0f766e",
+              width: "100%",
+            }}
+          >
+            Buka Penilaian Praktik Mingguan →
+          </button>
         </section>
 
         <h2>Enam Pencapaian OJT</h2>
