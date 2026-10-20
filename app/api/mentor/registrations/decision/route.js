@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Tetap FALSE selama tahap pengujian.
+// WAJIB tetap false selama pengujian.
 const APPROVAL_ENABLED = false;
 
 const VALID_SITES = [
@@ -18,6 +18,15 @@ const VALID_SITES = [
   "SRN",
   "HO",
 ];
+
+function respond(data, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  });
+}
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -37,7 +46,7 @@ function getAdminClient() {
   });
 }
 
-function isValidDate(value) {
+function validDate(value) {
   if (
     typeof value !== "string" ||
     !/^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -45,30 +54,30 @@ function isValidDate(value) {
     return false;
   }
 
-  const parsed = new Date(`${value}T00:00:00Z`);
+  const date = new Date(`${value}T00:00:00Z`);
 
   return (
-    !Number.isNaN(parsed.getTime()) &&
-    parsed.toISOString().slice(0, 10) === value
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
   );
 }
 
-function respond(data, status = 200) {
-  return NextResponse.json(data, {
-    status,
-    headers: {
-      "Cache-Control": "no-store",
-    },
-  });
+function validUUID(value) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value
+    )
+  );
 }
 
 export async function POST(request) {
   try {
-    const authHeader =
+    const authorization =
       request.headers.get("authorization") || "";
 
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.slice(7).trim()
+    const token = authorization.startsWith("Bearer ")
+      ? authorization.slice(7).trim()
       : "";
 
     if (!token) {
@@ -80,7 +89,7 @@ export async function POST(request) {
 
     const admin = getAdminClient();
 
-    // Verifikasi identitas pengguna.
+    // Verifikasi token login.
     const {
       data: { user },
       error: authError,
@@ -112,7 +121,16 @@ export async function POST(request) {
       );
     }
 
-    const body = await request.json();
+    let body;
+
+    try {
+      body = await request.json();
+    } catch {
+      return respond(
+        { error: "Format permintaan tidak valid." },
+        400
+      );
+    }
 
     const {
       registration_id,
@@ -123,12 +141,7 @@ export async function POST(request) {
       rejection_reason,
     } = body || {};
 
-    if (
-      typeof registration_id !== "string" ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        registration_id
-      )
-    ) {
+    if (!validUUID(registration_id)) {
       return respond(
         { error: "ID pendaftaran tidak valid." },
         400
@@ -137,25 +150,30 @@ export async function POST(request) {
 
     if (!["approve", "reject"].includes(action)) {
       return respond(
-        { error: "Tindakan tidak dikenal." },
+        { error: "Tindakan tidak valid." },
         400
       );
     }
 
+    // Pastikan pengajuan masih pending.
     const {
       data: registration,
       error: registrationError,
     } = await admin
       .from("participant_registrations")
       .select(
-        "id,user_id,full_name,email,department,status"
+        "id,user_id,full_name,status"
       )
       .eq("id", registration_id)
-      .single();
+      .maybeSingle();
 
-    if (registrationError || !registration) {
+    if (registrationError) {
+      throw registrationError;
+    }
+
+    if (!registration) {
       return respond(
-        { error: "Pengajuan tidak ditemukan." },
+        { error: "Pendaftaran tidak ditemukan." },
         404
       );
     }
@@ -164,11 +182,13 @@ export async function POST(request) {
       return respond(
         {
           error:
-            "Pengajuan ini sudah diproses mentor.",
+            "Pendaftaran sudah diproses sebelumnya.",
         },
         409
       );
     }
+
+    let reason = null;
 
     if (action === "approve") {
       if (!VALID_SITES.includes(site)) {
@@ -179,25 +199,25 @@ export async function POST(request) {
       }
 
       if (
-        !isValidDate(start_date) ||
-        !isValidDate(end_date) ||
+        !validDate(start_date) ||
+        !validDate(end_date) ||
         end_date < start_date
       ) {
         return respond(
           {
             error:
-              "Periode OJT tidak valid. Tanggal selesai harus sama atau setelah tanggal mulai.",
+              "Tanggal mulai atau selesai OJT tidak valid.",
           },
           400
         );
       }
-    }
+    } else {
+      reason =
+        typeof rejection_reason === "string"
+          ? rejection_reason.trim()
+          : "";
 
-    if (action === "reject") {
-      if (
-        typeof rejection_reason !== "string" ||
-        rejection_reason.trim().length < 5
-      ) {
+      if (reason.length < 5) {
         return respond(
           {
             error:
@@ -208,58 +228,103 @@ export async function POST(request) {
       }
     }
 
-    // MODE PENGUJIAN:
-    // Tidak ada INSERT atau UPDATE database.
+    // MODE SIMULASI.
+    // Tidak memanggil transaksi database.
     if (!APPROVAL_ENABLED) {
       return respond({
         success: true,
         dry_run: true,
         message:
           action === "approve"
-            ? "Simulasi persetujuan berhasil. Belum ada perubahan database."
-            : "Simulasi penolakan berhasil. Belum ada perubahan database.",
+            ? "Simulasi persetujuan berhasil. Database belum berubah."
+            : "Simulasi penolakan berhasil. Database belum berubah.",
         preview: {
           registration_id,
           participant_id: registration.user_id,
           full_name: registration.full_name,
-          action,
           mentor_id: mentor.id,
+          action,
           ...(action === "approve"
             ? {
                 site,
                 start_date,
                 end_date,
+                status: "approved",
                 program_status: "active",
               }
             : {
-                rejection_reason:
-                  rejection_reason.trim(),
+                rejection_reason: reason,
+                status: "rejected",
               }),
         },
       });
     }
 
-    // Belum diimplementasikan:
-    // Proses persetujuan asli harus memakai transaksi
-    // database agar pembuatan program dan perubahan
-    // status pendaftaran berlangsung secara atomik.
-    return respond(
+    // MODE ASLI:
+    // Seluruh perubahan dilakukan dalam satu
+    // transaksi melalui fungsi Supabase.
+    const { data, error } = await admin.rpc(
+      "review_ojt_registration",
       {
-        error:
-          "Proses persetujuan asli belum diaktifkan. Gunakan mode simulasi.",
-      },
-      503
+        p_registration_id: registration_id,
+        p_mentor_id: mentor.id,
+        p_action: action,
+        p_site:
+          action === "approve" ? site : null,
+        p_start_date:
+          action === "approve" ? start_date : null,
+        p_end_date:
+          action === "approve" ? end_date : null,
+        p_rejection_reason:
+          action === "reject" ? reason : null,
+      }
     );
+
+    if (error) {
+      console.error(
+        "review_ojt_registration:",
+        error
+      );
+
+      return respond(
+        {
+          error:
+            "Keputusan gagal diproses. Periksa status pendaftaran atau hubungi administrator.",
+        },
+        409
+      );
+    }
+
+    const result = data?.[0];
+
+    if (!result) {
+      throw new Error(
+        "Transaksi tidak mengembalikan hasil."
+      );
+    }
+
+    return respond({
+      success: true,
+      dry_run: false,
+      registration_id:
+        result.result_registration_id,
+      status: result.result_status,
+      program_id: result.result_program_id,
+      message:
+        result.result_status === "approved"
+          ? "Pendaftaran berhasil disetujui."
+          : "Pendaftaran berhasil ditolak.",
+    });
   } catch (error) {
     console.error(
-      "Mentor registration decision:",
+      "POST mentor registration decision:",
       error
     );
 
     return respond(
       {
         error:
-          "Gagal memproses keputusan mentor.",
+          "Terjadi kesalahan saat memproses keputusan mentor.",
       },
       500
     );
