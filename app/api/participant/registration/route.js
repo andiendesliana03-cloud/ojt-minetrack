@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Tetap FALSE sampai pengujian selesai.
+// Jangan aktifkan sebelum seluruh alur diuji.
 const REGISTRATION_ENABLED = false;
 
 function respond(data, status = 200) {
@@ -16,18 +16,27 @@ function respond(data, status = 200) {
   });
 }
 
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceKey) {
+    throw new Error(
+      "Konfigurasi Supabase server belum lengkap."
+    );
+  }
+
+  return createClient(url, serviceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
 export async function POST(request) {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey =
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!url || !anonKey) {
-      throw new Error(
-        "Konfigurasi Supabase belum lengkap."
-      );
-    }
-
     const authorization =
       request.headers.get("authorization") || "";
 
@@ -37,37 +46,23 @@ export async function POST(request) {
 
     if (!token) {
       return respond(
-        {
-          error: "Silakan login terlebih dahulu.",
-        },
+        { error: "Silakan login terlebih dahulu." },
         401
       );
     }
 
-    // Client menggunakan token peserta.
-    // auth.uid() pada SQL akan membaca user ini.
-    const supabase = createClient(url, anonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
+    const admin = getAdminClient();
 
+    // Identitas peserta berasal dari token login,
+    // bukan dari ID yang dikirim formulir.
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser(token);
+    } = await admin.auth.getUser(token);
 
     if (authError || !user) {
       return respond(
-        {
-          error: "Sesi login tidak valid.",
-        },
+        { error: "Sesi login tidak valid." },
         401
       );
     }
@@ -88,18 +83,14 @@ export async function POST(request) {
       body = await request.json();
     } catch {
       return respond(
-        {
-          error: "Format permintaan tidak valid.",
-        },
+        { error: "Format permintaan tidak valid." },
         400
       );
     }
 
     const fullName =
       typeof body?.full_name === "string"
-        ? body.full_name
-            .trim()
-            .replace(/\s+/g, " ")
+        ? body.full_name.trim().replace(/\s+/g, " ")
         : "";
 
     if (
@@ -115,13 +106,13 @@ export async function POST(request) {
       );
     }
 
-    // Mode pengujian: tidak menulis database.
+    // Mode simulasi: belum menyimpan database.
     if (!REGISTRATION_ENABLED) {
       return respond({
         success: true,
         dry_run: true,
         message:
-          "Simulasi pendaftaran berhasil. Data belum disimpan.",
+          "Simulasi pendaftaran berhasil. Profil dan pengajuan belum disimpan.",
         preview: {
           user_id: user.id,
           full_name: fullName,
@@ -133,12 +124,13 @@ export async function POST(request) {
       });
     }
 
-    // Fungsi SQL melakukan penyimpanan profil
-    // dan pengajuan dalam satu transaksi.
-    const { data, error } = await supabase.rpc(
+    // Service role hanya dipakai di server.
+    // ID peserta sudah diverifikasi melalui token.
+    const { data, error } = await admin.rpc(
       "submit_ojt_registration",
       {
         p_full_name: fullName,
+        p_user_id: user.id,
       }
     );
 
@@ -151,7 +143,7 @@ export async function POST(request) {
       return respond(
         {
           error:
-            "Pendaftaran gagal diproses. Hubungi mentor jika masalah berlanjut.",
+            "Pengajuan gagal diproses. Hubungi mentor jika masalah berlanjut.",
         },
         400
       );
