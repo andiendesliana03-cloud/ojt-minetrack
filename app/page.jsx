@@ -35,6 +35,12 @@ const ACHIEVEMENTS = [
 
 function average(rows) {
   const scores = rows
+    .filter(
+      (r) =>
+        r.score !== null &&
+        r.score !== undefined &&
+        r.score !== ""
+    )
     .map((r) => Number(r.score))
     .filter((n) => Number.isFinite(n));
 
@@ -47,6 +53,7 @@ function average(rows) {
 
 function formatDate(value) {
   if (!value) return "-";
+
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
 }
@@ -157,10 +164,7 @@ export default function MentorDashboard() {
   const [error, setError] = useState("");
 
   async function fetchDashboard() {
-    const [
-      programRes,
-      typeRes,
-    ] = await Promise.all([
+    const [programRes, typeRes] = await Promise.all([
       supabase
         .from("ojt_programs")
         .select(`
@@ -208,9 +212,7 @@ export default function MentorDashboard() {
     ] = await Promise.all([
       supabase
         .from("achievement_records")
-        .select(
-          "id,program_id,type_code,status"
-        )
+        .select("id,program_id,type_code,status")
         .in("program_id", ids),
 
       supabase
@@ -296,7 +298,7 @@ export default function MentorDashboard() {
         if (profileError) throw profileError;
 
         if (profile?.role !== "mentor") {
-          router.replace("/peserta");
+          router.replace("/dashboard-peserta");
           return;
         }
 
@@ -442,6 +444,7 @@ export default function MentorDashboard() {
           <h1 style={{ marginTop: 0 }}>
             Monitoring OJT
           </h1>
+
           <h3>Emergency Response Group</h3>
           <p>PT Berau Coal 2026</p>
 
@@ -477,6 +480,38 @@ export default function MentorDashboard() {
               {refreshing
                 ? "Memperbarui..."
                 : "↻ Refresh Data"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/mentor/monitoring-peserta"
+                )
+              }
+              style={{
+                ...BUTTON,
+                width: "auto",
+                background: "#2563eb",
+              }}
+            >
+              👥 Monitoring Peserta
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push(
+                  "/mentor/daftar-peserta"
+                )
+              }
+              style={{
+                ...BUTTON,
+                width: "auto",
+                background: "#7c3aed",
+              }}
+            >
+              ➕ Daftarkan Peserta
             </button>
 
             <button
@@ -648,9 +683,7 @@ export default function MentorDashboard() {
                       marginBottom: 12,
                     }}
                   >
-                    <h3>
-                      Enam Pencapaian OJT
-                    </h3>
+                    <h3>Enam Pencapaian OJT</h3>
 
                     <p>
                       {d.verifiedCategories.size} dari
