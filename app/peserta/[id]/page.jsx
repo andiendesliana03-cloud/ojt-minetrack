@@ -916,15 +916,12 @@ export default function DetailPeserta() {
           ))}
         </section>
 
-        {/* PENILAIAN PRAKTIK MINGGUAN */}
         <section style={card}>
           <h2>Penilaian Praktik Mingguan</h2>
-
           <p style={{ color: "#64748b" }}>
             Input nilai praktik, tanggal pelaksanaan,
             jenis praktik, dan evaluasi Mentor.
           </p>
-
           <button
             type="button"
             onClick={() =>
@@ -940,15 +937,12 @@ export default function DetailPeserta() {
           </button>
         </section>
 
-        {/* MONITORING SAMAPTA */}
         <section style={card}>
           <h2>Monitoring Samapta</h2>
-
           <p style={{ color: "#64748b" }}>
-            Input hasil tes fisik, nilai evaluasi,
+            Input hasil tes fisik, skor otomatis,
             tanggal pelaksanaan, dan status kelulusan.
           </p>
-
           <button
             type="button"
             onClick={() =>
@@ -964,16 +958,13 @@ export default function DetailPeserta() {
           </button>
         </section>
 
-        {/* MONITORING SIMPER */}
         <section style={card}>
           <h2>Monitoring SIMPER</h2>
-
           <p style={{ color: "#64748b" }}>
             Pantau administrasi, training, ujian teori,
             ujian praktik, pengajuan, dan status
             kelulusan SIMPER peserta OJT.
           </p>
-
           <button
             type="button"
             onClick={() =>
@@ -989,7 +980,65 @@ export default function DetailPeserta() {
           </button>
         </section>
 
-        {/* FITUR BARU: ANALISIS DAN LAPORAN OJT */}
+        {/* FITUR BARU: EVALUASI MINGGUAN PER PESERTA */}
+        <section style={card}>
+          <h2>📅 Evaluasi Mingguan OJT</h2>
+
+          <p style={{ color: "#64748b" }}>
+            Monitoring perkembangan dan pencapaian
+            individu peserta OJT dari Minggu 1,
+            Minggu 2, Minggu 3, dan seterusnya.
+          </p>
+
+          <div
+            style={{
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 16,
+            }}
+          >
+            <p style={{ marginTop: 0 }}>
+              <strong>
+                {program.peserta?.full_name || "Peserta OJT"}
+              </strong>
+            </p>
+
+            <p>
+              Departemen:{" "}
+              {program.peserta?.department || "-"}
+            </p>
+
+            <p style={{ marginBottom: 0 }}>
+              Periode OJT:{" "}
+              {formatTanggal(program.start_date)}
+              {" – "}
+              {formatTanggal(program.end_date)}
+            </p>
+          </div>
+
+          <p style={{ fontSize: 13, color: "#64748b" }}>
+            Evaluasi mingguan akan menampilkan enam
+            pencapaian OJT, nilai teori, nilai praktik,
+            Samapta, dan perkembangan SIMPER.
+          </p>
+
+          <button
+            type="button"
+            onClick={() =>
+              router.push(`/mingguan/${programId}`)
+            }
+            style={{
+              ...tombol,
+              background: "#0891b2",
+              width: "100%",
+            }}
+          >
+            📊 Buka Evaluasi Mingguan OJT →
+          </button>
+        </section>
+
         <section style={card}>
           <h2>Analisis dan Laporan OJT</h2>
 
