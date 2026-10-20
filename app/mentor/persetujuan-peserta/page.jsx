@@ -1,9 +1,21 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+
+const SITES = [
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
+];
 
 const card = {
   background: "#ffffff",
@@ -21,6 +33,18 @@ const button = {
   padding: "12px 16px",
   fontWeight: 700,
   cursor: "pointer",
+};
+
+const field = {
+  width: "100%",
+  padding: 12,
+  borderRadius: 9,
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#0f172a",
+  boxSizing: "border-box",
+  marginTop: 6,
+  marginBottom: 12,
 };
 
 function formatDate(value) {
@@ -83,16 +107,23 @@ export default function PersetujuanPesertaPage() {
   const [registrations, setRegistrations] =
     useState([]);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [preview, setPreview] = useState(null);
 
-  const [error, setError] =
+  const [filter, setFilter] = useState("pending");
+  const [selected, setSelected] = useState(null);
+  const [action, setAction] = useState("approve");
+
+  const [site, setSite] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [rejectionReason, setRejectionReason] =
     useState("");
 
-  const [filter, setFilter] =
-    useState("pending");
-
-  async function loadRegistrations() {
+  const loadRegistrations = useCallback(async () => {
     setLoading(true);
     setError("");
 
@@ -128,22 +159,107 @@ export default function PersetujuanPesertaPage() {
         );
       }
 
-      setRegistrations(
-        result.registrations || []
-      );
+      setRegistrations(result.registrations || []);
     } catch (err) {
       setError(
-        err.message ||
-          "Terjadi kesalahan."
+        err.message || "Terjadi kesalahan."
       );
     } finally {
       setLoading(false);
     }
-  }
+  }, [router]);
 
   useEffect(() => {
     loadRegistrations();
-  }, []);
+  }, [loadRegistrations]);
+
+  function openDecision(item, nextAction) {
+    setSelected(item);
+    setAction(nextAction);
+    setSite("");
+    setStartDate("");
+    setEndDate("");
+    setRejectionReason("");
+    setMessage("");
+    setPreview(null);
+    setError("");
+  }
+
+  async function submitDecision(event) {
+    event.preventDefault();
+
+    if (!selected || processing) return;
+
+    setProcessing(true);
+    setError("");
+    setMessage("");
+    setPreview(null);
+
+    try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        router.replace("/login");
+        return;
+      }
+
+      const payload = {
+        registration_id: selected.id,
+        action,
+        ...(action === "approve"
+          ? {
+              site,
+              start_date: startDate,
+              end_date: endDate,
+            }
+          : {
+              rejection_reason: rejectionReason,
+            }),
+      };
+
+      const response = await fetch(
+        "/api/mentor/registrations/decision",
+        {
+          method: "POST",
+          headers: {
+            Authorization:
+              `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ||
+            "Gagal memproses keputusan."
+        );
+      }
+
+      setMessage(
+        result.message || "Simulasi berhasil."
+      );
+
+      setPreview(result.preview || null);
+
+      // Refresh daftar, tetapi status tidak berubah
+      // karena API masih dalam mode simulasi.
+      await loadRegistrations();
+    } catch (err) {
+      setError(
+        err.message ||
+          "Gagal menjalankan simulasi."
+      );
+    } finally {
+      setProcessing(false);
+    }
+  }
 
   const filtered = registrations.filter(
     (item) =>
@@ -183,6 +299,22 @@ export default function PersetujuanPesertaPage() {
           <h3>Emergency Response Group</h3>
           <p>PT Berau Coal 2026</p>
         </header>
+
+        <section
+          style={{
+            ...card,
+            background: "#fffbeb",
+            borderColor: "#fcd34d",
+          }}
+        >
+          <strong>MODE PENGUJIAN AKTIF</strong>
+          <p>
+            Persetujuan dan penolakan hanya
+            disimulasikan. Tidak ada data
+            pendaftaran atau program OJT
+            yang diubah.
+          </p>
+        </section>
 
         <section style={card}>
           <h2>Ringkasan Pendaftaran</h2>
@@ -260,9 +392,8 @@ export default function PersetujuanPesertaPage() {
             ].map(([value, label]) => (
               <button
                 key={value}
-                onClick={() =>
-                  setFilter(value)
-                }
+                type="button"
+                onClick={() => setFilter(value)}
                 style={{
                   ...button,
                   background:
@@ -282,6 +413,7 @@ export default function PersetujuanPesertaPage() {
           </div>
 
           <button
+            type="button"
             style={{
               ...button,
               background: "#475569",
@@ -295,19 +427,17 @@ export default function PersetujuanPesertaPage() {
               : "↻ Perbarui Data"}
           </button>
 
-          {error && (
-            <p style={{ color: "#dc2626" }}>
-              {error}
-            </p>
+          {loading && (
+            <p>Memuat daftar pendaftaran...</p>
           )}
 
-          {loading ? (
-            <p>Memuat daftar pendaftaran...</p>
-          ) : filtered.length === 0 ? (
+          {!loading && filtered.length === 0 && (
             <p>
               Belum ada pengajuan pada kategori ini.
             </p>
-          ) : (
+          )}
+
+          {!loading &&
             filtered.map((item) => (
               <div
                 key={item.id}
@@ -324,9 +454,7 @@ export default function PersetujuanPesertaPage() {
                   {item.full_name}
                 </h3>
 
-                <p>
-                  Email: {item.email}
-                </p>
+                <p>Email: {item.email}</p>
 
                 <p>
                   Departemen:{" "}
@@ -335,9 +463,7 @@ export default function PersetujuanPesertaPage() {
 
                 <p>
                   Tanggal daftar:{" "}
-                  {formatDate(
-                    item.created_at
-                  )}
+                  {formatDate(item.created_at)}
                 </p>
 
                 <Status value={item.status} />
@@ -351,24 +477,216 @@ export default function PersetujuanPesertaPage() {
                   )}
 
                 {item.status === "pending" && (
-                  <p
+                  <div
                     style={{
-                      fontSize: 13,
-                      color: "#64748b",
-                      marginTop: 12,
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      marginTop: 14,
                     }}
                   >
-                    Tombol persetujuan akan
-                    diaktifkan setelah API
-                    keputusan mentor selesai.
-                  </p>
+                    <button
+                      type="button"
+                      style={{
+                        ...button,
+                        background: "#16a34a",
+                      }}
+                      onClick={() =>
+                        openDecision(item, "approve")
+                      }
+                    >
+                      ✓ Setujui
+                    </button>
+
+                    <button
+                      type="button"
+                      style={{
+                        ...button,
+                        background: "#dc2626",
+                      }}
+                      onClick={() =>
+                        openDecision(item, "reject")
+                      }
+                    >
+                      ✕ Tolak
+                    </button>
+                  </div>
                 )}
               </div>
-            ))
-          )}
+            ))}
         </section>
 
+        {selected && (
+          <section style={card}>
+            <h2>
+              {action === "approve"
+                ? "Simulasi Persetujuan"
+                : "Simulasi Penolakan"}
+            </h2>
+
+            <p>
+              Peserta:{" "}
+              <strong>{selected.full_name}</strong>
+            </p>
+
+            <form onSubmit={submitDecision}>
+              {action === "approve" ? (
+                <>
+                  <label>
+                    Site OJT
+                    <select
+                      style={field}
+                      value={site}
+                      onChange={(e) =>
+                        setSite(e.target.value)
+                      }
+                      required
+                    >
+                      <option value="">
+                        Pilih Site
+                      </option>
+
+                      {SITES.map((value) => (
+                        <option
+                          key={value}
+                          value={value}
+                        >
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    Tanggal Mulai
+                    <input
+                      type="date"
+                      style={field}
+                      value={startDate}
+                      onChange={(e) =>
+                        setStartDate(e.target.value)
+                      }
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    Tanggal Selesai
+                    <input
+                      type="date"
+                      style={field}
+                      value={endDate}
+                      min={startDate || undefined}
+                      onChange={(e) =>
+                        setEndDate(e.target.value)
+                      }
+                      required
+                    />
+                  </label>
+                </>
+              ) : (
+                <label>
+                  Alasan Penolakan
+                  <textarea
+                    style={field}
+                    rows={4}
+                    value={rejectionReason}
+                    onChange={(e) =>
+                      setRejectionReason(
+                        e.target.value
+                      )
+                    }
+                    minLength={5}
+                    required
+                    placeholder="Tuliskan alasan penolakan..."
+                  />
+                </label>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="submit"
+                  style={{
+                    ...button,
+                    background:
+                      action === "approve"
+                        ? "#16a34a"
+                        : "#dc2626",
+                  }}
+                  disabled={processing}
+                >
+                  {processing
+                    ? "Memproses..."
+                    : "Jalankan Simulasi"}
+                </button>
+
+                <button
+                  type="button"
+                  style={{
+                    ...button,
+                    background: "#64748b",
+                  }}
+                  onClick={() => {
+                    setSelected(null);
+                    setMessage("");
+                    setPreview(null);
+                  }}
+                  disabled={processing}
+                >
+                  Batal
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
+        {message && (
+          <section
+            style={{
+              ...card,
+              background: "#f0fdf4",
+              borderColor: "#86efac",
+            }}
+          >
+            <h3>Hasil Simulasi</h3>
+            <p>{message}</p>
+
+            {preview && (
+              <pre
+                style={{
+                  overflowX: "auto",
+                  background: "#f8fafc",
+                  padding: 12,
+                  borderRadius: 9,
+                  fontSize: 12,
+                }}
+              >
+                {JSON.stringify(
+                  preview,
+                  null,
+                  2
+                )}
+              </pre>
+            )}
+          </section>
+        )}
+
+        {error && (
+          <section style={card}>
+            <p style={{ color: "#dc2626" }}>
+              {error}
+            </p>
+          </section>
+        )}
+
         <button
+          type="button"
           style={{
             ...button,
             background: "#475569",
