@@ -59,9 +59,7 @@ export default function LoginPage() {
       ) {
         tujuan = "/dashboard-peserta";
       } else {
-        throw new Error(
-          "Role akun tidak dikenali."
-        );
+        throw new Error("Role akun tidak dikenali.");
       }
 
       router.replace(tujuan);
@@ -74,6 +72,10 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleDaftarPeserta() {
+    router.push("/mentor/daftar-peserta");
   }
 
   const halaman = {
@@ -145,6 +147,7 @@ export default function LoginPage() {
             "0 16px 50px rgba(0,0,0,0.28)",
           border:
             "1px solid rgba(255,255,255,0.75)",
+          boxSizing: "border-box",
         }}
       >
         {/* Header */}
@@ -322,6 +325,55 @@ export default function LoginPage() {
               : "Masuk"}
           </button>
         </form>
+
+        {/* Tombol pendaftaran peserta */}
+        <div
+          style={{
+            marginTop: 22,
+            textAlign: "center",
+          }}
+        >
+          <p
+            style={{
+              fontSize: 14,
+              color: "#475569",
+              marginBottom: 12,
+            }}
+          >
+            Ingin mendaftarkan peserta OJT?
+          </p>
+
+          <button
+            type="button"
+            onClick={handleDaftarPeserta}
+            style={{
+              width: "100%",
+              padding: "15px 18px",
+              border: "2px solid #2563eb",
+              borderRadius: 11,
+              backgroundColor: "#eff6ff",
+              color: "#1d4ed8",
+              fontSize: 16,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Daftar Peserta OJT
+          </button>
+
+          <p
+            style={{
+              fontSize: 12,
+              color: "#64748b",
+              marginTop: 12,
+              lineHeight: 1.6,
+            }}
+          >
+            Khusus mentor yang memiliki akun.
+            Silakan login sebagai mentor untuk
+            melakukan pendaftaran peserta baru.
+          </p>
+        </div>
 
         <footer
           style={{
