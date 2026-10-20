@@ -84,7 +84,11 @@ export async function GET(request) {
     if (ids.length === 0) {
       return NextResponse.json(
         { participants: [] },
-        { headers: { "Cache-Control": "no-store" } }
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
       );
     }
 
@@ -112,10 +116,13 @@ export async function GET(request) {
       authUsers.map((u) => [u.id, u])
     );
 
+    // Mengambil program OJT sekaligus site penempatan.
     const { data: programs, error: programsError } =
       await admin
         .from("ojt_programs")
-        .select("id,participant_id,status")
+        .select(
+          "id,participant_id,status,site,start_date,end_date"
+        )
         .in("participant_id", ids);
 
     if (programsError) throw programsError;
@@ -144,18 +151,22 @@ export async function GET(request) {
           .from("achievement_records")
           .select("program_id,type_code,status")
           .in("program_id", programIds),
+
         admin
           .from("post_test_scores")
           .select("program_id,score")
           .in("program_id", programIds),
+
         admin
           .from("weekly_practice_scores")
           .select("program_id,score")
           .in("program_id", programIds),
+
         admin
           .from("samapta_records")
           .select("program_id,score,outcome")
           .in("program_id", programIds),
+
         admin
           .from("simper_records")
           .select("program_id,status")
@@ -163,7 +174,9 @@ export async function GET(request) {
       ]);
 
       for (const result of results) {
-        if (result.error) throw result.error;
+        if (result.error) {
+          throw result.error;
+        }
       }
 
       [
@@ -172,15 +185,25 @@ export async function GET(request) {
         practice,
         samapta,
         simper,
-      ] = results.map((result) => result.data || []);
+      ] = results.map(
+        (result) => result.data || []
+      );
     }
 
     const presenceMap = new Map(
-      (presence || []).map((p) => [p.user_id, p])
+      (presence || []).map(
+        (p) => [p.user_id, p]
+      )
     );
 
     const average = (records) => {
       const values = records
+        .filter(
+          (r) =>
+            r.score !== null &&
+            r.score !== undefined &&
+            r.score !== ""
+        )
         .map((r) => Number(r.score))
         .filter(Number.isFinite);
 
@@ -194,86 +217,135 @@ export async function GET(request) {
 
     const now = Date.now();
 
-    const output = participants.map((participant) => {
-      const account = authMap.get(participant.id);
-      const lastSeen =
-        presenceMap.get(participant.id)?.last_seen_at ||
-        null;
-
-      // Online berarti ada aktivitas dalam 2 menit.
-      const online =
-        lastSeen &&
-        now - new Date(lastSeen).getTime() < 120000;
-
-      const participantPrograms = (programs || [])
-        .filter(
-          (p) => p.participant_id === participant.id
+    const output = participants.map(
+      (participant) => {
+        const account = authMap.get(
+          participant.id
         );
 
-      const activeProgram =
-        participantPrograms.find(
-          (p) => p.status === "active"
-        ) || participantPrograms[0];
+        const lastSeen =
+          presenceMap.get(participant.id)
+            ?.last_seen_at || null;
 
-      const programId = activeProgram?.id;
+        // Online jika ada aktivitas 2 menit terakhir.
+        const online =
+          lastSeen &&
+          now -
+            new Date(lastSeen).getTime() <
+            120000;
 
-      const verifiedTypes = new Set(
-        achievements
+        const participantPrograms = (
+          programs || []
+        )
           .filter(
-            (a) =>
-              a.program_id === programId &&
-              a.status === "verified"
+            (p) =>
+              p.participant_id ===
+              participant.id
           )
-          .map((a) => a.type_code)
-      );
+          .sort((a, b) =>
+            String(b.start_date || "").localeCompare(
+              String(a.start_date || "")
+            )
+          );
 
-      return {
-        id: participant.id,
-        full_name: participant.full_name,
-        department: participant.department,
-        email: account?.email || null,
-        account_status: !account
-          ? "not_found"
-          : account.email_confirmed_at
-          ? "activated"
-          : "invited",
-        online: Boolean(online),
-        last_seen_at: lastSeen,
-        program_id: programId || null,
-        program_status: activeProgram?.status || null,
-        achievement_count: verifiedTypes.size,
-        achievement_total: 6,
-        post_test_average: average(
-          postTests.filter(
-            (r) => r.program_id === programId
-          )
-        ),
-        practice_average: average(
-          practice.filter(
-            (r) => r.program_id === programId
-          )
-        ),
-        samapta_average: average(
-          samapta.filter(
-            (r) => r.program_id === programId
-          )
-        ),
-        simper_status:
-          simper.find(
-            (r) => r.program_id === programId
-          )?.status || "not_started",
-      };
-    });
+        // Utamakan program aktif.
+        const activeProgram =
+          participantPrograms.find(
+            (p) => p.status === "active"
+          ) || participantPrograms[0];
+
+        const programId = activeProgram?.id;
+
+        const verifiedTypes = new Set(
+          achievements
+            .filter(
+              (a) =>
+                a.program_id === programId &&
+                a.status === "verified"
+            )
+            .map((a) => a.type_code)
+        );
+
+        return {
+          id: participant.id,
+          full_name: participant.full_name,
+          department: participant.department,
+          email: account?.email || null,
+
+          account_status: !account
+            ? "not_found"
+            : account.email_confirmed_at
+            ? "activated"
+            : "invited",
+
+          online: Boolean(online),
+          last_seen_at: lastSeen,
+
+          program_id: programId || null,
+          program_status:
+            activeProgram?.status || null,
+
+          // Site permanen berdasarkan program OJT.
+          site: activeProgram?.site || null,
+
+          start_date:
+            activeProgram?.start_date || null,
+          end_date:
+            activeProgram?.end_date || null,
+
+          achievement_count:
+            verifiedTypes.size,
+          achievement_total: 6,
+
+          post_test_average: average(
+            postTests.filter(
+              (r) =>
+                r.program_id === programId
+            )
+          ),
+
+          practice_average: average(
+            practice.filter(
+              (r) =>
+                r.program_id === programId
+            )
+          ),
+
+          samapta_average: average(
+            samapta.filter(
+              (r) =>
+                r.program_id === programId
+            )
+          ),
+
+          simper_status:
+            simper.find(
+              (r) =>
+                r.program_id === programId
+            )?.status || "not_started",
+        };
+      }
+    );
 
     return NextResponse.json(
       { participants: output },
-      { headers: { "Cache-Control": "no-store" } }
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
     );
   } catch (error) {
-    console.error("Mentor participants:", error);
+    console.error(
+      "Mentor participants:",
+      error
+    );
 
     return NextResponse.json(
-      { error: "Gagal memuat data monitoring peserta." },
+      {
+        error:
+          "Gagal memuat data monitoring peserta.",
+      },
       { status: 500 }
     );
   }
