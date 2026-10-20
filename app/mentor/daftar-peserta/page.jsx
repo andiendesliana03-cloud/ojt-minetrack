@@ -17,6 +17,9 @@ const SITE_OPTIONS = [
   "HO",
 ];
 
+// Pendaftaran asli dinonaktifkan selama pengujian.
+const REGISTRATION_ENABLED = false;
+
 const initialForm = {
   full_name: "",
   email: "",
@@ -46,14 +49,36 @@ const inputStyle = {
   color: "#0f172a",
 };
 
+const buttonStyle = {
+  width: "100%",
+  padding: 15,
+  border: 0,
+  borderRadius: 10,
+  fontSize: 16,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  const parts = value.split("-");
+
+  if (parts.length !== 3) return value;
+
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
 export default function DaftarPesertaPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [mentor, setMentor] = useState(null);
+
   const [form, setForm] = useState(initialForm);
-  const [message, setMessage] = useState("");
+
+  const [result, setResult] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -71,12 +96,14 @@ export default function DaftarPesertaPage() {
           return;
         }
 
-        const { data: profile, error: profileError } =
-          await supabase
-            .from("profiles")
-            .select("id,full_name,role")
-            .eq("id", user.id)
-            .single();
+        const {
+          data: profile,
+          error: profileError,
+        } = await supabase
+          .from("profiles")
+          .select("id,full_name,role")
+          .eq("id", user.id)
+          .single();
 
         if (
           profileError ||
@@ -114,60 +141,77 @@ export default function DaftarPesertaPage() {
       ...current,
       [field]: value,
     }));
+
+    // Hasil simulasi lama tidak berlaku
+    // jika data formulir diubah.
+    setResult(null);
+    setError("");
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-
-    if (saving || message) return;
-
+  function validateForm() {
     const cleanName = form.full_name.trim();
     const cleanEmail =
       form.email.trim().toLowerCase();
     const cleanDepartment =
       form.department.trim();
 
-    setError("");
-
     if (cleanName.length < 3) {
-      setError(
-        "Nama peserta minimal 3 karakter."
-      );
-      return;
+      return "Nama peserta minimal 3 karakter.";
     }
 
-    if (!cleanEmail || !cleanDepartment) {
-      setError(
-        "Email dan departemen wajib diisi."
-      );
-      return;
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        cleanEmail
+      )
+    ) {
+      return "Format email peserta tidak valid.";
+    }
+
+    if (!cleanDepartment) {
+      return "Departemen wajib diisi.";
     }
 
     if (!SITE_OPTIONS.includes(form.site)) {
-      setError(
-        "Pilih satu site penempatan OJT."
-      );
-      return;
+      return "Pilih salah satu site OJT.";
     }
 
     if (
       !form.start_date ||
       !form.end_date
     ) {
+      return "Tanggal mulai dan selesai wajib diisi.";
+    }
+
+    if (form.end_date < form.start_date) {
+      return "Tanggal selesai tidak boleh lebih awal dari tanggal mulai.";
+    }
+
+    return "";
+  }
+
+  async function submitRegistration(dryRun) {
+    if (saving) return;
+
+    // Perlindungan tambahan agar pendaftaran
+    // asli tidak bisa dilakukan selama pengujian.
+    if (!dryRun && !REGISTRATION_ENABLED) {
       setError(
-        "Tanggal mulai dan selesai OJT wajib diisi."
+        "Pendaftaran asli masih dinonaktifkan selama tahap pengujian."
       );
       return;
     }
 
-    if (form.end_date < form.start_date) {
-      setError(
-        "Tanggal selesai tidak boleh lebih awal dari tanggal mulai."
-      );
+    const validationError = validateForm();
+
+    if (validationError) {
+      setError(validationError);
+      setResult(null);
       return;
     }
 
     setSaving(true);
+    setError("");
+    setResult(null);
 
     try {
       const {
@@ -192,34 +236,41 @@ export default function DaftarPesertaPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
+          cache: "no-store",
           body: JSON.stringify({
-            full_name: cleanName,
-            email: cleanEmail,
-            department: cleanDepartment,
+            full_name: form.full_name.trim(),
+            email: form.email.trim().toLowerCase(),
+            department: form.department.trim(),
             site: form.site,
             start_date: form.start_date,
             end_date: form.end_date,
+            dry_run: dryRun,
           }),
         }
       );
 
-      const result = await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          result.error || "Pendaftaran gagal."
+          data.error || "Permintaan gagal."
         );
       }
 
-      setMessage(
-        `Peserta ${cleanName} berhasil didaftarkan. ` +
-        `Site: ${result.site || form.site}. ` +
-        `Periode: ${result.start_date || form.start_date} ` +
-        `sampai ${result.end_date || form.end_date}. ` +
-        "Program OJT berhasil dibuat dan undangan akun telah dikirim."
-      );
+      // Simulasi harus mendapat konfirmasi
+      // dry_run dari server, bukan sekadar
+      // status HTTP 200.
+      if (dryRun && data.dry_run !== true) {
+        throw new Error(
+          "Server tidak mengonfirmasi mode simulasi. Periksa versi API sebelum melanjutkan."
+        );
+      }
 
-      setForm(initialForm);
+      setResult(data);
+
+      if (!dryRun) {
+        setForm(initialForm);
+      }
     } catch (err) {
       setError(
         err.message || "Terjadi kesalahan."
@@ -227,6 +278,14 @@ export default function DaftarPesertaPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+
+    // Tombol utama form hanya menjalankan simulasi
+    // selama pendaftaran asli dinonaktifkan.
+    submitRegistration(true);
   }
 
   if (loading) {
@@ -241,6 +300,7 @@ export default function DaftarPesertaPage() {
     return (
       <main style={{ padding: 24 }}>
         <h2>Akses tidak tersedia</h2>
+
         <p style={{ color: "#dc2626" }}>
           {error || "Halaman khusus Mentor."}
         </p>
@@ -282,15 +342,33 @@ export default function DaftarPesertaPage() {
           </small>
         </header>
 
+        <section
+          style={{
+            ...card,
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>
+            Mode Simulasi Aktif
+          </h3>
+
+          <p style={{ marginBottom: 0 }}>
+            Pengujian ini tidak membuat akun,
+            tidak mengirim email undangan,
+            dan tidak menyimpan data peserta
+            atau program OJT.
+          </p>
+        </section>
+
         <section style={card}>
-          <h2>
-            Daftarkan Peserta dan Program OJT
+          <h2 style={{ marginTop: 0 }}>
+            Simulasi Pendaftaran OJT
           </h2>
 
           <p style={{ color: "#64748b" }}>
-            Lengkapi identitas peserta, pilih
-            satu site penempatan, dan tentukan
-            tanggal mulai serta selesai OJT.
+            Lengkapi data simulasi untuk
+            memeriksa validasi dan akses mentor.
           </p>
 
           <form onSubmit={handleSubmit}>
@@ -302,14 +380,14 @@ export default function DaftarPesertaPage() {
 
             <input
               id="full-name"
-              style={inputStyle}
               type="text"
               required
               minLength={3}
               maxLength={120}
+              style={inputStyle}
               placeholder="Nama lengkap peserta"
               value={form.full_name}
-              disabled={saving || !!message}
+              disabled={saving}
               onChange={(e) =>
                 updateForm(
                   "full_name",
@@ -326,13 +404,13 @@ export default function DaftarPesertaPage() {
 
             <input
               id="email"
-              style={inputStyle}
               type="email"
               required
               maxLength={254}
-              placeholder="nama@email.com"
+              style={inputStyle}
+              placeholder="simulasi@example.com"
               value={form.email}
-              disabled={saving || !!message}
+              disabled={saving}
               onChange={(e) =>
                 updateForm(
                   "email",
@@ -349,12 +427,12 @@ export default function DaftarPesertaPage() {
 
             <input
               id="department"
-              style={inputStyle}
               type="text"
               required
               maxLength={100}
+              style={inputStyle}
               value={form.department}
-              disabled={saving || !!message}
+              disabled={saving}
               onChange={(e) =>
                 updateForm(
                   "department",
@@ -373,10 +451,10 @@ export default function DaftarPesertaPage() {
 
             <select
               id="site"
+              required
               style={inputStyle}
               value={form.site}
-              required
-              disabled={saving || !!message}
+              disabled={saving}
               onChange={(e) =>
                 updateForm(
                   "site",
@@ -400,11 +478,11 @@ export default function DaftarPesertaPage() {
 
             <div
               style={{
-                background: "#eff6ff",
-                border: "1px solid #bfdbfe",
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
                 borderRadius: 12,
                 padding: 14,
-                marginTop: 12,
+                marginTop: 14,
               }}
             >
               <strong>
@@ -413,13 +491,12 @@ export default function DaftarPesertaPage() {
 
               <p
                 style={{
-                  marginBottom: 0,
                   color: "#475569",
-                  fontSize: 14,
+                  marginBottom: 0,
                 }}
               >
-                Satu peserta memiliki satu site
-                penempatan selama periode
+                Satu peserta menggunakan satu
+                site penempatan selama periode
                 program OJT.
               </p>
             </div>
@@ -444,10 +521,10 @@ export default function DaftarPesertaPage() {
               <input
                 id="start-date"
                 type="date"
+                required
                 style={inputStyle}
                 value={form.start_date}
-                required
-                disabled={saving || !!message}
+                disabled={saving}
                 onChange={(e) =>
                   updateForm(
                     "start_date",
@@ -467,11 +544,11 @@ export default function DaftarPesertaPage() {
               <input
                 id="end-date"
                 type="date"
+                required
+                min={form.start_date || undefined}
                 style={inputStyle}
                 value={form.end_date}
-                min={form.start_date || undefined}
-                required
-                disabled={saving || !!message}
+                disabled={saving}
                 onChange={(e) =>
                   updateForm(
                     "end_date",
@@ -481,125 +558,157 @@ export default function DaftarPesertaPage() {
               />
             </div>
 
-            <div
-              style={{
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                borderRadius: 12,
-                padding: 14,
-                marginBottom: 20,
-                color: "#475569",
-                fontSize: 14,
-              }}
-            >
-              Setelah pendaftaran berhasil,
-              sistem membuat akun peserta,
-              mengirim email undangan,
-              dan membuat program OJT aktif
-              sesuai site serta periode
-              yang ditentukan mentor.
-            </div>
-
             {error && (
-              <p
+              <div
                 role="alert"
                 style={{
-                  color: "#b91c1c",
                   background: "#fef2f2",
-                  padding: 12,
-                  borderRadius: 10,
+                  border: "1px solid #fecaca",
+                  color: "#b91c1c",
+                  padding: 14,
+                  borderRadius: 12,
+                  marginBottom: 18,
                   overflowWrap: "anywhere",
                 }}
               >
                 {error}
-              </p>
-            )}
-
-            {message && (
-              <div
-                role="status"
-                style={{
-                  background: "#f0fdf4",
-                  border: "1px solid #bbf7d0",
-                  color: "#166534",
-                  padding: 14,
-                  borderRadius: 12,
-                  marginBottom: 18,
-                }}
-              >
-                <strong>
-                  Pendaftaran Berhasil
-                </strong>
-                <p>{message}</p>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    router.push(
-                      "/mentor/monitoring-peserta"
-                    )
-                  }
-                  style={{
-                    width: "100%",
-                    padding: 13,
-                    background: "#15803d",
-                    color: "white",
-                    border: 0,
-                    borderRadius: 10,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Lihat Monitoring Peserta
-                </button>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={saving || !!message}
+              disabled={saving}
               style={{
-                width: "100%",
-                background:
-                  saving || message
-                    ? "#94a3b8"
-                    : "#2563eb",
+                ...buttonStyle,
+                background: saving
+                  ? "#94a3b8"
+                  : "#0f766e",
                 color: "white",
-                padding: 15,
-                border: 0,
-                borderRadius: 10,
-                fontSize: 16,
-                fontWeight: "bold",
-                cursor:
-                  saving || message
-                    ? "not-allowed"
-                    : "pointer",
+                marginBottom: 12,
               }}
             >
               {saving
-                ? "Memproses Pendaftaran..."
-                : "Daftarkan Peserta dan Buat Program OJT"}
+                ? "Menjalankan Simulasi..."
+                : "Jalankan Simulasi Pendaftaran"}
             </button>
+
+            <button
+              type="button"
+              disabled={!REGISTRATION_ENABLED || saving}
+              onClick={() =>
+                submitRegistration(false)
+              }
+              style={{
+                ...buttonStyle,
+                background: "#94a3b8",
+                color: "white",
+                cursor: "not-allowed",
+              }}
+            >
+              Daftarkan Peserta dan Buat Program OJT
+            </button>
+
+            <p
+              style={{
+                fontSize: 12,
+                color: "#64748b",
+                textAlign: "center",
+              }}
+            >
+              Pendaftaran asli dinonaktifkan
+              sementara selama pengujian.
+            </p>
           </form>
+
+          {result?.dry_run === true && (
+            <div
+              role="status"
+              style={{
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderRadius: 12,
+                padding: 18,
+                marginTop: 20,
+              }}
+            >
+              <h3
+                style={{
+                  marginTop: 0,
+                  color: "#166534",
+                }}
+              >
+                Simulasi Berhasil
+              </h3>
+
+              <p>
+                Validasi data dan akses mentor
+                berhasil diperiksa.
+              </p>
+
+              <p>
+                <strong>Nama:</strong>{" "}
+                {result.preview?.full_name}
+              </p>
+
+              <p>
+                <strong>Email:</strong>{" "}
+                {result.preview?.email}
+              </p>
+
+              <p>
+                <strong>Departemen:</strong>{" "}
+                {result.preview?.department}
+              </p>
+
+              <p>
+                <strong>Site:</strong>{" "}
+                {result.preview?.site}
+              </p>
+
+              <p>
+                <strong>Mulai OJT:</strong>{" "}
+                {formatDate(
+                  result.preview?.start_date
+                )}
+              </p>
+
+              <p>
+                <strong>Selesai OJT:</strong>{" "}
+                {formatDate(
+                  result.preview?.end_date
+                )}
+              </p>
+
+              <p>
+                <strong>Status Program:</strong>{" "}
+                {result.preview?.status}
+              </p>
+
+              <p
+                style={{
+                  fontWeight: 700,
+                  color: "#166534",
+                }}
+              >
+                Tidak ada akun atau program
+                OJT yang dibuat.
+              </p>
+            </div>
+          )}
         </section>
 
         <section style={card}>
-          <h3>Informasi Pendaftaran</h3>
+          <h3>Informasi Pengujian</h3>
 
           <p>
-            Peserta menerima email undangan
-            untuk mengaktifkan akun.
+            Mode simulasi hanya memeriksa
+            validasi formulir dan akses mentor
+            melalui API.
           </p>
 
           <p>
-            Site dan periode program OJT
-            akan digunakan pada monitoring
-            peserta.
-          </p>
-
-          <p>
-            Halaman ini hanya dapat digunakan
-            oleh Mentor.
+            Keberhasilan penyimpanan data
+            ke Supabase belum diuji.
           </p>
         </section>
 
@@ -607,14 +716,9 @@ export default function DaftarPesertaPage() {
           type="button"
           onClick={() => router.push("/")}
           style={{
-            width: "100%",
+            ...buttonStyle,
             background: "#475569",
             color: "white",
-            padding: 15,
-            border: 0,
-            borderRadius: 10,
-            fontWeight: "bold",
-            cursor: "pointer",
           }}
         >
           Kembali ke Dashboard Mentor
