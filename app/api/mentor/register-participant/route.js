@@ -16,6 +16,26 @@ const ALLOWED_SITES = [
   "HO",
 ];
 
+function isValidDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
+
+function jsonError(message, status = 400) {
+  return NextResponse.json(
+    { error: message },
+    { status }
+  );
+}
+
 export async function POST(request) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,20 +44,19 @@ export async function POST(request) {
     const secretKey = process.env.SUPABASE_SECRET_KEY;
 
     if (!url || !publicKey || !secretKey) {
-      return NextResponse.json(
-        { error: "Konfigurasi server belum lengkap." },
-        { status: 500 }
+      return jsonError(
+        "Konfigurasi server belum lengkap.",
+        500
       );
     }
 
-    // Periksa token login.
     const authHeader =
       request.headers.get("authorization") || "";
 
     if (!authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Silakan login terlebih dahulu." },
-        { status: 401 }
+      return jsonError(
+        "Silakan login terlebih dahulu.",
+        401
       );
     }
 
@@ -54,9 +73,9 @@ export async function POST(request) {
       await authClient.auth.getUser(token);
 
     if (authError || !authData?.user) {
-      return NextResponse.json(
-        { error: "Sesi login tidak valid." },
-        { status: 401 }
+      return jsonError(
+        "Sesi login tidak valid.",
+        401
       );
     }
 
@@ -67,7 +86,6 @@ export async function POST(request) {
       },
     });
 
-    // Hanya mentor yang boleh mendaftarkan peserta.
     const { data: mentor, error: mentorError } =
       await admin
         .from("profiles")
@@ -76,13 +94,12 @@ export async function POST(request) {
         .single();
 
     if (mentorError || mentor?.role !== "mentor") {
-      return NextResponse.json(
-        { error: "Akses hanya untuk mentor." },
-        { status: 403 }
+      return jsonError(
+        "Akses hanya untuk mentor.",
+        403
       );
     }
 
-    // Data formulir pendaftaran.
     const body = await request.json();
 
     const fullName = String(
@@ -101,126 +118,201 @@ export async function POST(request) {
       body.site || ""
     ).trim().toUpperCase();
 
-    if (!fullName || !email) {
-      return NextResponse.json(
-        {
-          error:
-            "Nama dan email peserta wajib diisi.",
-        },
-        { status: 400 }
+    const startDate = String(
+      body.start_date || ""
+    ).trim();
+
+    const endDate = String(
+      body.end_date || ""
+    ).trim();
+
+    if (!fullName || !email || !department) {
+      return jsonError(
+        "Nama, email, dan departemen wajib diisi."
       );
     }
 
     if (
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
-      return NextResponse.json(
-        {
-          error:
-            "Format email peserta tidak valid.",
-        },
-        { status: 400 }
+      return jsonError(
+        "Format email tidak valid."
       );
     }
 
     if (!ALLOWED_SITES.includes(site)) {
-      return NextResponse.json(
-        {
-          error:
-            "Silakan pilih site penempatan yang valid.",
-        },
-        { status: 400 }
+      return jsonError(
+        "Silakan pilih site penempatan yang valid."
       );
     }
 
-    // Kirim undangan aktivasi akun.
-    const {
-      data: invited,
-      error: inviteError,
-    } = await admin.auth.admin.inviteUserByEmail(
-      email,
-      {
-        data: {
-          full_name: fullName,
-        },
+    if (
+      !isValidDate(startDate) ||
+      !isValidDate(endDate)
+    ) {
+      return jsonError(
+        "Tanggal mulai dan selesai OJT wajib diisi dengan benar."
+      );
+    }
+
+    if (endDate < startDate) {
+      return jsonError(
+        "Tanggal selesai tidak boleh lebih awal dari tanggal mulai."
+      );
+    }
+
+    // Cegah pendaftaran ulang email yang sudah ada.
+    // Pemeriksaan ini membantu, tetapi bukan pengganti
+    // pengamanan unik pada database.
+    let page = 1;
+
+    while (true) {
+      const { data, error } =
+        await admin.auth.admin.listUsers({
+          page,
+          perPage: 1000,
+        });
+
+      if (error) throw error;
+
+      const users = data?.users || [];
+
+      const existing = users.find(
+        (user) =>
+          user.email?.toLowerCase() === email
+      );
+
+      if (existing) {
+        return jsonError(
+          "Email sudah terdaftar. Jangan membuat akun atau program OJT ganda.",
+          409
+        );
       }
-    );
+
+      if (users.length < 1000) break;
+      page++;
+    }
+
+    // Buat akun dan kirim undangan.
+    const { data: invited, error: inviteError } =
+      await admin.auth.admin.inviteUserByEmail(
+        email,
+        {
+          data: {
+            full_name: fullName,
+          },
+        }
+      );
 
     if (inviteError) {
-      return NextResponse.json(
-        {
-          error:
-            inviteError.message ||
-            "Gagal mengirim undangan peserta.",
-        },
-        { status: 400 }
+      return jsonError(
+        inviteError.message ||
+          "Gagal mengirim undangan peserta."
       );
     }
 
     const participantId = invited?.user?.id;
 
     if (!participantId) {
-      return NextResponse.json(
-        {
-          error:
-            "Akun peserta tidak berhasil dibuat.",
-        },
-        { status: 500 }
+      return jsonError(
+        "Akun peserta gagal dibuat.",
+        500
       );
     }
 
-    // Simpan profil dan site peserta.
-    const {
-      error: profileError,
-    } = await admin
-      .from("profiles")
-      .upsert(
-        {
-          id: participantId,
-          full_name: fullName,
-          department,
-          role: "participant",
-          site,
-        },
-        {
-          onConflict: "id",
-        }
-      );
+    // Simpan profil dan site awal peserta.
+    const { error: profileError } =
+      await admin
+        .from("profiles")
+        .upsert(
+          {
+            id: participantId,
+            full_name: fullName,
+            department,
+            role: "participant",
+            site,
+          },
+          { onConflict: "id" }
+        );
 
     if (profileError) {
       console.error(
-        "Gagal menyimpan profil peserta:",
+        "Profile creation failed:",
         profileError
       );
 
-      return NextResponse.json(
-        {
-          error:
-            "Undangan akun berhasil dibuat, tetapi profil atau site gagal disimpan. Periksa data sebelum mencoba lagi.",
-        },
-        { status: 500 }
+      return jsonError(
+        "Undangan sudah dibuat, tetapi profil gagal disimpan. Hubungi administrator sebelum mencoba kembali.",
+        500
+      );
+    }
+
+    // Pemeriksaan tambahan agar tidak membuat
+    // program aktif kedua untuk peserta yang sama.
+    const { data: existingPrograms, error: checkError } =
+      await admin
+        .from("ojt_programs")
+        .select("id")
+        .eq("participant_id", participantId)
+        .eq("status", "active")
+        .limit(1);
+
+    if (checkError) throw checkError;
+
+    if (existingPrograms?.length) {
+      return jsonError(
+        "Peserta sudah memiliki program OJT aktif.",
+        409
+      );
+    }
+
+    // Buat program OJT menggunakan periode
+    // dan site yang ditentukan mentor.
+    const { data: program, error: programError } =
+      await admin
+        .from("ojt_programs")
+        .insert({
+          participant_id: participantId,
+          mentor_id: mentor.id,
+          start_date: startDate,
+          end_date: endDate,
+          status: "active",
+          site,
+        })
+        .select("id")
+        .single();
+
+    if (programError) {
+      console.error(
+        "Program creation failed:",
+        programError
+      );
+
+      return jsonError(
+        "Akun dan profil peserta sudah dibuat, tetapi program OJT gagal disimpan. Hubungi administrator sebelum mencoba kembali.",
+        500
       );
     }
 
     return NextResponse.json({
       success: true,
       message:
-        "Undangan peserta berhasil dibuat dan site penempatan tersimpan. Peserta perlu membuka email undangan.",
+        "Peserta berhasil didaftarkan. Undangan akun dan program OJT telah dibuat.",
       participant_id: participantId,
+      program_id: program.id,
       site,
+      start_date: startDate,
+      end_date: endDate,
     });
   } catch (error) {
     console.error(
-      "Register participant:",
+      "Register participant error:",
       error
     );
 
-    return NextResponse.json(
-      {
-        error:
-          "Terjadi kesalahan pada server.",
-      },
-      { status: 500 }
+    return jsonError(
+      "Terjadi kesalahan pada server. Periksa data sebelum mencoba kembali.",
+      500
     );
   }
 }
