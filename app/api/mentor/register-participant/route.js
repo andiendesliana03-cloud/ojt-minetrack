@@ -19,8 +19,16 @@ const ALLOWED_SITES = [
 
 function jsonError(message, status = 400) {
   return NextResponse.json(
-    { success: false, error: message },
-    { status }
+    {
+      success: false,
+      error: message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    }
   );
 }
 
@@ -40,18 +48,35 @@ function validDate(value) {
 export async function POST(request) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
     const publicKey =
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
     const secretKey = process.env.SUPABASE_SECRET_KEY;
 
     if (!url || !publicKey || !secretKey) {
       return jsonError(
-        "Konfigurasi server belum lengkap.",
+        "Konfigurasi Supabase pada server belum lengkap.",
         500
       );
     }
 
-    // 1. Verifikasi sesi login.
+    // 1. Siapkan koneksi Supabase.
+    const authClient = createClient(url, publicKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+
+    const admin = createClient(url, secretKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+
+    // 2. Periksa token login.
     const authHeader =
       request.headers.get("authorization") || "";
 
@@ -64,46 +89,36 @@ export async function POST(request) {
 
     const token = authHeader.slice(7).trim();
 
-    const authClient = createClient(url, publicKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-
-    const { data: authData, error: authError } =
-      await authClient.auth.getUser(token);
+    const {
+      data: authData,
+      error: authError,
+    } = await authClient.auth.getUser(token);
 
     if (authError || !authData?.user) {
       return jsonError(
-        "Sesi login tidak valid.",
+        "Sesi login tidak valid. Silakan login kembali.",
         401
       );
     }
 
-    const admin = createClient(url, secretKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-
-    // 2. Pastikan pengguna adalah mentor.
-    const { data: mentor, error: mentorError } =
-      await admin
-        .from("profiles")
-        .select("id,role")
-        .eq("id", authData.user.id)
-        .single();
+    // 3. Verifikasi akses mentor.
+    const {
+      data: mentor,
+      error: mentorError,
+    } = await admin
+      .from("profiles")
+      .select("id,full_name,role")
+      .eq("id", authData.user.id)
+      .single();
 
     if (mentorError || mentor?.role !== "mentor") {
       return jsonError(
-        "Akses hanya untuk mentor.",
+        "Akses pendaftaran hanya untuk mentor.",
         403
       );
     }
 
-    // 3. Baca dan validasi formulir.
+    // 4. Baca data formulir.
     let body;
 
     try {
@@ -140,6 +155,7 @@ export async function POST(request) {
 
     const dryRun = body.dry_run === true;
 
+    // 5. Validasi data.
     if (fullName.length < 3) {
       return jsonError(
         "Nama peserta minimal 3 karakter."
@@ -147,7 +163,6 @@ export async function POST(request) {
     }
 
     if (
-      !email ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
       return jsonError(
@@ -163,16 +178,19 @@ export async function POST(request) {
 
     if (!ALLOWED_SITES.includes(site)) {
       return jsonError(
-        "Pilih salah satu dari 9 site OJT."
+        "Site OJT tidak valid. Pilih salah satu dari 9 site."
       );
     }
 
-    if (
-      !validDate(startDate) ||
-      !validDate(endDate)
-    ) {
+    if (!validDate(startDate)) {
       return jsonError(
-        "Tanggal mulai dan selesai OJT tidak valid."
+        "Tanggal mulai OJT tidak valid."
+      );
+    }
+
+    if (!validDate(endDate)) {
+      return jsonError(
+        "Tanggal selesai OJT tidak valid."
       );
     }
 
@@ -182,17 +200,16 @@ export async function POST(request) {
       );
     }
 
-    // 4. MODE SIMULASI.
-    // Tidak membuat akun.
-    // Tidak mengirim email.
-    // Tidak menulis data ke database.
+    // 6. MODE SIMULASI.
+    // Tidak membuat akun, mengirim undangan,
+    // atau menulis data ke database.
     if (dryRun) {
       return NextResponse.json(
         {
           success: true,
           dry_run: true,
           message:
-            "Simulasi berhasil. Data valid dan akses mentor terverifikasi. Tidak ada akun atau program yang dibuat.",
+            "Simulasi berhasil. Validasi data dan akses mentor berhasil diperiksa.",
           preview: {
             full_name: fullName,
             email,
@@ -211,53 +228,73 @@ export async function POST(request) {
       );
     }
 
-    // 5. PENDAFTARAN ASLI.
+    // 7. PENDAFTARAN ASLI.
     // Periksa email yang sudah terdaftar.
     let page = 1;
 
     while (true) {
-      const { data, error } =
-        await admin.auth.admin.listUsers({
-          page,
-          perPage: 1000,
-        });
+      const {
+        data: usersData,
+        error: usersError,
+      } = await admin.auth.admin.listUsers({
+        page,
+        perPage: 1000,
+      });
 
-      if (error) throw error;
+      if (usersError) {
+        console.error(
+          "Failed to list users:",
+          usersError
+        );
 
-      const users = data?.users || [];
+        return jsonError(
+          "Gagal memeriksa email peserta.",
+          500
+        );
+      }
 
-      const existing = users.find(
+      const users = usersData?.users || [];
+
+      const existingUser = users.find(
         (user) =>
           user.email?.toLowerCase() === email
       );
 
-      if (existing) {
+      if (existingUser) {
         return jsonError(
           "Email sudah terdaftar. Gunakan email peserta yang belum terdaftar.",
           409
         );
       }
 
-      if (users.length < 1000) break;
+      if (users.length < 1000) {
+        break;
+      }
 
-      page++;
+      page += 1;
     }
 
-    // Buat akun dan kirim undangan email.
-    const { data: invited, error: inviteError } =
-      await admin.auth.admin.inviteUserByEmail(
-        email,
-        {
-          data: {
-            full_name: fullName,
-          },
-        }
-      );
+    // 8. Buat akun peserta dan kirim undangan.
+    const {
+      data: invited,
+      error: inviteError,
+    } = await admin.auth.admin.inviteUserByEmail(
+      email,
+      {
+        data: {
+          full_name: fullName,
+        },
+      }
+    );
 
     if (inviteError) {
+      console.error(
+        "Invitation failed:",
+        inviteError
+      );
+
       return jsonError(
-        inviteError.message ||
-          "Gagal mengirim undangan peserta.",
+        "Gagal membuat akun atau mengirim undangan peserta.",
         500
       );
     }
@@ -266,41 +303,43 @@ export async function POST(request) {
 
     if (!participantId) {
       return jsonError(
-        "Akun peserta gagal dibuat.",
+        "Akun peserta tidak berhasil dibuat.",
         500
       );
     }
 
-    // Simpan identitas dan site peserta.
-    const { error: profileError } =
-      await admin
-        .from("profiles")
-        .upsert(
-          {
-            id: participantId,
-            full_name: fullName,
-            department,
-            role: "participant",
-            site,
-          },
-          {
-            onConflict: "id",
-          }
-        );
+    // 9. Simpan profil peserta.
+    // PERBAIKAN: tidak menyimpan kolom site
+    // pada tabel profiles.
+    const {
+      error: profileError,
+    } = await admin
+      .from("profiles")
+      .upsert(
+        {
+          id: participantId,
+          full_name: fullName,
+          department,
+          role: "participant",
+        },
+        {
+          onConflict: "id",
+        }
+      );
 
     if (profileError) {
       console.error(
-        "Profile creation failed:",
+        "Failed to save profile:",
         profileError
       );
 
       return jsonError(
-        "Akun sudah dibuat, tetapi profil gagal disimpan. Jangan daftar ulang sebelum diperiksa administrator.",
+        "Akun peserta sudah dibuat, tetapi profil gagal disimpan. Jangan mendaftar ulang sebelum diperiksa administrator.",
         500
       );
     }
 
-    // Periksa apakah sudah ada program aktif.
+    // 10. Periksa program aktif.
     const {
       data: existingPrograms,
       error: checkError,
@@ -313,12 +352,12 @@ export async function POST(request) {
 
     if (checkError) {
       console.error(
-        "Program check failed:",
+        "Failed to check OJT program:",
         checkError
       );
 
       return jsonError(
-        "Akun sudah dibuat, tetapi pemeriksaan program gagal. Hubungi administrator.",
+        "Akun peserta sudah dibuat, tetapi pemeriksaan program OJT gagal. Hubungi administrator.",
         500
       );
     }
@@ -330,33 +369,37 @@ export async function POST(request) {
       );
     }
 
-    // Buat program OJT.
-    const { data: program, error: programError } =
-      await admin
-        .from("ojt_programs")
-        .insert({
-          participant_id: participantId,
-          mentor_id: mentor.id,
-          start_date: startDate,
-          end_date: endDate,
-          status: "active",
-          site,
-        })
-        .select("id")
-        .single();
+    // 11. Buat program OJT.
+    // Site disimpan hanya pada ojt_programs.
+    const {
+      data: program,
+      error: programError,
+    } = await admin
+      .from("ojt_programs")
+      .insert({
+        participant_id: participantId,
+        mentor_id: mentor.id,
+        start_date: startDate,
+        end_date: endDate,
+        status: "active",
+        site,
+      })
+      .select("id")
+      .single();
 
     if (programError) {
       console.error(
-        "Program creation failed:",
+        "Failed to create OJT program:",
         programError
       );
 
       return jsonError(
-        "Akun dan profil sudah dibuat, tetapi program OJT gagal disimpan. Hubungi administrator sebelum mencoba kembali.",
+        "Akun dan profil peserta sudah dibuat, tetapi program OJT gagal disimpan. Hubungi administrator sebelum mencoba kembali.",
         500
       );
     }
 
+    // 12. Respons pendaftaran berhasil.
     return NextResponse.json(
       {
         success: true,
@@ -382,7 +425,7 @@ export async function POST(request) {
     );
 
     return jsonError(
-      "Terjadi kesalahan pada server. Periksa data sebelum mencoba kembali.",
+      "Terjadi kesalahan pada server. Periksa status pendaftaran sebelum mencoba kembali.",
       500
     );
   }
