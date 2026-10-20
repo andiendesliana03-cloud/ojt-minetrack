@@ -35,6 +35,25 @@ const tombol = {
   cursor: "pointer",
 };
 
+const pilihanTes = [
+  "Push-Up",
+  "Sit-Up",
+  "Pull-Up",
+  "Shuttle Run",
+  "Lari 12 Menit",
+  "Lari 2.400 Meter",
+  "Tes Lainnya",
+];
+
+const pilihanSatuan = [
+  "Repetisi",
+  "Menit",
+  "Detik",
+  "Meter",
+  "Km",
+  "Putaran",
+];
+
 function hariIni() {
   const d = new Date();
   const lokal = new Date(
@@ -64,6 +83,7 @@ export default function MonitoringSamapta() {
   const [satuan, setSatuan] = useState("Repetisi");
   const [nilai, setNilai] = useState("");
   const [catatan, setCatatan] = useState("");
+  const [outcome, setOutcome] = useState("pending");
   const [editId, setEditId] = useState(null);
 
   const [loading, setLoading] = useState(true);
@@ -76,7 +96,7 @@ export default function MonitoringSamapta() {
     const { data, error: err } = await supabase
       .from("samapta_records")
       .select(
-        "id,test_date,test_type,result_value,result_unit,score,notes"
+        "id,test_date,test_type,result_value,result_unit,score,notes,outcome"
       )
       .eq("program_id", programId)
       .order("test_date", { ascending: false });
@@ -122,9 +142,7 @@ export default function MonitoringSamapta() {
         const { data: dataProgram, error: programError } =
           await supabase
             .from("ojt_programs")
-            .select(
-              "id,start_date,end_date,status"
-            )
+            .select("id,start_date,end_date,status")
             .eq("id", programId)
             .single();
 
@@ -134,7 +152,7 @@ export default function MonitoringSamapta() {
           await supabase
             .from("samapta_records")
             .select(
-              "id,test_date,test_type,result_value,result_unit,score,notes"
+              "id,test_date,test_type,result_value,result_unit,score,notes,outcome"
             )
             .eq("program_id", programId)
             .order("test_date", { ascending: false });
@@ -170,6 +188,7 @@ export default function MonitoringSamapta() {
     setSatuan("Repetisi");
     setNilai("");
     setCatatan("");
+    setOutcome("pending");
   }
 
   async function simpan(e) {
@@ -203,6 +222,11 @@ export default function MonitoringSamapta() {
       return;
     }
 
+    if (!["pending", "pass", "fail"].includes(outcome)) {
+      setError("Status hasil Samapta tidak valid.");
+      return;
+    }
+
     setMenyimpan(true);
     setError("");
     setPesan("");
@@ -215,6 +239,7 @@ export default function MonitoringSamapta() {
         result_unit: satuan.trim(),
         score: angkaNilai,
         notes: catatan.trim() || null,
+        outcome: outcome,
       };
 
       const hasilQuery = editId
@@ -230,6 +255,7 @@ export default function MonitoringSamapta() {
               ...dataInput,
               program_id: programId,
               created_by: mentor.id,
+              recorded_by: mentor.id,
             })
             .select("id");
 
@@ -259,6 +285,7 @@ export default function MonitoringSamapta() {
       item.score == null ? "" : String(item.score)
     );
     setCatatan(item.notes || "");
+    setOutcome(item.outcome || "pending");
     setError("");
     setPesan("");
 
@@ -308,7 +335,7 @@ export default function MonitoringSamapta() {
   }
 
   const nilaiTersedia = riwayat.filter(
-    (item) => item.score !== null
+    (item) => item.score != null
   );
 
   const rataRata = nilaiTersedia.length
@@ -430,7 +457,10 @@ export default function MonitoringSamapta() {
 
             {error && (
               <section style={card}>
-                <p style={{ color: "#dc2626" }}>
+                <p
+                  role="alert"
+                  style={{ color: "#dc2626" }}
+                >
                   {error}
                 </p>
               </section>
@@ -473,9 +503,11 @@ export default function MonitoringSamapta() {
                       const pilihan = e.target.value;
                       setJenis(pilihan);
 
-                      if (
-                        pilihan === "Lari 12 Menit" ||
-                        pilihan === "Lari 2.400 Meter"
+                      if (pilihan === "Lari 12 Menit") {
+                        setSatuan("Meter");
+                      } else if (
+                        pilihan === "Lari 2.400 Meter" ||
+                        pilihan === "Shuttle Run"
                       ) {
                         setSatuan("Menit");
                       } else {
@@ -485,13 +517,11 @@ export default function MonitoringSamapta() {
                     style={input}
                     required
                   >
-                    <option>Push-Up</option>
-                    <option>Sit-Up</option>
-                    <option>Pull-Up</option>
-                    <option>Shuttle Run</option>
-                    <option>Lari 12 Menit</option>
-                    <option>Lari 2.400 Meter</option>
-                    <option>Tes Lainnya</option>
+                    {pilihanTes.map((tes) => (
+                      <option key={tes} value={tes}>
+                        {tes}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
@@ -505,7 +535,7 @@ export default function MonitoringSamapta() {
                     onChange={(e) =>
                       setHasil(e.target.value)
                     }
-                    placeholder="Contoh: 35"
+                    placeholder="Contoh: 45"
                     required
                     style={input}
                   />
@@ -521,12 +551,11 @@ export default function MonitoringSamapta() {
                     style={input}
                     required
                   >
-                    <option>Repetisi</option>
-                    <option>Menit</option>
-                    <option>Detik</option>
-                    <option>Meter</option>
-                    <option>Km</option>
-                    <option>Putaran</option>
+                    {pilihanSatuan.map((unit) => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
@@ -544,6 +573,28 @@ export default function MonitoringSamapta() {
                     placeholder="Contoh: 85"
                     style={input}
                   />
+                </label>
+
+                <label>
+                  Status Hasil
+                  <select
+                    value={outcome}
+                    onChange={(e) =>
+                      setOutcome(e.target.value)
+                    }
+                    style={input}
+                    required
+                  >
+                    <option value="pending">
+                      Menunggu Penilaian
+                    </option>
+                    <option value="pass">
+                      Lulus
+                    </option>
+                    <option value="fail">
+                      Tidak Lulus
+                    </option>
+                  </select>
                 </label>
 
                 <label>
@@ -612,20 +663,35 @@ export default function MonitoringSamapta() {
                   }}
                 >
                   <h3>{item.test_type}</h3>
+
                   <p>
                     Tanggal:{" "}
                     {formatTanggal(item.test_date)}
                   </p>
+
                   <p>
                     Hasil: {item.result_value}{" "}
                     {item.result_unit}
                   </p>
+
                   <p>
                     Nilai:{" "}
-                    {item.score === null
+                    {item.score == null
                       ? "-"
                       : item.score}
                   </p>
+
+                  <p>
+                    Status:{" "}
+                    <strong>
+                      {item.outcome === "pass"
+                        ? "Lulus"
+                        : item.outcome === "fail"
+                        ? "Tidak Lulus"
+                        : "Menunggu Penilaian"}
+                    </strong>
+                  </p>
+
                   <p>Catatan: {item.notes || "-"}</p>
 
                   <div
