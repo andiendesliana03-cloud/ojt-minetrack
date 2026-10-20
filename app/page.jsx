@@ -1,9 +1,30 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
+
+const SITES = [
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
+];
+
+const ACHIEVEMENTS = [
+  "Fisik",
+  "Training",
+  "Sosialisasi",
+  "Coaching",
+  "Orientasi Area",
+  "Hazard",
+];
 
 const CARD = {
   background: "rgba(255,255,255,0.96)",
@@ -17,45 +38,43 @@ const BUTTON = {
   width: "100%",
   padding: "13px 16px",
   background: "#2563eb",
-  color: "white",
+  color: "#ffffff",
   border: "none",
   borderRadius: 10,
   fontWeight: 700,
+  fontSize: 14,
   cursor: "pointer",
 };
-
-const ACHIEVEMENTS = [
-  "Fisik",
-  "Training",
-  "Sosialisasi",
-  "Coaching",
-  "Orientasi Area",
-  "Hazard",
-];
 
 function average(rows) {
   const scores = rows
     .filter(
-      (r) =>
-        r.score !== null &&
-        r.score !== undefined &&
-        r.score !== ""
+      (row) =>
+        row.score !== null &&
+        row.score !== undefined &&
+        row.score !== ""
     )
-    .map((r) => Number(r.score))
-    .filter((n) => Number.isFinite(n));
+    .map((row) => Number(row.score))
+    .filter((score) => Number.isFinite(score));
 
   if (!scores.length) return "-";
 
-  return (
-    scores.reduce((a, b) => a + b, 0) / scores.length
-  ).toFixed(1);
+  const total = scores.reduce(
+    (sum, score) => sum + score,
+    0
+  );
+
+  return (total / scores.length).toFixed(1);
 }
 
 function formatDate(value) {
   if (!value) return "-";
 
-  const [year, month, day] = value.split("-");
-  return `${day}/${month}/${year}`;
+  const parts = value.split("-");
+
+  if (parts.length !== 3) return value;
+
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
 function statusLabel(value) {
@@ -72,7 +91,10 @@ function statusLabel(value) {
   return labels[value] || value || "Belum Proses";
 }
 
-function ProgressBar({ value, color = "#2563eb" }) {
+function ProgressBar({
+  value,
+  color = "#2563eb",
+}) {
   const safe = Math.min(
     100,
     Math.max(0, Number(value) || 0)
@@ -94,6 +116,7 @@ function ProgressBar({ value, color = "#2563eb" }) {
           height: "100%",
           background: color,
           borderRadius: 20,
+          transition: "width 0.3s ease",
         }}
       />
     </div>
@@ -146,6 +169,12 @@ function Stat({ title, value, subtitle }) {
   );
 }
 
+function normalizeName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
 export default function MentorDashboard() {
   const router = useRouter();
 
@@ -153,48 +182,70 @@ export default function MentorDashboard() {
   const [programs, setPrograms] = useState([]);
   const [achievementTypes, setAchievementTypes] =
     useState([]);
-  const [achievements, setAchievements] = useState([]);
+  const [achievements, setAchievements] =
+    useState([]);
   const [postTests, setPostTests] = useState([]);
   const [practices, setPractices] = useState([]);
   const [samapta, setSamapta] = useState([]);
   const [simper, setSimper] = useState([]);
 
+  const [siteFilter, setSiteFilter] =
+    useState("ALL");
+
+  const [search, setSearch] = useState("");
+
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] =
+    useState(false);
   const [error, setError] = useState("");
 
   async function fetchDashboard() {
-    const [programRes, typeRes] = await Promise.all([
-      supabase
-        .from("ojt_programs")
-        .select(`
-          id,
-          start_date,
-          end_date,
-          status,
-          peserta:profiles!ojt_programs_participant_id_fkey(
-            full_name,
-            department
-          )
-        `)
-        .eq("status", "active")
-        .order("start_date", { ascending: false }),
+    const [programRes, typeRes] =
+      await Promise.all([
+        supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            participant_id,
+            start_date,
+            end_date,
+            status,
+            site,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
+            )
+          `)
+          .eq("status", "active")
+          .order("start_date", {
+            ascending: false,
+          }),
 
-      supabase
-        .from("achievement_types")
-        .select("code,name"),
-    ]);
+        supabase
+          .from("achievement_types")
+          .select("code,name"),
+      ]);
 
-    if (programRes.error) throw programRes.error;
-    if (typeRes.error) throw typeRes.error;
+    if (programRes.error) {
+      throw new Error(
+        `Program OJT: ${programRes.error.message}`
+      );
+    }
+
+    if (typeRes.error) {
+      throw new Error(
+        `Kategori Pencapaian: ${typeRes.error.message}`
+      );
+    }
 
     const dataPrograms = programRes.data || [];
-    const ids = dataPrograms.map((p) => p.id);
-
-    setPrograms(dataPrograms);
-    setAchievementTypes(typeRes.data || []);
+    const ids = dataPrograms.map(
+      (program) => program.id
+    );
 
     if (!ids.length) {
+      setPrograms([]);
+      setAchievementTypes(typeRes.data || []);
       setAchievements([]);
       setPostTests([]);
       setPractices([]);
@@ -212,17 +263,23 @@ export default function MentorDashboard() {
     ] = await Promise.all([
       supabase
         .from("achievement_records")
-        .select("id,program_id,type_code,status")
+        .select(
+          "id,program_id,type_code,status"
+        )
         .in("program_id", ids),
 
       supabase
         .from("post_test_scores")
-        .select("id,program_id,score,test_date")
+        .select(
+          "id,program_id,score,test_date"
+        )
         .in("program_id", ids),
 
       supabase
         .from("weekly_practice_scores")
-        .select("id,program_id,score,practice_date")
+        .select(
+          "id,program_id,score,practice_date"
+        )
         .in("program_id", ids),
 
       supabase
@@ -263,6 +320,10 @@ export default function MentorDashboard() {
       }
     }
 
+    // Perbarui data hanya setelah seluruh
+    // permintaan Supabase berhasil.
+    setPrograms(dataPrograms);
+    setAchievementTypes(typeRes.data || []);
     setAchievements(achievementRes.data || []);
     setPostTests(postTestRes.data || []);
     setPractices(practiceRes.data || []);
@@ -288,14 +349,18 @@ export default function MentorDashboard() {
           return;
         }
 
-        const { data: profile, error: profileError } =
-          await supabase
-            .from("profiles")
-            .select("id,full_name,role")
-            .eq("id", user.id)
-            .single();
+        const {
+          data: profile,
+          error: profileError,
+        } = await supabase
+          .from("profiles")
+          .select("id,full_name,role")
+          .eq("id", user.id)
+          .single();
 
-        if (profileError) throw profileError;
+        if (profileError) {
+          throw profileError;
+        }
 
         if (profile?.role !== "mentor") {
           router.replace("/dashboard-peserta");
@@ -309,11 +374,14 @@ export default function MentorDashboard() {
       } catch (err) {
         if (active) {
           setError(
-            err.message || "Gagal memuat dashboard."
+            err.message ||
+              "Gagal memuat dashboard."
           );
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
@@ -325,6 +393,8 @@ export default function MentorDashboard() {
   }, [router]);
 
   async function refresh() {
+    if (refreshing) return;
+
     setRefreshing(true);
     setError("");
 
@@ -332,7 +402,8 @@ export default function MentorDashboard() {
       await fetchDashboard();
     } catch (err) {
       setError(
-        err.message || "Gagal memperbarui data."
+        err.message ||
+          "Gagal memperbarui dashboard."
       );
     } finally {
       setRefreshing(false);
@@ -344,72 +415,220 @@ export default function MentorDashboard() {
     router.replace("/login");
   }
 
-  const totalPrograms = programs.length;
+  // Peta kategori pencapaian yang valid.
+  const achievementCodeMap = useMemo(() => {
+    const map = new Map();
 
-  const simperPassed = simper.filter(
-    (r) => r.status === "passed"
-  ).length;
+    for (const name of ACHIEVEMENTS) {
+      const type = achievementTypes.find(
+        (item) =>
+          normalizeName(item.name) ===
+          normalizeName(name)
+      );
 
-  const totalVerified = achievements.filter(
-    (r) => r.status === "verified"
-  ).length;
+      if (type) {
+        map.set(name, type.code);
+      }
+    }
 
-  const overallAverage = average(postTests);
+    return map;
+  }, [achievementTypes]);
 
-  function getParticipantData(programId) {
-    const a = achievements.filter(
-      (r) => r.program_id === programId
+  // Menghitung satu kali untuk setiap program.
+  const participantData = useMemo(() => {
+    const result = {};
+
+    for (const program of programs) {
+      const programId = program.id;
+
+      const a = achievements.filter(
+        (row) => row.program_id === programId
+      );
+
+      const pt = postTests.filter(
+        (row) => row.program_id === programId
+      );
+
+      const pr = practices.filter(
+        (row) => row.program_id === programId
+      );
+
+      const sm = samapta.filter(
+        (row) => row.program_id === programId
+      );
+
+      const simperRows = simper.filter(
+        (row) => row.program_id === programId
+      );
+
+      // Jika terdapat beberapa catatan SIMPER,
+      // utamakan catatan berstatus lulus.
+      const sp =
+        simperRows.find(
+          (row) => row.status === "passed"
+        ) ||
+        simperRows[0] ||
+        null;
+
+      const verifiedCodes = new Set(
+        a
+          .filter(
+            (row) => row.status === "verified"
+          )
+          .map((row) => row.type_code)
+      );
+
+      const verifiedCategories =
+        ACHIEVEMENTS.filter((name) => {
+          const code =
+            achievementCodeMap.get(name);
+
+          return (
+            code &&
+            verifiedCodes.has(code)
+          );
+        });
+
+      const achievementProgress = Math.round(
+        (verifiedCategories.length / 6) * 100
+      );
+
+      const passedStages = sp
+        ? [
+            sp.administration_status,
+            sp.training_status,
+            sp.theory_status,
+            sp.practice_status,
+          ].filter(
+            (status) => status === "passed"
+          ).length
+        : 0;
+
+      const simperProgress =
+        sp?.status === "passed"
+          ? 100
+          : passedStages * 25;
+
+      const passedSamapta = sm.filter(
+        (row) => row.outcome === "pass"
+      ).length;
+
+      const failedSamapta = sm.filter(
+        (row) => row.outcome === "fail"
+      ).length;
+
+      result[programId] = {
+        a,
+        pt,
+        pr,
+        sm,
+        sp,
+        verifiedCategories,
+        achievementProgress,
+        passedStages,
+        simperProgress,
+        passedSamapta,
+        failedSamapta,
+      };
+    }
+
+    return result;
+  }, [
+    programs,
+    achievements,
+    postTests,
+    practices,
+    samapta,
+    simper,
+    achievementCodeMap,
+  ]);
+
+  // Filter berdasarkan site dan nama peserta.
+  const filteredPrograms = useMemo(() => {
+    const keyword = normalizeName(search);
+
+    return programs.filter((program) => {
+      const matchSite =
+        siteFilter === "ALL" ||
+        program.site === siteFilter;
+
+      const participantName =
+        normalizeName(
+          program.peserta?.full_name
+        );
+
+      const matchName =
+        !keyword ||
+        participantName.includes(keyword);
+
+      return matchSite && matchName;
+    });
+  }, [programs, siteFilter, search]);
+
+  // Ringkasan mengikuti filter yang dipilih.
+  const summary = useMemo(() => {
+    const ids = new Set(
+      filteredPrograms.map(
+        (program) => program.id
+      )
     );
 
-    const pt = postTests.filter(
-      (r) => r.program_id === programId
+    const filteredPostTests = postTests.filter(
+      (row) => ids.has(row.program_id)
     );
 
-    const pr = practices.filter(
-      (r) => r.program_id === programId
-    );
+    const verifiedTotal =
+      filteredPrograms.reduce(
+        (total, program) => {
+          const data =
+            participantData[program.id];
 
-    const sm = samapta.filter(
-      (r) => r.program_id === programId
-    );
+          return (
+            total +
+            (data?.verifiedCategories.length || 0)
+          );
+        },
+        0
+      );
 
-    const sp = simper.find(
-      (r) => r.program_id === programId
-    );
+    const simperPassed =
+      filteredPrograms.filter(
+        (program) =>
+          participantData[program.id]
+            ?.sp?.status === "passed"
+      ).length;
 
-    const passedStages = sp
-      ? [
-          sp.administration_status,
-          sp.training_status,
-          sp.theory_status,
-          sp.practice_status,
-        ].filter((s) => s === "passed").length
-      : 0;
+    const progressTotal =
+      filteredPrograms.reduce(
+        (total, program) =>
+          total +
+          (participantData[program.id]
+            ?.achievementProgress || 0),
+        0
+      );
 
-    const simperProgress = passedStages * 25;
-
-    const verifiedCategories = new Set(
-      a
-        .filter((r) => r.status === "verified")
-        .map((r) => r.type_code)
-    );
-
-    const achievementProgress = Math.round(
-      (verifiedCategories.size / 6) * 100
-    );
+    const averageProgress =
+      filteredPrograms.length
+        ? Math.round(
+            progressTotal /
+              filteredPrograms.length
+          )
+        : 0;
 
     return {
-      a,
-      pt,
-      pr,
-      sm,
-      sp,
-      simperProgress,
-      passedStages,
-      verifiedCategories,
-      achievementProgress,
+      totalPrograms: filteredPrograms.length,
+      simperPassed,
+      verifiedTotal,
+      averageProgress,
+      postTestAverage: average(
+        filteredPostTests
+      ),
     };
-  }
+  }, [
+    filteredPrograms,
+    postTests,
+    participantData,
+  ]);
 
   return (
     <main
@@ -435,7 +654,7 @@ export default function MentorDashboard() {
         <header
           style={{
             background: "#0f172a",
-            color: "white",
+            color: "#ffffff",
             padding: 24,
             borderRadius: 18,
             marginBottom: 18,
@@ -455,7 +674,9 @@ export default function MentorDashboard() {
           {mentor && (
             <p>
               Selamat datang,{" "}
-              <strong>{mentor.full_name}</strong>
+              <strong>
+                {mentor.full_name}
+              </strong>
             </p>
           )}
 
@@ -492,7 +713,6 @@ export default function MentorDashboard() {
               style={{
                 ...BUTTON,
                 width: "auto",
-                background: "#2563eb",
               }}
             >
               👥 Monitoring Peserta
@@ -511,7 +731,7 @@ export default function MentorDashboard() {
                 background: "#7c3aed",
               }}
             >
-              ➕ Daftarkan Peserta
+              ➕ Pendaftaran Peserta
             </button>
 
             <button
@@ -546,7 +766,8 @@ export default function MentorDashboard() {
           <section style={CARD}>
             <h3>Memuat Dashboard...</h3>
             <p>
-              Mengambil data peserta dari Supabase.
+              Mengambil data peserta dari
+              Supabase.
             </p>
           </section>
         ) : !mentor ? (
@@ -556,7 +777,9 @@ export default function MentorDashboard() {
         ) : (
           <>
             <section style={CARD}>
-              <h2>Ringkasan Keseluruhan OJT</h2>
+              <h2 style={{ marginTop: 0 }}>
+                Ringkasan Monitoring OJT
+              </h2>
 
               <div
                 style={{
@@ -568,47 +791,165 @@ export default function MentorDashboard() {
               >
                 <Stat
                   title="Peserta OJT Aktif"
-                  value={totalPrograms}
+                  value={summary.totalPrograms}
+                  subtitle="Sesuai filter"
+                />
+
+                <Stat
+                  title="Rata-rata Pencapaian"
+                  value={`${summary.averageProgress}%`}
+                  subtitle="Enam kategori OJT"
                 />
 
                 <Stat
                   title="SIMPER Lulus"
-                  value={simperPassed}
+                  value={summary.simperPassed}
+                  subtitle="Jumlah program unik"
                 />
 
                 <Stat
                   title="Pencapaian Terverifikasi"
-                  value={totalVerified}
+                  value={summary.verifiedTotal}
+                  subtitle="Kategori yang selesai"
                 />
 
                 <Stat
                   title="Rata-rata Post-Test"
-                  value={overallAverage}
+                  value={summary.postTestAverage}
+                  subtitle="Nilai teori"
+                />
+
+                <Stat
+                  title="Site Terisi"
+                  value={
+                    filteredPrograms.filter(
+                      (program) =>
+                        Boolean(program.site)
+                    ).length
+                  }
+                  subtitle="Program dengan site"
                 />
               </div>
             </section>
 
+            <section style={CARD}>
+              <h2 style={{ marginTop: 0 }}>
+                Filter Monitoring
+              </h2>
+
+              <label
+                htmlFor="site-filter"
+                style={{
+                  display: "block",
+                  fontWeight: 700,
+                  marginBottom: 8,
+                }}
+              >
+                Site Penempatan OJT
+              </label>
+
+              <select
+                id="site-filter"
+                value={siteFilter}
+                onChange={(event) =>
+                  setSiteFilter(
+                    event.target.value
+                  )
+                }
+                style={{
+                  width: "100%",
+                  padding: 13,
+                  border: "1px solid #cbd5e1",
+                  borderRadius: 10,
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontSize: 16,
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="ALL">
+                  Semua Site
+                </option>
+
+                {SITES.map((site) => (
+                  <option
+                    key={site}
+                    value={site}
+                  >
+                    {site}
+                  </option>
+                ))}
+              </select>
+
+              <label
+                htmlFor="participant-search"
+                style={{
+                  display: "block",
+                  fontWeight: 700,
+                  marginTop: 16,
+                  marginBottom: 8,
+                }}
+              >
+                Cari Nama Peserta
+              </label>
+
+              <input
+                id="participant-search"
+                type="search"
+                value={search}
+                onChange={(event) =>
+                  setSearch(
+                    event.target.value
+                  )
+                }
+                placeholder="Ketik nama peserta..."
+                style={{
+                  width: "100%",
+                  padding: 13,
+                  border: "1px solid #cbd5e1",
+                  borderRadius: 10,
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontSize: 16,
+                  boxSizing: "border-box",
+                }}
+              />
+
+              <p
+                style={{
+                  color: "#64748b",
+                  fontSize: 13,
+                  marginBottom: 0,
+                }}
+              >
+                Menampilkan{" "}
+                <strong>
+                  {filteredPrograms.length}
+                </strong>{" "}
+                dari{" "}
+                <strong>
+                  {programs.length}
+                </strong>{" "}
+                program OJT aktif.
+              </p>
+            </section>
+
             <h2>Monitoring Per Peserta</h2>
 
-            {programs.length === 0 && (
+            {filteredPrograms.length === 0 && (
               <section style={CARD}>
                 <p>
-                  Belum ada peserta OJT dengan
-                  status program aktif.
+                  Tidak ada peserta yang
+                  sesuai dengan filter.
                 </p>
               </section>
             )}
 
-            {programs.map((program) => {
-              const d = getParticipantData(program.id);
+            {filteredPrograms.map((program) => {
+              const d =
+                participantData[program.id];
 
-              const passedSamapta = d.sm.filter(
-                (r) => r.outcome === "pass"
-              ).length;
-
-              const failedSamapta = d.sm.filter(
-                (r) => r.outcome === "fail"
-              ).length;
+              if (!d) return null;
 
               return (
                 <section
@@ -618,9 +959,12 @@ export default function MentorDashboard() {
                   <div
                     style={{
                       display: "flex",
-                      justifyContent: "space-between",
+                      justifyContent:
+                        "space-between",
+                      alignItems:
+                        "flex-start",
+                      flexWrap: "wrap",
                       gap: 12,
-                      alignItems: "flex-start",
                     }}
                   >
                     <div>
@@ -630,7 +974,8 @@ export default function MentorDashboard() {
                           marginBottom: 8,
                         }}
                       >
-                        {program.peserta?.full_name ||
+                        {program.peserta
+                          ?.full_name ||
                           "Peserta OJT"}
                       </h2>
 
@@ -640,8 +985,21 @@ export default function MentorDashboard() {
                           margin: "4px 0",
                         }}
                       >
-                        {program.peserta?.department ||
+                        {program.peserta
+                          ?.department ||
                           "Departemen belum diisi"}
+                      </p>
+
+                      <p
+                        style={{
+                          color: "#475569",
+                          fontWeight: 700,
+                          margin: "8px 0",
+                        }}
+                      >
+                        Site:{" "}
+                        {program.site ||
+                          "Belum Ditentukan"}
                       </p>
 
                       <p
@@ -668,7 +1026,6 @@ export default function MentorDashboard() {
                         padding: "6px 10px",
                         fontSize: 12,
                         fontWeight: 700,
-                        whiteSpace: "nowrap",
                       }}
                     >
                       Aktif
@@ -683,15 +1040,24 @@ export default function MentorDashboard() {
                       marginBottom: 12,
                     }}
                   >
-                    <h3>Enam Pencapaian OJT</h3>
+                    <h3>
+                      Enam Pencapaian OJT
+                    </h3>
 
                     <p>
-                      {d.verifiedCategories.size} dari
-                      6 kategori terverifikasi
+                      {
+                        d.verifiedCategories
+                          .length
+                      }{" "}
+                      dari 6 kategori
+                      terverifikasi
                     </p>
 
                     <ProgressBar
-                      value={d.achievementProgress}
+                      value={
+                        d.achievementProgress
+                      }
+                      color="#0f766e"
                     />
 
                     <p
@@ -710,40 +1076,36 @@ export default function MentorDashboard() {
                         gap: 6,
                       }}
                     >
-                      {ACHIEVEMENTS.map((name) => {
-                        const type =
-                          achievementTypes.find(
-                            (t) =>
-                              t.name.toLowerCase() ===
-                              name.toLowerCase()
-                          );
+                      {ACHIEVEMENTS.map(
+                        (name) => {
+                          const done =
+                            d.verifiedCategories.includes(
+                              name
+                            );
 
-                        const done =
-                          type &&
-                          d.verifiedCategories.has(
-                            type.code
+                          return (
+                            <span
+                              key={name}
+                              style={{
+                                padding: "6px 9px",
+                                borderRadius: 8,
+                                background: done
+                                  ? "#dcfce7"
+                                  : "#e2e8f0",
+                                color: done
+                                  ? "#166534"
+                                  : "#475569",
+                                fontSize: 12,
+                              }}
+                            >
+                              {done
+                                ? "✓ "
+                                : "○ "}
+                              {name}
+                            </span>
                           );
-
-                        return (
-                          <span
-                            key={name}
-                            style={{
-                              padding: "6px 9px",
-                              borderRadius: 8,
-                              background: done
-                                ? "#dcfce7"
-                                : "#e2e8f0",
-                              color: done
-                                ? "#166534"
-                                : "#475569",
-                              fontSize: 12,
-                            }}
-                          >
-                            {done ? "✓ " : "○ "}
-                            {name}
-                          </span>
-                        );
-                      })}
+                        }
+                      )}
                     </div>
                   </div>
 
@@ -759,24 +1121,28 @@ export default function MentorDashboard() {
                     <Stat
                       title="Post-Test Teori"
                       value={average(d.pt)}
-                      subtitle={`${d.pt.length} tes • rata-rata nilai`}
+                      subtitle={`${d.pt.length} tes`}
                     />
 
                     <Stat
                       title="Praktik Mingguan"
                       value={average(d.pr)}
-                      subtitle={`${d.pr.length} penilaian • rata-rata nilai`}
+                      subtitle={`${d.pr.length} penilaian`}
                     />
 
                     <Stat
                       title="Samapta Lulus"
-                      value={passedSamapta}
-                      subtitle={`${d.sm.length} tes • ${failedSamapta} tidak lulus • rata-rata ${average(d.sm)}`}
+                      value={
+                        d.passedSamapta
+                      }
+                      subtitle={`${d.sm.length} tes • ${d.failedSamapta} tidak lulus • rata-rata ${average(d.sm)}`}
                     />
 
                     <Stat
                       title="Status SIMPER"
-                      value={statusLabel(d.sp?.status)}
+                      value={statusLabel(
+                        d.sp?.status
+                      )}
                       subtitle={`${d.passedStages} dari 4 tahapan lulus`}
                     />
                   </div>
@@ -784,18 +1150,25 @@ export default function MentorDashboard() {
                   <div
                     style={{
                       background: "#f5f3ff",
-                      border: "1px solid #ddd6fe",
+                      border:
+                        "1px solid #ddd6fe",
                       borderRadius: 12,
                       padding: 14,
                       marginBottom: 16,
                     }}
                   >
-                    <h3 style={{ marginTop: 0 }}>
+                    <h3
+                      style={{
+                        marginTop: 0,
+                      }}
+                    >
                       Progres SIMPER
                     </h3>
 
                     <ProgressBar
-                      value={d.simperProgress}
+                      value={
+                        d.simperProgress
+                      }
                       color="#7c3aed"
                     />
 
