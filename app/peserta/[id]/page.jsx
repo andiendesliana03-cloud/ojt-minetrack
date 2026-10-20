@@ -941,6 +941,32 @@ export default function DetailPeserta() {
           </button>
         </section>
 
+        {/* HALAMAN MONITORING SAMAPTA */}
+        <section style={card}>
+          <h2>Monitoring Samapta</h2>
+
+          <p style={{ color: "#64748b" }}>
+            Input hasil tes kesamaptaan peserta OJT
+            berdasarkan tanggal pelaksanaan,
+            jenis tes, hasil pengukuran,
+            nilai evaluasi, dan catatan Mentor.
+          </p>
+
+          <button
+            type="button"
+            onClick={() =>
+              router.push(`/samapta/${programId}`)
+            }
+            style={{
+              ...tombol,
+              background: "#16a34a",
+              width: "100%",
+            }}
+          >
+            🏃 Buka Monitoring Samapta →
+          </button>
+        </section>
+
         <h2>Enam Pencapaian OJT</h2>
 
         {kategori.map((item) => {
