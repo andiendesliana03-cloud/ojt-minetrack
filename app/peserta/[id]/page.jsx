@@ -252,7 +252,7 @@ export default function DetailPeserta() {
     setPesan("");
 
     try {
-      const input = {
+      const dataInput = {
         type_code: jenis,
         activity_date: tanggal,
         description: deskripsi.trim(),
@@ -263,14 +263,14 @@ export default function DetailPeserta() {
       const hasil = editId
         ? await supabase
             .from("achievement_records")
-            .update(input)
+            .update(dataInput)
             .eq("id", editId)
             .eq("program_id", programId)
             .select("id")
         : await supabase
             .from("achievement_records")
             .insert({
-              ...input,
+              ...dataInput,
               program_id: programId,
             })
             .select("id");
@@ -283,10 +283,7 @@ export default function DetailPeserta() {
 
       await muatCatatan();
       resetPencapaian();
-
-      setPesan(
-        "Pencapaian berhasil disimpan. Status Pending."
-      );
+      setPesan("Pencapaian berhasil disimpan.");
     } catch (err) {
       setError(err.message || "Gagal menyimpan pencapaian.");
     } finally {
@@ -333,6 +330,7 @@ export default function DetailPeserta() {
         .select("id");
 
       if (err) throw err;
+
       if (!data?.length) {
         throw new Error("Pencapaian tidak dapat diverifikasi.");
       }
@@ -368,6 +366,7 @@ export default function DetailPeserta() {
         .select("id");
 
       if (err) throw err;
+
       if (!data?.length) {
         throw new Error("Pencapaian tidak terhapus.");
       }
@@ -410,7 +409,7 @@ export default function DetailPeserta() {
     setPesan("");
 
     try {
-      const input = {
+      const dataInput = {
         test_date: tanggalTes,
         score: nilai,
         notes: catatanTes.trim() || null,
@@ -419,14 +418,14 @@ export default function DetailPeserta() {
       const hasil = editTesId
         ? await supabase
             .from("post_test_scores")
-            .update(input)
+            .update(dataInput)
             .eq("id", editTesId)
             .eq("program_id", programId)
             .select("id")
         : await supabase
             .from("post_test_scores")
             .insert({
-              ...input,
+              ...dataInput,
               program_id: programId,
               created_by: mentor.id,
             })
@@ -440,7 +439,6 @@ export default function DetailPeserta() {
 
       await muatPostTests();
       resetTes();
-
       setPesan("Nilai Post-Test berhasil disimpan.");
     } catch (err) {
       setError(err.message || "Gagal menyimpan Post-Test.");
@@ -484,6 +482,7 @@ export default function DetailPeserta() {
         .select("id");
 
       if (err) throw err;
+
       if (!data?.length) {
         throw new Error("Nilai tidak terhapus.");
       }
@@ -917,7 +916,7 @@ export default function DetailPeserta() {
           ))}
         </section>
 
-        {/* HALAMAN PRAKTIK MINGGUAN */}
+        {/* PENILAIAN PRAKTIK MINGGUAN */}
         <section style={card}>
           <h2>Penilaian Praktik Mingguan</h2>
 
@@ -941,15 +940,13 @@ export default function DetailPeserta() {
           </button>
         </section>
 
-        {/* HALAMAN MONITORING SAMAPTA */}
+        {/* MONITORING SAMAPTA */}
         <section style={card}>
           <h2>Monitoring Samapta</h2>
 
           <p style={{ color: "#64748b" }}>
-            Input hasil tes kesamaptaan peserta OJT
-            berdasarkan tanggal pelaksanaan,
-            jenis tes, hasil pengukuran,
-            nilai evaluasi, dan catatan Mentor.
+            Input hasil tes fisik, nilai evaluasi,
+            tanggal pelaksanaan, dan status kelulusan.
           </p>
 
           <button
@@ -964,6 +961,31 @@ export default function DetailPeserta() {
             }}
           >
             🏃 Buka Monitoring Samapta →
+          </button>
+        </section>
+
+        {/* MONITORING SIMPER */}
+        <section style={card}>
+          <h2>Monitoring SIMPER</h2>
+
+          <p style={{ color: "#64748b" }}>
+            Pantau administrasi, training, ujian teori,
+            ujian praktik, pengajuan, dan status
+            kelulusan SIMPER peserta OJT.
+          </p>
+
+          <button
+            type="button"
+            onClick={() =>
+              router.push(`/simper/${programId}`)
+            }
+            style={{
+              ...tombol,
+              background: "#7c3aed",
+              width: "100%",
+            }}
+          >
+            🚗 Buka Monitoring SIMPER →
           </button>
         </section>
 
