@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
 const card = {
-  background: "#ffffff",
+  background: "rgba(255,255,255,0.96)",
   border: "1px solid #e2e8f0",
   borderRadius: 14,
   padding: 18,
@@ -15,7 +15,7 @@ const card = {
 
 const tombol = {
   background: "#2563eb",
-  color: "#ffffff",
+  color: "white",
   border: "none",
   borderRadius: 10,
   padding: "12px 16px",
@@ -30,17 +30,36 @@ const inputStyle = {
   borderRadius: 10,
   border: "1px solid #cbd5e1",
   marginBottom: 16,
+  fontSize: 16,
   fontFamily: "inherit",
-  fontSize: 15,
+  color: "#0f172a",
 };
 
-function tanggalHariIni() {
-  const sekarang = new Date();
+const halaman = {
+  minHeight: "100vh",
+  padding: 18,
+  fontFamily: "Arial, sans-serif",
+  color: "#0f172a",
+  backgroundColor: "#f1f5f9",
+  backgroundImage:
+    'linear-gradient(rgba(241,245,249,0.82),rgba(241,245,249,0.92)),url("/background-erg.png.PNG")',
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
+};
+
+function hariIni() {
+  const d = new Date();
   const lokal = new Date(
-    sekarang.getTime() -
-      sekarang.getTimezoneOffset() * 60000
+    d.getTime() - d.getTimezoneOffset() * 60000
   );
   return lokal.toISOString().slice(0, 10);
+}
+
+function formatTanggal(tanggal) {
+  if (!tanggal) return "-";
+  const [tahun, bulan, hari] = tanggal.split("-");
+  return `${hari}/${bulan}/${tahun}`;
 }
 
 export default function DetailPeserta() {
@@ -52,16 +71,23 @@ export default function DetailPeserta() {
   const [program, setProgram] = useState(null);
   const [kategori, setKategori] = useState([]);
   const [catatan, setCatatan] = useState([]);
+  const [postTests, setPostTests] = useState([]);
 
   const [jenis, setJenis] = useState("");
-  const [tanggal, setTanggal] = useState(tanggalHariIni);
+  const [tanggal, setTanggal] = useState(hariIni);
   const [deskripsi, setDeskripsi] = useState("");
-
   const [editId, setEditId] = useState(null);
+
+  const [tanggalTes, setTanggalTes] = useState(hariIni);
+  const [nilaiTes, setNilaiTes] = useState("");
+  const [catatanTes, setCatatanTes] = useState("");
+  const [editTesId, setEditTesId] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [menyimpan, setMenyimpan] = useState(false);
+  const [menyimpanTes, setMenyimpanTes] = useState(false);
   const [aksiId, setAksiId] = useState(null);
-
+  const [aksiTesId, setAksiTesId] = useState(null);
   const [error, setError] = useState("");
   const [pesan, setPesan] = useState("");
 
@@ -69,14 +95,24 @@ export default function DetailPeserta() {
     const { data, error: err } = await supabase
       .from("achievement_records")
       .select(
-        "id, type_code, activity_date, description, status, verified_by, created_at"
+        "id,type_code,activity_date,description,status,verified_by,created_at"
       )
       .eq("program_id", programId)
       .order("activity_date", { ascending: false });
 
     if (err) throw err;
-
     setCatatan(data || []);
+  }
+
+  async function muatPostTests() {
+    const { data, error: err } = await supabase
+      .from("post_test_scores")
+      .select("id,test_date,score,notes,created_at")
+      .eq("program_id", programId)
+      .order("test_date", { ascending: false });
+
+    if (err) throw err;
+    setPostTests(data || []);
   }
 
   useEffect(() => {
@@ -86,12 +122,15 @@ export default function DetailPeserta() {
 
     async function mulai() {
       setLoading(true);
+      setError("");
 
       try {
-        const { data: auth, error: authError } =
-          await supabase.auth.getUser();
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
 
-        if (authError || !auth.user) {
+        if (authError || !user) {
           router.replace("/login");
           return;
         }
@@ -99,11 +138,16 @@ export default function DetailPeserta() {
         const { data: profil, error: profilError } =
           await supabase
             .from("profiles")
-            .select("id, full_name, role")
-            .eq("id", auth.user.id)
+            .select("id,full_name,role")
+            .eq("id", user.id)
             .single();
 
         if (profilError) throw profilError;
+
+        if (profil?.role === "participant") {
+          router.replace("/peserta");
+          return;
+        }
 
         if (profil?.role !== "mentor") {
           throw new Error(
@@ -115,13 +159,9 @@ export default function DetailPeserta() {
           await supabase
             .from("ojt_programs")
             .select(`
-              id,
-              start_date,
-              end_date,
-              status,
+              id,start_date,end_date,status,
               peserta:profiles!ojt_programs_participant_id_fkey(
-                full_name,
-                department
+                full_name,department
               )
             `)
             .eq("id", programId)
@@ -132,7 +172,7 @@ export default function DetailPeserta() {
         const { data: jenisData, error: jenisError } =
           await supabase
             .from("achievement_types")
-            .select("code, name")
+            .select("code,name")
             .order("name");
 
         if (jenisError) throw jenisError;
@@ -141,12 +181,21 @@ export default function DetailPeserta() {
           await supabase
             .from("achievement_records")
             .select(
-              "id, type_code, activity_date, description, status, verified_by, created_at"
+              "id,type_code,activity_date,description,status,verified_by,created_at"
             )
             .eq("program_id", programId)
             .order("activity_date", { ascending: false });
 
         if (riwayatError) throw riwayatError;
+
+        const { data: nilai, error: nilaiError } =
+          await supabase
+            .from("post_test_scores")
+            .select("id,test_date,score,notes,created_at")
+            .eq("program_id", programId)
+            .order("test_date", { ascending: false });
+
+        if (nilaiError) throw nilaiError;
 
         if (!aktif) return;
 
@@ -154,10 +203,8 @@ export default function DetailPeserta() {
         setProgram(dataProgram);
         setKategori(jenisData || []);
         setCatatan(riwayat || []);
-
-        if (jenisData?.length) {
-          setJenis(jenisData[0].code);
-        }
+        setPostTests(nilai || []);
+        setJenis(jenisData?.[0]?.code || "");
       } catch (err) {
         if (aktif) {
           setError(err.message || "Gagal memuat data.");
@@ -174,11 +221,18 @@ export default function DetailPeserta() {
     };
   }, [programId, router]);
 
-  function bersihkanForm() {
+  function resetPencapaian() {
     setEditId(null);
     setJenis(kategori[0]?.code || "");
-    setTanggal(tanggalHariIni());
+    setTanggal(hariIni());
     setDeskripsi("");
+  }
+
+  function resetTes() {
+    setEditTesId(null);
+    setTanggalTes(hariIni());
+    setNilaiTes("");
+    setCatatanTes("");
   }
 
   async function simpanPencapaian(e) {
@@ -188,7 +242,7 @@ export default function DetailPeserta() {
 
     if (!jenis || !tanggal || deskripsi.trim().length < 10) {
       setError(
-        "Lengkapi semua kolom. Keterangan minimal 10 karakter."
+        "Lengkapi data. Keterangan minimal 10 karakter."
       );
       return;
     }
@@ -198,7 +252,7 @@ export default function DetailPeserta() {
     setPesan("");
 
     try {
-      const dataInput = {
+      const input = {
         type_code: jenis,
         activity_date: tanggal,
         description: deskripsi.trim(),
@@ -206,51 +260,41 @@ export default function DetailPeserta() {
         verified_by: null,
       };
 
-      let hasil;
-
-      if (editId) {
-        hasil = await supabase
-          .from("achievement_records")
-          .update(dataInput)
-          .eq("id", editId)
-          .eq("program_id", programId)
-          .select("id");
-      } else {
-        hasil = await supabase
-          .from("achievement_records")
-          .insert({
-            ...dataInput,
-            program_id: programId,
-          })
-          .select("id");
-      }
+      const hasil = editId
+        ? await supabase
+            .from("achievement_records")
+            .update(input)
+            .eq("id", editId)
+            .eq("program_id", programId)
+            .select("id")
+        : await supabase
+            .from("achievement_records")
+            .insert({
+              ...input,
+              program_id: programId,
+            })
+            .select("id");
 
       if (hasil.error) throw hasil.error;
 
       if (!hasil.data?.length) {
-        throw new Error(
-          "Data tidak berubah. Periksa izin Mentor."
-        );
+        throw new Error("Pencapaian tidak tersimpan.");
       }
 
-      const sedangEdit = Boolean(editId);
-
       await muatCatatan();
-      bersihkanForm();
+      resetPencapaian();
 
       setPesan(
-        sedangEdit
-          ? "Pencapaian berhasil diperbarui. Status kembali Pending."
-          : "Pencapaian berhasil disimpan. Menunggu verifikasi Mentor."
+        "Pencapaian berhasil disimpan. Status Pending."
       );
     } catch (err) {
-      setError(err.message || "Gagal menyimpan data.");
+      setError(err.message || "Gagal menyimpan pencapaian.");
     } finally {
       setMenyimpan(false);
     }
   }
 
-  function mulaiEdit(item) {
+  function editPencapaian(item) {
     setEditId(item.id);
     setJenis(item.type_code);
     setTanggal(item.activity_date);
@@ -258,20 +302,19 @@ export default function DetailPeserta() {
     setError("");
     setPesan("");
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    document
+      .getElementById("form-pencapaian")
+      ?.scrollIntoView({ behavior: "smooth" });
   }
 
   async function verifikasi(item) {
     if (!mentor || aksiId) return;
 
-    const setuju = window.confirm(
-      "Verifikasi pencapaian ini sebagai Mentor?"
-    );
-
-    if (!setuju) return;
+    if (
+      !window.confirm(
+        "Verifikasi pencapaian ini sebagai Mentor?"
+      )
+    ) return;
 
     setAksiId(item.id);
     setError("");
@@ -290,11 +333,8 @@ export default function DetailPeserta() {
         .select("id");
 
       if (err) throw err;
-
       if (!data?.length) {
-        throw new Error(
-          "Pencapaian tidak dapat diverifikasi."
-        );
+        throw new Error("Pencapaian tidak dapat diverifikasi.");
       }
 
       await muatCatatan();
@@ -309,11 +349,11 @@ export default function DetailPeserta() {
   async function hapusPencapaian(item) {
     if (!mentor || aksiId) return;
 
-    const setuju = window.confirm(
-      "Yakin ingin menghapus pencapaian ini? Data yang dihapus tidak dapat dikembalikan."
-    );
-
-    if (!setuju) return;
+    if (
+      !window.confirm(
+        "Hapus pencapaian ini secara permanen?"
+      )
+    ) return;
 
     setAksiId(item.id);
     setError("");
@@ -328,31 +368,135 @@ export default function DetailPeserta() {
         .select("id");
 
       if (err) throw err;
-
       if (!data?.length) {
-        throw new Error(
-          "Data tidak terhapus. Periksa izin Mentor."
-        );
+        throw new Error("Pencapaian tidak terhapus.");
       }
 
-      if (editId === item.id) {
-        bersihkanForm();
-      }
+      if (editId === item.id) resetPencapaian();
 
       await muatCatatan();
       setPesan("Pencapaian berhasil dihapus.");
     } catch (err) {
-      setError(err.message || "Gagal menghapus data.");
+      setError(err.message || "Gagal menghapus pencapaian.");
     } finally {
       setAksiId(null);
     }
   }
 
-  function namaKategori(code) {
-    return (
-      kategori.find((item) => item.code === code)?.name ||
-      code
-    );
+  async function simpanPostTest(e) {
+    e.preventDefault();
+
+    if (!mentor || !program || menyimpanTes) return;
+
+    const nilai = Number(nilaiTes);
+
+    if (!tanggalTes) {
+      setError("Pilih tanggal pelaksanaan Post-Test.");
+      return;
+    }
+
+    if (
+      nilaiTes.trim() === "" ||
+      !Number.isFinite(nilai) ||
+      nilai < 0 ||
+      nilai > 100
+    ) {
+      setError("Nilai harus antara 0 dan 100.");
+      return;
+    }
+
+    setMenyimpanTes(true);
+    setError("");
+    setPesan("");
+
+    try {
+      const input = {
+        test_date: tanggalTes,
+        score: nilai,
+        notes: catatanTes.trim() || null,
+      };
+
+      const hasil = editTesId
+        ? await supabase
+            .from("post_test_scores")
+            .update(input)
+            .eq("id", editTesId)
+            .eq("program_id", programId)
+            .select("id")
+        : await supabase
+            .from("post_test_scores")
+            .insert({
+              ...input,
+              program_id: programId,
+              created_by: mentor.id,
+            })
+            .select("id");
+
+      if (hasil.error) throw hasil.error;
+
+      if (!hasil.data?.length) {
+        throw new Error("Nilai tidak berhasil disimpan.");
+      }
+
+      await muatPostTests();
+      resetTes();
+
+      setPesan("Nilai Post-Test berhasil disimpan.");
+    } catch (err) {
+      setError(err.message || "Gagal menyimpan Post-Test.");
+    } finally {
+      setMenyimpanTes(false);
+    }
+  }
+
+  function editPostTest(item) {
+    setEditTesId(item.id);
+    setTanggalTes(item.test_date);
+    setNilaiTes(String(item.score));
+    setCatatanTes(item.notes || "");
+    setError("");
+    setPesan("");
+
+    document
+      .getElementById("form-post-test")
+      ?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function hapusPostTest(item) {
+    if (!mentor || aksiTesId) return;
+
+    if (
+      !window.confirm(
+        "Hapus nilai Post-Test ini secara permanen?"
+      )
+    ) return;
+
+    setAksiTesId(item.id);
+    setError("");
+    setPesan("");
+
+    try {
+      const { data, error: err } = await supabase
+        .from("post_test_scores")
+        .delete()
+        .eq("id", item.id)
+        .eq("program_id", programId)
+        .select("id");
+
+      if (err) throw err;
+      if (!data?.length) {
+        throw new Error("Nilai tidak terhapus.");
+      }
+
+      if (editTesId === item.id) resetTes();
+
+      await muatPostTests();
+      setPesan("Nilai Post-Test berhasil dihapus.");
+    } catch (err) {
+      setError(err.message || "Gagal menghapus Post-Test.");
+    } finally {
+      setAksiTesId(null);
+    }
   }
 
   const totalVerified = catatan.filter(
@@ -363,18 +507,17 @@ export default function DetailPeserta() {
     (item) => item.status === "pending"
   ).length;
 
-  const halaman = {
-    minHeight: "100vh",
-    background: "#f1f5f9",
-    padding: 18,
-    fontFamily: "Arial, sans-serif",
-    color: "#0f172a",
-  };
+  const rataRata = postTests.length
+    ? postTests.reduce(
+        (jumlah, item) => jumlah + Number(item.score),
+        0
+      ) / postTests.length
+    : null;
 
   if (loading) {
     return (
       <main style={halaman}>
-        <h2>OJT MineTrack v2.0</h2>
+        <h2>Monitoring OJT</h2>
         <p>Memuat data peserta...</p>
       </main>
     );
@@ -385,8 +528,11 @@ export default function DetailPeserta() {
       <main style={halaman}>
         <section style={card}>
           <h2>Data Tidak Dapat Ditampilkan</h2>
-          <p style={{ color: "#b91c1c" }}>{error}</p>
+          <p style={{ color: "#b91c1c" }}>
+            {error || "Akses tidak tersedia."}
+          </p>
           <button
+            type="button"
             style={tombol}
             onClick={() => router.push("/")}
           >
@@ -402,24 +548,26 @@ export default function DetailPeserta() {
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
         <header
           style={{
-            background: "#0f172a",
+            background: "rgba(15,23,42,0.96)",
             color: "white",
             borderRadius: 16,
             padding: 24,
             marginBottom: 20,
           }}
         >
-          <h1>Detail Peserta OJT</h1>
-          <p>OJT MineTrack v2.0</p>
-          <small>Monitoring dan Evaluasi Mentor</small>
+          <h1>Monitoring OJT</h1>
+          <h3>Emergency Response Group</h3>
+          <p>PT Berau Coal 2026</p>
+          <small>Detail Peserta — Dashboard Mentor</small>
           <p>
             Mentor: <strong>{mentor.full_name}</strong>
           </p>
         </header>
 
         <button
-          style={{ ...tombol, marginBottom: 20 }}
+          type="button"
           onClick={() => router.push("/")}
+          style={{ ...tombol, marginBottom: 20 }}
         >
           ← Kembali ke Dashboard
         </button>
@@ -432,17 +580,23 @@ export default function DetailPeserta() {
             Departemen:{" "}
             {program.peserta?.department || "-"}
           </p>
-          <p>Mulai: {program.start_date}</p>
-          <p>Selesai: {program.end_date}</p>
+          <p>
+            Mulai: {formatTanggal(program.start_date)}
+          </p>
+          <p>
+            Selesai: {formatTanggal(program.end_date)}
+          </p>
           <p>Status: {program.status}</p>
         </section>
 
         <section style={card}>
           <h2>Ringkasan Pencapaian</h2>
+
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gridTemplateColumns:
+                "repeat(3,minmax(0,1fr))",
               gap: 10,
             }}
           >
@@ -455,9 +609,10 @@ export default function DetailPeserta() {
                 key={nama}
                 style={{
                   background: "#f8fafc",
-                  padding: 12,
                   borderRadius: 10,
+                  padding: 12,
                   textAlign: "center",
+                  minWidth: 0,
                 }}
               >
                 <small>{nama}</small>
@@ -467,7 +622,29 @@ export default function DetailPeserta() {
           </div>
         </section>
 
-        <section style={card}>
+        {error && (
+          <section style={card}>
+            <p
+              role="alert"
+              style={{
+                color: "#b91c1c",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {error}
+            </p>
+          </section>
+        )}
+
+        {pesan && (
+          <section style={card}>
+            <p style={{ color: "#15803d" }}>
+              {pesan}
+            </p>
+          </section>
+        )}
+
+        <section style={card} id="form-pencapaian">
           <h2>
             {editId
               ? "Edit Pencapaian OJT"
@@ -475,7 +652,7 @@ export default function DetailPeserta() {
           </h2>
 
           <p style={{ color: "#64748b" }}>
-            Hanya Mentor yang dapat mengelola pencapaian.
+            Input dan verifikasi pencapaian oleh Mentor.
           </p>
 
           <form onSubmit={simpanPencapaian}>
@@ -483,15 +660,19 @@ export default function DetailPeserta() {
             <select
               value={jenis}
               onChange={(e) => setJenis(e.target.value)}
-              required
               style={inputStyle}
+              required
             >
               {kategori.length === 0 && (
-                <option value="">Belum ada kategori</option>
+                <option value="">
+                  Belum ada kategori
+                </option>
               )}
-
               {kategori.map((item) => (
-                <option key={item.code} value={item.code}>
+                <option
+                  key={item.code}
+                  value={item.code}
+                >
                   {item.name}
                 </option>
               ))}
@@ -502,18 +683,18 @@ export default function DetailPeserta() {
               type="date"
               value={tanggal}
               onChange={(e) => setTanggal(e.target.value)}
-              required
               style={inputStyle}
+              required
             />
 
             <label>Keterangan Pencapaian</label>
             <textarea
               value={deskripsi}
               onChange={(e) => setDeskripsi(e.target.value)}
-              placeholder="Tuliskan kegiatan atau pencapaian peserta..."
               rows={5}
-              required
+              placeholder="Tuliskan kegiatan atau pencapaian peserta..."
               style={inputStyle}
+              required
             />
 
             <div
@@ -526,10 +707,7 @@ export default function DetailPeserta() {
               <button
                 type="submit"
                 disabled={menyimpan || !kategori.length}
-                style={{
-                  ...tombol,
-                  opacity: menyimpan ? 0.6 : 1,
-                }}
+                style={tombol}
               >
                 {menyimpan
                   ? "Menyimpan..."
@@ -541,7 +719,7 @@ export default function DetailPeserta() {
               {editId && (
                 <button
                   type="button"
-                  onClick={bersihkanForm}
+                  onClick={resetPencapaian}
                   style={{
                     ...tombol,
                     background: "#64748b",
@@ -554,17 +732,190 @@ export default function DetailPeserta() {
           </form>
         </section>
 
-        {error && (
-          <section style={card}>
-            <p style={{ color: "#b91c1c" }}>{error}</p>
-          </section>
-        )}
+        <section style={card} id="form-post-test">
+          <h2>Monitoring Post-Test Teori</h2>
 
-        {pesan && (
-          <section style={card}>
-            <p style={{ color: "#15803d" }}>{pesan}</p>
-          </section>
-        )}
+          <p style={{ color: "#64748b" }}>
+            Input nilai berdasarkan tanggal pelaksanaan
+            Post-Test yang sebenarnya.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(2,minmax(0,1fr))",
+              gap: 12,
+              marginBottom: 24,
+            }}
+          >
+            <div
+              style={{
+                background: "#eff6ff",
+                borderRadius: 12,
+                padding: 16,
+                textAlign: "center",
+              }}
+            >
+              <small>Total Post-Test</small>
+              <h2>{postTests.length}</h2>
+            </div>
+
+            <div
+              style={{
+                background: "#f0fdf4",
+                borderRadius: 12,
+                padding: 16,
+                textAlign: "center",
+              }}
+            >
+              <small>Rata-rata Nilai</small>
+              <h2>
+                {rataRata === null
+                  ? "-"
+                  : rataRata.toFixed(2)}
+              </h2>
+            </div>
+          </div>
+
+          <h3>
+            {editTesId
+              ? "Edit Nilai Post-Test"
+              : "Input Nilai Post-Test"}
+          </h3>
+
+          <form onSubmit={simpanPostTest}>
+            <label htmlFor="tanggal-tes">
+              Tanggal Pelaksanaan Post-Test
+            </label>
+            <input
+              id="tanggal-tes"
+              type="date"
+              value={tanggalTes}
+              onChange={(e) => setTanggalTes(e.target.value)}
+              required
+              style={inputStyle}
+            />
+
+            <label htmlFor="nilai-tes">
+              Nilai Post-Test (0–100)
+            </label>
+            <input
+              id="nilai-tes"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={nilaiTes}
+              onChange={(e) => setNilaiTes(e.target.value)}
+              placeholder="Contoh: 85"
+              required
+              style={inputStyle}
+            />
+
+            <label htmlFor="catatan-tes">
+              Catatan Evaluasi
+            </label>
+            <textarea
+              id="catatan-tes"
+              value={catatanTes}
+              onChange={(e) => setCatatanTes(e.target.value)}
+              placeholder="Materi ujian atau evaluasi peserta..."
+              rows={3}
+              style={inputStyle}
+            />
+
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="submit"
+                disabled={menyimpanTes}
+                style={tombol}
+              >
+                {menyimpanTes
+                  ? "Menyimpan..."
+                  : editTesId
+                  ? "Simpan Perubahan Nilai"
+                  : "Simpan Nilai Post-Test"}
+              </button>
+
+              {editTesId && (
+                <button
+                  type="button"
+                  onClick={resetTes}
+                  style={{
+                    ...tombol,
+                    background: "#64748b",
+                  }}
+                >
+                  Batal Edit
+                </button>
+              )}
+            </div>
+          </form>
+
+          <h3 style={{ marginTop: 28 }}>
+            Riwayat Nilai Post-Test
+          </h3>
+
+          {postTests.length === 0 && (
+            <p>Belum ada nilai Post-Test tersimpan.</p>
+          )}
+
+          {postTests.map((item) => (
+            <div
+              key={item.id}
+              style={{
+                border: "1px solid #e2e8f0",
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 12,
+              }}
+            >
+              <h3>Nilai: {item.score}</h3>
+              <p>
+                Tanggal Pelaksanaan:{" "}
+                {formatTanggal(item.test_date)}
+              </p>
+              <p>Catatan: {item.notes || "-"}</p>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={Boolean(aksiTesId)}
+                  onClick={() => editPostTest(item)}
+                  style={tombol}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(aksiTesId)}
+                  onClick={() => hapusPostTest(item)}
+                  style={{
+                    ...tombol,
+                    background: "#dc2626",
+                  }}
+                >
+                  {aksiTesId === item.id
+                    ? "Menghapus..."
+                    : "Hapus"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
 
         <h2>Enam Pencapaian OJT</h2>
 
@@ -577,14 +928,16 @@ export default function DetailPeserta() {
             (c) => c.status === "verified"
           ).length;
 
+          const pending = daftar.filter(
+            (c) => c.status === "pending"
+          ).length;
+
           return (
             <section key={item.code} style={card}>
               <h3>{item.name}</h3>
               <p>Total catatan: {daftar.length}</p>
               <p>Terverifikasi: {verified}</p>
-              <p>
-                Menunggu: {daftar.length - verified}
-              </p>
+              <p>Menunggu: {pending}</p>
             </section>
           );
         })}
@@ -599,9 +952,19 @@ export default function DetailPeserta() {
 
         {catatan.map((item) => (
           <section key={item.id} style={card}>
-            <h3>{namaKategori(item.type_code)}</h3>
-            <p>Tanggal: {item.activity_date}</p>
-            <p>{item.description}</p>
+            <h3>
+              {kategori.find(
+                (k) => k.code === item.type_code
+              )?.name || item.type_code}
+            </h3>
+
+            <p>
+              Tanggal: {formatTanggal(item.activity_date)}
+            </p>
+
+            <p style={{ overflowWrap: "anywhere" }}>
+              {item.description}
+            </p>
 
             <p>
               Status:{" "}
@@ -624,9 +987,8 @@ export default function DetailPeserta() {
             <div
               style={{
                 display: "flex",
-                flexWrap: "wrap",
                 gap: 8,
-                marginTop: 14,
+                flexWrap: "wrap",
               }}
             >
               {item.status === "pending" && (
@@ -648,7 +1010,7 @@ export default function DetailPeserta() {
               <button
                 type="button"
                 disabled={Boolean(aksiId)}
-                onClick={() => mulaiEdit(item)}
+                onClick={() => editPencapaian(item)}
                 style={tombol}
               >
                 Edit
@@ -673,10 +1035,11 @@ export default function DetailPeserta() {
           style={{
             textAlign: "center",
             padding: 24,
-            color: "#64748b",
+            color: "#475569",
           }}
         >
-          OJT MineTrack v2.0 — Dashboard Mentor
+          Monitoring OJT — Emergency Response Group
+          <p>© 2026 PT Berau Coal</p>
         </footer>
       </div>
     </main>
