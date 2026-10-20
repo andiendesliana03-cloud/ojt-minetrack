@@ -63,7 +63,11 @@ function date(value) {
     : "-";
 }
 
-function Bar({ name, pct, color = "#2563eb" }) {
+function Bar({
+  name,
+  pct,
+  color = "#2563eb",
+}) {
   return (
     <div style={{ marginBottom: 18 }}>
       <div
@@ -109,28 +113,37 @@ function ScoreList({
     <section style={box}>
       <h3>{title}</h3>
 
-      {!rows.length && <p>Belum ada data.</p>}
+      {!rows.length && (
+        <p>Belum ada data.</p>
+      )}
 
       {rows.map((r) => (
         <div
           key={r.id}
           style={{
             padding: "12px 0",
-            borderBottom: "1px solid #e2e8f0",
+            borderBottom:
+              "1px solid #e2e8f0",
           }}
         >
-          <strong>Nilai: {r.score ?? "-"}</strong>
+          <strong>
+            Nilai: {r.score ?? "-"}
+          </strong>
+
           <p style={{ margin: "5px 0" }}>
             Tanggal: {date(r[dateKey])}
           </p>
+
           {nameKey && r[nameKey] && (
             <p style={{ margin: "5px 0" }}>
               Jenis: {r[nameKey]}
             </p>
           )}
+
           {showOutcome && (
             <p style={{ margin: "5px 0" }}>
-              Hasil: {labels[r.outcome] || "-"}
+              Hasil:{" "}
+              {labels[r.outcome] || "-"}
             </p>
           )}
         </div>
@@ -139,14 +152,29 @@ function ScoreList({
   );
 }
 
-export default function OjtInsights({ id, mode }) {
+export default function OjtInsights({
+  id,
+  mode,
+}) {
   const router = useRouter();
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+
+  const [data, setData] =
+    useState(null);
+
+  const [error, setError] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(true);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setError(
+        "ID program OJT tidak tersedia."
+      );
+      setLoading(false);
+      return;
+    }
 
     let alive = true;
 
@@ -155,113 +183,247 @@ export default function OjtInsights({ id, mode }) {
         const {
           data: { user },
           error: authError,
-        } = await supabase.auth.getUser();
+        } =
+          await supabase.auth.getUser();
 
         if (authError || !user) {
           router.replace("/login");
           return;
         }
 
-        const { data: profile, error: profileError } =
-          await supabase
-            .from("profiles")
-            .select("id,full_name,role")
-            .eq("id", user.id)
-            .single();
+        // 1. Periksa profil login.
+        const {
+          data: profile,
+          error: profileError,
+        } = await supabase
+          .from("profiles")
+          .select(
+            "id,full_name,role"
+          )
+          .eq("id", user.id)
+          .single();
 
-        if (profileError) throw profileError;
-
-        const { data: program, error: programError } =
-          await supabase
-            .from("ojt_programs")
-            .select(`
-              id,participant_id,start_date,end_date,status,
-              peserta:profiles!ojt_programs_participant_id_fkey(
-                full_name,department
-              )
-            `)
-            .eq("id", id)
-            .single();
-
-        if (programError) throw programError;
-
-        if (
-          profile.role !== "mentor" &&
-          program.participant_id !== user.id
-        ) {
+        if (profileError || !profile) {
           throw new Error(
-            "Anda tidak memiliki akses ke data peserta ini."
+            "Profil akun tidak ditemukan."
           );
         }
 
-        const results = await Promise.all([
-          supabase
-            .from("achievement_types")
-            .select("code,name"),
+        const isMentor =
+          profile.role === "mentor";
 
-          supabase
-            .from("achievement_records")
-            .select("id,type_code,status")
-            .eq("program_id", id),
+        const isParticipant =
+          profile.role === "participant" ||
+          profile.role === "peserta";
 
-          supabase
-            .from("post_test_scores")
-            .select("id,test_date,score")
-            .eq("program_id", id)
-            .order("test_date"),
+        if (
+          !isMentor &&
+          !isParticipant
+        ) {
+          throw new Error(
+            "Role akun tidak memiliki akses monitoring OJT."
+          );
+        }
 
-          supabase
-            .from("weekly_practice_scores")
-            .select(
-              "id,practice_date,practice_name,score"
+        // 2. Periksa program OJT.
+        const {
+          data: program,
+          error: programError,
+        } = await supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            participant_id,
+            start_date,
+            end_date,
+            status,
+            site,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
             )
-            .eq("program_id", id)
-            .order("practice_date"),
+          `)
+          .eq("id", id)
+          .single();
 
-          supabase
-            .from("samapta_records")
-            .select(
-              "id,test_date,test_type,score,outcome"
+        if (programError || !program) {
+          throw new Error(
+            "Program OJT tidak ditemukan atau tidak dapat diakses."
+          );
+        }
+
+        // 3. Peserta hanya boleh
+        // membuka program miliknya.
+        if (
+          isParticipant &&
+          program.participant_id !== user.id
+        ) {
+          throw new Error(
+            "Anda hanya dapat melihat program OJT milik sendiri."
+          );
+        }
+
+        // 4. Periksa persetujuan mentor.
+        if (isParticipant) {
+          const {
+            data: registrations,
+            error: registrationError,
+          } = await supabase
+            .from(
+              "participant_registrations"
             )
-            .eq("program_id", id)
-            .order("test_date"),
+            .select(
+              "status,created_at"
+            )
+            .eq("user_id", user.id)
+            .order("created_at", {
+              ascending: false,
+            })
+            .limit(1);
 
-          supabase
-            .from("simper_records")
-            .select(`
-              status,
-              administration_status,
-              training_status,
-              theory_status,
-              practice_status,
-              graduation_date
-            `)
-            .eq("program_id", id)
-            .maybeSingle(),
-        ]);
+          if (registrationError) {
+            throw new Error(
+              "Gagal memeriksa status persetujuan mentor."
+            );
+          }
+
+          const registration =
+            registrations?.[0] || null;
+
+          // Jika ada pengajuan,
+          // status harus approved.
+          if (
+            registration &&
+            registration.status !== "approved"
+          ) {
+            throw new Error(
+              registration.status === "pending"
+                ? "Pendaftaran Anda masih menunggu persetujuan mentor."
+                : "Pendaftaran Anda belum disetujui mentor."
+            );
+          }
+
+          // Peserta baru tanpa pengajuan
+          // tidak boleh membuka monitoring.
+          // Peserta lama dengan program aktif
+          // tetap dapat menggunakan aplikasi.
+          if (
+            !registration &&
+            program.status !== "active"
+          ) {
+            throw new Error(
+              "Program OJT belum aktif."
+            );
+          }
+
+          if (
+            registration?.status === "approved" &&
+            program.status !== "active"
+          ) {
+            throw new Error(
+              "Program OJT belum diaktifkan mentor."
+            );
+          }
+
+          if (
+            !registration &&
+            program.status === "active"
+          ) {
+            // Kompatibilitas akun peserta lama.
+            // Harus tetap dilindungi RLS.
+          }
+        }
+
+        // 5. Data monitoring hanya
+        // diambil setelah pemeriksaan akses.
+        const results =
+          await Promise.all([
+            supabase
+              .from("achievement_types")
+              .select("code,name"),
+
+            supabase
+              .from("achievement_records")
+              .select(
+                "id,type_code,status"
+              )
+              .eq("program_id", id),
+
+            supabase
+              .from("post_test_scores")
+              .select(
+                "id,test_date,score"
+              )
+              .eq("program_id", id)
+              .order("test_date"),
+
+            supabase
+              .from(
+                "weekly_practice_scores"
+              )
+              .select(
+                "id,practice_date,practice_name,score"
+              )
+              .eq("program_id", id)
+              .order("practice_date"),
+
+            supabase
+              .from("samapta_records")
+              .select(
+                "id,test_date,test_type,score,outcome"
+              )
+              .eq("program_id", id)
+              .order("test_date"),
+
+            supabase
+              .from("simper_records")
+              .select(`
+                status,
+                administration_status,
+                training_status,
+                theory_status,
+                practice_status,
+                graduation_date
+              `)
+              .eq("program_id", id)
+              .maybeSingle(),
+          ]);
 
         for (const result of results) {
-          if (result.error) throw result.error;
+          if (result.error) {
+            throw result.error;
+          }
         }
 
         if (alive) {
           setData({
             profile,
             program,
-            types: results[0].data || [],
-            ach: results[1].data || [],
-            post: results[2].data || [],
-            practice: results[3].data || [],
-            samapta: results[4].data || [],
-            simper: results[5].data,
+            types:
+              results[0].data || [],
+            ach:
+              results[1].data || [],
+            post:
+              results[2].data || [],
+            practice:
+              results[3].data || [],
+            samapta:
+              results[4].data || [],
+            simper:
+              results[5].data,
           });
         }
       } catch (err) {
         if (alive) {
-          setError(err.message || "Gagal memuat data.");
+          setError(
+            err.message ||
+              "Gagal memuat data OJT."
+          );
         }
       } finally {
-        if (alive) setLoading(false);
+        if (alive) {
+          setLoading(false);
+        }
       }
     }
 
@@ -275,15 +437,42 @@ export default function OjtInsights({ id, mode }) {
   if (loading) {
     return (
       <main style={{ padding: 24 }}>
-        Memuat data OJT...
+        Memeriksa akses dan memuat data OJT...
       </main>
     );
   }
 
   if (error || !data) {
     return (
-      <main style={{ padding: 24, color: "#b91c1c" }}>
-        {error || "Data tidak tersedia."}
+      <main
+        style={{
+          padding: 24,
+          minHeight: "100vh",
+          background: "#f1f5f9",
+          color: "#0f172a",
+        }}
+      >
+        <section style={box}>
+          <h2 style={{ color: "#b91c1c" }}>
+            Akses Tidak Tersedia
+          </h2>
+
+          <p>
+            {error ||
+              "Data tidak tersedia."}
+          </p>
+
+          <button
+            style={btn}
+            onClick={() =>
+              router.replace(
+                "/dashboard-peserta"
+              )
+            }
+          >
+            Kembali ke Dashboard Peserta
+          </button>
+        </section>
       </main>
     );
   }
@@ -300,60 +489,94 @@ export default function OjtInsights({ id, mode }) {
 
   const verified = new Set(
     ach
-      .filter((x) => x.status === "verified")
-      .map((x) => x.type_code)
+      .filter(
+        (x) =>
+          x.status === "verified"
+      )
+      .map(
+        (x) =>
+          x.type_code
+      )
   );
 
-  const totalCategories = types.length || 6;
+  const totalCategories =
+    types.length || 6;
 
-  const achPct = Math.round(
-    (verified.size / totalCategories) * 100
+  const achPct = Math.min(
+    100,
+    Math.round(
+      (verified.size /
+        totalCategories) *
+        100
+    )
   );
 
   const passedStages = simper
     ? stages.filter(
-        (key) => simper[key] === "passed"
+        (key) =>
+          simper[key] === "passed"
       ).length
     : 0;
 
-  const simperPct = passedStages * 25;
+  const simperPct =
+    passedStages * 25;
 
-  const passedSamapta = samapta.filter(
-    (x) => x.outcome === "pass"
-  ).length;
+  const passedSamapta =
+    samapta.filter(
+      (x) =>
+        x.outcome === "pass"
+    ).length;
 
   const checks = [
     {
-      title: "Enam kategori OJT terverifikasi",
-      ok: verified.size >= totalCategories,
+      title:
+        "Enam kategori OJT terverifikasi",
+      ok:
+        verified.size >=
+        totalCategories,
     },
     {
-      title: "Memiliki nilai Post-Test",
-      ok: post.length > 0,
+      title:
+        "Memiliki nilai Post-Test",
+      ok:
+        post.length > 0,
     },
     {
-      title: "Memiliki penilaian praktik",
-      ok: practice.length > 0,
+      title:
+        "Memiliki penilaian praktik",
+      ok:
+        practice.length > 0,
     },
     {
-      title: "Memiliki hasil Samapta",
-      ok: samapta.length > 0,
+      title:
+        "Memiliki hasil Samapta",
+      ok:
+        samapta.length > 0,
     },
     {
-      title: "SIMPER berstatus lulus",
-      ok: simper?.status === "passed",
+      title:
+        "SIMPER berstatus lulus",
+      ok:
+        simper?.status ===
+        "passed",
     },
   ];
 
-  const checksPassed = checks.filter(
-    (x) => x.ok
-  ).length;
+  const checksPassed =
+    checks.filter(
+      (x) => x.ok
+    ).length;
 
-  const pageTitle = {
-    analisis: "Grafik Perkembangan OJT",
-    evaluasi: "Evaluasi Kesiapan Kelulusan",
-    laporan: "Laporan Monitoring OJT",
-  }[mode] || "Monitoring OJT";
+  const pageTitle =
+    {
+      analisis:
+        "Grafik Perkembangan OJT",
+      evaluasi:
+        "Evaluasi Kesiapan Kelulusan",
+      laporan:
+        "Laporan Monitoring OJT",
+    }[mode] ||
+    "Monitoring OJT";
 
   return (
     <main
@@ -361,7 +584,8 @@ export default function OjtInsights({ id, mode }) {
         minHeight: "100vh",
         background: "#f1f5f9",
         padding: 18,
-        fontFamily: "Arial, sans-serif",
+        fontFamily:
+          "Arial, sans-serif",
         color: "#0f172a",
       }}
     >
@@ -382,7 +606,9 @@ export default function OjtInsights({ id, mode }) {
         >
           <button
             style={btn}
-            onClick={() => router.back()}
+            onClick={() =>
+              router.back()
+            }
           >
             ← Kembali
           </button>
@@ -391,9 +617,12 @@ export default function OjtInsights({ id, mode }) {
             <button
               style={{
                 ...btn,
-                background: "#0f766e",
+                background:
+                  "#0f766e",
               }}
-              onClick={() => window.print()}
+              onClick={() =>
+                window.print()
+              }
             >
               Cetak / Simpan PDF
             </button>
@@ -408,23 +637,35 @@ export default function OjtInsights({ id, mode }) {
           }}
         >
           <h1>{pageTitle}</h1>
+
           <p>
             Emergency Response Group
           </p>
-          <p>PT Berau Coal 2026</p>
+
+          <p>
+            PT Berau Coal 2026
+          </p>
 
           <h2>
-            {program.peserta?.full_name ||
+            {program.peserta
+              ?.full_name ||
               "Peserta OJT"}
           </h2>
 
           <p>
-            {program.peserta?.department || "-"}
+            {program.peserta
+              ?.department ||
+              "-"}
           </p>
 
           <p>
-            {date(program.start_date)} –{" "}
-            {date(program.end_date)}
+            {date(
+              program.start_date
+            )}{" "}
+            –{" "}
+            {date(
+              program.end_date
+            )}
           </p>
         </header>
 
@@ -432,7 +673,9 @@ export default function OjtInsights({ id, mode }) {
           mode === "laporan") && (
           <>
             <section style={box}>
-              <h2>Grafik Progres OJT</h2>
+              <h2>
+                Grafik Progres OJT
+              </h2>
 
               <Bar
                 name="Enam Pencapaian OJT"
@@ -452,17 +695,21 @@ export default function OjtInsights({ id, mode }) {
               </p>
 
               <p>
-                {passedStages} dari 4 tahapan
-                SIMPER lulus.
+                {passedStages} dari 4
+                tahapan SIMPER lulus.
               </p>
             </section>
 
             <section style={box}>
-              <h2>Ringkasan Nilai</h2>
+              <h2>
+                Ringkasan Nilai
+              </h2>
 
               <p>
                 Post-Test:{" "}
-                <strong>{average(post)}</strong>{" "}
+                <strong>
+                  {average(post)}
+                </strong>{" "}
                 ({post.length} tes)
               </p>
 
@@ -471,7 +718,8 @@ export default function OjtInsights({ id, mode }) {
                 <strong>
                   {average(practice)}
                 </strong>{" "}
-                ({practice.length} penilaian)
+                ({practice.length}
+                {" "}penilaian)
               </p>
 
               <p>
@@ -479,14 +727,18 @@ export default function OjtInsights({ id, mode }) {
                 <strong>
                   {average(samapta)}
                 </strong>{" "}
-                ({samapta.length} tes,{" "}
-                {passedSamapta} lulus)
+                ({samapta.length}
+                {" "}tes,{" "}
+                {passedSamapta}
+                {" "}lulus)
               </p>
 
               <p>
                 SIMPER:{" "}
                 <strong>
-                  {labels[simper?.status] ||
+                  {labels[
+                    simper?.status
+                  ] ||
                     "Belum Proses"}
                 </strong>
               </p>
@@ -518,63 +770,92 @@ export default function OjtInsights({ id, mode }) {
         {(mode === "evaluasi" ||
           mode === "laporan") && (
           <section style={box}>
-            <h2>Evaluasi Kesiapan OJT</h2>
+            <h2>
+              Evaluasi Kesiapan OJT
+            </h2>
 
             <Bar
               name="Kelengkapan Indikator"
-              pct={checksPassed * 20}
+              pct={
+                checksPassed * 20
+              }
               color="#16a34a"
             />
 
-            {checks.map((item) => (
-              <p key={item.title}>
-                {item.ok ? "✓" : "○"}{" "}
-                {item.title} —{" "}
-                <strong>
+            {checks.map(
+              (item) => (
+                <p
+                  key={
+                    item.title
+                  }
+                >
                   {item.ok
-                    ? "Terpenuhi"
-                    : "Belum Terpenuhi"}
-                </strong>
-              </p>
-            ))}
+                    ? "✓"
+                    : "○"}{" "}
+                  {item.title} —{" "}
+                  <strong>
+                    {item.ok
+                      ? "Terpenuhi"
+                      : "Belum Terpenuhi"}
+                  </strong>
+                </p>
+              )
+            )}
 
             <p
               style={{
                 fontSize: 13,
-                color: "#475569",
+                color:
+                  "#475569",
               }}
             >
-              Evaluasi ini hanya indikator
-              kelengkapan awal, bukan keputusan
-              kelulusan resmi. Standar nilai
-              dan persyaratan akhir harus
-              mengikuti SOP perusahaan.
+              Evaluasi ini hanya
+              indikator kelengkapan
+              awal, bukan keputusan
+              kelulusan resmi.
+              Standar nilai dan
+              persyaratan akhir
+              mengikuti SOP
+              perusahaan.
             </p>
           </section>
         )}
 
         {mode === "laporan" && (
           <section style={box}>
-            <h2>Catatan Evaluasi</h2>
+            <h2>
+              Catatan Evaluasi
+            </h2>
 
             <p>
-              Keputusan kelulusan ditetapkan
-              oleh Mentor atau penanggung
-              jawab sesuai standar resmi.
+              Keputusan kelulusan
+              ditetapkan oleh Mentor
+              atau penanggung jawab
+              sesuai standar resmi.
             </p>
 
             <p>
               Tanggal laporan:{" "}
-              {new Date().toLocaleDateString(
-                "id-ID"
-              )}
+              {new Date()
+                .toLocaleDateString(
+                  "id-ID"
+                )}
             </p>
 
-            <div style={{ marginTop: 50 }}>
+            <div
+              style={{
+                marginTop: 50,
+              }}
+            >
               Mengetahui,
-              <p>Mentor / Penilai</p>
-              <br />
-              <br />
+              <p>
+                Mentor / Penilai
+              </p>
+              <div
+                style={{
+                  height: 45,
+                }}
+              />
               ____________________________
             </div>
           </section>
@@ -586,17 +867,21 @@ export default function OjtInsights({ id, mode }) {
           .no-print {
             display: none !important;
           }
+
           body {
             background: white !important;
           }
+
           main {
             padding: 0 !important;
             background: white !important;
           }
+
           section,
           header {
             break-inside: avoid;
           }
+
           button {
             display: none !important;
           }
