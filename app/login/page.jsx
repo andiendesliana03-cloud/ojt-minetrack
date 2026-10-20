@@ -49,19 +49,22 @@ export default function LoginPage() {
         );
       }
 
+      let tujuan = "";
+
       if (profil.role === "mentor") {
-        router.replace("/");
+        tujuan = "/";
       } else if (
         profil.role === "participant" ||
         profil.role === "peserta"
       ) {
-        router.replace("/peserta");
+        tujuan = "/dashboard-peserta";
       } else {
         throw new Error(
           "Role akun tidak dikenali."
         );
       }
 
+      router.replace(tujuan);
       router.refresh();
     } catch (err) {
       setError(
