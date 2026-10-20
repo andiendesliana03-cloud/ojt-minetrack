@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const ALLOWED_SITES = [
   "LMO",
@@ -16,7 +17,14 @@ const ALLOWED_SITES = [
   "HO",
 ];
 
-function isValidDate(value) {
+function jsonError(message, status = 400) {
+  return NextResponse.json(
+    { success: false, error: message },
+    { status }
+  );
+}
+
+function validDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return false;
   }
@@ -26,13 +34,6 @@ function isValidDate(value) {
   return (
     !Number.isNaN(date.getTime()) &&
     date.toISOString().slice(0, 10) === value
-  );
-}
-
-function jsonError(message, status = 400) {
-  return NextResponse.json(
-    { error: message },
-    { status }
   );
 }
 
@@ -50,6 +51,7 @@ export async function POST(request) {
       );
     }
 
+    // 1. Verifikasi sesi login.
     const authHeader =
       request.headers.get("authorization") || "";
 
@@ -86,6 +88,7 @@ export async function POST(request) {
       },
     });
 
+    // 2. Pastikan pengguna adalah mentor.
     const { data: mentor, error: mentorError } =
       await admin
         .from("profiles")
@@ -100,7 +103,16 @@ export async function POST(request) {
       );
     }
 
-    const body = await request.json();
+    // 3. Baca dan validasi formulir.
+    let body;
+
+    try {
+      body = await request.json();
+    } catch {
+      return jsonError(
+        "Format data pendaftaran tidak valid."
+      );
+    }
 
     const fullName = String(
       body.full_name || ""
@@ -126,32 +138,41 @@ export async function POST(request) {
       body.end_date || ""
     ).trim();
 
-    if (!fullName || !email || !department) {
+    const dryRun = body.dry_run === true;
+
+    if (fullName.length < 3) {
       return jsonError(
-        "Nama, email, dan departemen wajib diisi."
+        "Nama peserta minimal 3 karakter."
       );
     }
 
     if (
+      !email ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
       return jsonError(
-        "Format email tidak valid."
+        "Format email peserta tidak valid."
+      );
+    }
+
+    if (!department) {
+      return jsonError(
+        "Departemen wajib diisi."
       );
     }
 
     if (!ALLOWED_SITES.includes(site)) {
       return jsonError(
-        "Silakan pilih site penempatan yang valid."
+        "Pilih salah satu dari 9 site OJT."
       );
     }
 
     if (
-      !isValidDate(startDate) ||
-      !isValidDate(endDate)
+      !validDate(startDate) ||
+      !validDate(endDate)
     ) {
       return jsonError(
-        "Tanggal mulai dan selesai OJT wajib diisi dengan benar."
+        "Tanggal mulai dan selesai OJT tidak valid."
       );
     }
 
@@ -161,9 +182,37 @@ export async function POST(request) {
       );
     }
 
-    // Cegah pendaftaran ulang email yang sudah ada.
-    // Pemeriksaan ini membantu, tetapi bukan pengganti
-    // pengamanan unik pada database.
+    // 4. MODE SIMULASI.
+    // Tidak membuat akun.
+    // Tidak mengirim email.
+    // Tidak menulis data ke database.
+    if (dryRun) {
+      return NextResponse.json(
+        {
+          success: true,
+          dry_run: true,
+          message:
+            "Simulasi berhasil. Data valid dan akses mentor terverifikasi. Tidak ada akun atau program yang dibuat.",
+          preview: {
+            full_name: fullName,
+            email,
+            department,
+            site,
+            start_date: startDate,
+            end_date: endDate,
+            status: "active",
+          },
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
+    // 5. PENDAFTARAN ASLI.
+    // Periksa email yang sudah terdaftar.
     let page = 1;
 
     while (true) {
@@ -184,16 +233,17 @@ export async function POST(request) {
 
       if (existing) {
         return jsonError(
-          "Email sudah terdaftar. Jangan membuat akun atau program OJT ganda.",
+          "Email sudah terdaftar. Gunakan email peserta yang belum terdaftar.",
           409
         );
       }
 
       if (users.length < 1000) break;
+
       page++;
     }
 
-    // Buat akun dan kirim undangan.
+    // Buat akun dan kirim undangan email.
     const { data: invited, error: inviteError } =
       await admin.auth.admin.inviteUserByEmail(
         email,
@@ -207,7 +257,8 @@ export async function POST(request) {
     if (inviteError) {
       return jsonError(
         inviteError.message ||
-          "Gagal mengirim undangan peserta."
+          "Gagal mengirim undangan peserta.",
+        500
       );
     }
 
@@ -220,7 +271,7 @@ export async function POST(request) {
       );
     }
 
-    // Simpan profil dan site awal peserta.
+    // Simpan identitas dan site peserta.
     const { error: profileError } =
       await admin
         .from("profiles")
@@ -232,7 +283,9 @@ export async function POST(request) {
             role: "participant",
             site,
           },
-          { onConflict: "id" }
+          {
+            onConflict: "id",
+          }
         );
 
     if (profileError) {
@@ -242,22 +295,33 @@ export async function POST(request) {
       );
 
       return jsonError(
-        "Undangan sudah dibuat, tetapi profil gagal disimpan. Hubungi administrator sebelum mencoba kembali.",
+        "Akun sudah dibuat, tetapi profil gagal disimpan. Jangan daftar ulang sebelum diperiksa administrator.",
         500
       );
     }
 
-    // Pemeriksaan tambahan agar tidak membuat
-    // program aktif kedua untuk peserta yang sama.
-    const { data: existingPrograms, error: checkError } =
-      await admin
-        .from("ojt_programs")
-        .select("id")
-        .eq("participant_id", participantId)
-        .eq("status", "active")
-        .limit(1);
+    // Periksa apakah sudah ada program aktif.
+    const {
+      data: existingPrograms,
+      error: checkError,
+    } = await admin
+      .from("ojt_programs")
+      .select("id")
+      .eq("participant_id", participantId)
+      .eq("status", "active")
+      .limit(1);
 
-    if (checkError) throw checkError;
+    if (checkError) {
+      console.error(
+        "Program check failed:",
+        checkError
+      );
+
+      return jsonError(
+        "Akun sudah dibuat, tetapi pemeriksaan program gagal. Hubungi administrator.",
+        500
+      );
+    }
 
     if (existingPrograms?.length) {
       return jsonError(
@@ -266,8 +330,7 @@ export async function POST(request) {
       );
     }
 
-    // Buat program OJT menggunakan periode
-    // dan site yang ditentukan mentor.
+    // Buat program OJT.
     const { data: program, error: programError } =
       await admin
         .from("ojt_programs")
@@ -289,21 +352,29 @@ export async function POST(request) {
       );
 
       return jsonError(
-        "Akun dan profil peserta sudah dibuat, tetapi program OJT gagal disimpan. Hubungi administrator sebelum mencoba kembali.",
+        "Akun dan profil sudah dibuat, tetapi program OJT gagal disimpan. Hubungi administrator sebelum mencoba kembali.",
         500
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      message:
-        "Peserta berhasil didaftarkan. Undangan akun dan program OJT telah dibuat.",
-      participant_id: participantId,
-      program_id: program.id,
-      site,
-      start_date: startDate,
-      end_date: endDate,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        dry_run: false,
+        message:
+          "Peserta berhasil didaftarkan dan program OJT berhasil dibuat.",
+        participant_id: participantId,
+        program_id: program.id,
+        site,
+        start_date: startDate,
+        end_date: endDate,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (error) {
     console.error(
       "Register participant error:",
