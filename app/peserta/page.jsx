@@ -61,14 +61,20 @@ export default function DashboardPeserta() {
           return;
         }
 
-        const { data: dataProfil, error: profilError } =
-          await supabase
-            .from("profiles")
-            .select("id, full_name, role, department")
-            .eq("id", user.id)
-            .single();
+        const {
+          data: dataProfil,
+          error: profilError,
+        } = await supabase
+          .from("profiles")
+          .select(
+            "id, full_name, role, department"
+          )
+          .eq("id", user.id)
+          .single();
 
-        if (profilError) throw profilError;
+        if (profilError) {
+          throw profilError;
+        }
 
         if (dataProfil.role === "mentor") {
           router.replace("/");
@@ -81,41 +87,58 @@ export default function DashboardPeserta() {
           );
         }
 
-        const { data: dataProgram, error: programError } =
-          await supabase
-            .from("ojt_programs")
-            .select("id, start_date, end_date, status")
-            .eq("participant_id", user.id)
-            .eq("status", "active")
-            .order("start_date", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        const {
+          data: dataProgram,
+          error: programError,
+        } = await supabase
+          .from("ojt_programs")
+          .select(
+            "id, start_date, end_date, status, site"
+          )
+          .eq("participant_id", user.id)
+          .eq("status", "active")
+          .order("start_date", {
+            ascending: false,
+          })
+          .limit(1)
+          .maybeSingle();
 
-        if (programError) throw programError;
+        if (programError) {
+          throw programError;
+        }
 
-        const { data: jenisData, error: jenisError } =
-          await supabase
-            .from("achievement_types")
-            .select("code, name")
-            .order("name");
+        const {
+          data: jenisData,
+          error: jenisError,
+        } = await supabase
+          .from("achievement_types")
+          .select("code, name")
+          .order("name");
 
-        if (jenisError) throw jenisError;
+        if (jenisError) {
+          throw jenisError;
+        }
 
         let riwayat = [];
 
         if (dataProgram) {
-          const { data, error: riwayatError } =
-            await supabase
-              .from("achievement_records")
-              .select(
-                "id, type_code, activity_date, description, status"
-              )
-              .eq("program_id", dataProgram.id)
-              .order("activity_date", {
-                ascending: false,
-              });
+          const {
+            data,
+            error: riwayatError,
+          } = await supabase
+            .from("achievement_records")
+            .select(
+              "id, type_code, activity_date, description, status"
+            )
+            .eq("program_id", dataProgram.id)
+            .order("activity_date", {
+              ascending: false,
+            });
 
-          if (riwayatError) throw riwayatError;
+          if (riwayatError) {
+            throw riwayatError;
+          }
+
           riwayat = data || [];
         }
 
@@ -127,10 +150,14 @@ export default function DashboardPeserta() {
         setCatatan(riwayat);
       } catch (err) {
         if (aktif) {
-          setError(err.message || "Gagal memuat data.");
+          setError(
+            err.message || "Gagal memuat data."
+          );
         }
       } finally {
-        if (aktif) setLoading(false);
+        if (aktif) {
+          setLoading(false);
+        }
       }
     }
 
@@ -162,6 +189,9 @@ export default function DashboardPeserta() {
     (item) => item.status === "pending"
   ).length;
 
+  const sitePenempatan =
+    program?.site || "Belum ditentukan";
+
   if (loading) {
     return (
       <main style={halaman}>
@@ -176,10 +206,15 @@ export default function DashboardPeserta() {
       <main style={halaman}>
         <section style={card}>
           <h2>Dashboard Peserta</h2>
+
           <p style={{ color: "#b91c1c" }}>
             {error || "Akses tidak tersedia."}
           </p>
-          <button onClick={logout} style={tombol}>
+
+          <button
+            onClick={logout}
+            style={tombol}
+          >
             Keluar dan Login Ulang
           </button>
         </section>
@@ -189,10 +224,16 @@ export default function DashboardPeserta() {
 
   return (
     <main style={halaman}>
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      <div
+        style={{
+          maxWidth: 900,
+          margin: "0 auto",
+        }}
+      >
         <header
           style={{
-            background: "rgba(15,23,42,0.95)",
+            background:
+              "rgba(15,23,42,0.95)",
             color: "#ffffff",
             borderRadius: 16,
             padding: 24,
@@ -206,7 +247,9 @@ export default function DashboardPeserta() {
 
           <p style={{ marginTop: 22 }}>
             Selamat datang,{" "}
-            <strong>{profil.full_name}</strong>
+            <strong>
+              {profil.full_name}
+            </strong>
           </p>
 
           <button
@@ -231,28 +274,74 @@ export default function DashboardPeserta() {
 
         <section style={card}>
           <h2>Informasi Peserta</h2>
-          <p>Nama: {profil.full_name}</p>
+
           <p>
-            Departemen: {profil.department || "-"}
+            Nama:{" "}
+            <strong>
+              {profil.full_name}
+            </strong>
           </p>
+
+          <p>
+            Departemen:{" "}
+            {profil.department || "-"}
+          </p>
+
+          <p>
+            Site Penempatan:{" "}
+            <strong
+              style={{
+                color: program?.site
+                  ? "#1d4ed8"
+                  : "#b45309",
+              }}
+            >
+              {sitePenempatan}
+            </strong>
+          </p>
+
           <p>Role: Peserta OJT</p>
         </section>
 
         {!program ? (
           <section style={card}>
             <h3>Program OJT</h3>
+
             <p>
-              Belum ada program OJT aktif yang
-              terhubung dengan akun ini.
+              Belum ada program OJT aktif
+              yang terhubung dengan akun ini.
             </p>
           </section>
         ) : (
           <>
             <section style={card}>
               <h2>Program OJT Aktif</h2>
-              <p>Mulai: {program.start_date}</p>
-              <p>Selesai: {program.end_date}</p>
-              <p>Status: {program.status}</p>
+
+              <p>
+                Nama Peserta:{" "}
+                <strong>
+                  {profil.full_name}
+                </strong>
+              </p>
+
+              <p>
+                Site:{" "}
+                <strong>
+                  {sitePenempatan}
+                </strong>
+              </p>
+
+              <p>
+                Mulai: {program.start_date}
+              </p>
+
+              <p>
+                Selesai: {program.end_date}
+              </p>
+
+              <p>
+                Status: {program.status}
+              </p>
             </section>
 
             <h2>Ringkasan Pencapaian</h2>
@@ -289,23 +378,47 @@ export default function DashboardPeserta() {
 
             {kategori.map((item) => {
               const daftar = catatan.filter(
-                (c) => c.type_code === item.code
+                (c) =>
+                  c.type_code === item.code
               );
 
               const selesai = daftar.filter(
-                (c) => c.status === "verified"
+                (c) =>
+                  c.status === "verified"
               ).length;
 
               return (
-                <section key={item.code} style={card}>
+                <section
+                  key={item.code}
+                  style={card}
+                >
                   <h3>{item.name}</h3>
-                  <p>Total catatan: {daftar.length}</p>
-                  <p>Terverifikasi: {selesai}</p>
+
+                  <p>
+                    Nama: {profil.full_name}
+                  </p>
+
+                  <p>
+                    Site: {sitePenempatan}
+                  </p>
+
+                  <p>
+                    Total catatan:{" "}
+                    {daftar.length}
+                  </p>
+
+                  <p>
+                    Terverifikasi: {selesai}
+                  </p>
+
                   <p>
                     Menunggu verifikasi:{" "}
-                    {daftar.filter(
-                      (c) => c.status === "pending"
-                    ).length}
+                    {
+                      daftar.filter(
+                        (c) =>
+                          c.status === "pending"
+                      ).length
+                    }
                   </p>
                 </section>
               );
@@ -315,26 +428,51 @@ export default function DashboardPeserta() {
 
             {catatan.length === 0 && (
               <section style={card}>
-                Belum ada pencapaian yang tercatat.
+                Belum ada pencapaian
+                yang tercatat.
               </section>
             )}
 
             {catatan.map((item) => (
-              <section key={item.id} style={card}>
+              <section
+                key={item.id}
+                style={card}
+              >
                 <h3>
                   {kategori.find(
-                    (k) => k.code === item.type_code
-                  )?.name || item.type_code}
+                    (k) =>
+                      k.code ===
+                      item.type_code
+                  )?.name ||
+                    item.type_code}
                 </h3>
 
-                <p>Tanggal: {item.activity_date}</p>
-                <p>{item.description}</p>
+                <p>
+                  Nama:{" "}
+                  {profil.full_name}
+                </p>
+
+                <p>
+                  Site: {sitePenempatan}
+                </p>
+
+                <p>
+                  Tanggal:{" "}
+                  {item.activity_date}
+                </p>
+
+                <p>
+                  {item.description}
+                </p>
+
                 <p>
                   Status:{" "}
                   <strong>
-                    {item.status === "verified"
+                    {item.status ===
+                    "verified"
                       ? "Terverifikasi"
-                      : item.status === "pending"
+                      : item.status ===
+                        "pending"
                       ? "Menunggu Verifikasi"
                       : item.status}
                   </strong>
@@ -351,7 +489,9 @@ export default function DashboardPeserta() {
             color: "#475569",
           }}
         >
-          Monitoring OJT — Emergency Response Group
+          Monitoring OJT —
+          Emergency Response Group
+
           <p>PT Berau Coal 2026</p>
         </footer>
       </div>
