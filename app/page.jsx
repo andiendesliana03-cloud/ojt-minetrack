@@ -1,289 +1,410 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
-export default function LoginPage() {
+
+const kategori = [
+  "Fisik",
+  "Training",
+  "Sosialisasi",
+  "Coaching",
+  "Orientasi Area",
+  "Hazard",
+];
+
+const halaman = {
+  minHeight: "100vh",
+  padding: 18,
+  boxSizing: "border-box",
+  fontFamily: "Arial, sans-serif",
+  color: "#0f172a",
+  backgroundColor: "#f1f5f9",
+  backgroundImage:
+    'linear-gradient(rgba(241,245,249,0.75), rgba(241,245,249,0.88)), url("/background-erg.png.PNG")',
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+  backgroundAttachment: "fixed",
+};
+
+const card = {
+  background: "rgba(255,255,255,0.95)",
+  border: "1px solid #e2e8f0",
+  borderRadius: 14,
+  padding: 18,
+  boxShadow: "0 4px 16px rgba(15,23,42,0.06)",
+};
+
+const tombol = {
+  background: "#2563eb",
+  color: "#ffffff",
+  border: "none",
+  borderRadius: 10,
+  padding: "12px 16px",
+  fontWeight: "bold",
+  cursor: "pointer",
+};
+
+export default function DashboardMentor() {
   const router = useRouter();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [mentor, setMentor] = useState(null);
+  const [peserta, setPeserta] = useState([]);
+  const [memeriksa, setMemeriksa] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleLogin(e) {
-    e.preventDefault();
+  useEffect(() => {
+    let aktif = true;
 
-    if (loading) return;
+    async function periksaLogin() {
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
 
+        if (authError || !user) {
+          router.replace("/login");
+          return;
+        }
+
+        const { data: profil, error: profilError } =
+          await supabase
+            .from("profiles")
+            .select("id, full_name, role, department")
+            .eq("id", user.id)
+            .single();
+
+        if (profilError) throw profilError;
+
+        if (profil?.role === "participant") {
+          router.replace("/peserta");
+          return;
+        }
+
+        if (profil?.role !== "mentor") {
+          throw new Error(
+            "Akun tidak memiliki akses Dashboard Mentor."
+          );
+        }
+
+        if (aktif) setMentor(profil);
+      } catch (err) {
+        if (aktif) {
+          setError(err.message || "Gagal memeriksa akun.");
+        }
+      } finally {
+        if (aktif) setMemeriksa(false);
+      }
+    }
+
+    periksaLogin();
+
+    return () => {
+      aktif = false;
+    };
+  }, [router]);
+
+  async function ambilPeserta() {
     setLoading(true);
     setError("");
 
     try {
-      const { data, error: loginError } =
-        await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-
-      if (loginError) throw loginError;
-
-      if (!data.user) {
-        throw new Error("Login gagal. Silakan coba lagi.");
-      }
-
-      const { data: profil, error: profilError } =
+      const { data, error: queryError } =
         await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", data.user.id)
-          .single();
+          .from("ojt_programs")
+          .select(`
+            id,
+            start_date,
+            end_date,
+            status,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
+            )
+          `)
+          .eq("status", "active")
+          .order("start_date", { ascending: false });
 
-      if (profilError) {
-        throw new Error(
-          "Profil akun belum tersedia. Hubungi administrator."
-        );
-      }
+      if (queryError) throw queryError;
 
-      if (profil.role === "mentor") {
-        router.replace("/");
-      } else if (profil.role === "participant") {
-        router.replace("/peserta");
-      } else {
-        throw new Error("Role akun tidak dikenali.");
-      }
-
-      router.refresh();
+      setPeserta(data || []);
     } catch (err) {
-      setError(err.message || "Terjadi kesalahan saat login.");
+      setError(err.message || "Gagal mengambil peserta.");
+      setPeserta([]);
     } finally {
       setLoading(false);
     }
   }
 
-  const halaman = {
-    minHeight: "100vh",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-    boxSizing: "border-box",
-    fontFamily: "Arial, sans-serif",
-    backgroundColor: "#0f172a",
-    backgroundImage:
-      'linear-gradient(rgba(15,23,42,0.58), rgba(15,23,42,0.76)), url("/background-erg.png.PNG")',
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-    color: "#0f172a",
-  };
+  useEffect(() => {
+    if (mentor) ambilPeserta();
+  }, [mentor]);
 
-  const inputStyle = {
-    width: "100%",
-    padding: "13px 14px",
-    boxSizing: "border-box",
-    borderRadius: 10,
-    border: "1px solid #cbd5e1",
-    fontSize: 16,
-    background: "#ffffff",
-    color: "#0f172a",
-    outlineColor: "#2563eb",
-  };
+  async function logout() {
+    const { error: logoutError } =
+      await supabase.auth.signOut();
+
+    if (logoutError) {
+      setError(logoutError.message);
+      return;
+    }
+
+    router.replace("/login");
+    router.refresh();
+  }
+
+  if (memeriksa) {
+    return (
+      <main style={halaman}>
+        <h2>Monitoring OJT</h2>
+        <p>Memeriksa sesi login...</p>
+      </main>
+    );
+  }
+
+  if (!mentor) {
+    return (
+      <main style={halaman}>
+        <section
+          style={{
+            ...card,
+            maxWidth: 500,
+            margin: "60px auto",
+          }}
+        >
+          <h2>Akses Dashboard Mentor</h2>
+
+          <p style={{ color: "#b91c1c" }}>
+            {error || "Akses tidak diizinkan."}
+          </p>
+
+          <button onClick={logout} style={tombol}>
+            Keluar dan Login Ulang
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  const ringkasan = [
+    ["Peserta Aktif", loading ? "..." : peserta.length],
+    ["Pencapaian OJT", "6 Kategori"],
+    ["Post-Test", "Selasa & Kamis"],
+    ["Praktik", "Mingguan"],
+    ["Samapta", "Monitoring"],
+    ["SIMPER", "Monitoring"],
+  ];
 
   return (
     <main style={halaman}>
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 420,
-        }}
-      >
+      <div style={{ maxWidth: 1000, margin: "0 auto" }}>
         <header
           style={{
-            textAlign: "center",
+            background: "rgba(15,23,42,0.95)",
             color: "#ffffff",
+            padding: 24,
+            borderRadius: 16,
             marginBottom: 24,
-            textShadow: "0 2px 8px rgba(0,0,0,0.35)",
           }}
         >
-          <div
-            style={{
-              display: "inline-block",
-              padding: "10px 16px",
-              borderRadius: 12,
-              background: "rgba(255,255,255,0.12)",
-              border: "1px solid rgba(255,255,255,0.25)",
-              marginBottom: 18,
-              fontWeight: "bold",
-              letterSpacing: 2,
-            }}
-          >
-            ERG
-          </div>
-
-          <h1
-            style={{
-              fontSize: 27,
-              lineHeight: 1.3,
-              margin: "0 0 12px",
-            }}
-          >
+          <h1 style={{ marginTop: 0 }}>
             Monitoring OJT
           </h1>
 
-          <h2
-            style={{
-              fontSize: 19,
-              fontWeight: 500,
-              margin: "0 0 12px",
-            }}
-          >
+          <h2 style={{ fontSize: 19 }}>
             Emergency Response Group
           </h2>
 
-          <p
+          <p>PT Berau Coal 2026</p>
+
+          <small>Dashboard Mentor</small>
+
+          <div style={{ marginTop: 22 }}>
+            <p>
+              Login sebagai:{" "}
+              <strong>{mentor.full_name}</strong>
+            </p>
+
+            <p>
+              Departemen: {mentor.department || "-"}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={logout}
             style={{
-              margin: 0,
-              fontSize: 14,
-              fontWeight: 600,
+              ...tombol,
+              background: "#dc2626",
+              marginTop: 12,
             }}
           >
-            PT Berau Coal 2026
-          </p>
+            Logout
+          </button>
         </header>
 
-        <section
+        <h2>Ringkasan Monitoring</h2>
+
+        <div
           style={{
-            background: "rgba(255,255,255,0.95)",
-            padding: 26,
-            borderRadius: 18,
-            boxShadow: "0 15px 45px rgba(0,0,0,0.25)",
-            border: "1px solid rgba(255,255,255,0.65)",
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(2, minmax(0, 1fr))",
+            gap: 12,
+            marginBottom: 26,
           }}
         >
-          <h2
-            style={{
-              textAlign: "center",
-              marginTop: 0,
-              marginBottom: 8,
-              fontSize: 22,
-            }}
-          >
-            Login
-          </h2>
-
-          <p
-            style={{
-              textAlign: "center",
-              color: "#64748b",
-              fontSize: 13,
-              marginBottom: 24,
-            }}
-          >
-            Mentor dan Peserta OJT
-          </p>
-
-          <form onSubmit={handleLogin}>
-            <label
-              htmlFor="email"
-              style={{
-                display: "block",
-                fontWeight: 600,
-                marginBottom: 8,
-              }}
-            >
-              Email
-            </label>
-
-            <input
-              id="email"
-              type="email"
-              placeholder="Masukkan email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-              style={{
-                ...inputStyle,
-                marginBottom: 18,
-              }}
-            />
-
-            <label
-              htmlFor="password"
-              style={{
-                display: "block",
-                fontWeight: 600,
-                marginBottom: 8,
-              }}
-            >
-              Password
-            </label>
-
-            <input
-              id="password"
-              type="password"
-              placeholder="Masukkan password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-              style={{
-                ...inputStyle,
-                marginBottom: 18,
-              }}
-            />
-
-            {error && (
+          {ringkasan.map(([judul, nilai]) => (
+            <section key={judul} style={card}>
               <p
-                role="alert"
                 style={{
-                  color: "#b91c1c",
-                  background: "#fef2f2",
-                  padding: 12,
-                  borderRadius: 10,
+                  color: "#64748b",
                   fontSize: 13,
                 }}
               >
-                {error}
+                {judul}
               </p>
-            )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                width: "100%",
-                padding: 14,
-                border: "none",
-                borderRadius: 10,
-                background: "#2563eb",
-                color: "#ffffff",
-                fontSize: 16,
-                fontWeight: "bold",
-                cursor: loading ? "wait" : "pointer",
-                opacity: loading ? 0.7 : 1,
-              }}
-            >
-              {loading ? "Memproses Login..." : "Masuk"}
-            </button>
-          </form>
-        </section>
+              <strong>{nilai}</strong>
+            </section>
+          ))}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 12,
+            marginBottom: 16,
+          }}
+        >
+          <h2>Daftar Peserta OJT Aktif</h2>
+
+          <button
+            type="button"
+            onClick={ambilPeserta}
+            disabled={loading}
+            style={tombol}
+          >
+            {loading ? "Memuat..." : "Refresh Data"}
+          </button>
+        </div>
+
+        {error && (
+          <section style={card}>
+            <p style={{ color: "#b91c1c" }}>
+              {error}
+            </p>
+          </section>
+        )}
+
+        {loading && <p>Memuat data peserta...</p>}
+
+        {!loading &&
+          !error &&
+          peserta.length === 0 && (
+            <section style={card}>
+              Belum ada peserta OJT aktif.
+            </section>
+          )}
+
+        <div style={{ display: "grid", gap: 12 }}>
+          {peserta.map((item) => (
+            <section key={item.id} style={card}>
+              <h3>
+                {item.peserta?.full_name ||
+                  "Peserta OJT"}
+              </h3>
+
+              <p>
+                Departemen:{" "}
+                {item.peserta?.department || "-"}
+              </p>
+
+              <p>Mulai: {item.start_date}</p>
+              <p>Selesai: {item.end_date}</p>
+              <p>Status: {item.status}</p>
+
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(`/peserta/${item.id}`)
+                }
+                style={{
+                  ...tombol,
+                  width: "100%",
+                  marginTop: 12,
+                }}
+              >
+                Lihat Detail Peserta
+              </button>
+            </section>
+          ))}
+        </div>
+
+        <h2 style={{ marginTop: 28 }}>
+          Enam Pencapaian OJT
+        </h2>
+
+        <div style={{ display: "grid", gap: 12 }}>
+          {kategori.map((nama, index) => (
+            <section key={nama} style={card}>
+              <small>Pencapaian {index + 1}</small>
+              <h3>{nama}</h3>
+              <p>Monitoring pencapaian peserta</p>
+            </section>
+          ))}
+        </div>
+
+        <h2 style={{ marginTop: 28 }}>
+          Monitoring Penilaian
+        </h2>
+
+        <div style={{ display: "grid", gap: 12 }}>
+          {[
+            [
+              "Post-Test Teori",
+              "Setiap Selasa dan Kamis",
+            ],
+            [
+              "Praktik Mingguan",
+              "Evaluasi setiap minggu",
+            ],
+            [
+              "Samapta",
+              "Monitoring selama OJT",
+            ],
+            [
+              "SIMPER",
+              "Monitoring proses dan kelulusan",
+            ],
+          ].map(([nama, keterangan]) => (
+            <section key={nama} style={card}>
+              <h3>{nama}</h3>
+              <p>{keterangan}</p>
+              <small>
+                Data penilaian belum ditampilkan
+              </small>
+            </section>
+          ))}
+        </div>
 
         <footer
           style={{
-            color: "#ffffff",
             textAlign: "center",
-            fontSize: 12,
-            marginTop: 24,
-            textShadow: "0 1px 4px rgba(0,0,0,0.5)",
+            padding: 24,
+            color: "#475569",
+            fontWeight: 600,
           }}
         >
           Monitoring OJT — Emergency Response Group
-          <p style={{ marginTop: 6 }}>
-            © 2026 PT Berau Coal
-          </p>
+          <p>PT Berau Coal 2026</p>
         </footer>
       </div>
     </main>
