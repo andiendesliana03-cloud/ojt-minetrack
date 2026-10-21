@@ -35,6 +35,9 @@ export default function DashboardPeserta() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [apiTest, setApiTest] = useState("");
+  const [testingApi, setTestingApi] = useState(false);
+
   useEffect(() => {
     let active = true;
 
@@ -77,7 +80,6 @@ export default function DashboardPeserta() {
           );
         }
 
-        // Periksa pengajuan pendaftaran terbaru.
         const {
           data: registrations,
           error: registrationError,
@@ -99,7 +101,6 @@ export default function DashboardPeserta() {
         const latestRegistration =
           registrations?.[0] || null;
 
-        // Periksa program OJT aktif.
         const {
           data: programs,
           error: programError,
@@ -119,31 +120,20 @@ export default function DashboardPeserta() {
           throw programError;
         }
 
-        const activeProgram =
-          programs?.[0] || null;
+        const activeProgram = programs?.[0] || null;
 
         let nextAccess = "no_program";
 
-        // Pengajuan yang masih pending atau ditolak
-        // tidak boleh membuka menu monitoring.
-        if (
-          latestRegistration?.status === "pending"
-        ) {
+        if (latestRegistration?.status === "pending") {
           nextAccess = "pending";
-        } else if (
-          latestRegistration?.status === "rejected"
-        ) {
+        } else if (latestRegistration?.status === "rejected") {
           nextAccess = "rejected";
         } else if (
           latestRegistration?.status === "approved" &&
           activeProgram
         ) {
           nextAccess = "approved";
-        } else if (
-          !latestRegistration &&
-          activeProgram
-        ) {
-          // Kompatibilitas peserta lama.
+        } else if (!latestRegistration && activeProgram) {
           nextAccess = "approved";
         }
 
@@ -156,8 +146,7 @@ export default function DashboardPeserta() {
       } catch (err) {
         if (active) {
           setError(
-            err.message ||
-              "Gagal memuat data peserta."
+            err.message || "Gagal memuat data peserta."
           );
           setAccess("error");
         }
@@ -174,6 +163,84 @@ export default function DashboardPeserta() {
       active = false;
     };
   }, [router]);
+
+  async function testMentorApi() {
+    if (testingApi) return;
+
+    setTestingApi(true);
+    setApiTest("");
+
+    try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        setApiTest(
+          "BELUM LULUS: Sesi login tidak ditemukan."
+        );
+        return;
+      }
+
+      // Verifikasi role terlebih dahulu.
+      const {
+        data: currentProfile,
+        error: currentProfileError,
+      } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      if (
+        currentProfileError ||
+        !currentProfile ||
+        currentProfile.role !== "participant"
+      ) {
+        setApiTest(
+          "PENGUJIAN DIHENTIKAN: Login dengan akun Peserta Uji Coba."
+        );
+        return;
+      }
+
+      // Kirim sesi peserta ke API mentor.
+      const response = await fetch(
+        "/api/mentor/registrations",
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          cache: "no-store",
+        }
+      );
+
+      if (response.status === 403) {
+        setApiTest(
+          "LULUS: API menolak akses peserta (HTTP 403)."
+        );
+      } else if (response.status === 200) {
+        setApiTest(
+          "GAGAL: API mengizinkan akses peserta (HTTP 200). Hentikan pengujian dan periksa server."
+        );
+      } else if (response.status === 401) {
+        setApiTest(
+          "BELUM LULUS: API mengembalikan HTTP 401. Sesi perlu diperiksa."
+        );
+      } else {
+        setApiTest(
+          `BELUM TERVERIFIKASI: API mengembalikan HTTP ${response.status}.`
+        );
+      }
+    } catch {
+      setApiTest(
+        "BELUM TERVERIFIKASI: Tidak dapat menghubungi API."
+      );
+    } finally {
+      setTestingApi(false);
+    }
+  }
 
   async function logout() {
     await supabase.auth.signOut();
@@ -227,13 +294,11 @@ export default function DashboardPeserta() {
           <>
             <section style={card}>
               <h2>
-                {profile.full_name ||
-                  "Peserta OJT"}
+                {profile.full_name || "Peserta OJT"}
               </h2>
 
               <p>
-                Departemen:{" "}
-                {profile.department || "-"}
+                Departemen: {profile.department || "-"}
               </p>
 
               <p>
@@ -259,18 +324,14 @@ export default function DashboardPeserta() {
                 }}
               >
                 <h2>⏳ Menunggu Persetujuan Mentor</h2>
-
                 <p>
-                  Pendaftaran Anda telah tercatat
-                  dan sedang menunggu pemeriksaan
-                  mentor.
+                  Pendaftaran Anda telah tercatat dan
+                  sedang menunggu pemeriksaan mentor.
                 </p>
-
                 <p>
-                  Dashboard monitoring OJT akan
-                  tersedia setelah mentor
-                  menyetujui pendaftaran dan
-                  mengaktifkan program Anda.
+                  Dashboard monitoring OJT akan tersedia
+                  setelah mentor menyetujui pendaftaran
+                  dan mengaktifkan program Anda.
                 </p>
               </section>
             )}
@@ -284,16 +345,14 @@ export default function DashboardPeserta() {
                 }}
               >
                 <h2>❌ Pendaftaran Ditolak</h2>
-
                 <p>
-                  Pengajuan pendaftaran Anda
-                  belum disetujui mentor.
+                  Pengajuan pendaftaran Anda belum
+                  disetujui mentor.
                 </p>
 
                 {registration?.rejection_reason && (
                   <p>
-                    Alasan:{" "}
-                    {registration.rejection_reason}
+                    Alasan: {registration.rejection_reason}
                   </p>
                 )}
               </section>
@@ -302,16 +361,13 @@ export default function DashboardPeserta() {
             {access === "no_program" && (
               <section style={card}>
                 <h2>Program OJT Belum Aktif</h2>
-
                 <p>
-                  Belum ada program OJT aktif
-                  yang dapat diakses.
+                  Belum ada program OJT aktif yang dapat
+                  diakses.
                 </p>
-
                 <p>
-                  Jika pendaftaran sudah
-                  disetujui, silakan hubungi
-                  mentor untuk memastikan
+                  Jika pendaftaran sudah disetujui,
+                  silakan hubungi mentor untuk memastikan
                   program telah dibuat.
                 </p>
               </section>
@@ -321,15 +377,8 @@ export default function DashboardPeserta() {
               <>
                 <section style={card}>
                   <h2>Informasi Program OJT</h2>
-
-                  <p>
-                    Site: {program.site || "-"}
-                  </p>
-
-                  <p>
-                    Status: {program.status}
-                  </p>
-
+                  <p>Site: {program.site || "-"}</p>
+                  <p>Status: {program.status}</p>
                   <p>
                     Periode: {program.start_date}
                     {" sampai "}
@@ -338,19 +387,53 @@ export default function DashboardPeserta() {
                 </section>
 
                 <section style={card}>
-                  <h2>Monitoring Saya</h2>
-
+                  <h2>Pengujian Keamanan API</h2>
                   <p>
-                    Pilih menu untuk melihat
-                    perkembangan OJT Anda.
+                    Pengujian ini memeriksa apakah akun
+                    peserta ditolak oleh API khusus mentor.
+                  </p>
+
+                  <button
+                    type="button"
+                    style={{
+                      ...button,
+                      background: "#7c3aed",
+                    }}
+                    onClick={testMentorApi}
+                    disabled={testingApi}
+                  >
+                    {testingApi
+                      ? "Menguji API..."
+                      : "Uji Akses API Mentor"}
+                  </button>
+
+                  {apiTest && (
+                    <p
+                      role="status"
+                      style={{
+                        fontWeight: 700,
+                        overflowWrap: "anywhere",
+                        color: apiTest.startsWith("LULUS")
+                          ? "#15803d"
+                          : "#b91c1c",
+                      }}
+                    >
+                      {apiTest}
+                    </p>
+                  )}
+                </section>
+
+                <section style={card}>
+                  <h2>Monitoring Saya</h2>
+                  <p>
+                    Pilih menu untuk melihat perkembangan
+                    OJT Anda.
                   </p>
 
                   <button
                     style={button}
                     onClick={() =>
-                      router.push(
-                        `/analisis/${program.id}`
-                      )
+                      router.push(`/analisis/${program.id}`)
                     }
                   >
                     📊 Grafik Perkembangan OJT
@@ -362,9 +445,7 @@ export default function DashboardPeserta() {
                       background: "#16a34a",
                     }}
                     onClick={() =>
-                      router.push(
-                        `/evaluasi/${program.id}`
-                      )
+                      router.push(`/evaluasi/${program.id}`)
                     }
                   >
                     ✓ Evaluasi Kesiapan OJT
@@ -376,9 +457,7 @@ export default function DashboardPeserta() {
                       background: "#7c3aed",
                     }}
                     onClick={() =>
-                      router.push(
-                        `/laporan/${program.id}`
-                      )
+                      router.push(`/laporan/${program.id}`)
                     }
                   >
                     📄 Laporan OJT Saya
