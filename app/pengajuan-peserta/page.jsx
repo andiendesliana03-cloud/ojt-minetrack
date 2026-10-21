@@ -1,57 +1,91 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
-const TEST_PARTICIPANT_ID =
-  "4e1256e3-ef0b-457d-a7a5-162dc8a1f332";
-
 const SITES = [
-  "LMO", "SMO", "GMO NORTH", "GMO SOUTH",
-  "BMO 1", "BMO 2", "BMO 3", "SRN", "HO"
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
 ];
 
-const card = {
-  background: "white",
-  padding: 20,
+const CARD = {
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
   borderRadius: 14,
+  padding: 20,
   marginBottom: 16,
-  border: "1px solid #e2e8f0"
 };
 
-const field = {
-  display: "block",
+const FIELD = {
   width: "100%",
   padding: 12,
   marginTop: 7,
   marginBottom: 18,
   border: "1px solid #cbd5e1",
   borderRadius: 9,
-  boxSizing: "border-box",
-  fontSize: 16,
+  background: "#ffffff",
   color: "#0f172a",
-  background: "white"
+  fontSize: 16,
+  boxSizing: "border-box",
 };
 
-const button = {
+const BUTTON = {
   width: "100%",
   padding: 14,
-  border: 0,
-  borderRadius: 9,
-  background: "#166534",
-  color: "white",
-  fontWeight: "bold",
+  border: "none",
+  borderRadius: 10,
+  background: "#2563eb",
+  color: "#ffffff",
+  fontWeight: 700,
   fontSize: 15,
-  cursor: "pointer"
+  cursor: "pointer",
 };
+
+function validDate(value) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
+    return false;
+  }
+
+  const date = new Date(value + "T00:00:00Z");
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
 
 function formatDate(value) {
   if (!value) return "-";
 
-  const [y, m, d] = value.slice(0, 10).split("-");
-  return `${d}/${m}/${y}`;
+  const parts = String(value)
+    .slice(0, 10)
+    .split("-");
+
+  if (parts.length !== 3) return value;
+
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function statusLabel(status) {
+  const labels = {
+    pending: "Menunggu Persetujuan Mentor",
+    approved: "Disetujui",
+    rejected: "Ditolak",
+  };
+
+  return labels[status] || status || "-";
 }
 
 export default function PengajuanPesertaPage() {
@@ -60,26 +94,27 @@ export default function PengajuanPesertaPage() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [registration, setRegistration] = useState(null);
+  const [registrationSource, setRegistrationSource] =
+    useState("");
 
-  const [site, setSite] = useState("SMO");
-  const [startDate, setStartDate] =
-    useState("2026-11-01");
-  const [endDate, setEndDate] =
-    useState("2027-01-29");
+  const [site, setSite] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [preview, setPreview] = useState(null);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
       const {
         data: { user: currentUser },
-        error: authError
+        error: authError,
       } = await supabase.auth.getUser();
 
       if (authError || !currentUser) {
@@ -91,10 +126,12 @@ export default function PengajuanPesertaPage() {
 
       const {
         data: currentProfile,
-        error: profileError
+        error: profileError,
       } = await supabase
         .from("profiles")
-        .select("id,full_name,role,department")
+        .select(
+          "id,full_name,role,department"
+        )
         .eq("id", currentUser.id)
         .maybeSingle();
 
@@ -105,15 +142,26 @@ export default function PengajuanPesertaPage() {
         return;
       }
 
-      if (currentProfile?.role !== "participant") {
-        throw new Error("Profil peserta tidak valid.");
+      if (
+        !currentProfile ||
+        currentProfile.role !== "participant"
+      ) {
+        throw new Error(
+          "Profil peserta belum tersedia atau tidak valid."
+        );
       }
 
       setProfile(currentProfile);
 
+      if (!currentUser.email_confirmed_at) {
+        throw new Error(
+          "Email belum terverifikasi. Periksa email terlebih dahulu."
+        );
+      }
+
       const {
         data: activeProgram,
-        error: programError
+        error: programError,
       } = await supabase
         .from("ojt_programs")
         .select("id")
@@ -131,14 +179,16 @@ export default function PengajuanPesertaPage() {
 
       const {
         data: newRegistration,
-        error: newError
+        error: newError,
       } = await supabase
         .from("ojt_registration_requests")
         .select(
-          "id,site,department,start_date,end_date,status,created_at"
+          "id,department,site,start_date,end_date,status,created_at"
         )
         .eq("participant_id", currentUser.id)
-        .order("created_at", { ascending: false })
+        .order("created_at", {
+          ascending: false,
+        })
         .limit(1)
         .maybeSingle();
 
@@ -146,80 +196,121 @@ export default function PengajuanPesertaPage() {
 
       const {
         data: oldRegistration,
-        error: oldError
+        error: oldError,
       } = await supabase
         .from("participant_registrations")
-        .select("id,site,status,created_at")
+        .select(
+          "id,site,status,created_at"
+        )
         .eq("user_id", currentUser.id)
+        .order("created_at", {
+          ascending: false,
+        })
         .limit(1)
         .maybeSingle();
 
       if (oldError) throw oldError;
 
-      setRegistration(
-        oldRegistration || newRegistration || null
+      if (oldRegistration) {
+        setRegistration(oldRegistration);
+        setRegistrationSource("legacy");
+      } else if (newRegistration) {
+        setRegistration(newRegistration);
+        setRegistrationSource("new");
+      } else {
+        setRegistration(null);
+        setRegistrationSource("");
+      }
+
+      const metadata =
+        currentUser.user_metadata || {};
+
+      const initialSite = String(
+        newRegistration?.site ||
+        oldRegistration?.site ||
+        metadata.site ||
+        ""
+      )
+        .trim()
+        .toUpperCase();
+
+      setSite(
+        SITES.includes(initialSite)
+          ? initialSite
+          : ""
+      );
+
+      setStartDate(
+        String(
+          newRegistration?.start_date ||
+          metadata.start_date ||
+          ""
+        ).slice(0, 10)
+      );
+
+      setEndDate(
+        String(
+          newRegistration?.end_date ||
+          metadata.end_date ||
+          ""
+        ).slice(0, 10)
       );
     } catch (err) {
       setError(
-        err.message || "Gagal membaca data peserta."
+        err.message ||
+        "Gagal memuat data pengajuan."
       );
     } finally {
       setLoading(false);
     }
-  }
+  }, [router]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
-  async function submitRegistration(event) {
+  async function simulateSubmission(event) {
     event.preventDefault();
 
-    if (sending || registration) return;
-
-    setError("");
-    setMessage("");
-
-    if (user?.id !== TEST_PARTICIPANT_ID) {
-      setError(
-        "Pengiriman pengujian hanya untuk akun Peserta OJT."
-      );
+    if (
+      processing ||
+      loading ||
+      registration ||
+      !profile
+    ) {
       return;
     }
 
-    if (!user.email_confirmed_at) {
-      setError("Email belum terverifikasi.");
+    setError("");
+    setMessage("");
+    setPreview(null);
+
+    if (!SITES.includes(site)) {
+      setError("Silakan pilih site OJT.");
       return;
     }
 
     if (
-      !startDate ||
-      !endDate ||
+      !validDate(startDate) ||
+      !validDate(endDate) ||
       endDate < startDate
     ) {
       setError("Periode OJT tidak valid.");
       return;
     }
 
-    const confirmed = window.confirm(
-      "Kirim pengajuan OJT sungguhan?\n\n" +
-      "Site: " + site + "\n" +
-      "Mulai: " + formatDate(startDate) + "\n" +
-      "Selesai: " + formatDate(endDate) + "\n\n" +
-      "Pengajuan akan disimpan dengan status pending."
-    );
-
-    if (!confirmed) return;
-
-    setSending(true);
+    setProcessing(true);
 
     try {
       const {
         data: { session },
-        error: sessionError
+        error: sessionError,
       } = await supabase.auth.getSession();
 
-      if (sessionError || !session?.access_token) {
+      if (
+        sessionError ||
+        !session?.access_token
+      ) {
         throw new Error(
           "Sesi login berakhir. Silakan login kembali."
         );
@@ -232,7 +323,7 @@ export default function PengajuanPesertaPage() {
           headers: {
             "Content-Type": "application/json",
             Authorization:
-              `Bearer ${session.access_token}`
+              `Bearer ${session.access_token}`,
           },
           cache: "no-store",
           body: JSON.stringify({
@@ -241,36 +332,42 @@ export default function PengajuanPesertaPage() {
             site,
             start_date: startDate,
             end_date: endDate,
-            dry_run: false
-          })
+            dry_run: true,
+          }),
         }
       );
 
       const result = await response.json();
 
-      if (
-        !response.ok ||
-        result.success !== true ||
-        result.dry_run !== false
-      ) {
+      if (!response.ok) {
         throw new Error(
           result.error ||
-          "Pengajuan belum berhasil disimpan."
+          "Simulasi pengajuan gagal."
         );
       }
 
-      setMessage(
-        "Pengajuan berhasil dikirim! " +
-        "Status: Menunggu Persetujuan Mentor."
-      );
+      if (
+        result.success !== true ||
+        result.dry_run !== true ||
+        result.database_changed !== false
+      ) {
+        throw new Error(
+          "Respons server tidak sesuai dengan mode simulasi."
+        );
+      }
 
-      await loadData();
+      setPreview(result.preview || null);
+
+      setMessage(
+        "Validasi pengajuan berhasil. Data belum disimpan dan belum dikirim kepada mentor."
+      );
     } catch (err) {
       setError(
-        err.message || "Gagal mengirim pengajuan."
+        err.message ||
+        "Terjadi kesalahan simulasi."
       );
     } finally {
-      setSending(false);
+      setProcessing(false);
     }
   }
 
@@ -286,101 +383,123 @@ export default function PengajuanPesertaPage() {
         background: "#f1f5f9",
         color: "#0f172a",
         padding: "24px 15px",
-        fontFamily: "Arial, sans-serif"
+        fontFamily: "Arial, sans-serif",
+        boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 620, margin: "auto" }}>
+      <div
+        style={{
+          maxWidth: 650,
+          margin: "auto",
+        }}
+      >
         <header
           style={{
-            ...card,
+            ...CARD,
             background: "#0f172a",
-            color: "white",
-            textAlign: "center"
+            color: "#ffffff",
+            textAlign: "center",
           }}
         >
-          <h2>Pengajuan Peserta OJT</h2>
-          <p>Emergency Response Group</p>
+          <h1>Pengajuan Peserta OJT</h1>
+          <h3>Emergency Response Group</h3>
           <p>PT Berau Coal</p>
         </header>
 
+        <section
+          style={{
+            ...CARD,
+            background: "#eff6ff",
+            borderColor: "#bfdbfe",
+          }}
+        >
+          <strong
+            style={{
+              color: "#1d4ed8",
+            }}
+          >
+            MODE PERSIAPAN PENDAFTARAN UMUM
+          </strong>
+
+          <p
+            style={{
+              lineHeight: 1.7,
+              marginBottom: 0,
+            }}
+          >
+            Formulir tersedia untuk seluruh
+            akun peserta yang memenuhi syarat.
+            Pengajuan sebenarnya belum
+            diaktifkan. Tombol di bawah
+            digunakan untuk pemeriksaan
+            data tanpa menyimpan pengajuan.
+          </p>
+        </section>
+
         {loading ? (
-          <section style={card}>
-            Memeriksa status peserta...
+          <section style={CARD}>
+            Memeriksa akun dan pengajuan...
           </section>
         ) : (
           <>
             {error && (
-              <div
+              <section
                 role="alert"
                 style={{
-                  ...card,
+                  ...CARD,
                   background: "#fef2f2",
-                  color: "#991b1b"
+                  borderColor: "#fecaca",
+                  color: "#991b1b",
                 }}
               >
                 {error}
-              </div>
+              </section>
             )}
 
-            {message && (
-              <div
-                role="status"
-                style={{
-                  ...card,
-                  background: "#dcfce7",
-                  color: "#166534"
-                }}
-              >
-                <strong>{message}</strong>
-              </div>
-            )}
+            <section style={CARD}>
+              <h2>Informasi Peserta</h2>
 
-            <section style={card}>
-              <h3>Informasi Peserta</h3>
               <p>
                 <strong>Nama:</strong>{" "}
                 {profile?.full_name || "-"}
               </p>
+
               <p>
                 <strong>Email:</strong>{" "}
                 {user?.email || "-"}
               </p>
+
               <p>
-                <strong>Departemen:</strong> ER & SS
+                <strong>Departemen:</strong>{" "}
+                {profile?.department || "ER & SS"}
               </p>
+
               <p>
-                <strong>Verifikasi:</strong>{" "}
+                <strong>Status Email:</strong>{" "}
                 {user?.email_confirmed_at
                   ? "Terverifikasi"
-                  : "Belum terverifikasi"}
+                  : "Belum Terverifikasi"}
               </p>
             </section>
 
             {registration ? (
-              <section style={card}>
-                <h3>Status Pengajuan OJT</h3>
+              <section style={CARD}>
+                <h2>Status Pengajuan OJT</h2>
 
                 <div
                   style={{
-                    padding: 14,
-                    borderRadius: 9,
+                    padding: 15,
+                    borderRadius: 10,
                     background:
                       registration.status === "pending"
                         ? "#fef3c7"
                         : registration.status === "approved"
                         ? "#dcfce7"
-                        : "#fee2e2"
+                        : "#fee2e2",
+                    fontWeight: 700,
                   }}
                 >
-                  <strong>
-                    {registration.status === "pending"
-                      ? "Menunggu Persetujuan Mentor"
-                      : registration.status === "approved"
-                      ? "Disetujui"
-                      : registration.status === "rejected"
-                      ? "Ditolak"
-                      : registration.status}
-                  </strong>
+                  {statusLabel(registration.status)}
                 </div>
 
                 <p>
@@ -391,72 +510,113 @@ export default function PengajuanPesertaPage() {
                 {registration.start_date && (
                   <p>
                     <strong>Periode:</strong>{" "}
-                    {formatDate(registration.start_date)}
-                    {" s.d. "}
-                    {formatDate(registration.end_date)}
+                    {formatDate(
+                      registration.start_date
+                    )}{" "}
+                    s.d.{" "}
+                    {formatDate(
+                      registration.end_date
+                    )}
                   </p>
                 )}
 
+                <p
+                  style={{
+                    color: "#64748b",
+                  }}
+                >
+                  Sumber:{" "}
+                  {registrationSource === "legacy"
+                    ? "Pendaftaran lama"
+                    : "Pengajuan sistem baru"}
+                </p>
+
                 <p>
                   Pengajuan sudah tercatat.
-                  Tidak perlu mengirim ulang.
+                  Tidak perlu melakukan
+                  pengajuan ulang.
                 </p>
               </section>
-            ) : user?.id === TEST_PARTICIPANT_ID ? (
-              <section style={card}>
-                <h3>Formulir Pengajuan OJT</h3>
+            ) : profile &&
+              user?.email_confirmed_at ? (
+              <section style={CARD}>
+                <h2>Formulir Pengajuan OJT</h2>
 
-                <p>
-                  Pengajuan ini akan tersimpan
-                  di Supabase dan menunggu persetujuan mentor.
+                <p
+                  style={{
+                    color: "#64748b",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Lengkapi rencana penempatan
+                  dan periode OJT.
                 </p>
 
-                <form onSubmit={submitRegistration}>
-                  <label>
-                    <strong>Site OJT</strong>
+                <form onSubmit={simulateSubmission}>
+                  <label htmlFor="site">
+                    <strong>Site Penempatan</strong>
                   </label>
 
                   <select
-                    style={field}
+                    id="site"
+                    style={FIELD}
                     value={site}
-                    disabled={sending}
+                    required
+                    disabled={processing}
                     onChange={(e) =>
                       setSite(e.target.value)
                     }
                   >
-                    {SITES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
+                    <option value="">
+                      -- Pilih Site --
+                    </option>
+
+                    {SITES.map((item) => (
+                      <option
+                        key={item}
+                        value={item}
+                      >
+                        {item}
                       </option>
                     ))}
                   </select>
 
-                  <label>
-                    <strong>Tanggal Mulai</strong>
+                  <label htmlFor="start_date">
+                    <strong>Tanggal Mulai OJT</strong>
                   </label>
 
                   <input
+                    id="start_date"
                     type="date"
-                    style={field}
+                    style={FIELD}
                     value={startDate}
                     required
-                    disabled={sending}
-                    onChange={(e) =>
-                      setStartDate(e.target.value)
-                    }
+                    disabled={processing}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setStartDate(value);
+
+                      if (
+                        endDate &&
+                        endDate < value
+                      ) {
+                        setEndDate("");
+                      }
+                    }}
                   />
 
-                  <label>
-                    <strong>Tanggal Selesai</strong>
+                  <label htmlFor="end_date">
+                    <strong>Tanggal Selesai OJT</strong>
                   </label>
 
                   <input
+                    id="end_date"
                     type="date"
-                    style={field}
+                    style={FIELD}
                     value={endDate}
-                    min={startDate}
+                    min={startDate || undefined}
                     required
-                    disabled={sending}
+                    disabled={processing}
                     onChange={(e) =>
                       setEndDate(e.target.value)
                     }
@@ -464,30 +624,85 @@ export default function PengajuanPesertaPage() {
 
                   <button
                     type="submit"
-                    style={button}
-                    disabled={sending}
+                    disabled={processing}
+                    style={{
+                      ...BUTTON,
+                      background: processing
+                        ? "#94a3b8"
+                        : "#2563eb",
+                    }}
                   >
-                    {sending
-                      ? "Mengirim Pengajuan..."
-                      : "Kirim Pengajuan OJT"}
+                    {processing
+                      ? "Memeriksa Pengajuan..."
+                      : "Jalankan Simulasi Pengajuan"}
                   </button>
                 </form>
               </section>
-            ) : (
-              <section style={card}>
-                Pengajuan sungguhan sementara
-                dibatasi untuk akun pengujian Peserta OJT.
+            ) : null}
+
+            {message && (
+              <section
+                role="status"
+                style={{
+                  ...CARD,
+                  background: "#f0fdf4",
+                  borderColor: "#86efac",
+                }}
+              >
+                <h3
+                  style={{
+                    color: "#166534",
+                  }}
+                >
+                  Validasi Berhasil
+                </h3>
+
+                <p>{message}</p>
+
+                {preview && (
+                  <div
+                    style={{
+                      lineHeight: 1.8,
+                    }}
+                  >
+                    <p>
+                      Nama: {preview.full_name}
+                    </p>
+
+                    <p>
+                      Site: {preview.site}
+                    </p>
+
+                    <p>
+                      Mulai:{" "}
+                      {formatDate(
+                        preview.start_date
+                      )}
+                    </p>
+
+                    <p>
+                      Selesai:{" "}
+                      {formatDate(
+                        preview.end_date
+                      )}
+                    </p>
+
+                    <strong>
+                      Database tidak berubah.
+                    </strong>
+                  </div>
+                )}
               </section>
             )}
 
             <button
               type="button"
               onClick={loadData}
-              disabled={sending}
+              disabled={processing}
               style={{
-                ...button,
+                ...BUTTON,
                 background: "#0f766e",
-                marginBottom: 12
+                marginBottom: 12,
               }}
             >
               Perbarui Status
@@ -497,8 +712,8 @@ export default function PengajuanPesertaPage() {
               type="button"
               onClick={logout}
               style={{
-                ...button,
-                background: "#475569"
+                ...BUTTON,
+                background: "#475569",
               }}
             >
               Keluar Akun
