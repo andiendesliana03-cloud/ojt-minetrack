@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Tetap nonaktif sampai alur penggunaan umum siap.
-const GENERAL_SUBMISSION_ENABLED = false;
+const GENERAL_SUBMISSION_ENABLED =
+  process.env.OJT_SUBMISSION_ENABLED === "true";
 
 const SITES = [
   "LMO",
