@@ -5,142 +5,179 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Khusus satu persetujuan pengujian.
-const TEST_APPROVAL_ENABLED = false;
+// PENGAMAN UTAMA
+// Persetujuan sungguhan tetap nonaktif.
+const GENERAL_APPROVAL_ENABLED = false;
 
-const TEST_REQUEST_ID =
-  "97f39c14-216f-4bc9-9a1e-da2383ab9271";
+// Penolakan sungguhan juga belum diaktifkan.
+const GENERAL_REJECTION_ENABLED = false;
 
-const TEST_PARTICIPANT_ID =
-  "4e1256e3-ef0b-457d-a7a5-162dc8a1f332";
-
-const TEST_MENTOR_ID =
-  "21393f8a-dfd4-4ee9-b08b-0166fdf246cc";
-
-function reply(data, status = 200) {
+function respond(data, status = 200) {
   return NextResponse.json(data, {
     status,
-    headers: { "Cache-Control": "no-store" },
+    headers: {
+      "Cache-Control": "no-store",
+    },
   });
 }
 
 function fail(message, status = 400) {
-  return reply(
-    { success: false, error: message },
+  return respond(
+    {
+      success: false,
+      error: message,
+    },
     status
+  );
+}
+
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error(
+      "Konfigurasi Supabase server belum lengkap."
+    );
+  }
+
+  return createClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+function isUuid(value) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value
+    )
   );
 }
 
 export async function POST(request) {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!url || !key) {
-      return fail(
-        "Konfigurasi server belum lengkap.",
-        503
-      );
-    }
-
-    const admin = createClient(url, key, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-
-    const authorization =
-      request.headers.get("authorization") || "";
-
-    if (!authorization.startsWith("Bearer ")) {
-      return fail("Silakan login sebagai mentor.", 401);
-    }
-
-    const token = authorization.slice(7).trim();
-
-    const {
-      data: authData,
-      error: authError,
-    } = await admin.auth.getUser(token);
-
-    if (authError || !authData?.user) {
-      return fail("Sesi login tidak valid.", 401);
-    }
-
-    const mentorId = authData.user.id;
-
-    const {
-      data: mentor,
-      error: mentorError,
-    } = await admin
-      .from("profiles")
-      .select("id,role")
-      .eq("id", mentorId)
-      .maybeSingle();
-
-    if (mentorError) throw mentorError;
-
-    if (
-      mentor?.role !== "mentor" ||
-      mentorId !== TEST_MENTOR_ID
-    ) {
-      return fail(
-        "Hanya Mentor OJT pengujian yang diizinkan.",
-        403
-      );
-    }
-
     let body;
 
     try {
       body = await request.json();
     } catch {
-      return fail("Format permintaan tidak valid.");
+      return fail("Format JSON tidak valid.");
     }
 
     const requestId = body?.request_id;
     const decision = body?.decision;
     const dryRun = body?.dry_run === true;
 
-    if (requestId !== TEST_REQUEST_ID) {
+    if (!isUuid(requestId)) {
+      return fail("ID pengajuan tidak valid.");
+    }
+
+    if (
+      decision !== "approved" &&
+      decision !== "rejected"
+    ) {
+      return fail("Keputusan mentor tidak valid.");
+    }
+
+    // Tutup proses nyata selama tahap persiapan.
+    if (
+      !dryRun &&
+      decision === "approved" &&
+      !GENERAL_APPROVAL_ENABLED
+    ) {
       return fail(
-        "Pengajuan ini tidak termasuk pengujian.",
+        "Persetujuan OJT umum belum diaktifkan.",
         403
       );
     }
 
-    if (decision !== "approved") {
+    if (
+      !dryRun &&
+      decision === "rejected" &&
+      !GENERAL_REJECTION_ENABLED
+    ) {
       return fail(
-        "Pengujian ini hanya mengizinkan persetujuan.",
+        "Penolakan OJT umum belum diaktifkan.",
         403
       );
     }
 
+    const authorization =
+      request.headers.get("authorization") || "";
+
+    if (!authorization.startsWith("Bearer ")) {
+      return fail(
+        "Silakan login sebagai mentor.",
+        401
+      );
+    }
+
+    const token = authorization.slice(7).trim();
+
+    if (!token) {
+      return fail("Token login tidak tersedia.", 401);
+    }
+
+    const admin = getAdminClient();
+
+    // Identitas mentor berasal dari token Auth.
+    const {
+      data: authData,
+      error: authError,
+    } = await admin.auth.getUser(token);
+
+    if (authError || !authData?.user) {
+      return fail(
+        "Sesi login tidak valid.",
+        401
+      );
+    }
+
+    const mentorId = authData.user.id;
+
+    // Pastikan akun benar-benar mentor.
+    const {
+      data: mentor,
+      error: mentorError,
+    } = await admin
+      .from("profiles")
+      .select("id,full_name,role")
+      .eq("id", mentorId)
+      .maybeSingle();
+
+    if (mentorError) throw mentorError;
+
+    if (!mentor || mentor.role !== "mentor") {
+      return fail(
+        "Hanya mentor yang boleh memproses pengajuan.",
+        403
+      );
+    }
+
+    // Ambil pengajuan berdasarkan ID.
     const {
       data: registration,
       error: registrationError,
     } = await admin
       .from("ojt_registration_requests")
       .select(
-        "id,participant_id,status,site,start_date,end_date"
+        "id,participant_id,department,site,start_date,end_date,status"
       )
       .eq("id", requestId)
       .maybeSingle();
 
-    if (registrationError) throw registrationError;
-
-    if (!registration) {
-      return fail("Pengajuan tidak ditemukan.", 404);
+    if (registrationError) {
+      throw registrationError;
     }
 
-    if (
-      registration.participant_id !==
-      TEST_PARTICIPANT_ID
-    ) {
+    if (!registration) {
       return fail(
-        "Identitas peserta tidak sesuai.",
-        403
+        "Pengajuan tidak ditemukan.",
+        404
       );
     }
 
@@ -151,18 +188,76 @@ export async function POST(request) {
       );
     }
 
-    // Jalur simulasi tetap tersedia.
+    if (registration.participant_id === mentorId) {
+      return fail(
+        "Mentor tidak dapat memproses pengajuannya sendiri.",
+        403
+      );
+    }
+
+    // Periksa profil peserta.
+    const {
+      data: participant,
+      error: participantError,
+    } = await admin
+      .from("profiles")
+      .select("id,full_name,role")
+      .eq("id", registration.participant_id)
+      .maybeSingle();
+
+    if (participantError) {
+      throw participantError;
+    }
+
+    if (
+      !participant ||
+      participant.role !== "participant"
+    ) {
+      return fail(
+        "Profil peserta tidak valid.",
+        409
+      );
+    }
+
+    // Pemeriksaan awal untuk simulasi.
+    // Pemeriksaan final tetap dilakukan
+    // oleh fungsi SQL saat transaksi nyata.
+    if (decision === "approved") {
+      const {
+        data: programs,
+        error: programError,
+      } = await admin
+        .from("ojt_programs")
+        .select("id")
+        .eq(
+          "participant_id",
+          registration.participant_id
+        )
+        .eq("status", "active")
+        .limit(1);
+
+      if (programError) throw programError;
+
+      if (programs?.length) {
+        return fail(
+          "Peserta sudah memiliki program OJT aktif.",
+          409
+        );
+      }
+    }
+
+    // SIMULASI: tidak menulis data.
     if (dryRun) {
-      return reply({
+      return respond({
         success: true,
         dry_run: true,
         database_changed: false,
         message:
-          "Simulasi persetujuan berhasil. Data tidak diubah.",
+          "Simulasi keputusan mentor berhasil. Data tidak berubah.",
         preview: {
-          request_id: requestId,
-          participant_id:
-            registration.participant_id,
+          registration_id: requestId,
+          participant_name: participant.full_name,
+          mentor_name: mentor.full_name,
           mentor_id: mentorId,
           decision,
           site: registration.site,
@@ -172,69 +267,64 @@ export async function POST(request) {
       });
     }
 
-    // Pengaman khusus satu pengajuan.
-    if (!TEST_APPROVAL_ENABLED) {
-      return fail(
-        "Persetujuan asli belum diaktifkan.",
-        403
-      );
-    }
-
-    // Panggil fungsi transaksi Supabase.
+    // PERSETUJUAN / PENOLAKAN NYATA
+    // Hanya bisa dicapai setelah pengaman
+    // yang sesuai diaktifkan.
+    //
+    // Transaksi SQL akan memeriksa ulang
+    // role, status dan duplikasi.
     const {
-      data: result,
+      data: rpcResult,
       error: rpcError,
     } = await admin.rpc(
       "review_ojt_registration",
       {
         p_request_id: requestId,
         p_mentor_id: mentorId,
-        p_decision: "approved",
+        p_decision: decision,
       }
     );
 
     if (rpcError) {
       console.error(
-        "Review OJT error:",
+        "review_ojt_registration:",
         rpcError.code
       );
 
       return fail(
-        "Persetujuan gagal. Periksa status pengajuan.",
+        "Keputusan belum dapat disimpan. Periksa status pengajuan sebelum mencoba lagi.",
         409
       );
     }
 
-    const approved = Array.isArray(result)
-      ? result[0]
-      : result;
+    const result = Array.isArray(rpcResult)
+      ? rpcResult[0]
+      : rpcResult;
 
     if (
-      approved?.registration_status !==
-        "approved" ||
-      !approved?.program_id
+      !result ||
+      result.registration_status !== decision ||
+      (decision === "approved" && !result.program_id)
     ) {
       return fail(
-        "Hasil persetujuan tidak sesuai. Periksa database sebelum mencoba lagi.",
+        "Hasil proses belum dapat dipastikan. Periksa database sebelum mengulangi.",
         500
       );
     }
 
-    return reply({
+    return respond({
       success: true,
       dry_run: false,
-      registration_id:
-        approved.registration_id,
-      status: approved.registration_status,
-      program_id: approved.program_id,
+      registration_id: result.registration_id,
+      status: result.registration_status,
+      program_id: result.program_id || null,
       message:
-        "Pengajuan berhasil disetujui. Program OJT aktif telah dibuat.",
+        decision === "approved"
+          ? "Pengajuan disetujui dan program OJT aktif berhasil dibuat."
+          : "Pengajuan OJT telah ditolak.",
     });
   } catch (error) {
-    console.error(
-      "Mentor review error:",
-      error
-    );
+    console.error("Mentor review API:", error);
 
     return fail(
       "Terjadi kesalahan server.",
