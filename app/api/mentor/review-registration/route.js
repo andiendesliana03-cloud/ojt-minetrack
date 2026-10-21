@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Khusus satu persetujuan pengujian.
-const TEST_APPROVAL_ENABLED = true;
+const TEST_APPROVAL_ENABLED = false;
 
 const TEST_REQUEST_ID =
   "97f39c14-216f-4bc9-9a1e-da2383ab9271";
