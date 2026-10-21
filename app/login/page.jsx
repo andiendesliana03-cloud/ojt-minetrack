@@ -59,7 +59,9 @@ export default function LoginPage() {
       ) {
         tujuan = "/dashboard-peserta";
       } else {
-        throw new Error("Role akun tidak dikenali.");
+        throw new Error(
+          "Role akun tidak dikenali."
+        );
       }
 
       router.replace(tujuan);
@@ -74,8 +76,9 @@ export default function LoginPage() {
     }
   }
 
+  // Pendaftaran mandiri peserta OJT.
   function handleDaftarPeserta() {
-    router.push("/mentor/daftar-peserta");
+    router.push("/daftar");
   }
 
   const halaman = {
@@ -326,7 +329,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Tombol pendaftaran peserta */}
+        {/* Pendaftaran mandiri peserta */}
         <div
           style={{
             marginTop: 22,
@@ -340,7 +343,7 @@ export default function LoginPage() {
               marginBottom: 12,
             }}
           >
-            Ingin mendaftarkan peserta OJT?
+            Ingin bergabung sebagai peserta OJT?
           </p>
 
           <button
@@ -369,9 +372,9 @@ export default function LoginPage() {
               lineHeight: 1.6,
             }}
           >
-            Khusus mentor yang memiliki akun.
-            Silakan login sebagai mentor untuk
-            melakukan pendaftaran peserta baru.
+            Peserta dapat membuat akun sendiri.
+            Akses monitoring OJT diberikan
+            setelah mendapat persetujuan mentor.
           </p>
         </div>
 
