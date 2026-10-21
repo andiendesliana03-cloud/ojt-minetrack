@@ -34,7 +34,6 @@ export default function DashboardPeserta() {
   const [access, setAccess] = useState("loading");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
   const [apiTest, setApiTest] = useState("");
   const [testingApi, setTestingApi] = useState(false);
 
@@ -126,7 +125,9 @@ export default function DashboardPeserta() {
 
         if (latestRegistration?.status === "pending") {
           nextAccess = "pending";
-        } else if (latestRegistration?.status === "rejected") {
+        } else if (
+          latestRegistration?.status === "rejected"
+        ) {
           nextAccess = "rejected";
         } else if (
           latestRegistration?.status === "approved" &&
@@ -183,10 +184,9 @@ export default function DashboardPeserta() {
         return;
       }
 
-      // Verifikasi role terlebih dahulu.
       const {
         data: currentProfile,
-        error: currentProfileError,
+        error: profileError,
       } = await supabase
         .from("profiles")
         .select("role")
@@ -194,18 +194,18 @@ export default function DashboardPeserta() {
         .single();
 
       if (
-        currentProfileError ||
+        profileError ||
         !currentProfile ||
         currentProfile.role !== "participant"
       ) {
         setApiTest(
-          "PENGUJIAN DIHENTIKAN: Login dengan akun Peserta Uji Coba."
+          "PENGUJIAN DIHENTIKAN: Gunakan akun Peserta Uji Coba."
         );
         return;
       }
 
-      // Kirim sesi peserta ke API mentor.
-      const response = await fetch(
+      // Uji 1: API daftar pendaftaran Mentor.
+      const listResponse = await fetch(
         "/api/mentor/registrations",
         {
           method: "GET",
@@ -216,21 +216,53 @@ export default function DashboardPeserta() {
         }
       );
 
-      if (response.status === 403) {
+      if (listResponse.status !== 403) {
+        if (listResponse.status === 200) {
+          setApiTest(
+            "GAGAL: API daftar Mentor mengizinkan akses peserta (HTTP 200)."
+          );
+        } else {
+          setApiTest(
+            `BELUM TERVERIFIKASI: API daftar Mentor mengembalikan HTTP ${listResponse.status}.`
+          );
+        }
+        return;
+      }
+
+      // Uji 2: API keputusan Mentor.
+      // Body kosong: tidak mengirim ID atau tindakan.
+      const decisionResponse = await fetch(
+        "/api/mentor/registrations/decision",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({}),
+          cache: "no-store",
+        }
+      );
+
+      if (decisionResponse.status === 403) {
         setApiTest(
-          "LULUS: API menolak akses peserta (HTTP 403)."
+          "LULUS: API daftar Mentor dan API keputusan Mentor sama-sama menolak akses peserta (HTTP 403)."
         );
-      } else if (response.status === 200) {
+      } else if (decisionResponse.status === 200) {
         setApiTest(
-          "GAGAL: API mengizinkan akses peserta (HTTP 200). Hentikan pengujian dan periksa server."
+          "GAGAL: API keputusan Mentor mengembalikan HTTP 200. Hentikan pengujian dan periksa server."
         );
-      } else if (response.status === 401) {
+      } else if (decisionResponse.status === 400) {
         setApiTest(
-          "BELUM LULUS: API mengembalikan HTTP 401. Sesi perlu diperiksa."
+          "BELUM LULUS: API keputusan Mentor mengembalikan HTTP 400. Periksa urutan validasi server."
+        );
+      } else if (decisionResponse.status === 401) {
+        setApiTest(
+          "BELUM LULUS: API keputusan Mentor mengembalikan HTTP 401. Sesi perlu diperiksa."
         );
       } else {
         setApiTest(
-          `BELUM TERVERIFIKASI: API mengembalikan HTTP ${response.status}.`
+          `BELUM TERVERIFIKASI: API keputusan Mentor mengembalikan HTTP ${decisionResponse.status}.`
         );
       }
     } catch {
@@ -257,12 +289,7 @@ export default function DashboardPeserta() {
         color: "#0f172a",
       }}
     >
-      <div
-        style={{
-          maxWidth: 800,
-          margin: "auto",
-        }}
-      >
+      <div style={{ maxWidth: 800, margin: "auto" }}>
         <header
           style={{
             ...card,
@@ -293,14 +320,10 @@ export default function DashboardPeserta() {
         {!loading && profile && (
           <>
             <section style={card}>
-              <h2>
-                {profile.full_name || "Peserta OJT"}
-              </h2>
-
+              <h2>{profile.full_name || "Peserta OJT"}</h2>
               <p>
                 Departemen: {profile.department || "-"}
               </p>
-
               <p>
                 Status Akses:{" "}
                 <strong>
@@ -310,6 +333,8 @@ export default function DashboardPeserta() {
                     ? "Pendaftaran Ditolak"
                     : access === "approved"
                     ? "Disetujui"
+                    : access === "error"
+                    ? "Terjadi Kesalahan"
                     : "Belum Aktif"}
                 </strong>
               </p>
@@ -323,15 +348,15 @@ export default function DashboardPeserta() {
                   borderColor: "#fcd34d",
                 }}
               >
-                <h2>⏳ Menunggu Persetujuan Mentor</h2>
+                <h2>Menunggu Persetujuan Mentor</h2>
                 <p>
-                  Pendaftaran Anda telah tercatat dan
-                  sedang menunggu pemeriksaan mentor.
+                  Pendaftaran Anda sedang menunggu
+                  pemeriksaan mentor.
                 </p>
                 <p>
-                  Dashboard monitoring OJT akan tersedia
-                  setelah mentor menyetujui pendaftaran
-                  dan mengaktifkan program Anda.
+                  Monitoring OJT tersedia setelah mentor
+                  menyetujui pendaftaran dan mengaktifkan
+                  program.
                 </p>
               </section>
             )}
@@ -344,12 +369,10 @@ export default function DashboardPeserta() {
                   borderColor: "#fecaca",
                 }}
               >
-                <h2>❌ Pendaftaran Ditolak</h2>
+                <h2>Pendaftaran Ditolak</h2>
                 <p>
-                  Pengajuan pendaftaran Anda belum
-                  disetujui mentor.
+                  Pengajuan Anda belum disetujui mentor.
                 </p>
-
                 {registration?.rejection_reason && (
                   <p>
                     Alasan: {registration.rejection_reason}
@@ -366,9 +389,9 @@ export default function DashboardPeserta() {
                   diakses.
                 </p>
                 <p>
-                  Jika pendaftaran sudah disetujui,
-                  silakan hubungi mentor untuk memastikan
-                  program telah dibuat.
+                  Hubungi mentor untuk memastikan program
+                  telah dibuat jika pendaftaran sudah
+                  disetujui.
                 </p>
               </section>
             )}
@@ -389,10 +412,9 @@ export default function DashboardPeserta() {
                 <section style={card}>
                   <h2>Pengujian Keamanan API</h2>
                   <p>
-                    Pengujian ini memeriksa apakah akun
-                    peserta ditolak oleh API khusus mentor.
+                    Memeriksa apakah akun peserta ditolak
+                    oleh API daftar dan keputusan Mentor.
                   </p>
-
                   <button
                     type="button"
                     style={{
@@ -436,7 +458,7 @@ export default function DashboardPeserta() {
                       router.push(`/analisis/${program.id}`)
                     }
                   >
-                    📊 Grafik Perkembangan OJT
+                    Grafik Perkembangan OJT
                   </button>
 
                   <button
@@ -448,7 +470,7 @@ export default function DashboardPeserta() {
                       router.push(`/evaluasi/${program.id}`)
                     }
                   >
-                    ✓ Evaluasi Kesiapan OJT
+                    Evaluasi Kesiapan OJT
                   </button>
 
                   <button
@@ -460,7 +482,7 @@ export default function DashboardPeserta() {
                       router.push(`/laporan/${program.id}`)
                     }
                   >
-                    📄 Laporan OJT Saya
+                    Laporan OJT Saya
                   </button>
                 </section>
               </>
