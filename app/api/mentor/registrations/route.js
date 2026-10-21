@@ -17,9 +17,7 @@ function respond(data, status = 200) {
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
     throw new Error(
@@ -56,7 +54,7 @@ export async function GET(request) {
 
     const admin = getAdminClient();
 
-    // Validasi sesi login pengguna
+    // Validasi sesi login pengguna.
     const {
       data: authData,
       error: authError,
@@ -72,7 +70,8 @@ export async function GET(request) {
       );
     }
 
-    // Hanya mentor yang boleh membaca pengajuan
+    // Semua akun mentor boleh membaca
+    // seluruh daftar pengajuan OJT.
     const {
       data: mentor,
       error: mentorError,
@@ -96,7 +95,8 @@ export async function GET(request) {
       );
     }
 
-    // Ambil pengajuan dari sistem baru
+    // Ambil pengajuan sistem baru,
+    // termasuk alasan penolakan.
     const {
       data: newRequests,
       error: newError,
@@ -110,6 +110,7 @@ export async function GET(request) {
         start_date,
         end_date,
         status,
+        rejection_reason,
         reviewed_by,
         reviewed_at,
         created_at,
@@ -137,7 +138,7 @@ export async function GET(request) {
       );
     }
 
-    // Ambil riwayat pendaftaran sistem lama
+    // Ambil riwayat pendaftaran sistem lama.
     const {
       data: oldRequests,
       error: oldError,
@@ -176,7 +177,7 @@ export async function GET(request) {
       );
     }
 
-    // Sesuaikan struktur respons sistem baru
+    // Samakan struktur pengajuan sistem baru.
     const currentRegistrations = (
       newRequests || []
     ).map((item) => ({
@@ -194,12 +195,16 @@ export async function GET(request) {
       status: item.status,
       reviewed_by: item.reviewed_by,
       reviewed_at: item.reviewed_at,
-      rejection_reason: null,
+
+      // Alasan penolakan sistem baru.
+      rejection_reason:
+        item.rejection_reason || null,
+
       created_at: item.created_at,
       source: "new",
     }));
 
-    // Pertahankan riwayat sistem lama
+    // Pertahankan seluruh riwayat sistem lama.
     const legacyRegistrations = (
       oldRequests || []
     ).map((item) => ({
@@ -215,12 +220,13 @@ export async function GET(request) {
       status: item.status,
       reviewed_by: item.reviewed_by,
       reviewed_at: item.reviewed_at,
-      rejection_reason: item.rejection_reason,
+      rejection_reason:
+        item.rejection_reason || null,
       created_at: item.created_at,
       source: "legacy",
     }));
 
-    // Gabungkan dan urutkan berdasarkan tanggal
+    // Gabungkan dan urutkan berdasarkan tanggal.
     const registrations = [
       ...currentRegistrations,
       ...legacyRegistrations,
