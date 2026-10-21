@@ -35,28 +35,20 @@ const BUTTON = {
 };
 
 function score(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
+  if (value === null || value === undefined || value === "") {
     return "-";
   }
 
   const number = Number(value);
-
-  return Number.isFinite(number)
-    ? number.toFixed(1)
-    : "-";
+  return Number.isFinite(number) ? number.toFixed(1) : "-";
 }
 
 function formatDate(value) {
   if (!value) return "-";
 
-  const datePart = String(value).split("T")[0];
-  const parts = datePart.split("-");
+  const parts = String(value).split("T")[0].split("-");
 
-  if (parts.length !== 3) return datePart;
+  if (parts.length !== 3) return String(value);
 
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
@@ -64,7 +56,6 @@ function formatDate(value) {
 function accountLabel(status) {
   if (status === "activated") return "Aktif";
   if (status === "invited") return "Belum Aktivasi";
-
   return "Akun Tidak Ditemukan";
 }
 
@@ -94,16 +85,9 @@ function programLabel(status) {
 function StatCard({ label, value }) {
   return (
     <div style={CARD}>
-      <p
-        style={{
-          color: "#64748b",
-          fontSize: 13,
-          marginTop: 0,
-        }}
-      >
+      <p style={{ color: "#64748b", fontSize: 13, marginTop: 0 }}>
         {label}
       </p>
-
       <h2
         style={{
           fontSize: 28,
@@ -124,7 +108,6 @@ export default function MonitoringPesertaPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-
   const [search, setSearch] = useState("");
   const [selectedSite, setSelectedSite] = useState("ALL");
 
@@ -148,15 +131,12 @@ export default function MonitoringPesertaPage() {
         return;
       }
 
-      const response = await fetch(
-        "/api/mentor/participants",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        }
-      );
+      const response = await fetch("/api/mentor/participants", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      });
 
       const result = await response.json();
 
@@ -193,9 +173,7 @@ export default function MonitoringPesertaPage() {
     (p) => p.account_status === "activated"
   ).length;
 
-  const online = participants.filter(
-    (p) => p.online
-  ).length;
+  const online = participants.filter((p) => p.online).length;
 
   const withSite = participants.filter(
     (p) => p.site && SITES.includes(p.site)
@@ -221,9 +199,7 @@ export default function MonitoringPesertaPage() {
   });
 
   function siteCount(site) {
-    return participants.filter(
-      (p) => p.site === site
-    ).length;
+    return participants.filter((p) => p.site === site).length;
   }
 
   return (
@@ -236,12 +212,7 @@ export default function MonitoringPesertaPage() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <div
-        style={{
-          maxWidth: 1000,
-          margin: "auto",
-        }}
-      >
+      <div style={{ maxWidth: 1000, margin: "auto" }}>
         <header
           style={{
             ...CARD,
@@ -250,13 +221,9 @@ export default function MonitoringPesertaPage() {
             marginBottom: 18,
           }}
         >
-          <h1 style={{ marginTop: 0 }}>
-            Monitoring Peserta OJT
-          </h1>
-
+          <h1 style={{ marginTop: 0 }}>Monitoring Peserta OJT</h1>
           <p>Emergency Response Group</p>
           <p>PT Berau Coal 2026</p>
-
           <p style={{ color: "#cbd5e1" }}>
             Dashboard Khusus Mentor
           </p>
@@ -275,17 +242,12 @@ export default function MonitoringPesertaPage() {
               onClick={() => loadParticipants(true)}
               disabled={refreshing || loading}
             >
-              {refreshing
-                ? "Memperbarui..."
-                : "↻ Refresh Data"}
+              {refreshing ? "Memperbarui..." : "↻ Refresh Data"}
             </button>
 
             <button
               type="button"
-              style={{
-                ...BUTTON,
-                background: "#475569",
-              }}
+              style={{ ...BUTTON, background: "#475569" }}
               onClick={() => router.push("/")}
             >
               Dashboard Mentor
@@ -293,15 +255,20 @@ export default function MonitoringPesertaPage() {
 
             <button
               type="button"
-              style={{
-                ...BUTTON,
-                background: "#0f766e",
-              }}
-              onClick={() =>
-                router.push("/mentor/daftar-peserta")
-              }
+              style={{ ...BUTTON, background: "#0f766e" }}
+              onClick={() => router.push("/mentor/daftar-peserta")}
             >
               + Daftarkan Peserta
+            </button>
+
+            <button
+              type="button"
+              style={{ ...BUTTON, background: "#7c3aed" }}
+              onClick={() =>
+                router.push("/mentor/persetujuan-peserta")
+              }
+            >
+              Persetujuan Peserta
             </button>
           </div>
         </header>
@@ -309,53 +276,28 @@ export default function MonitoringPesertaPage() {
         <section
           style={{
             display: "grid",
-            gridTemplateColumns:
-              "repeat(auto-fit,minmax(140px,1fr))",
+            gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))",
             gap: 12,
             marginBottom: 18,
           }}
         >
-          <StatCard
-            label="Total Terdaftar"
-            value={totalParticipants}
-          />
-
-          <StatCard
-            label="Akun Aktif"
-            value={activated}
-          />
-
+          <StatCard label="Total Terdaftar" value={totalParticipants} />
+          <StatCard label="Akun Aktif" value={activated} />
           <StatCard
             label="Belum Aktif"
             value={totalParticipants - activated}
           />
-
-          <StatCard
-            label="Sedang Online"
-            value={online}
-          />
-
-          <StatCard
-            label="Site Terisi"
-            value={withSite}
-          />
+          <StatCard label="Sedang Online" value={online} />
+          <StatCard label="Site Terisi" value={withSite} />
         </section>
 
-        <section
-          style={{
-            ...CARD,
-            marginBottom: 18,
-          }}
-        >
-          <h2 style={{ marginTop: 0 }}>
-            Filter Monitoring Peserta
-          </h2>
+        <section style={{ ...CARD, marginBottom: 18 }}>
+          <h2 style={{ marginTop: 0 }}>Filter Monitoring Peserta</h2>
 
           <div
             style={{
               display: "grid",
-              gridTemplateColumns:
-                "repeat(auto-fit,minmax(220px,1fr))",
+              gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
               gap: 14,
             }}
           >
@@ -376,9 +318,7 @@ export default function MonitoringPesertaPage() {
                 type="search"
                 placeholder="Cari nama atau email..."
                 value={search}
-                onChange={(e) =>
-                  setSearch(e.target.value)
-                }
+                onChange={(e) => setSearch(e.target.value)}
                 style={{
                   width: "100%",
                   padding: 14,
@@ -407,9 +347,7 @@ export default function MonitoringPesertaPage() {
               <select
                 id="filter-site"
                 value={selectedSite}
-                onChange={(e) =>
-                  setSelectedSite(e.target.value)
-                }
+                onChange={(e) => setSelectedSite(e.target.value)}
                 style={{
                   width: "100%",
                   padding: 14,
@@ -421,9 +359,7 @@ export default function MonitoringPesertaPage() {
                   color: "#0f172a",
                 }}
               >
-                <option value="ALL">
-                  Semua Site
-                </option>
+                <option value="ALL">Semua Site</option>
 
                 {SITES.map((site) => (
                   <option key={site} value={site}>
@@ -431,9 +367,7 @@ export default function MonitoringPesertaPage() {
                   </option>
                 ))}
 
-                <option value="UNASSIGNED">
-                  Belum Ditentukan
-                </option>
+                <option value="UNASSIGNED">Belum Ditentukan</option>
               </select>
             </div>
           </div>
@@ -448,10 +382,8 @@ export default function MonitoringPesertaPage() {
               fontSize: 14,
             }}
           >
-            Menampilkan{" "}
-            <strong>{filtered.length}</strong> dari{" "}
-            <strong>{totalParticipants}</strong>{" "}
-            peserta OJT.
+            Menampilkan <strong>{filtered.length}</strong> dari{" "}
+            <strong>{totalParticipants}</strong> peserta OJT.
           </div>
 
           {(search || selectedSite !== "ALL") && (
@@ -461,11 +393,7 @@ export default function MonitoringPesertaPage() {
                 setSearch("");
                 setSelectedSite("ALL");
               }}
-              style={{
-                ...BUTTON,
-                marginTop: 12,
-                background: "#64748b",
-              }}
+              style={{ ...BUTTON, marginTop: 12, background: "#64748b" }}
             >
               Reset Filter
             </button>
@@ -473,97 +401,59 @@ export default function MonitoringPesertaPage() {
         </section>
 
         {loading && (
-          <section style={CARD}>
-            Memuat data peserta...
-          </section>
+          <section style={CARD}>Memuat data peserta...</section>
         )}
 
         {error && (
           <section
-            style={{
-              ...CARD,
-              marginBottom: 18,
-              color: "#dc2626",
-            }}
+            style={{ ...CARD, marginBottom: 18, color: "#dc2626" }}
             role="alert"
           >
             {error}
           </section>
         )}
 
-        {!loading &&
-          !error &&
-          filtered.length === 0 && (
-            <section style={CARD}>
-              <h3 style={{ marginTop: 0 }}>
-                Tidak Ada Peserta
-              </h3>
+        {!loading && !error && filtered.length === 0 && (
+          <section style={CARD}>
+            <h3 style={{ marginTop: 0 }}>Tidak Ada Peserta</h3>
+            <p>
+              Belum ada peserta yang sesuai dengan pencarian atau filter
+              site.
+            </p>
+          </section>
+        )}
 
-              <p>
-                Belum ada peserta yang sesuai
-                dengan pencarian atau filter site.
-              </p>
-            </section>
-          )}
-
-        <div
-          style={{
-            display: "grid",
-            gap: 16,
-          }}
-        >
+        <div style={{ display: "grid", gap: 16 }}>
           {!loading &&
             filtered.map((p) => {
-              const total =
-                Number(p.achievement_total) || 6;
-
-              const count =
-                Number(p.achievement_count) || 0;
-
+              const total = Number(p.achievement_total) || 6;
+              const count = Number(p.achievement_count) || 0;
               const progress = Math.min(
                 100,
-                Math.max(
-                  0,
-                  (count / total) * 100
-                )
+                Math.max(0, (count / total) * 100)
               );
 
               return (
-                <section
-                  key={p.id}
-                  style={CARD}
-                >
+                <section key={p.id} style={CARD}>
                   <div
                     style={{
                       display: "flex",
-                      justifyContent:
-                        "space-between",
+                      justifyContent: "space-between",
                       gap: 12,
                       flexWrap: "wrap",
                     }}
                   >
-                    <div
-                      style={{
-                        minWidth: 0,
-                        flex: "1 1 220px",
-                      }}
-                    >
+                    <div style={{ minWidth: 0, flex: "1 1 220px" }}>
                       <h2
                         style={{
                           margin: "0 0 8px",
                           overflowWrap: "anywhere",
                         }}
                       >
-                        {p.full_name ||
-                          "Peserta OJT"}
+                        {p.full_name || "Peserta OJT"}
                       </h2>
 
-                      <p
-                        style={{
-                          margin: "6px 0",
-                          color: "#475569",
-                        }}
-                      >
+                      <p style={{ margin: "6px 0", color: "#475569" }}>
                         {p.department || "-"}
                       </p>
 
@@ -574,8 +464,7 @@ export default function MonitoringPesertaPage() {
                           overflowWrap: "anywhere",
                         }}
                       >
-                        {p.email ||
-                          "Email tidak tersedia"}
+                        {p.email || "Email tidak tersedia"}
                       </p>
 
                       <div
@@ -589,21 +478,15 @@ export default function MonitoringPesertaPage() {
                         <span
                           style={{
                             display: "inline-block",
-                            background: p.site
-                              ? "#dbeafe"
-                              : "#f1f5f9",
-                            color: p.site
-                              ? "#1d4ed8"
-                              : "#64748b",
+                            background: p.site ? "#dbeafe" : "#f1f5f9",
+                            color: p.site ? "#1d4ed8" : "#64748b",
                             borderRadius: 20,
                             padding: "8px 12px",
                             fontWeight: "bold",
                             fontSize: 13,
                           }}
                         >
-                          Site:{" "}
-                          {p.site ||
-                            "Belum Ditentukan"}
+                          Site: {p.site || "Belum Ditentukan"}
                         </span>
 
                         <span
@@ -616,10 +499,7 @@ export default function MonitoringPesertaPage() {
                             fontSize: 13,
                           }}
                         >
-                          Program:{" "}
-                          {programLabel(
-                            p.program_status
-                          )}
+                          Program: {programLabel(p.program_status)}
                         </span>
                       </div>
 
@@ -630,64 +510,33 @@ export default function MonitoringPesertaPage() {
                           marginTop: 12,
                         }}
                       >
-                        <strong>
-                          Periode OJT:
-                        </strong>{" "}
-                        {formatDate(
-                          p.start_date
-                        )}{" "}
-                        -{" "}
-                        {formatDate(
-                          p.end_date
-                        )}
+                        <strong>Periode OJT:</strong>{" "}
+                        {formatDate(p.start_date)} - {formatDate(p.end_date)}
                       </p>
                     </div>
 
-                    <div
-                      style={{
-                        flex: "1 1 180px",
-                      }}
-                    >
+                    <div style={{ flex: "1 1 180px" }}>
                       <p>
-                        <strong>
-                          Status Akun:
-                        </strong>{" "}
-                        {accountLabel(
-                          p.account_status
-                        )}
+                        <strong>Status Akun:</strong>{" "}
+                        {accountLabel(p.account_status)}
                       </p>
 
                       <p>
-                        <strong>
-                          Aktivitas:
-                        </strong>{" "}
+                        <strong>Aktivitas:</strong>{" "}
                         <span
                           style={{
-                            color: p.online
-                              ? "#15803d"
-                              : "#64748b",
+                            color: p.online ? "#15803d" : "#64748b",
                             fontWeight: "bold",
                           }}
                         >
-                          {p.online
-                            ? "Online"
-                            : "Offline"}
+                          {p.online ? "Online" : "Offline"}
                         </span>
                       </p>
 
-                      <p
-                        style={{
-                          fontSize: 12,
-                          color: "#64748b",
-                        }}
-                      >
+                      <p style={{ fontSize: 12, color: "#64748b" }}>
                         Aktivitas terakhir:{" "}
                         {p.last_seen_at
-                          ? new Date(
-                              p.last_seen_at
-                            ).toLocaleString(
-                              "id-ID"
-                            )
+                          ? new Date(p.last_seen_at).toLocaleString("id-ID")
                           : "Belum tercatat"}
                       </p>
                     </div>
@@ -696,15 +545,12 @@ export default function MonitoringPesertaPage() {
                   <hr
                     style={{
                       border: 0,
-                      borderTop:
-                        "1px solid #e2e8f0",
+                      borderTop: "1px solid #e2e8f0",
                       margin: "18px 0",
                     }}
                   />
 
-                  <h3>
-                    Enam Pencapaian OJT
-                  </h3>
+                  <h3>Enam Pencapaian OJT</h3>
 
                   <p>
                     Pencapaian Terverifikasi:{" "}
@@ -745,54 +591,29 @@ export default function MonitoringPesertaPage() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit,minmax(140px,1fr))",
+                      gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))",
                       gap: 12,
                       marginTop: 18,
                     }}
                   >
                     <div>
-                      <small>
-                        Rata-rata Post-Test
-                      </small>
-                      <h3>
-                        {score(
-                          p.post_test_average
-                        )}
-                      </h3>
+                      <small>Rata-rata Post-Test</small>
+                      <h3>{score(p.post_test_average)}</h3>
                     </div>
 
                     <div>
-                      <small>
-                        Rata-rata Praktik
-                      </small>
-                      <h3>
-                        {score(
-                          p.practice_average
-                        )}
-                      </h3>
+                      <small>Rata-rata Praktik</small>
+                      <h3>{score(p.practice_average)}</h3>
                     </div>
 
                     <div>
-                      <small>
-                        Rata-rata Samapta
-                      </small>
-                      <h3>
-                        {score(
-                          p.samapta_average
-                        )}
-                      </h3>
+                      <small>Rata-rata Samapta</small>
+                      <h3>{score(p.samapta_average)}</h3>
                     </div>
 
                     <div>
-                      <small>
-                        Status SIMPER
-                      </small>
-                      <h3>
-                        {simperLabel(
-                          p.simper_status
-                        )}
-                      </h3>
+                      <small>Status SIMPER</small>
+                      <h3>{simperLabel(p.simper_status)}</h3>
                     </div>
                   </div>
 
@@ -805,9 +626,7 @@ export default function MonitoringPesertaPage() {
                         width: "100%",
                       }}
                       onClick={() =>
-                        router.push(
-                          `/peserta/${p.program_id}`
-                        )
+                        router.push(`/peserta/${p.program_id}`)
                       }
                     >
                       Lihat Detail Peserta →
@@ -826,9 +645,8 @@ export default function MonitoringPesertaPage() {
             textAlign: "center",
           }}
         >
-          Status online dihitung dari aktivitas
-          aplikasi dalam 2 menit terakhir.
-          Data diperbarui setiap 60 detik.
+          Status online dihitung dari aktivitas aplikasi dalam 2 menit
+          terakhir. Data diperbarui setiap 60 detik.
         </p>
       </div>
     </main>
