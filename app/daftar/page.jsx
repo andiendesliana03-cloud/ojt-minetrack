@@ -7,6 +7,18 @@ import { supabase } from "../../lib/supabase";
 
 const REGISTRATION_ENABLED = false;
 
+const ALLOWED_SITES = [
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
+];
+
 const inputStyle = {
   width: "100%",
   padding: "12px",
@@ -15,12 +27,14 @@ const inputStyle = {
   marginTop: "6px",
   boxSizing: "border-box",
   fontSize: "15px",
+  background: "#ffffff",
 };
 
 export default function DaftarPesertaPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [site, setSite] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -32,16 +46,20 @@ export default function DaftarPesertaPage() {
     setError("");
 
     if (!REGISTRATION_ENABLED) {
-      setError(
-        "Pendaftaran peserta masih dalam mode pengujian."
-      );
+      setError("Pendaftaran peserta masih dalam mode pengujian.");
       return;
     }
 
     const name = fullName.trim();
+    const normalizedEmail = email.trim();
 
-    if (name.length < 3) {
-      setError("Nama lengkap minimal 3 karakter.");
+    if (name.length < 3 || name.length > 120) {
+      setError("Nama lengkap harus 3 sampai 120 karakter.");
+      return;
+    }
+
+    if (!normalizedEmail) {
+      setError("Email wajib diisi.");
       return;
     }
 
@@ -50,16 +68,22 @@ export default function DaftarPesertaPage() {
       return;
     }
 
+    if (!ALLOWED_SITES.includes(site)) {
+      setError("Silakan pilih Site terlebih dahulu.");
+      return;
+    }
+
     setLoading(true);
 
     try {
       const { data, error: signUpError } =
         await supabase.auth.signUp({
-          email: email.trim(),
+          email: normalizedEmail,
           password,
           options: {
             data: {
               full_name: name,
+              site,
             },
             emailRedirectTo:
               `${window.location.origin}/pengajuan-peserta`,
@@ -72,7 +96,7 @@ export default function DaftarPesertaPage() {
 
       if (data.session) {
         setMessage(
-          "Akun berhasil dibuat. Silakan lanjutkan proses pengajuan peserta setelah alur verifikasi disiapkan."
+          "Akun berhasil dibuat. Alur pengajuan peserta perlu diselesaikan sebelum akses monitoring diberikan."
         );
       } else {
         setMessage(
@@ -81,8 +105,7 @@ export default function DaftarPesertaPage() {
       }
     } catch (err) {
       setError(
-        err?.message ||
-          "Pendaftaran gagal. Silakan coba kembali."
+        err?.message || "Pendaftaran gagal. Silakan coba kembali."
       );
     } finally {
       setLoading(false);
@@ -113,9 +136,7 @@ export default function DaftarPesertaPage() {
         }}
       >
         <div style={{ textAlign: "center" }}>
-          <h1 style={{ marginBottom: 6 }}>
-            OJT MineTrack
-          </h1>
+          <h1 style={{ marginBottom: 6 }}>OJT MineTrack</h1>
 
           <p style={{ color: "#64748b" }}>
             Emergency Response Group
@@ -139,8 +160,8 @@ export default function DaftarPesertaPage() {
           >
             <strong>Mode Pengujian</strong>
             <p style={{ marginBottom: 0 }}>
-              Formulir sedang disiapkan.
-              Pendaftaran peserta belum dibuka.
+              Formulir sedang disiapkan. Pendaftaran peserta belum
+              dibuka.
             </p>
           </div>
         )}
@@ -184,9 +205,7 @@ export default function DaftarPesertaPage() {
               type="text"
               placeholder="Masukkan nama lengkap"
               value={fullName}
-              onChange={(e) =>
-                setFullName(e.target.value)
-              }
+              onChange={(e) => setFullName(e.target.value)}
               minLength={3}
               maxLength={120}
               autoComplete="name"
@@ -204,9 +223,7 @@ export default function DaftarPesertaPage() {
               type="email"
               placeholder="nama@email.com"
               value={email}
-              onChange={(e) =>
-                setEmail(e.target.value)
-              }
+              onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               required
               disabled={!REGISTRATION_ENABLED || loading}
@@ -222,15 +239,44 @@ export default function DaftarPesertaPage() {
               type={showPassword ? "text" : "password"}
               placeholder="Minimal 8 karakter"
               value={password}
-              onChange={(e) =>
-                setPassword(e.target.value)
-              }
+              onChange={(e) => setPassword(e.target.value)}
               minLength={8}
               autoComplete="new-password"
               required
               disabled={!REGISTRATION_ENABLED || loading}
             />
           </label>
+
+          <div style={{ height: 16 }} />
+
+          <label>
+            Site Penempatan OJT
+            <select
+              style={inputStyle}
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+              required
+              disabled={!REGISTRATION_ENABLED || loading}
+            >
+              <option value="">-- Pilih Site --</option>
+              {ALLOWED_SITES.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <p
+            style={{
+              fontSize: 12,
+              color: "#64748b",
+              marginTop: 6,
+            }}
+          >
+            Site pilihan peserta akan digunakan dalam proses
+            pengajuan dan persetujuan mentor.
+          </p>
 
           <label
             style={{
@@ -244,9 +290,7 @@ export default function DaftarPesertaPage() {
             <input
               type="checkbox"
               checked={showPassword}
-              onChange={(e) =>
-                setShowPassword(e.target.checked)
-              }
+              onChange={(e) => setShowPassword(e.target.checked)}
               disabled={loading}
             />
             Tampilkan password
@@ -261,20 +305,14 @@ export default function DaftarPesertaPage() {
               marginTop: 22,
               border: "none",
               borderRadius: 10,
-              background: REGISTRATION_ENABLED
-                ? "#2563eb"
-                : "#94a3b8",
+              background: REGISTRATION_ENABLED ? "#2563eb" : "#94a3b8",
               color: "#ffffff",
               fontWeight: 700,
               fontSize: 15,
-              cursor: REGISTRATION_ENABLED
-                ? "pointer"
-                : "not-allowed",
+              cursor: REGISTRATION_ENABLED ? "pointer" : "not-allowed",
             }}
           >
-            {loading
-              ? "Memproses..."
-              : "Daftar sebagai Peserta OJT"}
+            {loading ? "Memproses..." : "Daftar sebagai Peserta OJT"}
           </button>
         </form>
 
@@ -286,15 +324,12 @@ export default function DaftarPesertaPage() {
             marginTop: 18,
           }}
         >
-          Peserta wajib memverifikasi email dan
-          menunggu persetujuan mentor sebelum
-          memperoleh akses monitoring OJT.
+          Peserta wajib memverifikasi email dan menunggu persetujuan
+          mentor sebelum memperoleh akses monitoring OJT.
         </p>
 
         <div style={{ textAlign: "center" }}>
-          <Link href="/login">
-            ← Kembali ke Login
-          </Link>
+          <Link href="/login">← Kembali ke Login</Link>
         </div>
       </div>
     </main>
