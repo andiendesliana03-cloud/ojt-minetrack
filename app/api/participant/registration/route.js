@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // PENGAMAN PENGUJIAN
 // Tetap false sampai tombol pengajuan asli siap diuji.
-const TEST_SUBMISSION_ENABLED = false;
+const TEST_SUBMISSION_ENABLED = true;
 
 // Hanya peserta ini yang boleh mengikuti uji
 // pengajuan sungguhan ketika pengaman dibuka.
