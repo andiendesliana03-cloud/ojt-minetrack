@@ -17,9 +17,6 @@ const SITES = [
   "HO",
 ];
 
-// Tetap dalam mode simulasi.
-const APPROVAL_SIMULATION_ONLY = true;
-
 const card = {
   background: "#ffffff",
   border: "1px solid #e2e8f0",
@@ -53,7 +50,11 @@ const field = {
 function formatDate(value) {
   if (!value) return "-";
 
-  return new Date(value).toLocaleString("id-ID", {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleString("id-ID", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -138,19 +139,23 @@ export default function PersetujuanPesertaPage() {
         return;
       }
 
-      const response = await fetch("/api/mentor/registrations", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        cache: "no-store",
-      });
+      const response = await fetch(
+        "/api/mentor/registrations",
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          cache: "no-store",
+        }
+      );
 
       const result = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          result.error || "Gagal mengambil daftar pendaftaran."
+          result.error ||
+            "Gagal mengambil daftar pendaftaran."
         );
       }
 
@@ -170,18 +175,12 @@ export default function PersetujuanPesertaPage() {
     setSelected(item);
     setAction(nextAction);
 
-    // Menggunakan Site pilihan peserta jika tersedia.
-    const participantSite =
-      typeof item.site === "string"
-        ? item.site.trim().toUpperCase()
-        : "";
+    // Isi Site dari data pendaftaran peserta.
+    const registeredSite = SITES.includes(item.site)
+      ? item.site
+      : "";
 
-    setSite(
-      SITES.includes(participantSite)
-        ? participantSite
-        : ""
-    );
-
+    setSite(registeredSite);
     setStartDate("");
     setEndDate("");
     setRejectionReason("");
@@ -197,36 +196,32 @@ export default function PersetujuanPesertaPage() {
 
     if (action === "approve") {
       if (!SITES.includes(site)) {
-        setError("Silakan pilih Site OJT yang valid.");
+        setError("Pilih Site OJT yang valid.");
         return;
       }
 
-      if (!startDate || !endDate || endDate < startDate) {
+      if (!startDate || !endDate) {
         setError(
-          "Tanggal mulai dan selesai wajib valid. Tanggal selesai tidak boleh sebelum tanggal mulai."
+          "Tanggal mulai dan tanggal selesai wajib diisi."
         );
         return;
       }
 
-      // Jangan mengganti Site peserta tanpa konfirmasi.
-      if (
-        selected.site &&
-        SITES.includes(
-          String(selected.site).trim().toUpperCase()
-        ) &&
-        site !== String(selected.site).trim().toUpperCase()
-      ) {
-        const confirmed =
-          window.confirm(
-            `Site peserta adalah ${selected.site}. Kamu memilih ${site}. Apakah perubahan Site ini memang disengaja?`
-          );
-
-        if (!confirmed) return;
+      if (endDate < startDate) {
+        setError(
+          "Tanggal selesai tidak boleh sebelum tanggal mulai."
+        );
+        return;
       }
     }
 
-    if (action === "reject" && rejectionReason.trim().length < 5) {
-      setError("Alasan penolakan minimal 5 karakter.");
+    if (
+      action === "reject" &&
+      rejectionReason.trim().length < 5
+    ) {
+      setError(
+        "Alasan penolakan minimal 5 karakter."
+      );
       return;
     }
 
@@ -276,39 +271,37 @@ export default function PersetujuanPesertaPage() {
 
       if (!response.ok) {
         throw new Error(
-          result.error || "Gagal memproses keputusan."
+          result.error ||
+            "Gagal menjalankan simulasi."
         );
       }
 
-      if (result.dry_run === true) {
-        setMessage(
-          result.message ||
-            "Simulasi selesai. Database belum berubah."
-        );
-        setPreview(result.preview || null);
-      } else {
-        setMessage(
-          result.message ||
-            "Keputusan berhasil diproses."
-        );
-        setPreview(null);
-      }
+      setMessage(
+        result.message || "Simulasi berhasil dijalankan."
+      );
 
-      // Pada mode simulasi, status di database tetap sama.
+      setPreview(result.preview || null);
+
+      // Mode simulasi: status database tidak berubah.
       await loadRegistrations();
     } catch (err) {
-      setError(err.message || "Gagal menjalankan simulasi.");
+      setError(
+        err.message || "Gagal menjalankan simulasi."
+      );
     } finally {
       setProcessing(false);
     }
   }
 
   const filtered = registrations.filter(
-    (item) => filter === "all" || item.status === filter
+    (item) =>
+      filter === "all" || item.status === filter
   );
 
   const count = (status) =>
-    registrations.filter((item) => item.status === status).length;
+    registrations.filter(
+      (item) => item.status === status
+    ).length;
 
   return (
     <main
@@ -342,8 +335,9 @@ export default function PersetujuanPesertaPage() {
         >
           <strong>MODE PENGUJIAN AKTIF</strong>
           <p>
-            Keputusan hanya disimulasikan. Data pengajuan dan program
-            OJT tidak diubah.
+            Persetujuan dan penolakan hanya disimulasikan.
+            Data pendaftaran dan program OJT tidak diubah
+            oleh proses simulasi ini.
           </p>
         </section>
 
@@ -353,7 +347,8 @@ export default function PersetujuanPesertaPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(140px, 1fr))",
               gap: 10,
             }}
           >
@@ -374,6 +369,7 @@ export default function PersetujuanPesertaPage() {
                 <div style={{ fontSize: 13, color: "#64748b" }}>
                   {item.label}
                 </div>
+
                 <div style={{ fontSize: 28, fontWeight: 800 }}>
                   {item.value}
                 </div>
@@ -405,8 +401,10 @@ export default function PersetujuanPesertaPage() {
                 onClick={() => setFilter(value)}
                 style={{
                   ...button,
-                  background: filter === value ? "#2563eb" : "#e2e8f0",
-                  color: filter === value ? "#ffffff" : "#334155",
+                  background:
+                    filter === value ? "#2563eb" : "#e2e8f0",
+                  color:
+                    filter === value ? "#ffffff" : "#334155",
                   padding: "9px 12px",
                 }}
               >
@@ -435,79 +433,83 @@ export default function PersetujuanPesertaPage() {
           )}
 
           {!loading &&
-            filtered.map((item) => {
-              const participantSite =
-                typeof item.site === "string"
-                  ? item.site.trim().toUpperCase()
-                  : "";
+            filtered.map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  padding: 16,
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 12,
+                  marginBottom: 12,
+                  background: "#f8fafc",
+                }}
+              >
+                <h3 style={{ marginTop: 0 }}>
+                  {item.full_name || "Nama belum tersedia"}
+                </h3>
 
-              return (
-                <div
-                  key={item.id}
-                  style={{
-                    padding: 16,
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 12,
-                    marginBottom: 12,
-                    background: "#f8fafc",
-                  }}
-                >
-                  <h3 style={{ marginTop: 0 }}>{item.full_name}</h3>
+                <p>Email: {item.email || "-"}</p>
 
-                  <p>Email: {item.email || "-"}</p>
-                  <p>Departemen: {item.department || "-"}</p>
+                <p>
+                  Departemen: {item.department || "-"}
+                </p>
 
-                  <p>
-                    Site pilihan peserta:{" "}
-                    <strong>
-                      {SITES.includes(participantSite)
-                        ? participantSite
-                        : "Belum tersedia dari API"}
-                    </strong>
-                  </p>
+                <p>
+                  Site pilihan peserta:{" "}
+                  <strong>
+                    {SITES.includes(item.site)
+                      ? item.site
+                      : "Belum tersedia"}
+                  </strong>
+                </p>
 
-                  <p>
-                    Tanggal daftar: {formatDate(item.created_at)}
-                  </p>
+                <p>
+                  Tanggal daftar: {formatDate(item.created_at)}
+                </p>
 
-                  <Status value={item.status} />
+                <Status value={item.status} />
 
-                  {item.status === "rejected" &&
-                    item.rejection_reason && (
-                      <p>
-                        Alasan penolakan: {item.rejection_reason}
-                      </p>
-                    )}
-
-                  {item.status === "pending" && (
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        flexWrap: "wrap",
-                        marginTop: 14,
-                      }}
-                    >
-                      <button
-                        type="button"
-                        style={{ ...button, background: "#16a34a" }}
-                        onClick={() => openDecision(item, "approve")}
-                      >
-                        ✓ Setujui
-                      </button>
-
-                      <button
-                        type="button"
-                        style={{ ...button, background: "#dc2626" }}
-                        onClick={() => openDecision(item, "reject")}
-                      >
-                        ✕ Tolak
-                      </button>
-                    </div>
+                {item.status === "rejected" &&
+                  item.rejection_reason && (
+                    <p>
+                      Alasan penolakan: {item.rejection_reason}
+                    </p>
                   )}
-                </div>
-              );
-            })}
+
+                {item.status === "pending" && (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      marginTop: 14,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      style={{
+                        ...button,
+                        background: "#16a34a",
+                      }}
+                      onClick={() => openDecision(item, "approve")}
+                    >
+                      ✓ Setujui
+                    </button>
+
+                    <button
+                      type="button"
+                      style={{
+                        ...button,
+                        background: "#dc2626",
+                      }}
+                      onClick={() => openDecision(item, "reject")}
+                    >
+                      ✕ Tolak
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
         </section>
 
         {selected && (
@@ -522,6 +524,17 @@ export default function PersetujuanPesertaPage() {
               Peserta: <strong>{selected.full_name}</strong>
             </p>
 
+            {action === "approve" && (
+              <p>
+                Site dari pendaftaran:{" "}
+                <strong>
+                  {SITES.includes(selected.site)
+                    ? selected.site
+                    : "Belum tersedia"}
+                </strong>
+              </p>
+            )}
+
             <form onSubmit={submitDecision}>
               {action === "approve" ? (
                 <>
@@ -534,6 +547,7 @@ export default function PersetujuanPesertaPage() {
                       required
                     >
                       <option value="">Pilih Site</option>
+
                       {SITES.map((value) => (
                         <option key={value} value={value}>
                           {value}
@@ -542,27 +556,29 @@ export default function PersetujuanPesertaPage() {
                     </select>
                   </label>
 
-                  {selected.site && SITES.includes(
-                    String(selected.site).trim().toUpperCase()
-                  ) && (
-                    <p style={{ fontSize: 13, color: "#475569" }}>
-                      Site awal peserta: {selected.site}
-                    </p>
-                  )}
-
                   <label>
-                    Tanggal Mulai
+                    Tanggal Mulai OJT
                     <input
                       type="date"
                       style={field}
                       value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
+                      onChange={(e) => {
+                        setStartDate(e.target.value);
+
+                        if (
+                          endDate &&
+                          e.target.value &&
+                          endDate < e.target.value
+                        ) {
+                          setEndDate("");
+                        }
+                      }}
                       required
                     />
                   </label>
 
                   <label>
-                    Tanggal Selesai
+                    Tanggal Selesai OJT
                     <input
                       type="date"
                       style={field}
@@ -580,7 +596,9 @@ export default function PersetujuanPesertaPage() {
                     style={field}
                     rows={4}
                     value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
+                    onChange={(e) =>
+                      setRejectionReason(e.target.value)
+                    }
                     minLength={5}
                     required
                     placeholder="Tuliskan alasan penolakan..."
@@ -588,21 +606,33 @@ export default function PersetujuanPesertaPage() {
                 </label>
               )}
 
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
                 <button
                   type="submit"
                   style={{
                     ...button,
-                    background: action === "approve" ? "#16a34a" : "#dc2626",
+                    background:
+                      action === "approve" ? "#16a34a" : "#dc2626",
                   }}
-                  disabled={processing || APPROVAL_SIMULATION_ONLY === false}
+                  disabled={processing}
                 >
-                  {processing ? "Memproses..." : "Jalankan Simulasi"}
+                  {processing
+                    ? "Memproses..."
+                    : "Jalankan Simulasi"}
                 </button>
 
                 <button
                   type="button"
-                  style={{ ...button, background: "#64748b" }}
+                  style={{
+                    ...button,
+                    background: "#64748b",
+                  }}
                   onClick={() => {
                     setSelected(null);
                     setMessage("");
@@ -628,6 +658,7 @@ export default function PersetujuanPesertaPage() {
           >
             <h3>Hasil Simulasi</h3>
             <p>{message}</p>
+
             {preview && (
               <pre
                 style={{
@@ -652,7 +683,10 @@ export default function PersetujuanPesertaPage() {
 
         <button
           type="button"
-          style={{ ...button, background: "#475569" }}
+          style={{
+            ...button,
+            background: "#475569",
+          }}
           onClick={() => router.push("/")}
         >
           ← Kembali ke Dashboard Mentor
