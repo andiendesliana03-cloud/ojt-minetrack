@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 
 // WAJIB tetap false selama pengujian.
-const APPROVAL_ENABLED = false;
+const APPROVAL_ENABLED = true;
 
 const VALID_SITES = [
   "LMO",
