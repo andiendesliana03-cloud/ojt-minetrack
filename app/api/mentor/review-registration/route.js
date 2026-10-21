@@ -7,8 +7,11 @@ export const dynamic = "force-dynamic";
 
 // PENGAMAN SERVER:
 // Tetap false sampai penggunaan umum siap.
-const GENERAL_APPROVAL_ENABLED = false;
-const GENERAL_REJECTION_ENABLED = false;
+const GENERAL_APPROVAL_ENABLED =
+  process.env.OJT_APPROVAL_ENABLED === "true";
+
+const GENERAL_REJECTION_ENABLED =
+  process.env.OJT_REJECTION_ENABLED === "true";
 
 function respond(data, status = 200) {
   return NextResponse.json(data, {
