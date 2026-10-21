@@ -5,9 +5,24 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Pendaftaran wajib tetap nonaktif selama pengujian.
+const REGISTRATION_ENABLED = false;
+
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
   "https://ojt-minetrack.vercel.app";
+
+const ALLOWED_SITES = [
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
+];
 
 function errorResponse(message, status = 400) {
   return NextResponse.json(
@@ -25,6 +40,14 @@ function errorResponse(message, status = 400) {
 }
 
 export async function POST(request) {
+  // Pengunci server: tidak membuat akun atau menulis database.
+  if (!REGISTRATION_ENABLED) {
+    return errorResponse(
+      "Pendaftaran peserta sementara dinonaktifkan sampai seluruh pengujian selesai.",
+      503
+    );
+  }
+
   try {
     let body;
 
@@ -38,7 +61,9 @@ export async function POST(request) {
 
     const fullName = String(
       body?.full_name || ""
-    ).trim();
+    )
+      .trim()
+      .replace(/\s+/g, " ");
 
     const email = String(
       body?.email || ""
@@ -53,6 +78,11 @@ export async function POST(request) {
     const password = String(
       body?.password || ""
     );
+
+    const site =
+      typeof body?.site === "string"
+        ? body.site.trim().toUpperCase()
+        : "";
 
     if (
       fullName.length < 3 ||
@@ -81,29 +111,32 @@ export async function POST(request) {
       );
     }
 
-    if (password.length < 8) {
+    if (
+      password.length < 8 ||
+      password.length > 128
+    ) {
       return errorResponse(
-        "Password minimal 8 karakter."
+        "Password harus 8–128 karakter."
       );
     }
 
-    if (password.length > 128) {
+    if (!ALLOWED_SITES.includes(site)) {
       return errorResponse(
-        "Password terlalu panjang."
+        "Site wajib dipilih dari daftar Site yang tersedia."
       );
     }
 
     const url =
       process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-    const publicKey =
-      process.env
-        .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
     const secretKey =
       process.env.SUPABASE_SECRET_KEY;
 
-    if (!url || !publicKey || !secretKey) {
+    if (!url || !secretKey) {
+      console.error(
+        "Konfigurasi Supabase server belum lengkap."
+      );
+
       return errorResponse(
         "Konfigurasi Supabase belum lengkap.",
         500
@@ -121,8 +154,8 @@ export async function POST(request) {
       }
     );
 
-    // Membuat akun dengan email belum terkonfirmasi.
-    // Hak akses peserta tidak diambil dari input pengguna.
+    // Buat akun baru sebagai belum terverifikasi.
+    // Role tidak pernah diambil dari input pengguna.
     const {
       data: created,
       error: createError,
@@ -167,14 +200,9 @@ export async function POST(request) {
       );
     }
 
-    // Jika penyimpanan gagal, hapus akun
-    // yang baru dibuat agar tidak tertinggal
-    // sebagai akun tanpa pendaftaran.
     async function rollbackAccount() {
       const { error } =
-        await admin.auth.admin.deleteUser(
-          userId
-        );
+        await admin.auth.admin.deleteUser(userId);
 
       if (error) {
         console.error(
@@ -188,8 +216,7 @@ export async function POST(request) {
       return true;
     }
 
-    // Profil peserta.
-    // Tidak pernah menerima role dari pengguna.
+    // Simpan profil dengan role peserta.
     const {
       error: profileError,
     } = await admin
@@ -218,14 +245,12 @@ export async function POST(request) {
       return errorResponse(
         rolledBack
           ? "Gagal menyimpan profil. Silakan coba kembali."
-          : "Pendaftaran belum selesai. Hubungi administrator sebelum mencoba lagi.",
+          : "Pendaftaran belum selesai. Hubungi administrator.",
         500
       );
     }
 
-    // Simpan permohonan dengan status pending.
-    // Peserta tidak menentukan site dan
-    // periode OJT sendiri.
+    // Simpan Site agar bisa diteruskan ke persetujuan Mentor.
     const {
       error: registrationError,
     } = await admin
@@ -235,6 +260,7 @@ export async function POST(request) {
         full_name: fullName,
         email,
         department,
+        site,
         status: "pending",
       });
 
@@ -250,25 +276,22 @@ export async function POST(request) {
       return errorResponse(
         rolledBack
           ? "Gagal menyimpan pendaftaran. Silakan coba kembali."
-          : "Pendaftaran belum selesai. Hubungi administrator sebelum mencoba lagi.",
+          : "Pendaftaran belum selesai. Hubungi administrator.",
         500
       );
     }
 
-    // Kirim email verifikasi menggunakan
-    // Supabase Auth.
+    // Membuat tautan tidak sama dengan mengirim email.
     const {
-      data: linkData,
       error: linkError,
-    } =
-      await admin.auth.admin.generateLink({
-        type: "signup",
-        email,
-        password,
-        options: {
-          redirectTo: `${SITE_URL}/login`,
-        },
-      });
+    } = await admin.auth.admin.generateLink({
+      type: "signup",
+      email,
+      password,
+      options: {
+        redirectTo: `${SITE_URL}/login`,
+      },
+    });
 
     if (linkError) {
       console.error(
@@ -276,25 +299,34 @@ export async function POST(request) {
         linkError
       );
 
-      return NextResponse.json({
+      return NextResponse.json(
+        {
+          success: true,
+          verification_sent: false,
+          message:
+            "Pendaftaran tersimpan dan menunggu persetujuan Mentor, tetapi tautan verifikasi belum berhasil dibuat. Hubungi administrator.",
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
+    return NextResponse.json(
+      {
         success: true,
         verification_sent: false,
         message:
-          "Akun berhasil dibuat dan menunggu persetujuan mentor, tetapi email verifikasi belum terkirim. Hubungi administrator.",
-      });
-    }
-
-    // generateLink membuat tautan,
-    // tetapi tidak otomatis mengirim email.
-    // Karena SMTP khusus belum disiapkan,
-    // jangan menampilkan klaim bahwa
-    // email sudah dikirim.
-    return NextResponse.json({
-      success: true,
-      verification_sent: false,
-      message:
-        "Pendaftaran tersimpan dengan status Menunggu Persetujuan Mentor. Pengiriman email verifikasi masih perlu dikonfigurasi.",
-    });
+          "Pendaftaran tersimpan dengan status Menunggu Persetujuan Mentor. Pengiriman email verifikasi masih perlu dikonfigurasi.",
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (error) {
     console.error(
       "Self-registration error:",
