@@ -135,10 +135,33 @@ export default function PersetujuanPesertaPage() {
       } = await supabase.auth.getSession();
 
       if (sessionError || !session) {
+        setRegistrations([]);
         router.replace("/login");
         return;
       }
 
+      // Verifikasi role pengguna dari tabel profiles.
+      const {
+        data: profile,
+        error: profileError,
+      } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      if (
+        profileError ||
+        !profile ||
+        profile.role !== "mentor"
+      ) {
+        setRegistrations([]);
+        setSelected(null);
+        router.replace("/dashboard-peserta");
+        return;
+      }
+
+      // API juga wajib memverifikasi role mentor.
       const response = await fetch(
         "/api/mentor/registrations",
         {
@@ -152,6 +175,19 @@ export default function PersetujuanPesertaPage() {
 
       const result = await response.json();
 
+      if (response.status === 401) {
+        setRegistrations([]);
+        router.replace("/login");
+        return;
+      }
+
+      if (response.status === 403) {
+        setRegistrations([]);
+        setSelected(null);
+        router.replace("/dashboard-peserta");
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(
           result.error ||
@@ -161,6 +197,7 @@ export default function PersetujuanPesertaPage() {
 
       setRegistrations(result.registrations || []);
     } catch (err) {
+      setRegistrations([]);
       setError(err.message || "Terjadi kesalahan.");
     } finally {
       setLoading(false);
@@ -175,12 +212,9 @@ export default function PersetujuanPesertaPage() {
     setSelected(item);
     setAction(nextAction);
 
-    // Isi Site dari data pendaftaran peserta.
-    const registeredSite = SITES.includes(item.site)
-      ? item.site
-      : "";
-
-    setSite(registeredSite);
+    setSite(
+      SITES.includes(item.site) ? item.site : ""
+    );
     setStartDate("");
     setEndDate("");
     setRejectionReason("");
@@ -241,6 +275,27 @@ export default function PersetujuanPesertaPage() {
         return;
       }
 
+      // Periksa role lagi sebelum mengirim keputusan.
+      const {
+        data: profile,
+        error: profileError,
+      } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      if (
+        profileError ||
+        !profile ||
+        profile.role !== "mentor"
+      ) {
+        setRegistrations([]);
+        setSelected(null);
+        router.replace("/dashboard-peserta");
+        return;
+      }
+
       const payload = {
         registration_id: selected.id,
         action,
@@ -264,38 +319,48 @@ export default function PersetujuanPesertaPage() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
+          cache: "no-store",
         }
       );
 
       const result = await response.json();
 
+      if (response.status === 401) {
+        router.replace("/login");
+        return;
+      }
+
+      if (response.status === 403) {
+        setRegistrations([]);
+        setSelected(null);
+        router.replace("/dashboard-peserta");
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(
           result.error ||
-            "Gagal menjalankan simulasi."
+            "Gagal memproses keputusan."
         );
       }
 
       setMessage(
-        result.message || "Simulasi berhasil dijalankan."
+        result.message || "Keputusan berhasil diproses."
       );
 
       setPreview(result.preview || null);
 
-      // Mode simulasi: status database tidak berubah.
+      // Ambil ulang status terbaru dari server.
       await loadRegistrations();
     } catch (err) {
-      setError(
-        err.message || "Gagal menjalankan simulasi."
-      );
+      setError(err.message || "Terjadi kesalahan.");
     } finally {
       setProcessing(false);
     }
   }
 
   const filtered = registrations.filter(
-    (item) =>
-      filter === "all" || item.status === filter
+    (item) => filter === "all" || item.status === filter
   );
 
   const count = (status) =>
@@ -333,11 +398,11 @@ export default function PersetujuanPesertaPage() {
             borderColor: "#fcd34d",
           }}
         >
-          <strong>MODE PENGUJIAN AKTIF</strong>
+          <strong>INFORMASI PERSETUJUAN</strong>
           <p>
-            Persetujuan dan penolakan hanya disimulasikan.
-            Data pendaftaran dan program OJT tidak diubah
-            oleh proses simulasi ini.
+            Gunakan halaman ini untuk memeriksa pengajuan
+            peserta. Persetujuan atau penolakan diproses
+            oleh server setelah validasi akses dan data.
           </p>
         </section>
 
@@ -366,11 +431,20 @@ export default function PersetujuanPesertaPage() {
                   border: "1px solid #e2e8f0",
                 }}
               >
-                <div style={{ fontSize: 13, color: "#64748b" }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "#64748b",
+                  }}
+                >
                   {item.label}
                 </div>
-
-                <div style={{ fontSize: 28, fontWeight: 800 }}>
+                <div
+                  style={{
+                    fontSize: 28,
+                    fontWeight: 800,
+                  }}
+                >
                   {item.value}
                 </div>
               </div>
@@ -428,7 +502,7 @@ export default function PersetujuanPesertaPage() {
 
           {loading && <p>Memuat daftar pendaftaran...</p>}
 
-          {!loading && filtered.length === 0 && (
+          {!loading && !error && filtered.length === 0 && (
             <p>Belum ada pengajuan pada kategori ini.</p>
           )}
 
@@ -449,10 +523,7 @@ export default function PersetujuanPesertaPage() {
                 </h3>
 
                 <p>Email: {item.email || "-"}</p>
-
-                <p>
-                  Departemen: {item.department || "-"}
-                </p>
+                <p>Departemen: {item.department || "-"}</p>
 
                 <p>
                   Site pilihan peserta:{" "}
@@ -491,7 +562,9 @@ export default function PersetujuanPesertaPage() {
                         ...button,
                         background: "#16a34a",
                       }}
-                      onClick={() => openDecision(item, "approve")}
+                      onClick={() =>
+                        openDecision(item, "approve")
+                      }
                     >
                       ✓ Setujui
                     </button>
@@ -502,7 +575,9 @@ export default function PersetujuanPesertaPage() {
                         ...button,
                         background: "#dc2626",
                       }}
-                      onClick={() => openDecision(item, "reject")}
+                      onClick={() =>
+                        openDecision(item, "reject")
+                      }
                     >
                       ✕ Tolak
                     </button>
@@ -516,8 +591,8 @@ export default function PersetujuanPesertaPage() {
           <section style={card}>
             <h2>
               {action === "approve"
-                ? "Simulasi Persetujuan"
-                : "Simulasi Penolakan"}
+                ? "Persetujuan Peserta"
+                : "Penolakan Peserta"}
             </h2>
 
             <p>
@@ -547,7 +622,6 @@ export default function PersetujuanPesertaPage() {
                       required
                     >
                       <option value="">Pilih Site</option>
-
                       {SITES.map((value) => (
                         <option key={value} value={value}>
                           {value}
@@ -624,7 +698,9 @@ export default function PersetujuanPesertaPage() {
                 >
                   {processing
                     ? "Memproses..."
-                    : "Jalankan Simulasi"}
+                    : action === "approve"
+                    ? "Setujui Peserta"
+                    : "Tolak Peserta"}
                 </button>
 
                 <button
@@ -656,7 +732,7 @@ export default function PersetujuanPesertaPage() {
               borderColor: "#86efac",
             }}
           >
-            <h3>Hasil Simulasi</h3>
+            <h3>Hasil Proses</h3>
             <p>{message}</p>
 
             {preview && (
@@ -676,7 +752,12 @@ export default function PersetujuanPesertaPage() {
         )}
 
         {error && (
-          <section style={card}>
+          <section
+            style={{
+              ...card,
+              borderColor: "#fca5a5",
+            }}
+        >
             <p style={{ color: "#dc2626" }}>{error}</p>
           </section>
         )}
@@ -689,7 +770,7 @@ export default function PersetujuanPesertaPage() {
           }}
           onClick={() => router.push("/")}
         >
-          ← Kembali ke Dashboard Mentor
+          ← Kembali ke Dashboard
         </button>
       </div>
     </main>
