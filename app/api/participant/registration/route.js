@@ -5,8 +5,14 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// PENGAMAN: Pendaftaran asli belum diaktifkan.
-const REGISTRATION_ENABLED = false;
+// PENGAMAN PENGUJIAN
+// Tetap false sampai tombol pengajuan asli siap diuji.
+const TEST_SUBMISSION_ENABLED = false;
+
+// Hanya peserta ini yang boleh mengikuti uji
+// pengajuan sungguhan ketika pengaman dibuka.
+const TEST_PARTICIPANT_ID =
+  "4e1256e3-ef0b-457d-a7a5-162dc8a1f332";
 
 const SITES = [
   "LMO",
@@ -20,7 +26,7 @@ const SITES = [
   "HO",
 ];
 
-function json(data, status = 200) {
+function respond(data, status = 200) {
   return NextResponse.json(data, {
     status,
     headers: {
@@ -30,13 +36,13 @@ function json(data, status = 200) {
 }
 
 function fail(message, status = 400) {
-  return json(
+  return respond(
     { success: false, error: message },
     status
   );
 }
 
-function isValidDate(value) {
+function validDate(value) {
   if (
     typeof value !== "string" ||
     !/^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -44,15 +50,15 @@ function isValidDate(value) {
     return false;
   }
 
-  const date = new Date(value + "T00:00:00Z");
+  const d = new Date(value + "T00:00:00Z");
 
   return (
-    !Number.isNaN(date.getTime()) &&
-    date.toISOString().slice(0, 10) === value
+    !Number.isNaN(d.getTime()) &&
+    d.toISOString().slice(0, 10) === value
   );
 }
 
-function adminClient() {
+function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -77,53 +83,52 @@ export async function POST(request) {
     try {
       body = await request.json();
     } catch {
-      return fail("Format JSON tidak valid.");
+      return fail("Format permintaan tidak valid.");
     }
 
     const dryRun = body?.dry_run === true;
 
-    // Pengaman utama: hanya simulasi.
-    if (!REGISTRATION_ENABLED && !dryRun) {
+    if (!dryRun && !TEST_SUBMISSION_ENABLED) {
       return fail(
-        "Pendaftaran asli masih dinonaktifkan.",
+        "Penyimpanan pengajuan masih dinonaktifkan.",
         403
       );
     }
 
-    // Ambil token login dari Authorization header.
-    const authHeader =
+    const authorization =
       request.headers.get("authorization") || "";
 
-    if (!authHeader.startsWith("Bearer ")) {
-      return fail(
-        "Silakan login terlebih dahulu.",
-        401
-      );
+    if (!authorization.startsWith("Bearer ")) {
+      return fail("Silakan login terlebih dahulu.", 401);
     }
 
-    const token = authHeader.slice(7).trim();
+    const token = authorization.slice(7).trim();
 
     if (!token) {
       return fail("Token login tidak tersedia.", 401);
     }
 
-    const admin = adminClient();
+    const admin = getAdmin();
 
-    // Validasi token langsung ke Supabase Auth.
+    // Validasi login menggunakan Supabase Auth.
     const {
       data: authData,
       error: authError,
     } = await admin.auth.getUser(token);
 
     if (authError || !authData?.user) {
-      return fail(
-        "Sesi login tidak valid atau sudah berakhir.",
-        401
-      );
+      return fail("Sesi login tidak valid.", 401);
     }
 
     const user = authData.user;
-    const participantId = user.id;
+
+    // Pembatasan akun pengujian dilakukan di server.
+    if (user.id !== TEST_PARTICIPANT_ID) {
+      return fail(
+        "Pengujian ini hanya tersedia untuk akun Peserta OJT.",
+        403
+      );
+    }
 
     if (!user.email_confirmed_at) {
       return fail(
@@ -132,34 +137,24 @@ export async function POST(request) {
       );
     }
 
-    // Identitas peserta selalu berasal dari token,
-    // bukan dari request body.
     const {
       data: profile,
       error: profileError,
     } = await admin
       .from("profiles")
       .select("id,full_name,role,department")
-      .eq("id", participantId)
+      .eq("id", user.id)
       .maybeSingle();
 
     if (profileError) throw profileError;
 
-    if (!profile) {
+    if (!profile || profile.role !== "participant") {
       return fail(
-        "Profil peserta belum tersedia.",
-        409
-      );
-    }
-
-    if (profile.role !== "participant") {
-      return fail(
-        "Hanya peserta yang dapat membuat pengajuan OJT.",
+        "Profil peserta tidak valid.",
         403
       );
     }
 
-    // Validasi formulir.
     const fullName =
       typeof body?.full_name === "string"
         ? body.full_name.trim().replace(/\s+/g, " ")
@@ -180,17 +175,11 @@ export async function POST(request) {
 
     if (
       fullName.length < 3 ||
-      fullName.length > 120
+      fullName.length > 120 ||
+      fullName !== profile.full_name?.trim()
     ) {
       return fail(
-        "Nama lengkap harus 3–120 karakter."
-      );
-    }
-
-    if (!profile.full_name?.trim()) {
-      return fail(
-        "Nama pada profil peserta belum tersedia. Hubungi administrator.",
-        409
+        "Nama peserta tidak sesuai dengan profil."
       );
     }
 
@@ -203,60 +192,60 @@ export async function POST(request) {
     }
 
     if (
-      !isValidDate(startDate) ||
-      !isValidDate(endDate) ||
+      !validDate(startDate) ||
+      !validDate(endDate) ||
       endDate < startDate
     ) {
       return fail("Periode OJT tidak valid.");
     }
 
-    // Cek program aktif.
+    // Periksa program aktif.
     const {
       data: programs,
-      error: programsError,
+      error: programError,
     } = await admin
       .from("ojt_programs")
       .select("id")
-      .eq("participant_id", participantId)
+      .eq("participant_id", user.id)
       .eq("status", "active")
       .limit(1);
 
-    if (programsError) throw programsError;
+    if (programError) throw programError;
 
     if (programs?.length) {
       return fail(
-        "Peserta sudah memiliki program OJT aktif.",
+        "Peserta sudah mempunyai program aktif.",
         409
       );
     }
 
-    // Cek riwayat pendaftaran lama.
+    // Periksa pengajuan lama.
     const {
       data: legacy,
       error: legacyError,
     } = await admin
       .from("participant_registrations")
       .select("id")
-      .eq("user_id", participantId)
+      .eq("user_id", user.id)
       .limit(1);
 
     if (legacyError) throw legacyError;
 
     if (legacy?.length) {
       return fail(
-        "Peserta memiliki riwayat pendaftaran lama.",
+        "Peserta sudah mempunyai riwayat pendaftaran lama.",
         409
       );
     }
 
-    // Cek pengajuan sistem baru.
+    // Periksa pengajuan sistem baru.
     const {
       data: existing,
       error: existingError,
     } = await admin
       .from("ojt_registration_requests")
       .select("id,status")
-      .eq("participant_id", participantId)
+      .eq("participant_id", user.id)
       .limit(1);
 
     if (existingError) throw existingError;
@@ -268,19 +257,16 @@ export async function POST(request) {
       );
     }
 
-    // MODE SIMULASI:
-    // Validasi berhasil, tetapi database tidak diubah.
+    // Simulasi: tidak menyimpan data.
     if (dryRun) {
-      return json({
+      return respond({
         success: true,
         dry_run: true,
         database_changed: false,
-        message:
-          "Simulasi berhasil. Pengajuan belum disimpan.",
+        message: "Simulasi pengajuan berhasil.",
         preview: {
-          participant_id: participantId,
+          participant_id: user.id,
           full_name: profile.full_name,
-          email: user.email,
           department,
           site,
           start_date: startDate,
@@ -290,17 +276,13 @@ export async function POST(request) {
       });
     }
 
-    // JALUR PENYIMPANAN ASLI:
-    // Tidak bisa dicapai selama
-    // REGISTRATION_ENABLED = false.
-    //
-    // Fungsi Supabase memvalidasi ulang data
-    // dan menangani permintaan bersamaan.
+    // Penyimpanan nyata: hanya dapat dijalankan
+    // jika TEST_SUBMISSION_ENABLED = true.
     const {
       data: requestId,
       error: rpcError,
     } = await admin.rpc("submit_ojt_request", {
-      p_participant_id: participantId,
+      p_participant_id: user.id,
       p_department: department,
       p_site: site,
       p_start_date: startDate,
@@ -309,24 +291,24 @@ export async function POST(request) {
 
     if (rpcError) {
       console.error(
-        "submit_ojt_request failed:",
+        "submit_ojt_request:",
         rpcError.code
       );
 
       return fail(
-        "Pengajuan tidak dapat disimpan. Periksa apakah akun sudah memiliki pengajuan atau program aktif.",
+        "Pengajuan gagal disimpan atau sudah pernah diajukan.",
         409
       );
     }
 
-    return json(
+    return respond(
       {
         success: true,
         dry_run: false,
         request_id: requestId,
         status: "pending",
         message:
-          "Pengajuan OJT berhasil dikirim dan menunggu persetujuan mentor.",
+          "Pengajuan berhasil disimpan dan menunggu persetujuan mentor.",
       },
       201
     );
@@ -337,7 +319,7 @@ export async function POST(request) {
     );
 
     return fail(
-      "Terjadi kesalahan server saat memproses pengajuan.",
+      "Terjadi kesalahan server.",
       500
     );
   }
