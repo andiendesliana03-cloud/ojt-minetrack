@@ -41,12 +41,19 @@ export default function LoginPage() {
           .from("profiles")
           .select("role")
           .eq("id", data.user.id)
-          .single();
+          .maybeSingle();
 
-      if (profilError || !profil) {
+      if (profilError) {
         throw new Error(
-          "Profil akun belum tersedia. Hubungi administrator."
+          "Gagal memeriksa profil akun. Silakan coba kembali."
         );
+      }
+
+      // Peserta baru belum memiliki profil.
+      if (!profil) {
+        router.replace("/pengajuan-peserta");
+        router.refresh();
+        return;
       }
 
       let tujuan = "";
