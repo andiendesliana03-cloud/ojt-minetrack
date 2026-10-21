@@ -22,26 +22,39 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const { data, error: loginError } =
-        await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
+      const normalizedEmail = email.trim().toLowerCase();
 
-      if (loginError) throw loginError;
+      const {
+        data,
+        error: loginError,
+      } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
 
-      if (!data.user) {
+      if (loginError) {
+        throw new Error(
+          "Email atau password salah, atau email belum diverifikasi."
+        );
+      }
+
+      if (!data?.user) {
         throw new Error(
           "Login gagal. Silakan coba kembali."
         );
       }
 
-      const { data: profil, error: profilError } =
-        await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", data.user.id)
-          .maybeSingle();
+      const userId = data.user.id;
+
+      // Periksa profil pengguna
+      const {
+        data: profil,
+        error: profilError,
+      } = await supabase
+        .from("profiles")
+        .select("id,role")
+        .eq("id", userId)
+        .maybeSingle();
 
       if (profilError) {
         throw new Error(
@@ -49,33 +62,58 @@ export default function LoginPage() {
         );
       }
 
-      // Peserta baru belum memiliki profil.
+      // Profil belum tersedia
       if (!profil) {
         router.replace("/pengajuan-peserta");
         router.refresh();
         return;
       }
 
-      let tujuan = "";
-
+      // Mentor langsung menuju dashboard mentor
       if (profil.role === "mentor") {
-        tujuan = "/";
-      } else if (
-        profil.role === "participant" ||
-        profil.role === "peserta"
-      ) {
-        tujuan = "/dashboard-peserta";
-      } else {
-        throw new Error(
-          "Role akun tidak dikenali."
-        );
+        router.replace("/");
+        router.refresh();
+        return;
       }
 
-      router.replace(tujuan);
-      router.refresh();
+      // Peserta harus memiliki program OJT aktif
+      if (profil.role === "participant") {
+        const {
+          data: program,
+          error: programError,
+        } = await supabase
+          .from("ojt_programs")
+          .select("id")
+          .eq("participant_id", userId)
+          .eq("status", "active")
+          .limit(1)
+          .maybeSingle();
+
+        if (programError) {
+          throw new Error(
+            "Gagal memeriksa status program OJT. Silakan coba kembali."
+          );
+        }
+
+        if (program) {
+          // Peserta sudah disetujui mentor
+          router.replace("/dashboard-peserta");
+        } else {
+          // Peserta belum memiliki program aktif
+          router.replace("/pengajuan-peserta");
+        }
+
+        router.refresh();
+        return;
+      }
+
+      throw new Error(
+        "Role akun tidak dikenali. Hubungi administrator."
+      );
+
     } catch (err) {
       setError(
-        err.message ||
+        err?.message ||
           "Terjadi kesalahan saat login."
       );
     } finally {
@@ -83,8 +121,9 @@ export default function LoginPage() {
     }
   }
 
-  // Pendaftaran mandiri peserta OJT.
+  // Pendaftaran mandiri peserta OJT
   function handleDaftarPeserta() {
+    if (loading) return;
     router.push("/daftar");
   }
 
@@ -118,7 +157,7 @@ export default function LoginPage() {
 
   return (
     <main style={halaman}>
-      {/* Background gambar ERG */}
+      {/* Background ERG */}
       <div
         aria-hidden="true"
         style={{
@@ -219,7 +258,7 @@ export default function LoginPage() {
           </p>
         </header>
 
-        {/* Form login */}
+        {/* Form Login */}
         <form onSubmit={handleLogin}>
           <h2
             style={{
@@ -262,6 +301,7 @@ export default function LoginPage() {
               setEmail(e.target.value)
             }
             required
+            disabled={loading}
             autoComplete="email"
             style={{
               ...inputStyle,
@@ -289,6 +329,7 @@ export default function LoginPage() {
               setPassword(e.target.value)
             }
             required
+            disabled={loading}
             autoComplete="current-password"
             style={{
               ...inputStyle,
@@ -336,7 +377,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Pendaftaran mandiri peserta */}
+        {/* Pendaftaran Mandiri */}
         <div
           style={{
             marginTop: 22,
@@ -356,6 +397,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleDaftarPeserta}
+            disabled={loading}
             style={{
               width: "100%",
               padding: "15px 18px",
@@ -365,7 +407,10 @@ export default function LoginPage() {
               color: "#1d4ed8",
               fontSize: 16,
               fontWeight: 700,
-              cursor: "pointer",
+              cursor: loading
+                ? "not-allowed"
+                : "pointer",
+              opacity: loading ? 0.7 : 1,
             }}
           >
             Daftar Peserta OJT
@@ -394,6 +439,7 @@ export default function LoginPage() {
           }}
         >
           Sistem Monitoring dan Evaluasi OJT
+
           <p style={{ marginBottom: 0 }}>
             © 2026 PT Berau Coal
           </p>
