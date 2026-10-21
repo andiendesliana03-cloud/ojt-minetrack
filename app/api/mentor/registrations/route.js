@@ -3,11 +3,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !serviceKey) {
     throw new Error(
@@ -41,7 +41,7 @@ export async function GET(request) {
 
     const admin = getAdminClient();
 
-    // Periksa token pengguna yang login.
+    // Validasi sesi pengguna.
     const {
       data: { user },
       error: authError,
@@ -54,8 +54,7 @@ export async function GET(request) {
       );
     }
 
-    // Hanya mentor yang boleh melihat
-    // seluruh pengajuan pendaftaran.
+    // Pastikan hanya mentor yang dapat melihat pengajuan.
     const { data: profile, error: profileError } =
       await admin
         .from("profiles")
@@ -74,17 +73,34 @@ export async function GET(request) {
       );
     }
 
-    const { data: registrations, error } =
-      await admin
-        .from("participant_registrations")
-        .select(
-          "id,user_id,full_name,email,department,status,reviewed_by,reviewed_at,rejection_reason,created_at"
-        )
-        .order("created_at", {
-          ascending: false,
-        });
+    // Ambil seluruh pengajuan, termasuk Site pilihan peserta.
+    const { data: registrations, error } = await admin
+      .from("participant_registrations")
+      .select(
+        [
+          "id",
+          "user_id",
+          "full_name",
+          "email",
+          "department",
+          "site",
+          "status",
+          "reviewed_by",
+          "reviewed_at",
+          "rejection_reason",
+          "created_at",
+        ].join(",")
+      )
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (error) {
+      console.error(
+        "Supabase registrations query:",
+        error.message
+      );
+
       throw error;
     }
 
@@ -96,7 +112,7 @@ export async function GET(request) {
       {
         status: 200,
         headers: {
-          "Cache-Control": "no-store",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
         },
       }
     );
