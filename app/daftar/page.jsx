@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../../lib/supabase";
 
 const REGISTRATION_ENABLED = false;
 
@@ -32,7 +32,9 @@ export default function DaftarPesertaPage() {
     setError("");
 
     if (!REGISTRATION_ENABLED) {
-      setError("Pendaftaran peserta masih dalam mode pengujian.");
+      setError(
+        "Pendaftaran peserta masih dalam mode pengujian."
+      );
       return;
     }
 
@@ -70,7 +72,7 @@ export default function DaftarPesertaPage() {
 
       if (data.session) {
         setMessage(
-          "Akun berhasil dibuat. Tahap pengajuan peserta akan dilanjutkan setelah alur verifikasi selesai disiapkan."
+          "Akun berhasil dibuat. Silakan lanjutkan proses pengajuan peserta setelah alur verifikasi disiapkan."
         );
       } else {
         setMessage(
@@ -137,8 +139,8 @@ export default function DaftarPesertaPage() {
           >
             <strong>Mode Pengujian</strong>
             <p style={{ marginBottom: 0 }}>
-              Formulir sedang disiapkan. Pendaftaran
-              peserta belum dibuka.
+              Formulir sedang disiapkan.
+              Pendaftaran peserta belum dibuka.
             </p>
           </div>
         )}
@@ -182,7 +184,9 @@ export default function DaftarPesertaPage() {
               type="text"
               placeholder="Masukkan nama lengkap"
               value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
+              onChange={(e) =>
+                setFullName(e.target.value)
+              }
               minLength={3}
               maxLength={120}
               autoComplete="name"
@@ -200,7 +204,9 @@ export default function DaftarPesertaPage() {
               type="email"
               placeholder="nama@email.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) =>
+                setEmail(e.target.value)
+              }
               autoComplete="email"
               required
               disabled={!REGISTRATION_ENABLED || loading}
@@ -216,7 +222,9 @@ export default function DaftarPesertaPage() {
               type={showPassword ? "text" : "password"}
               placeholder="Minimal 8 karakter"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) =>
+                setPassword(e.target.value)
+              }
               minLength={8}
               autoComplete="new-password"
               required
