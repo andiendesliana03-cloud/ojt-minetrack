@@ -4,8 +4,20 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Jangan aktifkan sebelum seluruh alur diuji.
+// Tetap nonaktif sampai seluruh alur selesai diuji.
 const REGISTRATION_ENABLED = false;
+
+const ALLOWED_SITES = [
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
+];
 
 function respond(data, status = 200) {
   return NextResponse.json(data, {
@@ -53,8 +65,7 @@ export async function POST(request) {
 
     const admin = getAdminClient();
 
-    // Identitas peserta berasal dari token login,
-    // bukan dari ID yang dikirim formulir.
+    // Identitas peserta diverifikasi melalui token.
     const {
       data: { user },
       error: authError,
@@ -106,31 +117,50 @@ export async function POST(request) {
       );
     }
 
-    // Mode simulasi: belum menyimpan database.
+    // Site wajib dipilih dari daftar resmi.
+    const site =
+      typeof body?.site === "string"
+        ? body.site.trim().toUpperCase()
+        : "";
+
+    if (!ALLOWED_SITES.includes(site)) {
+      return respond(
+        {
+          error:
+            "Site wajib dipilih dari daftar Site yang tersedia.",
+          allowed_sites: ALLOWED_SITES,
+        },
+        400
+      );
+    }
+
+    // Mode simulasi: tidak menulis ke database.
     if (!REGISTRATION_ENABLED) {
       return respond({
         success: true,
         dry_run: true,
         message:
-          "Simulasi pendaftaran berhasil. Profil dan pengajuan belum disimpan.",
+          "Simulasi berhasil. Profil dan pengajuan belum disimpan.",
         preview: {
           user_id: user.id,
           full_name: fullName,
           email: user.email,
           department: "ER & SS",
           role: "participant",
+          site,
           status: "pending",
         },
       });
     }
 
-    // Service role hanya dipakai di server.
-    // ID peserta sudah diverifikasi melalui token.
+    // Fungsi database harus mendukung parameter p_site
+    // sebelum REGISTRATION_ENABLED diubah menjadi true.
     const { data, error } = await admin.rpc(
       "submit_ojt_registration",
       {
         p_full_name: fullName,
         p_user_id: user.id,
+        p_site: site,
       }
     );
 
@@ -149,7 +179,9 @@ export async function POST(request) {
       );
     }
 
-    const registration = data?.[0];
+    const registration = Array.isArray(data)
+      ? data[0]
+      : data;
 
     if (!registration) {
       throw new Error(
