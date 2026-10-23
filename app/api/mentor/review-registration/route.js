@@ -1,18 +1,14 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  canReviewOjt,
+  getOjtAccessConfig,
+} from "../../../../lib/ojt-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-// Pengaturan aktivasi terpusat dari Vercel.
-// Hanya nilai "true" yang mengaktifkan transaksi nyata.
-const GENERAL_APPROVAL_ENABLED =
-  process.env.OJT_APPROVAL_ENABLED === "true";
-
-const GENERAL_REJECTION_ENABLED =
-  process.env.OJT_REJECTION_ENABLED === "true";
 
 function respond(data, status = 200) {
   return NextResponse.json(data, {
@@ -79,12 +75,11 @@ export async function POST(request) {
         ? body.rejection_reason.trim()
         : "";
 
-    // Pemeriksaan ID pengajuan.
+    // 1. Validasi data permintaan.
     if (!isUuid(requestId)) {
       return fail("ID pengajuan tidak valid.");
     }
 
-    // Keputusan hanya approved atau rejected.
     if (
       decision !== "approved" &&
       decision !== "rejected"
@@ -92,43 +87,16 @@ export async function POST(request) {
       return fail("Keputusan mentor tidak valid.");
     }
 
-    // Alasan penolakan wajib 5-1000 karakter.
-    if (decision === "rejected") {
-      if (
-        reason.length < 5 ||
-        reason.length > 1000
-      ) {
-        return fail(
-          "Alasan penolakan harus 5–1000 karakter."
-        );
-      }
+    if (
+      decision === "rejected" &&
+      (reason.length < 5 || reason.length > 1000)
+    ) {
+      return fail(
+        "Alasan penolakan harus 5–1000 karakter."
+      );
     }
 
-    // Tolak transaksi nyata jika fitur
-    // belum diaktifkan di Vercel.
-    if (!dryRun) {
-      if (
-        decision === "approved" &&
-        !GENERAL_APPROVAL_ENABLED
-      ) {
-        return fail(
-          "Persetujuan nyata belum diaktifkan.",
-          403
-        );
-      }
-
-      if (
-        decision === "rejected" &&
-        !GENERAL_REJECTION_ENABLED
-      ) {
-        return fail(
-          "Penolakan nyata belum diaktifkan.",
-          403
-        );
-      }
-    }
-
-    // Token login mentor wajib tersedia.
+    // 2. Verifikasi token mentor.
     const authorization =
       request.headers.get("authorization") || "";
 
@@ -142,32 +110,23 @@ export async function POST(request) {
     const token = authorization.slice(7).trim();
 
     if (!token) {
-      return fail(
-        "Token login tidak tersedia.",
-        401
-      );
+      return fail("Token login tidak tersedia.", 401);
     }
 
     const admin = getAdminClient();
 
-    // Verifikasi token melalui Supabase Auth.
     const {
       data: authData,
       error: authError,
     } = await admin.auth.getUser(token);
 
     if (authError || !authData?.user) {
-      return fail(
-        "Sesi login tidak valid.",
-        401
-      );
+      return fail("Sesi login tidak valid.", 401);
     }
 
-    // ID mentor selalu berasal dari token,
-    // bukan dikirim oleh pengguna.
+    // Identitas mentor selalu dari token.
     const mentorId = authData.user.id;
 
-    // Pemeriksaan role mentor.
     const {
       data: mentor,
       error: mentorError,
@@ -179,18 +138,14 @@ export async function POST(request) {
 
     if (mentorError) throw mentorError;
 
-    if (
-      !mentor ||
-      mentor.role !== "mentor"
-    ) {
+    if (!mentor || mentor.role !== "mentor") {
       return fail(
-        "Hanya akun mentor yang boleh memproses pengajuan.",
+        "Hanya akun mentor yang dapat memproses pengajuan.",
         403
       );
     }
 
-    // Semua mentor diperbolehkan memproses
-    // seluruh pengajuan sistem baru.
+    // 3. Ambil pengajuan sistem baru.
     const {
       data: registration,
       error: registrationError,
@@ -213,14 +168,9 @@ export async function POST(request) {
     }
 
     if (!registration) {
-      return fail(
-        "Pengajuan tidak ditemukan.",
-        404
-      );
+      return fail("Pengajuan tidak ditemukan.", 404);
     }
 
-    // Pengajuan yang telah diproses
-    // tidak boleh diproses ulang.
     if (registration.status !== "pending") {
       return fail(
         "Pengajuan sudah diproses.",
@@ -235,7 +185,24 @@ export async function POST(request) {
       );
     }
 
-    // Pemeriksaan profil peserta.
+    // 4. Pengaman aktivasi pada server.
+    // Simulasi tidak mengubah database.
+    // Transaksi nyata wajib lolos canReviewOjt.
+    if (
+      !dryRun &&
+      !canReviewOjt(
+        mentorId,
+        registration.participant_id,
+        decision
+      )
+    ) {
+      return fail(
+        "Keputusan nyata belum diaktifkan atau akun ini tidak diizinkan.",
+        403
+      );
+    }
+
+    // 5. Validasi profil peserta.
     const {
       data: participant,
       error: participantError,
@@ -259,9 +226,7 @@ export async function POST(request) {
       );
     }
 
-    // TAMBAHAN LANGKAH 63A:
-    // Pemeriksaan verifikasi email peserta.
-    // Berlaku pada simulasi dan keputusan nyata.
+    // Verifikasi email peserta.
     const {
       data: participantAuth,
       error: participantAuthError,
@@ -280,8 +245,7 @@ export async function POST(request) {
       );
     }
 
-    // Pemeriksaan program OJT aktif
-    // sebelum melakukan persetujuan.
+    // 6. Cegah persetujuan program aktif ganda.
     if (decision === "approved") {
       const {
         data: activePrograms,
@@ -296,9 +260,7 @@ export async function POST(request) {
         .eq("status", "active")
         .limit(1);
 
-      if (programError) {
-        throw programError;
-      }
+      if (programError) throw programError;
 
       if (activePrograms?.length) {
         return fail(
@@ -308,8 +270,7 @@ export async function POST(request) {
       }
     }
 
-    // MODE SIMULASI:
-    // Tidak mengubah database.
+    // 7. Simulasi tanpa perubahan database.
     if (dryRun) {
       return respond({
         success: true,
@@ -319,29 +280,54 @@ export async function POST(request) {
           "Simulasi keputusan mentor berhasil. Database tidak berubah.",
         preview: {
           registration_id: requestId,
-          participant_name:
-            participant.full_name,
-          mentor_name:
-            mentor.full_name,
+          participant_name: participant.full_name,
+          mentor_name: mentor.full_name,
           decision,
           rejection_reason:
-            decision === "rejected"
-              ? reason
-              : null,
+            decision === "rejected" ? reason : null,
           site: registration.site,
-          start_date:
-            registration.start_date,
-          end_date:
-            registration.end_date,
+          start_date: registration.start_date,
+          end_date: registration.end_date,
           participant_email_verified: true,
         },
       });
     }
 
-    // KEPUTUSAN NYATA:
-    // Menggunakan fungsi SQL 4 parameter.
-    // Fungsi SQL melakukan validasi ulang
-    // dan memproses keputusan secara transaksi.
+    // 8. Periksa ulang pengaman tepat sebelum RPC.
+    if (
+      !canReviewOjt(
+        mentorId,
+        registration.participant_id,
+        decision
+      )
+    ) {
+      return fail(
+        "Transaksi tidak diizinkan oleh konfigurasi server.",
+        403
+      );
+    }
+
+    // Dalam mode pengujian, pastikan kedua ID
+    // sudah ditentukan melalui konfigurasi server.
+    const accessConfig = getOjtAccessConfig();
+
+    if (
+      accessConfig.testModeEnabled &&
+      (
+        !accessConfig.testParticipantId ||
+        !accessConfig.testMentorId
+      )
+    ) {
+      return fail(
+        "Akun pengujian belum dikonfigurasi.",
+        403
+      );
+    }
+
+    // 9. Keputusan nyata melalui fungsi SQL.
+    // Fungsi SQL mengunci pengajuan, mencatat
+    // mentor dan waktu, serta membuat program
+    // ketika disetujui.
     const {
       data: rpcResult,
       error: rpcError,
@@ -352,9 +338,7 @@ export async function POST(request) {
         p_mentor_id: mentorId,
         p_decision: decision,
         p_rejection_reason:
-          decision === "rejected"
-            ? reason
-            : null,
+          decision === "rejected" ? reason : null,
       }
     );
 
@@ -389,12 +373,9 @@ export async function POST(request) {
     return respond({
       success: true,
       dry_run: false,
-      registration_id:
-        result.registration_id,
-      status:
-        result.registration_status,
-      program_id:
-        result.program_id || null,
+      registration_id: result.registration_id,
+      status: result.registration_status,
+      program_id: result.program_id || null,
       message:
         decision === "approved"
           ? "Pengajuan disetujui. Program OJT aktif telah dibuat."
