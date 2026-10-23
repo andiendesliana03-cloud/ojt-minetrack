@@ -1,6 +1,8 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createHmac } from "node:crypto";
+import { isIP } from "node:net";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,7 +61,7 @@ function getAdminClient() {
 
   if (!url || !key) {
     throw new Error(
-      "Konfigurasi Supabase server belum lengkap."
+      "Konfigurasi Supabase belum lengkap."
     );
   }
 
@@ -71,11 +73,47 @@ function getAdminClient() {
   });
 }
 
+// Ambil alamat IP dari header yang
+// disediakan oleh infrastruktur Vercel.
+// Jangan menerima IP dari body formulir.
+function getClientIp(request) {
+  if (process.env.VERCEL !== "1") {
+    return null;
+  }
+
+  const forwarded = request.headers.get(
+    "x-vercel-forwarded-for"
+  );
+
+  if (!forwarded) {
+    return null;
+  }
+
+  const ip = forwarded.split(",")[0].trim();
+
+  return isIP(ip) ? ip : null;
+}
+
+// Alamat IP tidak disimpan mentah.
+// Hanya hasil hash yang digunakan
+// untuk menghitung percobaan.
+function hashIp(ip) {
+  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!secret) {
+    throw new Error(
+      "Kunci server belum tersedia."
+    );
+  }
+
+  return createHmac("sha256", secret)
+    .update(`ojt-signup-ip:${ip}`)
+    .digest("hex");
+}
+
 export async function POST(request) {
-  // Pendaftaran hanya boleh berjalan
-  // jika mode umum sengaja diaktifkan.
-  // Mode pengujian terbatas tidak membuka
-  // pendaftaran akun anonim ini.
+  // Pendaftaran tidak boleh diproses
+  // sampai administrator mengaktifkannya.
   if (
     process.env.OJT_SUBMISSION_ENABLED !== "true" ||
     process.env.OJT_TEST_MODE_ENABLED === "true"
@@ -86,15 +124,88 @@ export async function POST(request) {
     );
   }
 
-  let createdUserId = null;
-  let admin = null;
-
   try {
-    const body = await request.json();
+    const admin = getAdminClient();
+
+    // Tolak permintaan tanpa IP terpercaya.
+    // Ini sengaja dibuat fail-closed.
+    const clientIp = getClientIp(request);
+
+    if (!clientIp) {
+      return fail(
+        "Identitas koneksi tidak tersedia.",
+        503
+      );
+    }
+
+    // Maksimal 3 percobaan per 60 menit
+    // untuk IP yang sama.
+    const { data: allowed, error: limitError } =
+      await admin.rpc(
+        "check_ojt_signup_limit",
+        {
+          p_key_hash: hashIp(clientIp),
+          p_max_attempts: 3,
+          p_window_minutes: 60,
+        }
+      );
+
+    // Bila pembatas database bermasalah,
+    // pendaftaran harus tetap ditolak.
+    if (limitError || allowed !== true) {
+      if (limitError) {
+        console.error(
+          "OJT rate limit error:",
+          limitError.code || "unknown"
+        );
+
+        return fail(
+          "Sistem pendaftaran belum tersedia.",
+          503
+        );
+      }
+
+      return fail(
+        "Terlalu banyak percobaan pendaftaran. Coba kembali setelah 60 menit.",
+        429
+      );
+    }
+
+    // Tolak body terlalu besar.
+    const rawBody = await request.text();
+
+    if (rawBody.length > 8192) {
+      return fail(
+        "Data pendaftaran terlalu besar.",
+        413
+      );
+    }
+
+    let body;
+
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return fail(
+        "Format data pendaftaran tidak valid."
+      );
+    }
+
+    if (
+      !body ||
+      typeof body !== "object" ||
+      Array.isArray(body)
+    ) {
+      return fail(
+        "Data pendaftaran tidak valid."
+      );
+    }
 
     const fullName =
       typeof body.full_name === "string"
-        ? body.full_name.trim().replace(/\s+/g, " ")
+        ? body.full_name
+            .trim()
+            .replace(/\s+/g, " ")
         : "";
 
     const email =
@@ -107,8 +218,6 @@ export async function POST(request) {
         ? body.password
         : "";
 
-    const department = "ER & SS";
-
     const site =
       typeof body.site === "string"
         ? body.site.trim().toUpperCase()
@@ -117,7 +226,6 @@ export async function POST(request) {
     const startDate = body.start_date;
     const endDate = body.end_date;
 
-    // Validasi identitas.
     if (
       fullName.length < 3 ||
       fullName.length > 120
@@ -131,7 +239,9 @@ export async function POST(request) {
       email.length > 254 ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
-      return fail("Alamat email tidak valid.");
+      return fail(
+        "Alamat email tidak valid."
+      );
     }
 
     if (
@@ -144,7 +254,9 @@ export async function POST(request) {
     }
 
     if (!SITES.includes(site)) {
-      return fail("Site OJT tidak valid.");
+      return fail(
+        "Site OJT tidak valid."
+      );
     }
 
     if (
@@ -152,17 +264,14 @@ export async function POST(request) {
       !validDate(endDate) ||
       endDate < startDate
     ) {
-      return fail("Periode OJT tidak valid.");
+      return fail(
+        "Periode OJT tidak valid."
+      );
     }
 
-    admin = getAdminClient();
-
-    // Pembuatan akun hanya di server.
-    // Trigger auth.users akan membuat profil.
-    //
-    // email_confirm: true memungkinkan
-    // login tanpa klik tautan email.
-    // Ini BUKAN bukti kepemilikan email.
+    // Membuat akun Supabase.
+    // Trigger database otomatis
+    // membuat profil peserta.
     const {
       data: authData,
       error: authError,
@@ -172,7 +281,7 @@ export async function POST(request) {
       email_confirm: true,
       user_metadata: {
         full_name: fullName,
-        department,
+        department: "ER & SS",
         site,
         start_date: startDate,
         end_date: endDate,
@@ -181,28 +290,28 @@ export async function POST(request) {
 
     if (authError || !authData?.user?.id) {
       console.error(
-        "OJT create user:",
+        "OJT create user error:",
         authError?.code || "unknown"
       );
 
       return fail(
-        "Pendaftaran tidak dapat diproses. Periksa apakah email sudah terdaftar.",
+        "Akun tidak dapat dibuat. Periksa apakah email sudah terdaftar.",
         409
       );
     }
 
-    createdUserId = authData.user.id;
+    const participantId = authData.user.id;
 
-    // Simpan satu pengajuan pending.
-    // Peserta belum memperoleh program aktif.
+    // Pengajuan peserta otomatis
+    // tercatat sebagai pending.
     const {
       data: registration,
       error: registrationError,
     } = await admin
       .from("ojt_registration_requests")
       .insert({
-        participant_id: createdUserId,
-        department,
+        participant_id: participantId,
+        department: "ER & SS",
         site,
         start_date: startDate,
         end_date: endDate,
@@ -212,28 +321,32 @@ export async function POST(request) {
       .select("id")
       .single();
 
-    if (registrationError || !registration?.id) {
+    if (
+      registrationError ||
+      !registration?.id
+    ) {
       console.error(
-        "OJT insert registration:",
+        "OJT registration error:",
         registrationError?.code || "unknown"
       );
 
-      // Upaya pemulihan bila akun berhasil
-      // dibuat tetapi pengajuan gagal.
-      const { error: deleteError } =
+      // Jika pengajuan gagal disimpan,
+      // coba hapus akun yang baru dibuat.
+      // Akun lama tidak disentuh.
+      const { error: cleanupError } =
         await admin.auth.admin.deleteUser(
-          createdUserId
+          participantId
         );
 
-      if (deleteError) {
+      if (cleanupError) {
         console.error(
-          "OJT account cleanup failed:",
-          deleteError.code || "unknown"
+          "OJT cleanup error:",
+          cleanupError.code || "unknown"
         );
       }
 
       return fail(
-        "Pengajuan belum dapat disimpan. Hubungi administrator sebelum mendaftar ulang.",
+        "Pengajuan tidak berhasil disimpan. Hubungi administrator sebelum mencoba lagi.",
         500
       );
     }
@@ -243,18 +356,18 @@ export async function POST(request) {
         success: true,
         status: "pending",
         message:
-          "Pendaftaran berhasil. Pengajuan OJT menunggu keputusan mentor.",
+          "Pendaftaran berhasil dan menunggu persetujuan mentor.",
       },
       201
     );
   } catch (error) {
     console.error(
-      "OJT auto registration:",
+      "OJT signup unexpected error:",
       error?.message || "unknown"
     );
 
     return fail(
-      "Terjadi kesalahan saat pendaftaran.",
+      "Terjadi gangguan pada sistem pendaftaran.",
       500
     );
   }
