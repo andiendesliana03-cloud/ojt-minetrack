@@ -1,7 +1,10 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createHmac } from "node:crypto";
+import {
+  createHmac,
+  timingSafeEqual,
+} from "node:crypto";
 import { isIP } from "node:net";
 
 export const runtime = "nodejs";
@@ -31,10 +34,7 @@ function respond(data, status = 200) {
 
 function fail(message, status = 400) {
   return respond(
-    {
-      success: false,
-      error: message,
-    },
+    { success: false, error: message },
     status
   );
 }
@@ -73,9 +73,6 @@ function getAdminClient() {
   });
 }
 
-// Ambil alamat IP dari header yang
-// disediakan oleh infrastruktur Vercel.
-// Jangan menerima IP dari body formulir.
 function getClientIp(request) {
   if (process.env.VERCEL !== "1") {
     return null;
@@ -85,25 +82,18 @@ function getClientIp(request) {
     "x-vercel-forwarded-for"
   );
 
-  if (!forwarded) {
-    return null;
-  }
+  if (!forwarded) return null;
 
   const ip = forwarded.split(",")[0].trim();
 
   return isIP(ip) ? ip : null;
 }
 
-// Alamat IP tidak disimpan mentah.
-// Hanya hasil hash yang digunakan
-// untuk menghitung percobaan.
 function hashIp(ip) {
   const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!secret) {
-    throw new Error(
-      "Kunci server belum tersedia."
-    );
+    throw new Error("Kunci server tidak tersedia.");
   }
 
   return createHmac("sha256", secret)
@@ -111,9 +101,48 @@ function hashIp(ip) {
     .digest("hex");
 }
 
+// Periksa kode undangan secara aman.
+// Jangan pernah mengirim kode rahasia
+// dari server ke browser.
+function validInviteCode(input) {
+  const expected = process.env.OJT_INVITE_CODE;
+
+  if (
+    typeof expected !== "string" ||
+    expected.length < 12 ||
+    typeof input !== "string" ||
+    input.length > 128
+  ) {
+    return false;
+  }
+
+  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!secret) return false;
+
+  const expectedHash = createHmac(
+    "sha256",
+    secret
+  )
+    .update(expected)
+    .digest();
+
+  const receivedHash = createHmac(
+    "sha256",
+    secret
+  )
+    .update(input.trim())
+    .digest();
+
+  return timingSafeEqual(
+    expectedHash,
+    receivedHash
+  );
+}
+
 export async function POST(request) {
-  // Pendaftaran tidak boleh diproses
-  // sampai administrator mengaktifkannya.
+  // Jangan buka pendaftaran jika fitur
+  // masih nonaktif atau mode uji aktif.
   if (
     process.env.OJT_SUBMISSION_ENABLED !== "true" ||
     process.env.OJT_TEST_MODE_ENABLED === "true"
@@ -125,10 +154,20 @@ export async function POST(request) {
   }
 
   try {
+    // Kode undangan harus sudah diatur.
+    if (
+      !process.env.OJT_INVITE_CODE ||
+      process.env.OJT_INVITE_CODE.length < 12
+    ) {
+      return fail(
+        "Konfigurasi pendaftaran belum lengkap.",
+        503
+      );
+    }
+
     const admin = getAdminClient();
 
-    // Tolak permintaan tanpa IP terpercaya.
-    // Ini sengaja dibuat fail-closed.
+    // Pembatas percobaan berdasarkan IP.
     const clientIp = getClientIp(request);
 
     if (!clientIp) {
@@ -138,40 +177,37 @@ export async function POST(request) {
       );
     }
 
-    // Maksimal 3 percobaan per 60 menit
-    // untuk IP yang sama.
-    const { data: allowed, error: limitError } =
-      await admin.rpc(
-        "check_ojt_signup_limit",
-        {
-          p_key_hash: hashIp(clientIp),
-          p_max_attempts: 3,
-          p_window_minutes: 60,
-        }
+    const {
+      data: allowed,
+      error: limitError,
+    } = await admin.rpc(
+      "check_ojt_signup_limit",
+      {
+        p_key_hash: hashIp(clientIp),
+        p_max_attempts: 3,
+        p_window_minutes: 60,
+      }
+    );
+
+    if (limitError) {
+      console.error(
+        "OJT rate limit:",
+        limitError.code || "unknown"
       );
 
-    // Bila pembatas database bermasalah,
-    // pendaftaran harus tetap ditolak.
-    if (limitError || allowed !== true) {
-      if (limitError) {
-        console.error(
-          "OJT rate limit error:",
-          limitError.code || "unknown"
-        );
-
-        return fail(
-          "Sistem pendaftaran belum tersedia.",
-          503
-        );
-      }
-
       return fail(
-        "Terlalu banyak percobaan pendaftaran. Coba kembali setelah 60 menit.",
+        "Sistem pendaftaran belum tersedia.",
+        503
+      );
+    }
+
+    if (allowed !== true) {
+      return fail(
+        "Batas percobaan pendaftaran tercapai. Coba kembali setelah 60 menit.",
         429
       );
     }
 
-    // Tolak body terlalu besar.
     const rawBody = await request.text();
 
     if (rawBody.length > 8192) {
@@ -187,7 +223,7 @@ export async function POST(request) {
       body = JSON.parse(rawBody);
     } catch {
       return fail(
-        "Format data pendaftaran tidak valid."
+        "Format pendaftaran tidak valid."
       );
     }
 
@@ -198,6 +234,14 @@ export async function POST(request) {
     ) {
       return fail(
         "Data pendaftaran tidak valid."
+      );
+    }
+
+    // Validasi kode sebelum membuat akun.
+    if (!validInviteCode(body.invite_code)) {
+      return fail(
+        "Kode pendaftaran ERG tidak sesuai.",
+        403
       );
     }
 
@@ -254,9 +298,7 @@ export async function POST(request) {
     }
 
     if (!SITES.includes(site)) {
-      return fail(
-        "Site OJT tidak valid."
-      );
+      return fail("Site OJT tidak valid.");
     }
 
     if (
@@ -264,14 +306,12 @@ export async function POST(request) {
       !validDate(endDate) ||
       endDate < startDate
     ) {
-      return fail(
-        "Periode OJT tidak valid."
-      );
+      return fail("Periode OJT tidak valid.");
     }
 
-    // Membuat akun Supabase.
-    // Trigger database otomatis
-    // membuat profil peserta.
+    // Buat akun melalui Supabase server.
+    // Email ditandai confirmed secara
+    // administratif, tanpa tautan email.
     const {
       data: authData,
       error: authError,
@@ -290,7 +330,7 @@ export async function POST(request) {
 
     if (authError || !authData?.user?.id) {
       console.error(
-        "OJT create user error:",
+        "OJT create user:",
         authError?.code || "unknown"
       );
 
@@ -302,8 +342,8 @@ export async function POST(request) {
 
     const participantId = authData.user.id;
 
-    // Pengajuan peserta otomatis
-    // tercatat sebagai pending.
+    // Trigger auth.users membuat profil.
+    // API ini membuat pengajuan pending.
     const {
       data: registration,
       error: registrationError,
@@ -326,13 +366,12 @@ export async function POST(request) {
       !registration?.id
     ) {
       console.error(
-        "OJT registration error:",
+        "OJT registration:",
         registrationError?.code || "unknown"
       );
 
-      // Jika pengajuan gagal disimpan,
-      // coba hapus akun yang baru dibuat.
-      // Akun lama tidak disentuh.
+      // Pemulihan jika akun berhasil
+      // dibuat tetapi pengajuan gagal.
       const { error: cleanupError } =
         await admin.auth.admin.deleteUser(
           participantId
@@ -340,13 +379,13 @@ export async function POST(request) {
 
       if (cleanupError) {
         console.error(
-          "OJT cleanup error:",
+          "OJT cleanup:",
           cleanupError.code || "unknown"
         );
       }
 
       return fail(
-        "Pengajuan tidak berhasil disimpan. Hubungi administrator sebelum mencoba lagi.",
+        "Pengajuan gagal disimpan. Hubungi administrator sebelum mencoba lagi.",
         500
       );
     }
@@ -356,18 +395,18 @@ export async function POST(request) {
         success: true,
         status: "pending",
         message:
-          "Pendaftaran berhasil dan menunggu persetujuan mentor.",
+          "Pendaftaran berhasil. Menunggu persetujuan mentor.",
       },
       201
     );
   } catch (error) {
     console.error(
-      "OJT signup unexpected error:",
+      "OJT signup error:",
       error?.message || "unknown"
     );
 
     return fail(
-      "Terjadi gangguan pada sistem pendaftaran.",
+      "Terjadi gangguan sistem pendaftaran.",
       500
     );
   }
