@@ -19,19 +19,19 @@ const SITES = [
 const CARD = {
   background: "#ffffff",
   border: "1px solid #e2e8f0",
-  borderRadius: 14,
-  padding: 20,
+  borderRadius: 16,
+  padding: 22,
   marginBottom: 16,
 };
 
 const FIELD = {
   width: "100%",
   boxSizing: "border-box",
-  padding: 12,
-  marginTop: 8,
+  padding: 13,
+  marginTop: 7,
   marginBottom: 17,
-  borderRadius: 9,
   border: "1px solid #cbd5e1",
+  borderRadius: 10,
   background: "#ffffff",
   color: "#0f172a",
   fontSize: 16,
@@ -42,7 +42,7 @@ const BUTTON = {
   padding: 14,
   border: "none",
   borderRadius: 10,
-  background: "#2563eb",
+  background: "#153c2e",
   color: "#ffffff",
   fontSize: 15,
   fontWeight: 700,
@@ -50,10 +50,7 @@ const BUTTON = {
 };
 
 function validDate(value) {
-  if (
-    typeof value !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(value)
-  ) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return false;
   }
 
@@ -73,20 +70,19 @@ export default function DaftarPesertaPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] =
     useState("");
+  const [inviteCode, setInviteCode] = useState("");
 
   const [site, setSite] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const [registrationEnabled, setRegistrationEnabled] =
-    useState(false);
-
+  const [enabled, setEnabled] = useState(false);
   const [checking, setChecking] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  async function readRegistrationStatus() {
+  async function checkStatus() {
     const response = await fetch(
       "/api/system/feature-flags",
       { cache: "no-store" }
@@ -94,52 +90,37 @@ export default function DaftarPesertaPage() {
 
     if (!response.ok) {
       throw new Error(
-        "Status pendaftaran tidak tersedia."
+        "Status pendaftaran belum tersedia."
       );
     }
 
     const result = await response.json();
 
-    if (
-      result.success !== true ||
-      !result.features
-    ) {
-      throw new Error(
-        "Konfigurasi pendaftaran tidak valid."
-      );
-    }
-
     return (
-      result.features.submission_enabled === true
+      result?.success === true &&
+      result?.features?.submission_enabled === true
     );
   }
 
   useEffect(() => {
-    let active = true;
+    let mounted = true;
 
-    async function checkStatus() {
+    async function load() {
       try {
-        const enabled =
-          await readRegistrationStatus();
+        const available = await checkStatus();
 
-        if (active) {
-          setRegistrationEnabled(enabled);
-        }
+        if (mounted) setEnabled(available);
       } catch {
-        if (active) {
-          setRegistrationEnabled(false);
-        }
+        if (mounted) setEnabled(false);
       } finally {
-        if (active) {
-          setChecking(false);
-        }
+        if (mounted) setChecking(false);
       }
     }
 
-    checkStatus();
+    load();
 
     return () => {
-      active = false;
+      mounted = false;
     };
   }, []);
 
@@ -191,6 +172,20 @@ export default function DaftarPesertaPage() {
       return;
     }
 
+    if (!inviteCode.trim()) {
+      setError(
+        "Kode pendaftaran ERG wajib diisi."
+      );
+      return;
+    }
+
+    if (inviteCode.length > 128) {
+      setError(
+        "Kode pendaftaran terlalu panjang."
+      );
+      return;
+    }
+
     if (!SITES.includes(site)) {
       setError("Pilih Site OJT.");
       return;
@@ -208,21 +203,19 @@ export default function DaftarPesertaPage() {
     setProcessing(true);
 
     try {
-      // Periksa ulang sebelum mengirim.
-      const enabled =
-        await readRegistrationStatus();
+      const available = await checkStatus();
 
-      setRegistrationEnabled(enabled);
+      setEnabled(available);
 
-      if (!enabled) {
+      if (!available) {
         throw new Error(
           "Pendaftaran OJT belum dibuka."
         );
       }
 
-      // Pendaftaran diproses oleh API server,
-      // bukan lagi supabase.auth.signUp()
-      // secara langsung dari browser.
+      // Data dikirim ke API server.
+      // Kode undangan diperiksa di server,
+      // bukan dibandingkan dalam browser.
       const response = await fetch(
         "/api/participant/auto-register",
         {
@@ -235,6 +228,7 @@ export default function DaftarPesertaPage() {
             full_name: name,
             email: cleanEmail,
             password,
+            invite_code: inviteCode.trim(),
             site,
             start_date: startDate,
             end_date: endDate,
@@ -242,25 +236,34 @@ export default function DaftarPesertaPage() {
         }
       );
 
-      const result = await response.json();
+      let result;
+
+      try {
+        result = await response.json();
+      } catch {
+        throw new Error(
+          "Server tidak memberikan respons yang valid."
+        );
+      }
 
       if (
         !response.ok ||
-        result.success !== true ||
-        result.status !== "pending"
+        result?.success !== true ||
+        result?.status !== "pending"
       ) {
         throw new Error(
-          result.error ||
+          result?.error ||
             "Pendaftaran gagal diproses."
         );
       }
 
       setPassword("");
       setConfirmPassword("");
+      setInviteCode("");
       setSuccess(true);
     } catch (err) {
       setError(
-        err.message ||
+        err?.message ||
           "Terjadi kesalahan pendaftaran."
       );
     } finally {
@@ -272,38 +275,40 @@ export default function DaftarPesertaPage() {
     <main
       style={{
         minHeight: "100vh",
-        background: "#f1f5f9",
-        color: "#0f172a",
+        background: "#f3f6f3",
         padding: "24px 15px",
+        color: "#20352b",
         fontFamily: "Arial, sans-serif",
       }}
     >
       <div
         style={{
           maxWidth: 560,
-          margin: "auto",
+          margin: "0 auto",
         }}
       >
         <header
           style={{
             ...CARD,
-            background: "#0f172a",
+            background: "#153c2e",
             color: "#ffffff",
             textAlign: "center",
+            borderTop: "5px solid #d8b45a",
           }}
         >
-          <h1>Pendaftaran Peserta OJT</h1>
-          <h3>Emergency Response Group</h3>
-          <p>PT Berau Coal</p>
+          <h1>OJT MineTrack</h1>
+          <h2>Pendaftaran Peserta OJT</h2>
+          <p>Emergency Response Group</p>
+          <p>PT Berau Coal 2026</p>
         </header>
 
         {success ? (
           <section
-            role="status"
             style={{
               ...CARD,
               textAlign: "center",
             }}
+            role="status"
           >
             <div
               style={{
@@ -321,15 +326,22 @@ export default function DaftarPesertaPage() {
               dibuat secara otomatis.
             </p>
 
-            <p style={{ lineHeight: 1.8 }}>
-              Status pengajuan:
-              <strong> Menunggu Persetujuan Mentor</strong>
+            <p>
+              <strong>
+                Status: Menunggu Persetujuan Mentor
+              </strong>
             </p>
 
             <p style={{ lineHeight: 1.8 }}>
-              Setelah disetujui, silakan
-              login menggunakan email dan
-              password yang didaftarkan.
+              Kamu tidak perlu melakukan verifikasi
+              email atau mengisi formulir pengajuan
+              kedua.
+            </p>
+
+            <p style={{ lineHeight: 1.8 }}>
+              Setelah mentor menyetujui, masuk
+              menggunakan email dan password
+              yang sudah didaftarkan.
             </p>
 
             <button
@@ -347,8 +359,8 @@ export default function DaftarPesertaPage() {
             <section
               style={{
                 ...CARD,
-                background: "#eff6ff",
-                borderColor: "#bfdbfe",
+                background: "#f8f0d9",
+                borderColor: "#e7d59c",
               }}
             >
               <strong>Status Pendaftaran</strong>
@@ -356,20 +368,19 @@ export default function DaftarPesertaPage() {
               <p>
                 {checking
                   ? "Memeriksa status..."
-                  : registrationEnabled
-                  ? "Pendaftaran OJT dibuka."
-                  : "Pendaftaran OJT belum dibuka."}
+                  : enabled
+                  ? "Pendaftaran peserta OJT dibuka."
+                  : "Pendaftaran peserta OJT belum dibuka."}
               </p>
 
               <p
                 style={{
                   fontSize: 13,
-                  color: "#475569",
-                  marginBottom: 0,
+                  lineHeight: 1.7,
                 }}
               >
-                Isi formulir satu kali.
-                Pengajuan akan otomatis masuk
+                Peserta cukup mendaftar satu kali.
+                Pengajuan akan langsung masuk
                 ke daftar persetujuan mentor.
               </p>
             </section>
@@ -384,16 +395,16 @@ export default function DaftarPesertaPage() {
 
                 <input
                   id="fullName"
-                  style={FIELD}
                   type="text"
+                  style={FIELD}
                   value={fullName}
-                  required
                   maxLength={120}
+                  required
                   disabled={processing}
-                  onChange={(event) =>
-                    setFullName(event.target.value)
+                  onChange={(e) =>
+                    setFullName(e.target.value)
                   }
-                  placeholder="Nama lengkap"
+                  placeholder="Nama lengkap peserta"
                 />
 
                 <label htmlFor="email">
@@ -402,16 +413,16 @@ export default function DaftarPesertaPage() {
 
                 <input
                   id="email"
-                  style={FIELD}
                   type="email"
+                  style={FIELD}
                   value={email}
                   required
                   disabled={processing}
                   autoComplete="email"
-                  onChange={(event) =>
-                    setEmail(event.target.value)
+                  onChange={(e) =>
+                    setEmail(e.target.value)
                   }
-                  placeholder="Alamat email peserta"
+                  placeholder="Alamat email aktif"
                 />
 
                 <label htmlFor="password">
@@ -420,16 +431,16 @@ export default function DaftarPesertaPage() {
 
                 <input
                   id="password"
-                  style={FIELD}
                   type="password"
+                  style={FIELD}
                   value={password}
                   required
                   minLength={8}
                   maxLength={128}
                   disabled={processing}
                   autoComplete="new-password"
-                  onChange={(event) =>
-                    setPassword(event.target.value)
+                  onChange={(e) =>
+                    setPassword(e.target.value)
                   }
                   placeholder="Minimal 8 karakter"
                 />
@@ -440,19 +451,52 @@ export default function DaftarPesertaPage() {
 
                 <input
                   id="confirmPassword"
-                  style={FIELD}
                   type="password"
+                  style={FIELD}
                   value={confirmPassword}
                   required
                   disabled={processing}
                   autoComplete="new-password"
-                  onChange={(event) =>
+                  onChange={(e) =>
                     setConfirmPassword(
-                      event.target.value
+                      e.target.value
                     )
                   }
                   placeholder="Ulangi password"
                 />
+
+                <label htmlFor="inviteCode">
+                  <strong>
+                    Kode Pendaftaran ERG *
+                  </strong>
+                </label>
+
+                <input
+                  id="inviteCode"
+                  type="text"
+                  style={FIELD}
+                  value={inviteCode}
+                  required
+                  maxLength={128}
+                  disabled={processing}
+                  autoComplete="off"
+                  onChange={(e) =>
+                    setInviteCode(e.target.value)
+                  }
+                  placeholder="Masukkan kode dari mentor"
+                />
+
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#64748b",
+                    marginTop: -9,
+                    marginBottom: 20,
+                  }}
+                >
+                  Kode diberikan oleh mentor atau
+                  administrator OJT.
+                </p>
 
                 <label htmlFor="department">
                   <strong>Departemen</strong>
@@ -460,11 +504,12 @@ export default function DaftarPesertaPage() {
 
                 <input
                   id="department"
+                  type="text"
+                  value="ER & SS"
                   style={{
                     ...FIELD,
                     background: "#f1f5f9",
                   }}
-                  value="ER & SS"
                   readOnly
                 />
 
@@ -478,8 +523,8 @@ export default function DaftarPesertaPage() {
                   value={site}
                   required
                   disabled={processing}
-                  onChange={(event) =>
-                    setSite(event.target.value)
+                  onChange={(e) =>
+                    setSite(e.target.value)
                   }
                 >
                   <option value="">
@@ -502,19 +547,18 @@ export default function DaftarPesertaPage() {
 
                 <input
                   id="startDate"
-                  style={FIELD}
                   type="date"
+                  style={FIELD}
                   value={startDate}
                   required
                   disabled={processing}
-                  onChange={(event) => {
-                    const next = event.target.value;
-
-                    setStartDate(next);
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setStartDate(value);
 
                     if (
                       endDate &&
-                      endDate < next
+                      endDate < value
                     ) {
                       setEndDate("");
                     }
@@ -527,14 +571,14 @@ export default function DaftarPesertaPage() {
 
                 <input
                   id="endDate"
-                  style={FIELD}
                   type="date"
+                  style={FIELD}
                   min={startDate || undefined}
                   value={endDate}
                   required
                   disabled={processing}
-                  onChange={(event) =>
-                    setEndDate(event.target.value)
+                  onChange={(e) =>
+                    setEndDate(e.target.value)
                   }
                 />
 
@@ -542,10 +586,10 @@ export default function DaftarPesertaPage() {
                   <p
                     role="alert"
                     style={{
+                      padding: 12,
                       color: "#991b1b",
                       background: "#fef2f2",
-                      borderRadius: 9,
-                      padding: 12,
+                      borderRadius: 10,
                     }}
                   >
                     {error}
@@ -554,20 +598,20 @@ export default function DaftarPesertaPage() {
 
                 <button
                   type="submit"
-                  disabled={
-                    processing ||
-                    checking ||
-                    !registrationEnabled
-                  }
                   style={{
                     ...BUTTON,
                     background:
                       processing ||
                       checking ||
-                      !registrationEnabled
+                      !enabled
                         ? "#94a3b8"
-                        : "#2563eb",
+                        : "#153c2e",
                   }}
+                  disabled={
+                    processing ||
+                    checking ||
+                    !enabled
+                  }
                 >
                   {processing
                     ? "Mendaftarkan..."
