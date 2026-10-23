@@ -20,8 +20,6 @@ const C = {
   redBg: "#fff0ee",
   yellow: "#946200",
   yellowBg: "#fff8e6",
-  blue: "#315e8a",
-  blueBg: "#edf5ff",
 };
 
 const card = {
@@ -44,7 +42,6 @@ const primaryButton = {
   width: "100%",
   cursor: "pointer",
   fontSize: 14,
-  textAlign: "center",
 };
 
 const secondaryButton = {
@@ -54,56 +51,38 @@ const secondaryButton = {
   border: `1px solid ${C.border}`,
 };
 
-const labelStyle = {
-  color: C.muted,
-  fontSize: 12,
-  fontWeight: 600,
-  marginBottom: 6,
-};
-
-const sectionTitle = {
-  color: C.green,
-  fontSize: 18,
-  fontWeight: 800,
-  margin: "0 0 14px",
-};
-
 function formatDate(value) {
   if (!value) return "-";
 
-  const date = new Date(`${value}T00:00:00`);
+  const parts = String(value).slice(0, 10).split("-");
 
-  if (Number.isNaN(date.getTime())) return value;
+  if (parts.length !== 3) return String(value);
 
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(date);
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-function statusInfo(access) {
+function getStatusInfo(access) {
   const statuses = {
     pending: {
-      label: "Menunggu Persetujuan",
+      label: "Menunggu Persetujuan Mentor",
       color: C.yellow,
       bg: C.yellowBg,
       icon: "◷",
     },
     rejected: {
-      label: "Pendaftaran Ditolak",
+      label: "Pengajuan Ditolak",
       color: C.red,
       bg: C.redBg,
       icon: "!",
     },
     approved: {
-      label: "Disetujui",
+      label: "Program OJT Aktif",
       color: C.green3,
       bg: "#e8f5eb",
       icon: "✓",
     },
     no_program: {
-      label: "Belum Aktif",
+      label: "Belum Ada Program",
       color: C.muted,
       bg: "#edf1ee",
       icon: "○",
@@ -119,7 +98,12 @@ function statusInfo(access) {
   return statuses[access] || statuses.no_program;
 }
 
-function MenuCard({ icon, title, description, onClick }) {
+function MenuCard({
+  icon,
+  title,
+  description,
+  onClick,
+}) {
   return (
     <button
       type="button"
@@ -131,7 +115,6 @@ function MenuCard({ icon, title, description, onClick }) {
         textAlign: "left",
         padding: 15,
         width: "100%",
-        minWidth: 0,
         background: C.white,
         border: `1px solid ${C.border}`,
         borderRadius: 14,
@@ -140,7 +123,6 @@ function MenuCard({ icon, title, description, onClick }) {
       }}
     >
       <span
-        aria-hidden="true"
         style={{
           width: 44,
           height: 44,
@@ -159,16 +141,15 @@ function MenuCard({ icon, title, description, onClick }) {
       </span>
 
       <span style={{ flex: 1, minWidth: 0 }}>
-        <span
+        <strong
           style={{
             display: "block",
-            fontWeight: 800,
-            fontSize: 14,
             marginBottom: 5,
+            fontSize: 14,
           }}
         >
           {title}
-        </span>
+        </strong>
 
         <span
           style={{
@@ -183,8 +164,10 @@ function MenuCard({ icon, title, description, onClick }) {
       </span>
 
       <span
-        aria-hidden="true"
-        style={{ color: C.green3, fontSize: 20 }}
+        style={{
+          color: C.green3,
+          fontSize: 20,
+        }}
       >
         ›
       </span>
@@ -197,158 +180,32 @@ export default function DashboardPeserta() {
 
   const [profile, setProfile] = useState(null);
   const [program, setProgram] = useState(null);
-  const [registration, setRegistration] = useState(null);
+  const [registration, setRegistration] =
+    useState(null);
+
   const [access, setAccess] = useState("loading");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [apiTest, setApiTest] = useState("");
-  const [testingApi, setTestingApi] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      try {
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
-
-        if (authError || !user) {
-          router.replace("/login");
-          return;
-        }
-
-        const { data: p, error: pError } =
-          await supabase
-            .from("profiles")
-            .select("id,full_name,department,role")
-            .eq("id", user.id)
-            .single();
-
-        if (pError || !p) {
-          throw new Error(
-            "Profil peserta belum tersedia. Hubungi mentor."
-          );
-        }
-
-        if (p.role === "mentor") {
-          router.replace("/");
-          return;
-        }
-
-        if (
-          p.role !== "participant" &&
-          p.role !== "peserta"
-        ) {
-          throw new Error(
-            "Akun tidak memiliki akses peserta."
-          );
-        }
-
-        const {
-          data: registrations,
-          error: registrationError,
-        } = await supabase
-          .from("participant_registrations")
-          .select(
-            "id,status,rejection_reason,created_at"
-          )
-          .eq("user_id", user.id)
-          .order("created_at", {
-            ascending: false,
-          })
-          .limit(1);
-
-        if (registrationError) {
-          throw registrationError;
-        }
-
-        const latestRegistration =
-          registrations?.[0] || null;
-
-        const {
-          data: programs,
-          error: programError,
-        } = await supabase
-          .from("ojt_programs")
-          .select(
-            "id,participant_id,start_date,end_date,status,site"
-          )
-          .eq("participant_id", user.id)
-          .eq("status", "active")
-          .order("start_date", {
-            ascending: false,
-          })
-          .limit(1);
-
-        if (programError) {
-          throw programError;
-        }
-
-        const activeProgram = programs?.[0] || null;
-
-        let nextAccess = "no_program";
-
-        if (latestRegistration?.status === "pending") {
-          nextAccess = "pending";
-        } else if (
-          latestRegistration?.status === "rejected"
-        ) {
-          nextAccess = "rejected";
-        } else if (
-          latestRegistration?.status === "approved" &&
-          activeProgram
-        ) {
-          nextAccess = "approved";
-        } else if (!latestRegistration && activeProgram) {
-          nextAccess = "approved";
-        }
-
-        if (active) {
-          setProfile(p);
-          setProgram(activeProgram);
-          setRegistration(latestRegistration);
-          setAccess(nextAccess);
-        }
-      } catch (err) {
-        if (active) {
-          setError(
-            err.message || "Gagal memuat data peserta."
-          );
-          setAccess("error");
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
+  async function loadDashboard(isRefresh = false) {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
-    load();
-
-    return () => {
-      active = false;
-    };
-  }, [router]);
-
-  async function testMentorApi() {
-    if (testingApi) return;
-
-    setTestingApi(true);
-    setApiTest("");
+    setError("");
 
     try {
       const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-      if (sessionError || !session) {
-        setApiTest(
-          "BELUM LULUS: Sesi login tidak ditemukan."
-        );
+      if (authError || !user) {
+        router.replace("/login");
         return;
       }
 
@@ -357,87 +214,184 @@ export default function DashboardPeserta() {
         error: profileError,
       } = await supabase
         .from("profiles")
-        .select("role")
-        .eq("id", session.user.id)
-        .single();
+        .select("id,full_name,department,role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      if (!currentProfile) {
+        throw new Error(
+          "Profil peserta tidak tersedia."
+        );
+      }
+
+      if (currentProfile.role === "mentor") {
+        router.replace("/");
+        return;
+      }
 
       if (
-        profileError ||
-        !currentProfile ||
-        currentProfile.role !== "participant"
+        currentProfile.role !== "participant" &&
+        currentProfile.role !== "peserta"
       ) {
-        setApiTest(
-          "PENGUJIAN DIHENTIKAN: Gunakan akun Peserta Uji Coba."
-        );
-        return;
-      }
-
-      const listResponse = await fetch(
-        "/api/mentor/registrations",
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          cache: "no-store",
-        }
-      );
-
-      if (listResponse.status !== 403) {
-        if (listResponse.status === 200) {
-          setApiTest(
-            "GAGAL: API daftar Mentor mengizinkan akses peserta (HTTP 200)."
-          );
-        } else {
-          setApiTest(
-            `BELUM TERVERIFIKASI: API daftar Mentor mengembalikan HTTP ${listResponse.status}.`
-          );
-        }
-        return;
-      }
-
-      const decisionResponse = await fetch(
-        "/api/mentor/registrations/decision",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({}),
-          cache: "no-store",
-        }
-      );
-
-      if (decisionResponse.status === 403) {
-        setApiTest(
-          "LULUS: API daftar Mentor dan API keputusan Mentor sama-sama menolak akses peserta (HTTP 403)."
-        );
-      } else if (decisionResponse.status === 200) {
-        setApiTest(
-          "GAGAL: API keputusan Mentor mengembalikan HTTP 200. Hentikan pengujian dan periksa server."
-        );
-      } else if (decisionResponse.status === 400) {
-        setApiTest(
-          "BELUM LULUS: API keputusan Mentor mengembalikan HTTP 400. Periksa urutan validasi server."
-        );
-      } else if (decisionResponse.status === 401) {
-        setApiTest(
-          "BELUM LULUS: API keputusan Mentor mengembalikan HTTP 401. Sesi perlu diperiksa."
-        );
-      } else {
-        setApiTest(
-          `BELUM TERVERIFIKASI: API keputusan Mentor mengembalikan HTTP ${decisionResponse.status}.`
+        throw new Error(
+          "Akun tidak memiliki akses peserta."
         );
       }
-    } catch {
-      setApiTest(
-        "BELUM TERVERIFIKASI: Tidak dapat menghubungi API."
+
+      // 1. Baca seluruh pengajuan sistem baru.
+      // Ini adalah jalur utama pendaftaran
+      // otomatis OJT MineTrack v2.0.
+      const {
+        data: newRequests,
+        error: newError,
+      } = await supabase
+        .from("ojt_registration_requests")
+        .select(`
+          id,
+          status,
+          rejection_reason,
+          site,
+          start_date,
+          end_date,
+          created_at
+        `)
+        .eq("participant_id", user.id)
+        .order("created_at", {
+          ascending: false,
+        });
+
+      if (newError) throw newError;
+
+      // 2. Baca pendaftaran sistem lama.
+      // Dipertahankan agar peserta lama
+      // tidak kehilangan akses.
+      const {
+        data: oldRequests,
+        error: oldError,
+      } = await supabase
+        .from("participant_registrations")
+        .select(`
+          id,
+          status,
+          rejection_reason,
+          site,
+          created_at
+        `)
+        .eq("user_id", user.id)
+        .order("created_at", {
+          ascending: false,
+        })
+        .limit(1);
+
+      if (oldError) throw oldError;
+
+      // 3. Baca program aktif peserta.
+      // RLS can_view_ojt_program tetap
+      // membatasi akses dari database.
+      const {
+        data: activePrograms,
+        error: programError,
+      } = await supabase
+        .from("ojt_programs")
+        .select(`
+          id,
+          participant_id,
+          start_date,
+          end_date,
+          status,
+          site,
+          legacy_access
+        `)
+        .eq("participant_id", user.id)
+        .eq("status", "active")
+        .order("start_date", {
+          ascending: false,
+        })
+        .limit(1);
+
+      if (programError) throw programError;
+
+      const newList = newRequests || [];
+      const oldRegistration = oldRequests?.[0] || null;
+      const activeProgram = activePrograms?.[0] || null;
+
+      // Pengajuan baru harus diprioritaskan.
+      // Jika tidak ada, gunakan riwayat lama.
+      const latestRegistration =
+        newList[0] || oldRegistration;
+
+      const hasPendingNew = newList.some(
+        (item) => item.status === "pending"
       );
+
+      const hasApprovedNew = newList.some(
+        (item) => item.status === "approved"
+      );
+
+      const hasApprovedOld =
+        oldRegistration?.status === "approved";
+
+      const hasPendingOld =
+        oldRegistration?.status === "pending";
+
+      // Akses monitoring membutuhkan
+      // program aktif + persetujuan sah.
+      // Untuk data lama, legacy_access
+      // tetap didukung.
+      const approvedProgram =
+        !!activeProgram &&
+        (
+          hasApprovedNew ||
+          hasApprovedOld ||
+          activeProgram.legacy_access === true
+        ) &&
+        !hasPendingNew &&
+        !hasPendingOld;
+
+      let nextAccess = "no_program";
+
+      if (hasPendingNew || hasPendingOld) {
+        nextAccess = "pending";
+      } else if (approvedProgram) {
+        nextAccess = "approved";
+      } else if (
+        latestRegistration?.status === "rejected"
+      ) {
+        nextAccess = "rejected";
+      }
+
+      // Jangan menyimpan program untuk
+      // ditampilkan jika belum diizinkan.
+      setProgram(
+        nextAccess === "approved"
+          ? activeProgram
+          : null
+      );
+
+      setProfile(currentProfile);
+      setRegistration(latestRegistration || null);
+      setAccess(nextAccess);
+    } catch (err) {
+      setError(
+        err.message ||
+          "Gagal memuat dashboard peserta."
+      );
+
+      setAccess("error");
+      setProgram(null);
     } finally {
-      setTestingApi(false);
+      setLoading(false);
+      setRefreshing(false);
     }
   }
+
+  useEffect(() => {
+    loadDashboard();
+    // Pemeriksaan dijalankan saat halaman dibuka.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function logout() {
     if (loggingOut) return;
@@ -449,20 +403,21 @@ export default function DashboardPeserta() {
         await supabase.auth.signOut();
 
       if (logoutError) {
-        setError("Gagal keluar. Silakan coba kembali.");
-        setLoggingOut(false);
-        return;
+        throw logoutError;
       }
 
       router.replace("/login");
       router.refresh();
     } catch {
-      setError("Gagal keluar. Silakan coba kembali.");
+      setError(
+        "Gagal keluar. Silakan coba kembali."
+      );
+
       setLoggingOut(false);
     }
   }
 
-  const status = statusInfo(access);
+  const status = getStatusInfo(access);
 
   return (
     <main
@@ -478,7 +433,8 @@ export default function DashboardPeserta() {
       <div
         style={{
           height: 5,
-          background: `linear-gradient(90deg, ${C.gold}, #f3df9d, ${C.gold})`,
+          background:
+            `linear-gradient(90deg, ${C.gold}, #f3df9d, ${C.gold})`,
         }}
       />
 
@@ -488,10 +444,14 @@ export default function DashboardPeserta() {
           color: C.white,
           padding: "24px 18px 30px",
           borderRadius: "0 0 26px 26px",
-          boxShadow: "0 8px 24px rgba(21,60,46,0.15)",
         }}
       >
-        <div style={{ maxWidth: 850, margin: "auto" }}>
+        <div
+          style={{
+            maxWidth: 850,
+            margin: "auto",
+          }}
+        >
           <div
             style={{
               display: "flex",
@@ -523,11 +483,11 @@ export default function DashboardPeserta() {
                 style={{
                   fontSize: 19,
                   fontWeight: 900,
-                  letterSpacing: 0.3,
                 }}
               >
                 OJT MineTrack
               </div>
+
               <div
                 style={{
                   fontSize: 10,
@@ -583,11 +543,10 @@ export default function DashboardPeserta() {
               fontSize: 13,
               lineHeight: 1.7,
               margin: 0,
-              maxWidth: 500,
             }}
           >
-            Satu tempat untuk melihat status program,
-            perkembangan, dan evaluasi OJT.
+            Informasi pendaftaran, perkembangan,
+            dan evaluasi OJT dalam satu tempat.
           </p>
         </div>
       </header>
@@ -601,35 +560,23 @@ export default function DashboardPeserta() {
         }}
       >
         {loading && (
-          <section style={card} role="status">
-            <div
-              style={{
-                color: C.green,
-                fontWeight: 800,
-                marginBottom: 6,
-              }}
-            >
-              Memuat dashboard...
-            </div>
-            <div style={{ color: C.muted, fontSize: 13 }}>
-              Memeriksa akun dan status persetujuan Mentor.
-            </div>
+          <section style={card}>
+            <strong>
+              Memeriksa akun dan status OJT...
+            </strong>
           </section>
         )}
 
         {error && (
           <section
+            role="alert"
             style={{
               ...card,
               background: C.redBg,
-              borderColor: "#f1c4bf",
+              color: C.red,
             }}
-            role="alert"
           >
-            <h2 style={{ color: C.red, fontSize: 17 }}>
-              Perlu Perhatian
-            </h2>
-            <p style={{ lineHeight: 1.6 }}>{error}</p>
+            {error}
           </section>
         )}
 
@@ -665,29 +612,34 @@ export default function DashboardPeserta() {
                     .toUpperCase()}
                 </div>
 
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={labelStyle}>
+                <div>
+                  <div
+                    style={{
+                      color: C.muted,
+                      fontSize: 12,
+                    }}
+                  >
                     SELAMAT DATANG
                   </div>
+
                   <h2
                     style={{
                       color: C.green,
                       fontSize: 19,
-                      fontWeight: 850,
-                      margin: 0,
-                      overflowWrap: "anywhere",
+                      margin: "5px 0",
                     }}
                   >
-                    {profile.full_name || "Peserta OJT"}
+                    {profile.full_name ||
+                      "Peserta OJT"}
                   </h2>
+
                   <div
                     style={{
                       color: C.muted,
                       fontSize: 13,
-                      marginTop: 5,
                     }}
                   >
-                    {profile.department || "Departemen belum diisi"}
+                    {profile.department || "ER & SS"}
                   </div>
                 </div>
               </div>
@@ -695,40 +647,25 @@ export default function DashboardPeserta() {
               <div
                 style={{
                   display: "flex",
-                  flexWrap: "wrap",
-                  gap: 8,
+                  gap: 10,
                   alignItems: "center",
-                  padding: 12,
+                  padding: 13,
                   borderRadius: 12,
                   background: status.bg,
+                  color: status.color,
+                  fontSize: 13,
+                  fontWeight: 800,
                 }}
               >
                 <span
-                  aria-hidden="true"
                   style={{
-                    width: 26,
-                    height: 26,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: C.white,
-                    borderRadius: 50,
-                    color: status.color,
-                    fontWeight: 900,
+                    fontSize: 20,
                   }}
                 >
                   {status.icon}
                 </span>
 
-                <span
-                  style={{
-                    color: status.color,
-                    fontSize: 13,
-                    fontWeight: 800,
-                  }}
-                >
-                  {status.label}
-                </span>
+                {status.label}
               </div>
             </section>
 
@@ -737,32 +674,43 @@ export default function DashboardPeserta() {
                 style={{
                   ...card,
                   background: C.yellowBg,
-                  borderColor: "#ead8a5",
                 }}
               >
-                <div
+                <h2
                   style={{
-                    fontSize: 12,
                     color: C.yellow,
-                    fontWeight: 800,
-                    letterSpacing: 1,
+                    fontSize: 18,
                   }}
                 >
-                  STATUS PENDAFTARAN
-                </div>
-                <h2 style={sectionTitle}>
                   Menunggu Persetujuan Mentor
                 </h2>
-                <p
-                  style={{
-                    fontSize: 14,
-                    lineHeight: 1.8,
-                    marginBottom: 0,
-                  }}
-                >
-                  Pendaftaran Anda sedang diperiksa oleh
-                  Mentor. Monitoring OJT tersedia setelah
-                  pendaftaran disetujui dan program aktif.
+
+                <p style={{ lineHeight: 1.8 }}>
+                  Pendaftaran OJT sudah tercatat
+                  di sistem dan sedang menunggu
+                  keputusan mentor.
+                </p>
+
+                <p>
+                  <strong>Site:</strong>{" "}
+                  {registration?.site || "-"}
+                </p>
+
+                <p>
+                  <strong>Periode:</strong>{" "}
+                  {formatDate(
+                    registration?.start_date
+                  )}
+                  {" s.d. "}
+                  {formatDate(
+                    registration?.end_date
+                  )}
+                </p>
+
+                <p style={{ lineHeight: 1.7 }}>
+                  Kamu dapat login untuk melihat
+                  status pendaftaran. Menu monitoring
+                  tersedia setelah disetujui mentor.
                 </p>
               </section>
             )}
@@ -772,57 +720,71 @@ export default function DashboardPeserta() {
                 style={{
                   ...card,
                   background: C.redBg,
-                  borderColor: "#f1c4bf",
                 }}
               >
-                <h2 style={{ color: C.red, fontSize: 18 }}>
-                  Pendaftaran Belum Disetujui
+                <h2
+                  style={{
+                    color: C.red,
+                    fontSize: 18,
+                  }}
+                >
+                  Pengajuan Belum Disetujui
                 </h2>
-                <p style={{ fontSize: 14, lineHeight: 1.7 }}>
-                  Pengajuan Anda belum disetujui Mentor.
+
+                <p>
+                  Mentor telah menolak pengajuan OJT.
                 </p>
-                {registration?.rejection_reason && (
-                  <div
-                    style={{
-                      background: C.white,
-                      borderRadius: 12,
-                      padding: 14,
-                      fontSize: 13,
-                      lineHeight: 1.7,
-                    }}
-                  >
-                    <strong>Catatan Mentor:</strong>
-                    <div>{registration.rejection_reason}</div>
-                  </div>
-                )}
+
+                <div
+                  style={{
+                    background: C.white,
+                    padding: 14,
+                    borderRadius: 12,
+                    marginBottom: 16,
+                  }}
+                >
+                  <strong>Alasan Penolakan:</strong>
+
+                  <p style={{ lineHeight: 1.7 }}>
+                    {registration?.rejection_reason ||
+                      "Alasan belum tersedia."}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  style={primaryButton}
+                  onClick={() =>
+                    router.push(
+                      "/pengajuan-peserta"
+                    )
+                  }
+                >
+                  Lihat dan Perbaiki Pengajuan
+                </button>
               </section>
             )}
 
             {access === "no_program" && (
               <section style={card}>
-                <div
+                <h2
                   style={{
-                    color: C.gold,
-                    fontSize: 12,
-                    fontWeight: 900,
-                    letterSpacing: 1,
+                    color: C.green,
+                    fontSize: 18,
                   }}
                 >
-                  INFORMASI PROGRAM
-                </div>
-                <h2 style={sectionTitle}>
                   Program OJT Belum Aktif
                 </h2>
-                <p
-                  style={{
-                    fontSize: 14,
-                    lineHeight: 1.8,
-                    marginBottom: 0,
-                  }}
-                >
-                  Belum ada program OJT aktif yang dapat
-                  diakses. Hubungi Mentor untuk memastikan
-                  status pendaftaran dan program Anda.
+
+                <p style={{ lineHeight: 1.8 }}>
+                  Belum ada program OJT aktif
+                  yang dapat diakses.
+                </p>
+
+                <p>
+                  Jika kamu baru mendaftar,
+                  gunakan tombol Perbarui Status
+                  untuk melihat keputusan mentor.
                 </p>
               </section>
             )}
@@ -830,95 +792,72 @@ export default function DashboardPeserta() {
             {access === "approved" && program && (
               <>
                 <section style={card}>
-                  <div
+                  <h2
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      marginBottom: 18,
+                      color: C.green,
+                      fontSize: 18,
                     }}
                   >
-                    <div
-                      style={{
-                        width: 42,
-                        height: 42,
-                        background: C.goldLight,
-                        color: C.green,
-                        borderRadius: 12,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 21,
-                      }}
-                    >
-                      ◈
-                    </div>
-
-                    <div>
-                      <h2
-                        style={{
-                          ...sectionTitle,
-                          marginBottom: 4,
-                        }}
-                      >
-                        Informasi Program OJT
-                      </h2>
-                      <div
-                        style={{
-                          color: C.muted,
-                          fontSize: 12,
-                        }}
-                      >
-                        Detail program aktif Anda
-                      </div>
-                    </div>
-                  </div>
+                    Informasi Program OJT
+                  </h2>
 
                   <div
                     style={{
                       display: "grid",
                       gridTemplateColumns:
                         "repeat(auto-fit, minmax(130px, 1fr))",
-                      gap: 10,
+                      gap: 12,
                     }}
                   >
                     <div
                       style={{
                         padding: 14,
-                        borderRadius: 13,
-                        background: "#f3f6f3",
+                        background: C.bg,
+                        borderRadius: 12,
                       }}
                     >
-                      <div style={labelStyle}>SITE</div>
                       <div
                         style={{
-                          fontSize: 17,
+                          color: C.muted,
+                          fontSize: 12,
+                        }}
+                      >
+                        SITE
+                      </div>
+
+                      <strong
+                        style={{
                           color: C.green,
-                          fontWeight: 900,
+                          fontSize: 17,
                         }}
                       >
                         {program.site || "-"}
-                      </div>
+                      </strong>
                     </div>
 
                     <div
                       style={{
                         padding: 14,
-                        borderRadius: 13,
-                        background: "#f3f6f3",
+                        background: C.bg,
+                        borderRadius: 12,
                       }}
                     >
-                      <div style={labelStyle}>STATUS</div>
                       <div
                         style={{
-                          fontSize: 15,
-                          color: C.green3,
-                          fontWeight: 800,
-                          textTransform: "capitalize",
+                          color: C.muted,
+                          fontSize: 12,
                         }}
                       >
-                        {program.status}
+                        STATUS
                       </div>
+
+                      <strong
+                        style={{
+                          color: C.green3,
+                        }}
+                      >
+                        Aktif
+                      </strong>
                     </div>
                   </div>
 
@@ -926,55 +865,48 @@ export default function DashboardPeserta() {
                     style={{
                       marginTop: 12,
                       padding: 14,
-                      border: `1px solid ${C.border}`,
-                      borderRadius: 13,
+                      border:
+                        `1px solid ${C.border}`,
+                      borderRadius: 12,
                     }}
                   >
-                    <div style={labelStyle}>
-                      PERIODE OJT
-                    </div>
                     <div
                       style={{
-                        color: C.text,
-                        fontSize: 14,
-                        fontWeight: 750,
-                        lineHeight: 1.8,
+                        color: C.muted,
+                        fontSize: 12,
+                        marginBottom: 8,
                       }}
                     >
-                      {formatDate(program.start_date)}
-                      <span style={{ color: C.gold, margin: "0 8px" }}>
-                        →
-                      </span>
-                      {formatDate(program.end_date)}
+                      PERIODE OJT
                     </div>
+
+                    <strong>
+                      {formatDate(program.start_date)}
+                      {" → "}
+                      {formatDate(program.end_date)}
+                    </strong>
                   </div>
                 </section>
 
                 <section style={card}>
-                  <div
+                  <h2
                     style={{
-                      color: C.gold,
-                      fontSize: 11,
-                      fontWeight: 900,
-                      letterSpacing: 1.2,
-                      marginBottom: 7,
+                      color: C.green,
+                      fontSize: 18,
                     }}
                   >
-                    MENU MONITORING
-                  </div>
-                  <h2 style={sectionTitle}>
                     Perkembangan OJT Saya
                   </h2>
+
                   <p
                     style={{
-                      fontSize: 13,
                       color: C.muted,
+                      fontSize: 13,
                       lineHeight: 1.7,
-                      marginBottom: 16,
                     }}
                   >
-                    Pilih menu di bawah untuk membuka
-                    informasi perkembangan dan evaluasi OJT.
+                    Pilih menu untuk melihat
+                    perkembangan dan evaluasi OJT.
                   </p>
 
                   <div
@@ -990,7 +922,9 @@ export default function DashboardPeserta() {
                       title="Grafik Perkembangan"
                       description="Lihat grafik perkembangan OJT."
                       onClick={() =>
-                        router.push(`/analisis/${program.id}`)
+                        router.push(
+                          `/analisis/${program.id}`
+                        )
                       }
                     />
 
@@ -999,7 +933,9 @@ export default function DashboardPeserta() {
                       title="Evaluasi Kesiapan"
                       description="Buka evaluasi kesiapan OJT."
                       onClick={() =>
-                        router.push(`/evaluasi/${program.id}`)
+                        router.push(
+                          `/evaluasi/${program.id}`
+                        )
                       }
                     />
 
@@ -1008,88 +944,32 @@ export default function DashboardPeserta() {
                       title="Laporan OJT"
                       description="Lihat laporan OJT Anda."
                       onClick={() =>
-                        router.push(`/laporan/${program.id}`)
+                        router.push(
+                          `/laporan/${program.id}`
+                        )
                       }
                     />
                   </div>
                 </section>
-
-                <section
-                  style={{
-                    ...card,
-                    background: "#f8faf8",
-                  }}
-                >
-                  <div
-                    style={{
-                      color: C.gold,
-                      fontSize: 11,
-                      fontWeight: 900,
-                      letterSpacing: 1.2,
-                      marginBottom: 7,
-                    }}
-                  >
-                    PEMERIKSAAN SISTEM
-                  </div>
-                  <h2 style={sectionTitle}>
-                    Pengujian Keamanan API
-                  </h2>
-                  <p
-                    style={{
-                      color: C.muted,
-                      fontSize: 13,
-                      lineHeight: 1.7,
-                    }}
-                  >
-                    Memeriksa apakah akun peserta ditolak
-                    oleh API daftar pendaftaran dan keputusan
-                    Mentor. Pengujian ini tidak mengirim
-                    tindakan persetujuan.
-                  </p>
-
-                  <button
-                    type="button"
-                    style={{
-                      ...primaryButton,
-                      background: C.green2,
-                    }}
-                    onClick={testMentorApi}
-                    disabled={testingApi}
-                  >
-                    {testingApi
-                      ? "Menguji API..."
-                      : "Jalankan Uji Keamanan API"}
-                  </button>
-
-                  {apiTest && (
-                    <div
-                      role="status"
-                      style={{
-                        marginTop: 14,
-                        padding: 13,
-                        borderRadius: 12,
-                        background: apiTest.startsWith("LULUS")
-                          ? "#e8f5eb"
-                          : apiTest.startsWith("GAGAL")
-                          ? C.redBg
-                          : C.yellowBg,
-                        color: apiTest.startsWith("LULUS")
-                          ? C.green3
-                          : apiTest.startsWith("GAGAL")
-                          ? C.red
-                          : C.yellow,
-                        fontSize: 13,
-                        fontWeight: 750,
-                        lineHeight: 1.7,
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      {apiTest}
-                    </div>
-                  )}
-                </section>
               </>
             )}
+
+            <button
+              type="button"
+              style={{
+                ...primaryButton,
+                background: C.green2,
+                marginBottom: 12,
+              }}
+              onClick={() =>
+                loadDashboard(true)
+              }
+              disabled={refreshing}
+            >
+              {refreshing
+                ? "Memperbarui..."
+                : "Perbarui Status"}
+            </button>
 
             <button
               type="button"
@@ -1100,7 +980,9 @@ export default function DashboardPeserta() {
               onClick={logout}
               disabled={loggingOut}
             >
-              {loggingOut ? "Sedang keluar..." : "Keluar dari Akun"}
+              {loggingOut
+                ? "Sedang keluar..."
+                : "Keluar dari Akun"}
             </button>
 
             <footer
@@ -1112,18 +994,19 @@ export default function DashboardPeserta() {
                 lineHeight: 1.8,
               }}
             >
-              <div
+              <strong
                 style={{
                   color: C.green,
-                  fontWeight: 900,
                   letterSpacing: 1,
                 }}
               >
                 OJT MINETRACK v2.0
-              </div>
+              </strong>
+
               <div>
                 Emergency Response Group · PT Berau Coal 2026
               </div>
+
               <div>Monitoring dan Evaluasi OJT</div>
             </footer>
           </>
