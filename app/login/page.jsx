@@ -22,7 +22,9 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedEmail = email
+        .trim()
+        .toLowerCase();
 
       const {
         data,
@@ -33,8 +35,18 @@ export default function LoginPage() {
       });
 
       if (loginError) {
+        if (
+          loginError.message
+            ?.toLowerCase()
+            .includes("email not confirmed")
+        ) {
+          throw new Error(
+            "Akun lama masih memerlukan konfirmasi email. Hubungi administrator."
+          );
+        }
+
         throw new Error(
-          "Email atau password salah, atau email belum diverifikasi."
+          "Login gagal. Periksa email dan password."
         );
       }
 
@@ -44,65 +56,48 @@ export default function LoginPage() {
         );
       }
 
-      const userId = data.user.id;
-
-      // Periksa profil pengguna
       const {
         data: profil,
         error: profilError,
       } = await supabase
         .from("profiles")
         .select("id,role")
-        .eq("id", userId)
+        .eq("id", data.user.id)
         .maybeSingle();
 
       if (profilError) {
         throw new Error(
-          "Gagal memeriksa profil akun. Silakan coba kembali."
+          "Gagal memeriksa profil akun."
         );
       }
 
-      // Profil belum tersedia
       if (!profil) {
-        router.replace("/pengajuan-peserta");
-        router.refresh();
-        return;
+        throw new Error(
+          "Profil akun belum tersedia. Hubungi administrator."
+        );
       }
 
-      // Mentor langsung menuju dashboard mentor
+      // Mentor langsung ke Dashboard Mentor.
       if (profil.role === "mentor") {
         router.replace("/");
         router.refresh();
         return;
       }
 
-      // Peserta harus memiliki program OJT aktif
-      if (profil.role === "participant") {
-        const {
-          data: program,
-          error: programError,
-        } = await supabase
-          .from("ojt_programs")
-          .select("id")
-          .eq("participant_id", userId)
-          .eq("status", "active")
-          .limit(1)
-          .maybeSingle();
-
-        if (programError) {
-          throw new Error(
-            "Gagal memeriksa status program OJT. Silakan coba kembali."
-          );
-        }
-
-        if (program) {
-          // Peserta sudah disetujui mentor
-          router.replace("/dashboard-peserta");
-        } else {
-          // Peserta belum memiliki program aktif
-          router.replace("/pengajuan-peserta");
-        }
-
+      // Semua peserta masuk ke Dashboard Peserta.
+      // Dashboard akan membaca:
+      // - Pengajuan pending
+      // - Pengajuan rejected
+      // - Pengajuan approved
+      // - Program OJT aktif
+      //
+      // Login tidak otomatis memberikan
+      // akses ke data monitoring.
+      if (
+        profil.role === "participant" ||
+        profil.role === "peserta"
+      ) {
+        router.replace("/dashboard-peserta");
         router.refresh();
         return;
       }
@@ -110,7 +105,6 @@ export default function LoginPage() {
       throw new Error(
         "Role akun tidak dikenali. Hubungi administrator."
       );
-
     } catch (err) {
       setError(
         err?.message ||
@@ -121,7 +115,6 @@ export default function LoginPage() {
     }
   }
 
-  // Pendaftaran mandiri peserta OJT
   function handleDaftarPeserta() {
     if (loading) return;
     router.push("/daftar");
@@ -199,7 +192,6 @@ export default function LoginPage() {
           boxSizing: "border-box",
         }}
       >
-        {/* Header */}
         <header
           style={{
             backgroundColor: "#0f172a",
@@ -258,7 +250,6 @@ export default function LoginPage() {
           </p>
         </header>
 
-        {/* Form Login */}
         <form onSubmit={handleLogin}>
           <h2
             style={{
@@ -377,7 +368,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Pendaftaran Mandiri */}
         <div
           style={{
             marginTop: 22,
@@ -424,9 +414,10 @@ export default function LoginPage() {
               lineHeight: 1.6,
             }}
           >
-            Peserta dapat membuat akun sendiri.
-            Akses monitoring OJT diberikan
-            setelah mendapat persetujuan mentor.
+            Cukup daftar satu kali.
+            Setelah mentor menyetujui,
+            peserta dapat mengakses
+            monitoring OJT.
           </p>
         </div>
 
