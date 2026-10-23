@@ -1,13 +1,11 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { canSubmitOjt } from "../../../../lib/ojt-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// Tetap nonaktif sampai alur penggunaan umum siap.
-const GENERAL_SUBMISSION_ENABLED =
-  process.env.OJT_SUBMISSION_ENABLED === "true";
+export const revalidate = 0;
 
 const SITES = [
   "LMO",
@@ -53,7 +51,7 @@ function validDate(value) {
   );
 }
 
-function createAdminClient() {
+function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -83,13 +81,6 @@ export async function POST(request) {
 
     const dryRun = body?.dry_run === true;
 
-    if (!dryRun && !GENERAL_SUBMISSION_ENABLED) {
-      return fail(
-        "Pengajuan OJT belum diaktifkan untuk penggunaan umum.",
-        403
-      );
-    }
-
     const authorization =
       request.headers.get("authorization") || "";
 
@@ -103,8 +94,9 @@ export async function POST(request) {
       return fail("Token login tidak tersedia.", 401);
     }
 
-    const admin = createAdminClient();
+    const admin = getAdminClient();
 
+    // Verifikasi token peserta.
     const {
       data: authData,
       error: authError,
@@ -117,6 +109,16 @@ export async function POST(request) {
     const user = authData.user;
     const participantId = user.id;
 
+    // PENGAMAN MODE PENGUJIAN TERBATAS.
+    // Pada transaksi nyata, keputusan izin
+    // selalu berdasarkan ID dari token login.
+    if (!dryRun && !canSubmitOjt(participantId)) {
+      return fail(
+        "Pengajuan nyata belum diaktifkan atau akun ini tidak diizinkan.",
+        403
+      );
+    }
+
     if (!user.email_confirmed_at) {
       return fail(
         "Email peserta belum terverifikasi.",
@@ -124,6 +126,7 @@ export async function POST(request) {
       );
     }
 
+    // Pemeriksaan profil peserta.
     const {
       data: profile,
       error: profileError,
@@ -173,8 +176,10 @@ export async function POST(request) {
 
     if (
       department !== "ER & SS" ||
-      (profile.department &&
-        profile.department !== "ER & SS")
+      (
+        profile.department &&
+        profile.department !== "ER & SS"
+      )
     ) {
       return fail(
         "Departemen peserta harus ER & SS."
@@ -193,7 +198,7 @@ export async function POST(request) {
       return fail("Periode OJT tidak valid.");
     }
 
-    // Periksa program OJT aktif.
+    // Cegah program OJT aktif ganda.
     const {
       data: activePrograms,
       error: programError,
@@ -213,7 +218,7 @@ export async function POST(request) {
       );
     }
 
-    // Lindungi pendaftaran sistem lama.
+    // Lindungi riwayat sistem lama.
     const {
       data: legacyRequests,
       error: legacyError,
@@ -232,7 +237,7 @@ export async function POST(request) {
       );
     }
 
-    // Periksa seluruh status pengajuan baru.
+    // Periksa pengajuan sistem baru.
     const {
       data: previousRequests,
       error: requestError,
@@ -245,33 +250,43 @@ export async function POST(request) {
 
     const requests = previousRequests || [];
 
-    if (requests.some((r) => r.status === "pending")) {
+    if (
+      requests.some(
+        (item) => item.status === "pending"
+      )
+    ) {
       return fail(
         "Pengajuan masih menunggu persetujuan mentor.",
         409
       );
     }
 
-    if (requests.some((r) => r.status === "approved")) {
+    if (
+      requests.some(
+        (item) => item.status === "approved"
+      )
+    ) {
       return fail(
         "Peserta sudah memiliki pengajuan yang disetujui.",
         409
       );
     }
 
-    // Hanya riwayat rejected:
-    // peserta boleh mengirim pengajuan baru.
+    // Riwayat rejected tetap disimpan
+    // dan tidak menghalangi pengajuan ulang.
     const rejectionCount = requests.filter(
-      (r) => r.status === "rejected"
+      (item) => item.status === "rejected"
     ).length;
 
+    // MODE SIMULASI
+    // Tidak mengubah database.
     if (dryRun) {
       return respond({
         success: true,
         dry_run: true,
         database_changed: false,
         message:
-          "Validasi berhasil. Pengajuan dapat dibuat tanpa menghapus riwayat sebelumnya.",
+          "Simulasi pengajuan berhasil. Database tidak berubah.",
         preview: {
           participant_id: participantId,
           full_name: profileName,
@@ -286,10 +301,10 @@ export async function POST(request) {
       });
     }
 
-    // Penyimpanan nyata hanya dijalankan
-    // saat GENERAL_SUBMISSION_ENABLED = true.
-    // Fungsi SQL memeriksa kembali kondisi
-    // dan mencegah duplikasi dalam transaksi.
+    // TRANSAKSI NYATA
+    // Hanya bisa sampai sini setelah
+    // canSubmitOjt mengizinkan akun.
+    // SQL memeriksa ulang seluruh persyaratan.
     const {
       data: requestId,
       error: rpcError,
@@ -308,7 +323,7 @@ export async function POST(request) {
       );
 
       return fail(
-        "Pengajuan tidak dapat disimpan. Periksa status pengajuan sebelum mencoba lagi.",
+        "Pengajuan tidak dapat disimpan. Periksa status sebelum mencoba lagi.",
         409
       );
     }
