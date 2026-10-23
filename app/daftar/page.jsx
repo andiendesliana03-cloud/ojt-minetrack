@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
@@ -19,46 +19,43 @@ const SITES = [
 
 const CARD = {
   background: "#ffffff",
+  border: "1px solid #e2e8f0",
   borderRadius: 16,
   padding: 22,
   marginBottom: 16,
-  border: "1px solid #e2e8f0",
 };
 
 const FIELD = {
   width: "100%",
+  boxSizing: "border-box",
   padding: 13,
   marginTop: 7,
-  marginBottom: 18,
-  borderRadius: 10,
+  marginBottom: 17,
   border: "1px solid #cbd5e1",
+  borderRadius: 10,
   background: "#ffffff",
   color: "#0f172a",
   fontSize: 16,
-  boxSizing: "border-box",
 };
 
 const BUTTON = {
   width: "100%",
-  padding: 15,
+  padding: 14,
   border: "none",
   borderRadius: 10,
   background: "#2563eb",
   color: "#ffffff",
-  fontSize: 16,
+  fontSize: 15,
   fontWeight: 700,
   cursor: "pointer",
 };
 
-function isValidDate(value) {
-  if (
-    typeof value !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(value)
-  ) {
+function validDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return false;
   }
 
-  const date = new Date(value + "T00:00:00Z");
+  const date = new Date(`${value}T00:00:00Z`);
 
   return (
     !Number.isNaN(date.getTime()) &&
@@ -79,28 +76,106 @@ export default function DaftarPesertaPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const [loading, setLoading] = useState(false);
+  const [submissionEnabled, setSubmissionEnabled] =
+    useState(false);
+
+  const [checking, setChecking] = useState(true);
+  const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
+
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function checkRegistrationStatus() {
+      try {
+        const response = await fetch(
+          "/api/system/feature-flags",
+          { cache: "no-store" }
+        );
+
+        if (!response.ok) {
+          throw new Error("Konfigurasi tidak tersedia.");
+        }
+
+        const result = await response.json();
+
+        if (active) {
+          setSubmissionEnabled(
+            result?.success === true &&
+              result?.features?.submission_enabled ===
+                true
+          );
+        }
+      } catch {
+        if (active) {
+          setSubmissionEnabled(false);
+        }
+      } finally {
+        if (active) {
+          setChecking(false);
+        }
+      }
+    }
+
+    checkRegistrationStatus();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleRegister(event) {
     event.preventDefault();
 
-    if (loading || success) return;
+    if (processing) return;
 
     setError("");
 
-    const name = fullName.trim().replace(/\s+/g, " ");
-    const normalizedEmail = email.trim().toLowerCase();
+    // Baca ulang status sebelum pendaftaran.
+    try {
+      const flagsResponse = await fetch(
+        "/api/system/feature-flags",
+        { cache: "no-store" }
+      );
 
-    if (name.length < 3 || name.length > 120) {
+      if (!flagsResponse.ok) {
+        throw new Error(
+          "Status pendaftaran tidak tersedia."
+        );
+      }
+
+      const flags = await flagsResponse.json();
+
+      if (
+        flags?.features?.submission_enabled !== true
+      ) {
+        throw new Error(
+          "Pendaftaran OJT belum dibuka."
+        );
+      }
+    } catch (err) {
       setError(
-        "Nama lengkap harus 3 sampai 120 karakter."
+        err.message || "Pendaftaran belum tersedia."
       );
       return;
     }
 
-    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+    const name = fullName.trim().replace(/\s+/g, " ");
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (name.length < 3 || name.length > 120) {
+      setError(
+        "Nama lengkap harus 3–120 karakter."
+      );
+      return;
+    }
+
+    if (
+      !cleanEmail ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
+    ) {
       setError("Alamat email tidak valid.");
       return;
     }
@@ -111,64 +186,78 @@ export default function DaftarPesertaPage() {
     }
 
     if (password !== confirmPassword) {
-      setError("Konfirmasi password tidak cocok.");
+      setError("Konfirmasi password tidak sesuai.");
       return;
     }
 
     if (!SITES.includes(site)) {
-      setError("Silakan pilih site OJT.");
+      setError("Pilih site OJT.");
       return;
     }
 
     if (
-      !isValidDate(startDate) ||
-      !isValidDate(endDate) ||
+      !validDate(startDate) ||
+      !validDate(endDate) ||
       endDate < startDate
     ) {
       setError("Periode OJT tidak valid.");
       return;
     }
 
-    setLoading(true);
+    setProcessing(true);
 
     try {
-      // Membuat akun Supabase Auth.
-      // Trigger database akan membuat profil
-      // dengan role participant.
-      const { error: signupError } =
+      // Pendaftaran peserta baru.
+      // Trigger database membuat:
+      // 1. Profil peserta
+      // 2. Pengajuan OJT pending
+      const { data, error: signUpError } =
         await supabase.auth.signUp({
-          email: normalizedEmail,
+          email: cleanEmail,
           password,
           options: {
             emailRedirectTo:
-              window.location.origin +
-              "/pengajuan-peserta",
+              `${window.location.origin}/login`,
             data: {
               full_name: name,
               department: "ER & SS",
               site,
               start_date: startDate,
               end_date: endDate,
+
+              // Dikenali oleh trigger Supabase.
+              ojt_auto_request: true,
             },
           },
         });
 
-      if (signupError) {
-        throw signupError;
+      if (signUpError) {
+        throw signUpError;
+      }
+
+      if (!data?.user) {
+        throw new Error(
+          "Pendaftaran belum dapat dipastikan. " +
+            "Periksa akun sebelum mencoba lagi."
+        );
+      }
+
+      // Jika Supabase menyediakan session,
+      // keluarkan sesi agar akses menunggu mentor.
+      if (data.session) {
+        await supabase.auth.signOut();
       }
 
       setSuccess(true);
-
-      // Jangan menampilkan password.
       setPassword("");
       setConfirmPassword("");
     } catch (err) {
       setError(
         err.message ||
-          "Pendaftaran gagal. Silakan coba kembali."
+          "Pendaftaran gagal. Silakan periksa data."
       );
     } finally {
-      setLoading(false);
+      setProcessing(false);
     }
   }
 
@@ -177,16 +266,15 @@ export default function DaftarPesertaPage() {
       style={{
         minHeight: "100vh",
         background: "#f1f5f9",
-        padding: "25px 15px",
+        padding: "24px 15px",
         color: "#0f172a",
         fontFamily: "Arial, sans-serif",
-        boxSizing: "border-box",
       }}
     >
       <div
         style={{
-          maxWidth: 600,
-          margin: "auto",
+          maxWidth: 560,
+          margin: "0 auto",
         }}
       >
         <header
@@ -197,289 +285,305 @@ export default function DaftarPesertaPage() {
             textAlign: "center",
           }}
         >
-          <h1>Daftar Peserta OJT</h1>
+          <h1>Pendaftaran Peserta OJT</h1>
           <h3>Emergency Response Group</h3>
           <p>PT Berau Coal</p>
         </header>
 
-        <section
-          style={{
-            ...CARD,
-            background: "#eff6ff",
-            borderColor: "#bfdbfe",
-          }}
-        >
-          <strong style={{ color: "#1d4ed8" }}>
-            PENDAFTARAN AKUN PESERTA
-          </strong>
-
-          <p style={{ lineHeight: 1.7 }}>
-            Halaman ini digunakan untuk membuat
-            akun peserta OJT baru.
-          </p>
-
-          <p style={{ marginBottom: 0 }}>
-            Setelah email terverifikasi,
-            peserta harus login dan mengirim
-            pengajuan OJT secara terpisah.
-            Pengajuan masih menunggu persetujuan
-            mentor sebelum program diaktifkan.
-          </p>
-        </section>
-
-        {error && (
-          <section
-            role="alert"
-            style={{
-              ...CARD,
-              background: "#fef2f2",
-              borderColor: "#fecaca",
-              color: "#991b1b",
-            }}
-          >
-            {error}
-          </section>
-        )}
-
         {success ? (
           <section
-            role="status"
             style={{
               ...CARD,
-              background: "#f0fdf4",
-              borderColor: "#86efac",
+              textAlign: "center",
             }}
           >
-            <h2 style={{ color: "#166534" }}>
-              Permintaan Pendaftaran Diterima
-            </h2>
+            <div
+              style={{
+                fontSize: 44,
+                marginBottom: 12,
+              }}
+            >
+              ✓
+            </div>
 
-            <p>
-              Permintaan pendaftaran untuk
-              alamat email berikut telah diproses:
-            </p>
-
-            <strong>{email.trim()}</strong>
+            <h2>Pendaftaran Diterima</h2>
 
             <p style={{ lineHeight: 1.8 }}>
-              Jika email dapat didaftarkan,
-              Supabase akan mengirimkan tautan
-              verifikasi. Periksa kotak masuk
-              atau folder spam.
+              Permintaan pendaftaran sudah
+              diterima oleh sistem.
             </p>
 
-            <p>
-              Setelah verifikasi, masuk menggunakan
-              email dan password yang didaftarkan.
-            </p>
-
-            <p>
-              <strong>
-                Pengajuan OJT belum dikirim
-                kepada mentor.
-              </strong>
+            <p style={{ lineHeight: 1.8 }}>
+              Silakan menunggu persetujuan
+              mentor sebelum mengakses
+              Dashboard OJT.
             </p>
 
             <button
               type="button"
               style={BUTTON}
-              onClick={() => router.push("/login")}
+              onClick={() =>
+                router.push("/login")
+              }
             >
-              Menuju Halaman Login
+              Ke Halaman Login
             </button>
           </section>
         ) : (
-          <section style={CARD}>
-            <h2>Formulir Pendaftaran Akun</h2>
+          <>
+            <section
+              style={{
+                ...CARD,
+                background: "#eff6ff",
+                borderColor: "#bfdbfe",
+              }}
+            >
+              <strong>
+                Status Pendaftaran
+              </strong>
 
-            <form onSubmit={handleRegister}>
-              <label htmlFor="full_name">
-                <strong>Nama Lengkap</strong>
-              </label>
+              <p>
+                {checking
+                  ? "Memeriksa status..."
+                  : submissionEnabled
+                  ? "Pendaftaran peserta OJT dibuka."
+                  : "Pendaftaran peserta OJT belum dibuka."}
+              </p>
 
-              <input
-                id="full_name"
-                type="text"
-                autoComplete="name"
-                style={FIELD}
-                value={fullName}
-                required
-                minLength={3}
-                maxLength={120}
-                disabled={loading}
-                onChange={(e) =>
-                  setFullName(e.target.value)
-                }
-              />
-
-              <label htmlFor="email">
-                <strong>Email Peserta</strong>
-              </label>
-
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                style={FIELD}
-                value={email}
-                required
-                disabled={loading}
-                onChange={(e) =>
-                  setEmail(e.target.value)
-                }
-              />
-
-              <label htmlFor="password">
-                <strong>Password</strong>
-              </label>
-
-              <input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                style={FIELD}
-                value={password}
-                minLength={8}
-                required
-                disabled={loading}
-                onChange={(e) =>
-                  setPassword(e.target.value)
-                }
-              />
-
-              <label htmlFor="confirm_password">
-                <strong>Konfirmasi Password</strong>
-              </label>
-
-              <input
-                id="confirm_password"
-                type="password"
-                autoComplete="new-password"
-                style={FIELD}
-                value={confirmPassword}
-                minLength={8}
-                required
-                disabled={loading}
-                onChange={(e) =>
-                  setConfirmPassword(e.target.value)
-                }
-              />
-
-              <label htmlFor="department">
-                <strong>Departemen</strong>
-              </label>
-
-              <input
-                id="department"
-                type="text"
+              <p
                 style={{
-                  ...FIELD,
-                  background: "#f1f5f9",
+                  marginBottom: 0,
+                  fontSize: 13,
+                  color: "#475569",
                 }}
-                value="ER & SS"
-                readOnly
-              />
-
-              <label htmlFor="site">
-                <strong>Site Penempatan OJT</strong>
-              </label>
-
-              <select
-                id="site"
-                style={FIELD}
-                value={site}
-                required
-                disabled={loading}
-                onChange={(e) =>
-                  setSite(e.target.value)
-                }
               >
-                <option value="">
-                  -- Pilih Site --
-                </option>
+                Peserta hanya perlu mendaftar
+                sekali. Persetujuan mengikuti
+                OJT dilakukan oleh mentor.
+              </p>
+            </section>
 
-                {SITES.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
+            <section style={CARD}>
+              <h2>Formulir Pendaftaran</h2>
 
-              <h3>Rencana Periode OJT</h3>
+              <form onSubmit={handleRegister}>
+                <label htmlFor="fullName">
+                  <strong>Nama Lengkap</strong>
+                </label>
 
-              <label htmlFor="start_date">
-                <strong>Tanggal Mulai</strong>
-              </label>
-
-              <input
-                id="start_date"
-                type="date"
-                style={FIELD}
-                value={startDate}
-                required
-                disabled={loading}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setStartDate(value);
-
-                  if (endDate && endDate < value) {
-                    setEndDate("");
+                <input
+                  id="fullName"
+                  type="text"
+                  style={FIELD}
+                  value={fullName}
+                  maxLength={120}
+                  required
+                  disabled={processing}
+                  onChange={(event) =>
+                    setFullName(event.target.value)
                   }
-                }}
-              />
+                  placeholder="Nama lengkap peserta"
+                />
 
-              <label htmlFor="end_date">
-                <strong>Tanggal Selesai</strong>
-              </label>
+                <label htmlFor="email">
+                  <strong>Email</strong>
+                </label>
 
-              <input
-                id="end_date"
-                type="date"
-                style={FIELD}
-                value={endDate}
-                min={startDate || undefined}
-                required
-                disabled={loading}
-                onChange={(e) =>
-                  setEndDate(e.target.value)
-                }
-              />
+                <input
+                  id="email"
+                  type="email"
+                  style={FIELD}
+                  value={email}
+                  required
+                  disabled={processing}
+                  autoComplete="email"
+                  onChange={(event) =>
+                    setEmail(event.target.value)
+                  }
+                  placeholder="Alamat email aktif"
+                />
+
+                <label htmlFor="password">
+                  <strong>Password</strong>
+                </label>
+
+                <input
+                  id="password"
+                  type="password"
+                  style={FIELD}
+                  value={password}
+                  minLength={8}
+                  required
+                  disabled={processing}
+                  autoComplete="new-password"
+                  onChange={(event) =>
+                    setPassword(event.target.value)
+                  }
+                  placeholder="Minimal 8 karakter"
+                />
+
+                <label htmlFor="confirmPassword">
+                  <strong>Konfirmasi Password</strong>
+                </label>
+
+                <input
+                  id="confirmPassword"
+                  type="password"
+                  style={FIELD}
+                  value={confirmPassword}
+                  minLength={8}
+                  required
+                  disabled={processing}
+                  autoComplete="new-password"
+                  onChange={(event) =>
+                    setConfirmPassword(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Ulangi password"
+                />
+
+                <label>
+                  <strong>Departemen</strong>
+                </label>
+
+                <input
+                  type="text"
+                  value="ER & SS"
+                  style={{
+                    ...FIELD,
+                    background: "#f1f5f9",
+                  }}
+                  readOnly
+                />
+
+                <label htmlFor="site">
+                  <strong>Site OJT</strong>
+                </label>
+
+                <select
+                  id="site"
+                  style={FIELD}
+                  value={site}
+                  required
+                  disabled={processing}
+                  onChange={(event) =>
+                    setSite(event.target.value)
+                  }
+                >
+                  <option value="">
+                    Pilih Site OJT
+                  </option>
+
+                  {SITES.map((item) => (
+                    <option
+                      key={item}
+                      value={item}
+                    >
+                      {item}
+                    </option>
+                  ))}
+                </select>
+
+                <label htmlFor="startDate">
+                  <strong>Tanggal Mulai OJT</strong>
+                </label>
+
+                <input
+                  id="startDate"
+                  type="date"
+                  style={FIELD}
+                  value={startDate}
+                  required
+                  disabled={processing}
+                  onChange={(event) => {
+                    const next = event.target.value;
+
+                    setStartDate(next);
+
+                    if (
+                      endDate &&
+                      endDate < next
+                    ) {
+                      setEndDate("");
+                    }
+                  }}
+                />
+
+                <label htmlFor="endDate">
+                  <strong>Tanggal Selesai OJT</strong>
+                </label>
+
+                <input
+                  id="endDate"
+                  type="date"
+                  style={FIELD}
+                  min={startDate || undefined}
+                  value={endDate}
+                  required
+                  disabled={processing}
+                  onChange={(event) =>
+                    setEndDate(event.target.value)
+                  }
+                />
+
+                {error && (
+                  <p
+                    role="alert"
+                    style={{
+                      color: "#b91c1c",
+                      padding: 12,
+                      background: "#fef2f2",
+                      borderRadius: 9,
+                    }}
+                  >
+                    {error}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  style={{
+                    ...BUTTON,
+                    background:
+                      processing ||
+                      checking ||
+                      !submissionEnabled
+                        ? "#94a3b8"
+                        : "#2563eb",
+                  }}
+                  disabled={
+                    processing ||
+                    checking ||
+                    !submissionEnabled
+                  }
+                >
+                  {processing
+                    ? "Mendaftarkan..."
+                    : "Daftar OJT"}
+                </button>
+              </form>
+            </section>
+
+            <section style={CARD}>
+              <p>
+                Sudah memiliki akun OJT?
+              </p>
 
               <button
-                type="submit"
-                disabled={loading}
+                type="button"
                 style={{
                   ...BUTTON,
-                  background: loading
-                    ? "#94a3b8"
-                    : "#2563eb",
+                  background: "#475569",
                 }}
+                onClick={() =>
+                  router.push("/login")
+                }
               >
-                {loading
-                  ? "Memproses Pendaftaran..."
-                  : "Daftar Akun Peserta OJT"}
+                Masuk ke Akun
               </button>
-            </form>
-          </section>
-        )}
-
-        {!success && (
-          <section style={CARD}>
-            <p>
-              Sudah mempunyai akun?
-            </p>
-
-            <button
-              type="button"
-              style={{
-                ...BUTTON,
-                background: "#475569",
-              }}
-              onClick={() => router.push("/login")}
-            >
-              Masuk ke Akun
-            </button>
-          </section>
+            </section>
+          </>
         )}
       </div>
     </main>
