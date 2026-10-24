@@ -7,256 +7,125 @@ import { supabase } from "../lib/supabase";
 
 const SITES = [
   "LMO", "SMO", "GMO NORTH", "GMO SOUTH",
-  "BMO 1", "BMO 2", "BMO 3", "SRN", "HO",
+  "BMO 1", "BMO 2", "BMO 3", "SRN", "HO"
 ];
 
 const ACHIEVEMENTS = [
   "Fisik", "Training", "Sosialisasi",
-  "Coaching", "Orientasi Area", "Hazard",
+  "Coaching", "Orientasi Area", "Hazard"
 ];
 
-const C = {
-  green: "#14532d",
-  dark: "#052e16",
-  mid: "#166534",
-  gold: "#d4a83f",
-  goldLight: "#fef3c7",
-  bg: "#f3f7f4",
-  text: "#17251c",
-  muted: "#64748b",
-  border: "#e2e8f0",
-  white: "#ffffff",
-  red: "#b91c1c",
-  purple: "#7c3aed",
-};
+const GREEN = "#116149";
 
-const CARD = {
-  background: C.white,
-  border: `1px solid ${C.border}`,
-  borderRadius: 18,
-  padding: 18,
-  marginBottom: 18,
-  boxShadow: "0 5px 18px rgba(15,45,32,0.05)",
-  minWidth: 0,
-};
+function avg(rows) {
+  const numbers = rows
+    .filter(r => r.score !== null && r.score !== undefined && r.score !== "")
+    .map(r => Number(r.score))
+    .filter(Number.isFinite);
 
-const BUTTON = {
-  width: "100%",
-  padding: "13px 15px",
-  background: C.green,
-  color: C.white,
-  border: "1px solid rgba(255,255,255,0.12)",
-  borderRadius: 11,
-  fontWeight: 700,
-  fontSize: 14,
-  cursor: "pointer",
-  boxSizing: "border-box",
-};
-
-const LABEL = {
-  display: "block",
-  fontWeight: 700,
-  fontSize: 13,
-  marginBottom: 8,
-  color: "#334155",
-};
-
-const FIELD = {
-  width: "100%",
-  padding: 13,
-  border: `1px solid ${C.border}`,
-  borderRadius: 11,
-  background: C.white,
-  color: C.text,
-  fontSize: 16,
-  boxSizing: "border-box",
-  outlineColor: C.gold,
-};
-
-function average(rows) {
-  const scores = rows
-    .filter(
-      (row) =>
-        row.score !== null &&
-        row.score !== undefined &&
-        row.score !== ""
-    )
-    .map((row) => Number(row.score))
-    .filter((score) => Number.isFinite(score));
-
-  if (!scores.length) return "-";
-
-  return (
-    scores.reduce((sum, score) => sum + score, 0) /
-    scores.length
-  ).toFixed(1);
+  return numbers.length
+    ? numbers.reduce((a, b) => a + b, 0) / numbers.length
+    : null;
 }
 
-function formatDate(value) {
-  if (!value) return "-";
-  const parts = value.split("-");
-  if (parts.length !== 3) return value;
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+function fmtScore(value) {
+  return value === null ? "—" : value.toFixed(1);
 }
 
-function statusLabel(value) {
-  const labels = {
-    not_started: "Belum Proses",
-    in_progress: "Dalam Proses",
-    passed: "Lulus",
-    failed: "Tidak Lulus",
-    pending: "Menunggu Penilaian",
-    pass: "Lulus",
-    fail: "Tidak Lulus",
-  };
-  return labels[value] || value || "Belum Proses";
+function fmtDate(value) {
+  if (!value) return "—";
+  const [year, month, day] = value.slice(0, 10).split("-");
+  return `${day}/${month}/${year}`;
 }
 
-function normalizeName(value) {
+function lower(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function SectionTitle({ children, subtitle }) {
+function Icon({ name, size = 19 }) {
+  const paths = {
+    home: (
+      <>
+        <path d="m3 10 9-7 9 7" />
+        <path d="M5 9v12h14V9M9 21v-7h6v7" />
+      </>
+    ),
+    users: (
+      <>
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      </>
+    ),
+    check: <path d="M20 6 9 17l-5-5" />,
+    clipboard: (
+      <>
+        <rect x="5" y="4" width="14" height="18" rx="2" />
+        <path d="M9 4.5h6M9 11h6M9 15h4" />
+      </>
+    ),
+    chart: <path d="M4 20V10M10 20V4M16 20v-8M22 20V7" />,
+    logout: (
+      <>
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <path d="m16 17 5-5-5-5M21 12H9" />
+      </>
+    ),
+    refresh: (
+      <>
+        <path d="M20 11a8 8 0 0 0-14-5L3 9" />
+        <path d="M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />
+      </>
+    ),
+    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+    arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
+    calendar: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M7 3v4M17 3v4M3 10h18" />
+      </>
+    )
+  };
+
   return (
-    <div style={{ marginBottom: 17 }}>
-      <h2
-        style={{
-          fontSize: 18,
-          lineHeight: 1.35,
-          margin: 0,
-          color: C.dark,
-          fontWeight: 800,
-        }}
-      >
-        {children}
-      </h2>
-      {subtitle && (
-        <p
-          style={{
-            color: C.muted,
-            fontSize: 12,
-            margin: "5px 0 0",
-            lineHeight: 1.5,
-          }}
-        >
-          {subtitle}
-        </p>
-      )}
-      <div
-        style={{
-          width: 42,
-          height: 3,
-          background: C.gold,
-          borderRadius: 5,
-          marginTop: 10,
-        }}
-      />
-    </div>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[name] || paths.chart}
+    </svg>
   );
 }
 
-function ProgressBar({ value, color = C.green }) {
-  const safe = Math.min(100, Math.max(0, Number(value) || 0));
-
+function Metric({ label, value, sub, icon, tone = "green" }) {
   return (
-    <div
-      style={{
-        height: 9,
-        background: "#e8eee9",
-        borderRadius: 20,
-        overflow: "hidden",
-        marginTop: 9,
-      }}
-    >
-      <div
-        style={{
-          width: `${safe}%`,
-          height: "100%",
-          background: color,
-          borderRadius: 20,
-          transition: "width 0.3s ease",
-        }}
-      />
-    </div>
-  );
-}
-
-function Stat({ title, value, subtitle, accent = C.green }) {
-  return (
-    <div
-      style={{
-        background: "#ffffff",
-        border: `1px solid ${C.border}`,
-        borderRadius: 14,
-        padding: 14,
-        minWidth: 0,
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          width: 4,
-          position: "absolute",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          background: accent,
-        }}
-      />
-      <div
-        style={{
-          fontSize: 11,
-          color: C.muted,
-          fontWeight: 700,
-          marginBottom: 8,
-          lineHeight: 1.45,
-        }}
-      >
-        {title}
+    <div className="mt-metric">
+      <div className={`mt-metric-icon ${tone}`}>
+        <Icon name={icon} size={23} />
       </div>
-      <div
-        style={{
-          fontSize: 25,
-          lineHeight: 1.2,
-          fontWeight: 800,
-          color: C.dark,
-          overflowWrap: "anywhere",
-        }}
-      >
-        {value}
+      <div className="mt-metric-body">
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small>{sub}</small>
       </div>
-      {subtitle && (
-        <div
-          style={{
-            fontSize: 10,
-            color: C.muted,
-            marginTop: 6,
-            lineHeight: 1.5,
-          }}
-        >
-          {subtitle}
-        </div>
-      )}
     </div>
   );
 }
 
-function ActionButton({ children, onClick, color = C.green, disabled = false }) {
+function Progress({ value, shade = GREEN }) {
+  const safe = Math.max(0, Math.min(100, Number(value) || 0));
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        ...BUTTON,
-        background: disabled ? "#94a3b8" : color,
-        opacity: disabled ? 0.75 : 1,
-        cursor: disabled ? "not-allowed" : "pointer",
-      }}
-    >
-      {children}
-    </button>
+    <div className="mt-progress">
+      <span style={{ width: `${safe}%`, background: shade }} />
+    </div>
   );
 }
 
@@ -276,9 +145,10 @@ export default function MentorDashboard() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState("");
 
-  async function fetchDashboard() {
+  async function loadData() {
     const [programRes, typeRes] = await Promise.all([
       supabase
         .from("ojt_programs")
@@ -299,21 +169,19 @@ export default function MentorDashboard() {
 
       supabase
         .from("achievement_types")
-        .select("code,name"),
+        .select("code,name")
     ]);
 
     if (programRes.error) {
-      throw new Error(`Program OJT: ${programRes.error.message}`);
+      throw new Error(programRes.error.message);
     }
 
     if (typeRes.error) {
-      throw new Error(
-        `Kategori Pencapaian: ${typeRes.error.message}`
-      );
+      throw new Error(typeRes.error.message);
     }
 
-    const dataPrograms = programRes.data || [];
-    const ids = dataPrograms.map((program) => program.id);
+    const list = programRes.data || [];
+    const ids = list.map(p => p.id);
 
     if (!ids.length) {
       setPrograms([]);
@@ -326,13 +194,7 @@ export default function MentorDashboard() {
       return;
     }
 
-    const [
-      achievementRes,
-      postTestRes,
-      practiceRes,
-      samaptaRes,
-      simperRes,
-    ] = await Promise.all([
+    const results = await Promise.all([
       supabase
         .from("achievement_records")
         .select("id,program_id,type_code,status")
@@ -365,30 +227,29 @@ export default function MentorDashboard() {
           status,
           graduation_date
         `)
-        .in("program_id", ids),
+        .in("program_id", ids)
     ]);
 
-    const results = [
-      ["Pencapaian", achievementRes],
-      ["Post-Test", postTestRes],
-      ["Praktik", practiceRes],
-      ["Samapta", samaptaRes],
-      ["SIMPER", simperRes],
+    const names = [
+      "Pencapaian", "Post-Test", "Praktik",
+      "Samapta", "SIMPER"
     ];
 
-    for (const [name, result] of results) {
+    results.forEach((result, index) => {
       if (result.error) {
-        throw new Error(`${name}: ${result.error.message}`);
+        throw new Error(
+          `${names[index]}: ${result.error.message}`
+        );
       }
-    }
+    });
 
-    setPrograms(dataPrograms);
+    setPrograms(list);
     setAchievementTypes(typeRes.data || []);
-    setAchievements(achievementRes.data || []);
-    setPostTests(postTestRes.data || []);
-    setPractices(practiceRes.data || []);
-    setSamapta(samaptaRes.data || []);
-    setSimper(simperRes.data || []);
+    setAchievements(results[0].data || []);
+    setPostTests(results[1].data || []);
+    setPractices(results[2].data || []);
+    setSamapta(results[3].data || []);
+    setSimper(results[4].data || []);
   }
 
   useEffect(() => {
@@ -401,7 +262,7 @@ export default function MentorDashboard() {
       try {
         const {
           data: { user },
-          error: authError,
+          error: authError
         } = await supabase.auth.getUser();
 
         if (authError || !user) {
@@ -411,7 +272,7 @@ export default function MentorDashboard() {
 
         const {
           data: profile,
-          error: profileError,
+          error: profileError
         } = await supabase
           .from("profiles")
           .select("id,full_name,role")
@@ -428,7 +289,8 @@ export default function MentorDashboard() {
         if (!active) return;
 
         setMentor(profile);
-        await fetchDashboard();
+        await loadData();
+
       } catch (err) {
         if (active) {
           setError(err.message || "Gagal memuat dashboard.");
@@ -446,15 +308,15 @@ export default function MentorDashboard() {
   }, [router]);
 
   async function refresh() {
-    if (refreshing || loading) return;
+    if (loading || refreshing) return;
 
     setRefreshing(true);
     setError("");
 
     try {
-      await fetchDashboard();
+      await loadData();
     } catch (err) {
-      setError(err.message || "Gagal memperbarui dashboard.");
+      setError(err.message || "Gagal memperbarui data.");
     } finally {
       setRefreshing(false);
     }
@@ -466,918 +328,1157 @@ export default function MentorDashboard() {
     router.refresh();
   }
 
-  const achievementCodeMap = useMemo(() => {
-    const map = new Map();
+  function go(url) {
+    setMenuOpen(false);
+    router.push(url);
+  }
 
-    for (const name of ACHIEVEMENTS) {
-      const type = achievementTypes.find(
-        (item) => normalizeName(item.name) === normalizeName(name)
-      );
+  const dataByProgram = useMemo(() => {
+    const codeMap = new Map(
+      achievementTypes.map(t => [lower(t.name), t.code])
+    );
 
-      if (type) map.set(name, type.code);
+    const grouped = {};
+
+    function group(rows, key) {
+      rows.forEach(row => {
+        if (!grouped[row.program_id]) {
+          grouped[row.program_id] = {
+            a: [], pt: [], pr: [], sm: [], sp: []
+          };
+        }
+        grouped[row.program_id][key].push(row);
+      });
     }
 
-    return map;
-  }, [achievementTypes]);
+    group(achievements, "a");
+    group(postTests, "pt");
+    group(practices, "pr");
+    group(samapta, "sm");
+    group(simper, "sp");
 
-  const participantData = useMemo(() => {
-    const result = {};
+    const output = {};
 
-    for (const program of programs) {
-      const programId = program.id;
+    programs.forEach(program => {
+      const d = grouped[program.id] || {
+        a: [], pt: [], pr: [], sm: [], sp: []
+      };
 
-      const a = achievements.filter(
-        (row) => row.program_id === programId
-      );
-      const pt = postTests.filter(
-        (row) => row.program_id === programId
-      );
-      const pr = practices.filter(
-        (row) => row.program_id === programId
-      );
-      const sm = samapta.filter(
-        (row) => row.program_id === programId
-      );
-      const simperRows = simper.filter(
-        (row) => row.program_id === programId
+      const verified = new Set(
+        d.a
+          .filter(r => r.status === "verified")
+          .map(r => r.type_code)
       );
 
-      const sp =
-        simperRows.find((row) => row.status === "passed") ||
-        simperRows[0] ||
+      const done = ACHIEVEMENTS.filter(name => {
+        const code = codeMap.get(lower(name));
+        return code && verified.has(code);
+      }).length;
+
+      const simperRecord =
+        d.sp.find(r => r.status === "passed") ||
+        d.sp[0] ||
         null;
 
-      const verifiedCodes = new Set(
-        a
-          .filter((row) => row.status === "verified")
-          .map((row) => row.type_code)
-      );
-
-      const verifiedCategories = ACHIEVEMENTS.filter((name) => {
-        const code = achievementCodeMap.get(name);
-        return code && verifiedCodes.has(code);
-      });
-
-      const achievementProgress = Math.round(
-        (verifiedCategories.length / ACHIEVEMENTS.length) * 100
-      );
-
-      const passedStages = sp
+      const stages = simperRecord
         ? [
-            sp.administration_status,
-            sp.training_status,
-            sp.theory_status,
-            sp.practice_status,
-          ].filter((status) => status === "passed").length
+            simperRecord.administration_status,
+            simperRecord.training_status,
+            simperRecord.theory_status,
+            simperRecord.practice_status
+          ].filter(s => s === "passed").length
         : 0;
 
-      const simperProgress =
-        sp?.status === "passed" ? 100 : passedStages * 25;
-
-      const passedSamapta = sm.filter(
-        (row) => row.outcome === "pass"
-      ).length;
-
-      const failedSamapta = sm.filter(
-        (row) => row.outcome === "fail"
-      ).length;
-
-      result[programId] = {
-        a,
-        pt,
-        pr,
-        sm,
-        sp,
-        verifiedCategories,
-        achievementProgress,
-        passedStages,
-        simperProgress,
-        passedSamapta,
-        failedSamapta,
+      output[program.id] = {
+        ...d,
+        done,
+        progress: Math.round(
+          (done / ACHIEVEMENTS.length) * 100
+        ),
+        postAverage: avg(d.pt),
+        practiceAverage: avg(d.pr),
+        samaptaPassed: d.sm.some(r => r.outcome === "pass"),
+        simperPassed: simperRecord?.status === "passed",
+        simperProgress:
+          simperRecord?.status === "passed"
+            ? 100
+            : stages * 25
       };
-    }
+    });
 
-    return result;
+    return output;
   }, [
     programs,
+    achievementTypes,
     achievements,
     postTests,
     practices,
     samapta,
-    simper,
-    achievementCodeMap,
+    simper
   ]);
 
-  const filteredPrograms = useMemo(() => {
-    const keyword = normalizeName(search);
-
-    return programs.filter((program) => {
+  const filtered = useMemo(() => {
+    return programs.filter(program => {
       const matchSite =
-        siteFilter === "ALL" || program.site === siteFilter;
+        siteFilter === "ALL" ||
+        program.site === siteFilter;
 
-      const participantName = normalizeName(
-        program.peserta?.full_name
-      );
+      const keyword = lower(search);
 
-      return (
-        matchSite &&
-        (!keyword || participantName.includes(keyword))
-      );
+      const matchName =
+        !keyword ||
+        lower(program.peserta?.full_name).includes(keyword) ||
+        lower(program.peserta?.department).includes(keyword);
+
+      return matchSite && matchName;
     });
   }, [programs, siteFilter, search]);
 
-  const summary = useMemo(() => {
-    const ids = new Set(
-      filteredPrograms.map((program) => program.id)
+  const metrics = useMemo(() => {
+    const ids = new Set(filtered.map(p => p.id));
+
+    const filteredPractices = practices.filter(
+      r => ids.has(r.program_id)
     );
 
-    const filteredPostTests = postTests.filter(
-      (row) => ids.has(row.program_id)
-    );
-
-    const verifiedTotal = filteredPrograms.reduce(
-      (total, program) =>
-        total +
-        (participantData[program.id]?.verifiedCategories.length || 0),
+    const progressTotal = filtered.reduce(
+      (sum, p) =>
+        sum + (dataByProgram[p.id]?.progress || 0),
       0
     );
-
-    const simperPassed = filteredPrograms.filter(
-      (program) =>
-        participantData[program.id]?.sp?.status === "passed"
-    ).length;
-
-    const progressTotal = filteredPrograms.reduce(
-      (total, program) =>
-        total +
-        (participantData[program.id]?.achievementProgress || 0),
-      0
-    );
-
-    const averageProgress = filteredPrograms.length
-      ? Math.round(progressTotal / filteredPrograms.length)
-      : 0;
 
     return {
-      totalPrograms: filteredPrograms.length,
-      simperPassed,
-      verifiedTotal,
-      averageProgress,
-      postTestAverage: average(filteredPostTests),
+      active: filtered.length,
+      averageProgress: filtered.length
+        ? Math.round(progressTotal / filtered.length)
+        : 0,
+      averagePractice: avg(filteredPractices),
+      done: filtered.filter(
+        p => dataByProgram[p.id]?.done === 6
+      ).length
     };
-  }, [filteredPrograms, postTests, participantData]);
+  }, [filtered, practices, dataByProgram]);
+
+  const siteChart = useMemo(() => {
+    const sites = [
+      ...new Set(
+        filtered.map(p => p.site || "Belum diisi")
+      )
+    ];
+
+    return sites.map(site => {
+      const entries = filtered.filter(
+        p => (p.site || "Belum diisi") === site
+      );
+
+      const value = entries.length
+        ? Math.round(
+            entries.reduce(
+              (sum, p) =>
+                sum + (dataByProgram[p.id]?.progress || 0),
+              0
+            ) / entries.length
+          )
+        : 0;
+
+      return {
+        site,
+        count: entries.length,
+        value
+      };
+    })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 7);
+  }, [filtered, dataByProgram]);
+
+  const nav = [
+    ["Dashboard", "home", "/"],
+    ["Peserta OJT", "users", "/mentor/monitoring-peserta"],
+    ["Pendaftaran Peserta", "clipboard", "/mentor/daftar-peserta"],
+    ["Persetujuan", "check", "/mentor/persetujuan-peserta"]
+  ];
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        padding: "16px 12px 30px",
-        background:
-          "linear-gradient(180deg,#edf7ef 0%,#f7f9f7 42%,#eef2f7 100%)",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        color: C.text,
-        boxSizing: "border-box",
-      }}
-    >
-      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-        <header
-          style={{
-            background:
-              "linear-gradient(135deg,#052e16 0%,#14532d 58%,#166534 100%)",
-            color: C.white,
-            padding: "24px 19px",
-            borderRadius: 20,
-            marginBottom: 20,
-            border: `1px solid ${C.gold}`,
-            boxShadow: "0 12px 30px rgba(5,46,22,0.16)",
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              display: "inline-block",
-              background: "rgba(212,168,63,0.14)",
-              border: "1px solid rgba(212,168,63,0.55)",
-              color: "#f8d879",
-              padding: "6px 10px",
-              borderRadius: 20,
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: 1.2,
-              marginBottom: 14,
-            }}
+    <div className="mt-shell">
+      <style>{`
+        * { box-sizing: border-box; }
+
+        .mt-shell {
+          min-height: 100vh;
+          background: #f4f7f6;
+          color: #18352b;
+          font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .mt-sidebar {
+          position: fixed;
+          inset: 0 auto 0 0;
+          width: 244px;
+          background:
+            linear-gradient(180deg,#06171c,#092a2c 75%,#063127);
+          color: white;
+          padding: 26px 14px;
+          z-index: 30;
+          display: flex;
+          flex-direction: column;
+          overflow-y: auto;
+        }
+
+        .mt-brand {
+          padding: 6px 12px 27px;
+        }
+
+        .mt-brand strong {
+          display: block;
+          font-size: 24px;
+          letter-spacing: -.7px;
+        }
+
+        .mt-brand em {
+          color: #2acb91;
+          font-style: normal;
+        }
+
+        .mt-brand small {
+          display: block;
+          font-size: 11px;
+          line-height: 1.8;
+          color: #b5c9c0;
+          margin-top: 8px;
+        }
+
+        .mt-nav {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          width: 100%;
+          padding: 13px 14px;
+          border: 0;
+          background: transparent;
+          color: #d3e1de;
+          text-align: left;
+          border-radius: 9px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          margin-bottom: 5px;
+        }
+
+        .mt-nav:hover,
+        .mt-nav.active {
+          color: white;
+          background: linear-gradient(90deg,#087851,#165d49);
+        }
+
+        .mt-sidebar-bottom {
+          margin-top: auto;
+          border-top: 1px solid #ffffff25;
+          padding-top: 18px;
+        }
+
+        .mt-main {
+          margin-left: 244px;
+          min-width: 0;
+        }
+
+        .mt-hero {
+          min-height: 258px;
+          padding: 58px 35px 52px;
+          color: white;
+          background:
+            linear-gradient(
+              90deg,
+              rgba(4,20,23,.96),
+              rgba(4,30,27,.86) 45%,
+              rgba(4,30,27,.30)
+            ),
+            url("/background-erg.png.PNG");
+          background-size: cover;
+          background-position: center;
+          position: relative;
+        }
+
+        .mt-hero-kicker {
+          color: #e5bd67;
+          font-size: 11px;
+          letter-spacing: 2px;
+          font-weight: 800;
+          margin-bottom: 14px;
+        }
+
+        .mt-hero h1 {
+          font-size: clamp(30px,4vw,54px);
+          margin: 0;
+          font-weight: 900;
+          letter-spacing: -1.5px;
+        }
+
+        .mt-hero h1 span {
+          color: #25ba84;
+        }
+
+        .mt-hero p {
+          margin: 9px 0;
+          color: #e3f0ea;
+          font-size: 15px;
+        }
+
+        .mt-hero-flags {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 18px;
+          margin-top: 22px;
+          color: #e8d9ad;
+          font-size: 12px;
+        }
+
+        .mt-topbar {
+          position: absolute;
+          right: 28px;
+          top: 19px;
+        }
+
+        .mt-user {
+          background: #071a1dcc;
+          border: 1px solid #ffffff35;
+          padding: 11px 17px;
+          border-radius: 12px;
+          font-weight: 800;
+          font-size: 13px;
+        }
+
+        .mt-user small {
+          display: block;
+          margin-top: 3px;
+          color: #b7c9c2;
+          font-weight: 400;
+          font-size: 10px;
+        }
+
+        .mt-content {
+          max-width: 1550px;
+          padding: 23px 25px 35px;
+          margin: auto;
+        }
+
+        .mt-stat-grid {
+          display: grid;
+          grid-template-columns: repeat(4,minmax(0,1fr));
+          gap: 13px;
+          margin-bottom: 17px;
+        }
+
+        .mt-metric {
+          display: flex;
+          align-items: flex-start;
+          gap: 13px;
+          background: white;
+          border: 1px solid #e4ebe7;
+          border-radius: 13px;
+          min-height: 119px;
+          padding: 18px 15px;
+          box-shadow: 0 5px 20px #082e1d08;
+        }
+
+        .mt-metric-icon {
+          display: grid;
+          place-items: center;
+          width: 43px;
+          height: 43px;
+          flex-shrink: 0;
+          border-radius: 11px;
+          color: white;
+          background: #138b61;
+        }
+
+        .mt-metric-icon.dark { background: #11292c; }
+        .mt-metric-icon.gold { background: #c79830; }
+        .mt-metric-icon.blue { background: #397abd; }
+
+        .mt-metric-body {
+          min-width: 0;
+        }
+
+        .mt-metric-body span {
+          display: block;
+          color: #586e65;
+          font-size: 11px;
+          font-weight: 700;
+          line-height: 1.4;
+        }
+
+        .mt-metric-body strong {
+          display: block;
+          font-size: 29px;
+          color: #162c26;
+          margin: 5px 0;
+        }
+
+        .mt-metric-body small {
+          display: block;
+          font-size: 10px;
+          color: #809088;
+          line-height: 1.5;
+        }
+
+        .mt-grid {
+          display: grid;
+          grid-template-columns: 1.35fr 1fr;
+          gap: 15px;
+        }
+
+        .mt-card {
+          min-width: 0;
+          padding: 22px;
+          background: white;
+          border: 1px solid #e5ebe8;
+          border-radius: 13px;
+          box-shadow: 0 4px 19px #082e1d08;
+        }
+
+        .mt-card h2 {
+          font-size: 16px;
+          margin: 0 0 15px;
+          color: #172b24;
+        }
+
+        .mt-card-sub {
+          color: #7a8a82;
+          font-size: 11px;
+          margin: -5px 0 20px;
+          line-height: 1.5;
+        }
+
+        .mt-bars {
+          display: grid;
+          gap: 20px;
+          padding: 9px 0;
+        }
+
+        .mt-bar-row {
+          display: grid;
+          grid-template-columns: 100px 1fr 44px;
+          align-items: center;
+          gap: 14px;
+          font-size: 12px;
+        }
+
+        .mt-progress {
+          height: 9px;
+          border-radius: 30px;
+          background: #e8f0eb;
+          overflow: hidden;
+          width: 100%;
+          min-width: 40px;
+        }
+
+        .mt-progress span {
+          display: block;
+          height: 100%;
+          border-radius: inherit;
+        }
+
+        .mt-summary-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+          padding: 13px 0;
+          border-bottom: 1px solid #edf1ef;
+          font-size: 12px;
+        }
+
+        .mt-summary-row strong {
+          color: #076c49;
+          font-size: 15px;
+        }
+
+        .mt-actions {
+          display: grid;
+          gap: 9px;
+        }
+
+        .mt-action {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          width: 100%;
+          background: #f8faf8;
+          border: 1px solid #e2eae6;
+          border-radius: 11px;
+          padding: 14px;
+          font-weight: 700;
+          color: #173c31;
+          cursor: pointer;
+        }
+
+        .mt-action:hover { background: #e8f5ec; }
+
+        .mt-list-head {
+          display: flex;
+          justify-content: space-between;
+          gap: 15px;
+          align-items: center;
+          flex-wrap: wrap;
+          margin-bottom: 15px;
+        }
+
+        .mt-list-head h2 { margin: 0; }
+
+        .mt-filters {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .mt-field {
+          height: 39px;
+          border: 1px solid #dce5e0;
+          background: white;
+          border-radius: 9px;
+          padding: 0 11px;
+          color: #193630;
+          font-size: 12px;
+          min-width: 0;
+        }
+
+        .mt-table-wrap {
+          overflow-x: auto;
+        }
+
+        .mt-table {
+          width: 100%;
+          min-width: 690px;
+          border-collapse: collapse;
+          text-align: left;
+          font-size: 12px;
+        }
+
+        .mt-table th {
+          background: #f2f6f4;
+          color: #677d73;
+          padding: 13px 11px;
+          font-size: 11px;
+          white-space: nowrap;
+        }
+
+        .mt-table td {
+          padding: 13px 11px;
+          border-bottom: 1px solid #eef2f0;
+          color: #364a43;
+        }
+
+        .mt-name {
+          font-weight: 800;
+          color: #162e27;
+        }
+
+        .mt-pill {
+          font-size: 10px;
+          background: #ddf5e7;
+          color: #0c6a43;
+          padding: 6px 10px;
+          border-radius: 30px;
+          font-weight: 800;
+        }
+
+        .mt-view {
+          background: #ecf5ef;
+          border: 0;
+          color: #096044;
+          padding: 9px 12px;
+          border-radius: 8px;
+          font-weight: 800;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+
+        .mt-mobile-bar { display: none; }
+        .mt-overlay { display: none; }
+
+        .mt-footer {
+          text-align: center;
+          font-size: 11px;
+          color: #90a09a;
+          margin-top: 25px;
+        }
+
+        .mt-note {
+          font-size: 11px;
+          color: #6a8075;
+          line-height: 1.6;
+        }
+
+        .mt-error {
+          color: #a82222;
+          background: #fff1f1;
+          border: 1px solid #ffcdcd;
+          padding: 13px;
+          border-radius: 11px;
+          margin-bottom: 16px;
+        }
+
+        @media (max-width: 1150px) {
+          .mt-stat-grid {
+            grid-template-columns: repeat(2,minmax(0,1fr));
+          }
+          .mt-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 760px) {
+          .mt-sidebar {
+            transform: translateX(-103%);
+            transition: transform .2s;
+            width: 255px;
+          }
+
+          .mt-sidebar.open {
+            transform: translateX(0);
+          }
+
+          .mt-overlay.open {
+            display: block;
+            position: fixed;
+            inset: 0;
+            background: #00191080;
+            z-index: 25;
+          }
+
+          .mt-main { margin-left: 0; }
+
+          .mt-mobile-bar {
+            height: 61px;
+            background: #081e24;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 17px;
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+          }
+
+          .mt-mobile-bar button {
+            background: transparent;
+            border: 0;
+            color: white;
+            padding: 8px;
+          }
+
+          .mt-hero {
+            padding: 26px 18px 40px;
+            min-height: 190px;
+          }
+
+          .mt-hero h1 { font-size: 30px; }
+
+          .mt-hero-flags {
+            font-size: 10px;
+            gap: 9px;
+            margin-top: 16px;
+          }
+
+          .mt-topbar { display: none; }
+
+          .mt-content {
+            padding: 15px 12px 30px;
+          }
+
+          .mt-stat-grid {
+            gap: 9px;
+          }
+
+          .mt-metric {
+            padding: 13px 10px;
+            min-height: 104px;
+            gap: 9px;
+          }
+
+          .mt-metric-icon {
+            width: 33px;
+            height: 33px;
+          }
+
+          .mt-metric-body strong { font-size: 23px; }
+          .mt-metric-body span { font-size: 10px; }
+          .mt-metric-body small { font-size: 9px; }
+
+          .mt-card { padding: 15px; }
+
+          .mt-bar-row {
+            grid-template-columns: 73px 1fr 35px;
+            gap: 8px;
+            font-size: 11px;
+          }
+
+          .mt-filters { width: 100%; }
+
+          .mt-field {
+            flex: 1;
+            min-width: 125px;
+          }
+
+          .mt-grid { gap: 12px; }
+        }
+      `}</style>
+
+      <div
+        className={`mt-overlay ${menuOpen ? "open" : ""}`}
+        onClick={() => setMenuOpen(false)}
+      />
+
+      <aside className={`mt-sidebar ${menuOpen ? "open" : ""}`}>
+        <div className="mt-brand">
+          <strong>
+            OJT <em>MineTrack</em>
+          </strong>
+          <small>
+            Emergency Response Group
+            <br />
+            PT Berau Coal
+          </small>
+        </div>
+
+        <nav aria-label="Navigasi Mentor">
+          {nav.map(([label, icon, url]) => (
+            <button
+              key={label}
+              type="button"
+              className={`mt-nav ${url === "/" ? "active" : ""}`}
+              onClick={() => go(url)}
+            >
+              <Icon name={icon} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="mt-sidebar-bottom">
+          <button
+            className="mt-nav"
+            type="button"
+            onClick={refresh}
+            disabled={refreshing}
           >
-            EMERGENCY RESPONSE GROUP
+            <Icon name="refresh" />
+            {refreshing ? "Memuat ulang..." : "Refresh Data"}
+          </button>
+
+          <button
+            className="mt-nav"
+            type="button"
+            onClick={logout}
+          >
+            <Icon name="logout" />
+            Keluar Akun
+          </button>
+        </div>
+      </aside>
+
+      <main className="mt-main">
+        <div className="mt-mobile-bar">
+          <strong>
+            OJT <span style={{ color: "#e0b75e" }}>MineTrack</span>
+          </strong>
+
+          <button
+            type="button"
+            aria-label="Buka menu"
+            onClick={() => setMenuOpen(true)}
+          >
+            <Icon name="menu" size={25} />
+          </button>
+        </div>
+
+        <header className="mt-hero">
+          <div className="mt-topbar">
+            <div className="mt-user">
+              {mentor?.full_name || "Mentor OJT"}
+              <small>Dashboard Mentor ERG</small>
+            </div>
           </div>
 
-          <h1
-            style={{
-              margin: "0 0 7px",
-              fontSize: 29,
-              lineHeight: 1.2,
-              fontWeight: 900,
-              letterSpacing: -0.6,
-              color: "#f5d77c",
-            }}
-          >
-            Monitoring OJT
+          <div className="mt-hero-kicker">
+            EMERGENCY RESPONSE GROUP · PT BERAU COAL
+          </div>
+
+          <h1>
+            OJT <span>MineTrack</span>
           </h1>
 
-          <div
-            style={{
-              fontSize: 13,
-              color: "#e2e8f0",
-              lineHeight: 1.6,
-            }}
-          >
-            Sistem Monitoring dan Evaluasi OJT
-          </div>
+          <p>Monitoring dan Evaluasi On Job Training</p>
 
-          <div
-            style={{
-              marginTop: 5,
-              fontSize: 12,
-              color: "#bbd8c3",
-            }}
-          >
-            PT Berau Coal · 2026
-          </div>
-
-          {mentor && (
-            <div
-              style={{
-                marginTop: 19,
-                padding: 13,
-                background: "rgba(255,255,255,0.08)",
-                border: "1px solid rgba(255,255,255,0.14)",
-                borderRadius: 12,
-              }}
-            >
-              <div
-                style={{
-                  color: "#bbd8c3",
-                  fontSize: 11,
-                  marginBottom: 5,
-                }}
-              >
-                DASHBOARD MENTOR
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 800 }}>
-                {mentor.full_name || "Mentor"}
-              </div>
-              <div
-                style={{
-                  color: "#e2e8f0",
-                  fontSize: 11,
-                  marginTop: 5,
-                }}
-              >
-                Akses monitoring peserta OJT
-              </div>
-            </div>
-          )}
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-              gap: 9,
-              marginTop: 18,
-            }}
-          >
-            <ActionButton
-              onClick={refresh}
-              disabled={refreshing || loading}
-              color="#b38a27"
-            >
-              {refreshing ? "Memperbarui..." : "↻ Refresh Data"}
-            </ActionButton>
-
-            <ActionButton
-              onClick={() => router.push("/mentor/monitoring-peserta")}
-              color="#ffffff"
-            >
-              <span style={{ color: C.green }}>
-                Monitoring Peserta
-              </span>
-            </ActionButton>
-
-            <ActionButton
-              onClick={() => router.push("/mentor/daftar-peserta")}
-              color="#1d8050"
-            >
-              Pendaftaran Peserta
-            </ActionButton>
-
-            <ActionButton onClick={logout} color="#334155">
-              Keluar Akun
-            </ActionButton>
+          <div className="mt-hero-flags">
+            <span>◆ Safe People</span>
+            <span>⚙ Safe Operation</span>
+            <span>◆ Sustainable Mining</span>
           </div>
         </header>
 
-        {error && (
-          <section
-            role="alert"
-            style={{
-              ...CARD,
-              border: "1px solid #fecaca",
-              background: "#fff7f7",
-              color: C.red,
-            }}
-          >
-            <strong>Terjadi masalah saat memuat data</strong>
-            <p
-              style={{
-                marginBottom: 0,
-                fontSize: 13,
-                overflowWrap: "anywhere",
-              }}
-            >
+        <div className="mt-content">
+          {error && (
+            <div className="mt-error" role="alert">
               {error}
-            </p>
-          </section>
-        )}
-
-        {loading ? (
-          <section style={CARD}>
-            <div style={{ color: C.green, fontWeight: 800 }}>
-              Memuat Dashboard...
             </div>
-            <p style={{ color: C.muted, fontSize: 13 }}>
-              Mengambil data monitoring dari Supabase.
-            </p>
-          </section>
-        ) : !mentor ? (
-          <section style={CARD}>
-            Akses Dashboard Mentor tidak tersedia.
-          </section>
-        ) : (
-          <>
-            <section style={CARD}>
-              <SectionTitle subtitle="Ringkasan mengikuti site dan nama peserta yang dipilih.">
-                Ringkasan Monitoring
-              </SectionTitle>
+          )}
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-                  gap: 10,
-                }}
-              >
-                <Stat
-                  title="PESERTA OJT AKTIF"
-                  value={summary.totalPrograms}
-                  subtitle="Program sesuai filter"
-                  accent={C.green}
+          {loading ? (
+            <section className="mt-card">
+              Memuat data monitoring...
+            </section>
+          ) : !mentor ? (
+            <section className="mt-card">
+              Akses Dashboard Mentor tidak tersedia.
+            </section>
+          ) : (
+            <>
+              <div className="mt-stat-grid">
+                <Metric
+                  label="Peserta OJT Aktif"
+                  value={metrics.active}
+                  sub="Berdasarkan filter saat ini"
+                  icon="users"
                 />
-                <Stat
-                  title="RATA-RATA PENCAPAIAN"
-                  value={`${summary.averageProgress}%`}
-                  subtitle="Enam kategori OJT"
-                  accent={C.gold}
+
+                <Metric
+                  label="Rata-rata Progres OJT"
+                  value={`${metrics.averageProgress}%`}
+                  sub="Enam kategori pencapaian"
+                  icon="chart"
+                  tone="dark"
                 />
-                <Stat
-                  title="SIMPER LULUS"
-                  value={summary.simperPassed}
-                  subtitle="Program unik berstatus lulus"
-                  accent="#7c3aed"
+
+                <Metric
+                  label="Rata-rata Nilai Praktik"
+                  value={fmtScore(metrics.averagePractice)}
+                  sub="Dari penilaian yang tercatat"
+                  icon="clipboard"
+                  tone="gold"
                 />
-                <Stat
-                  title="PENCAPAIAN TERVERIFIKASI"
-                  value={summary.verifiedTotal}
-                  subtitle="Kategori yang selesai"
-                  accent="#0f766e"
-                />
-                <Stat
-                  title="RATA-RATA POST-TEST"
-                  value={summary.postTestAverage}
-                  subtitle="Nilai teori peserta"
-                  accent="#2563eb"
-                />
-                <Stat
-                  title="SITE TERISI"
-                  value={
-                    filteredPrograms.filter((program) =>
-                      Boolean(program.site)
-                    ).length
-                  }
-                  subtitle="Program dengan site"
-                  accent="#b38a27"
+
+                <Metric
+                  label="Pencapaian Lengkap"
+                  value={metrics.done}
+                  sub="Peserta dengan 6 kategori terverifikasi"
+                  icon="check"
+                  tone="blue"
                 />
               </div>
-            </section>
 
-            <section style={CARD}>
-              <SectionTitle subtitle="Saring peserta berdasarkan penempatan dan nama.">
-                Filter Monitoring
-              </SectionTitle>
+              <div className="mt-grid">
+                <section className="mt-card">
+                  <h2>Progres OJT per Site</h2>
 
-              <label htmlFor="site-filter" style={LABEL}>
-                Site Penempatan OJT
-              </label>
-              <select
-                id="site-filter"
-                value={siteFilter}
-                onChange={(event) => setSiteFilter(event.target.value)}
-                style={FIELD}
-              >
-                <option value="ALL">Semua Site</option>
-                {SITES.map((site) => (
-                  <option key={site} value={site}>
-                    {site}
-                  </option>
-                ))}
-              </select>
-
-              <label
-                htmlFor="participant-search"
-                style={{ ...LABEL, marginTop: 16 }}
-              >
-                Cari Nama Peserta
-              </label>
-              <input
-                id="participant-search"
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Ketik nama peserta..."
-                style={FIELD}
-              />
-
-              <div
-                style={{
-                  marginTop: 14,
-                  padding: 11,
-                  background: "#f0fdf4",
-                  borderRadius: 10,
-                  color: C.green,
-                  fontSize: 12,
-                  lineHeight: 1.6,
-                }}
-              >
-                Menampilkan <strong>{filteredPrograms.length}</strong> dari{" "}
-                <strong>{programs.length}</strong> program OJT aktif.
-              </div>
-            </section>
-
-            <div style={{ margin: "24px 2px 14px" }}>
-              <h2
-                style={{
-                  fontSize: 20,
-                  color: C.dark,
-                  margin: 0,
-                  fontWeight: 900,
-                }}
-              >
-                Monitoring Per Peserta
-              </h2>
-              <p
-                style={{
-                  fontSize: 12,
-                  color: C.muted,
-                  marginTop: 6,
-                  lineHeight: 1.5,
-                }}
-              >
-                Progres kompetensi, teori, praktik, Samapta, dan SIMPER.
-              </p>
-            </div>
-
-            {filteredPrograms.length === 0 && (
-              <section style={CARD}>
-                <div
-                  style={{
-                    textAlign: "center",
-                    padding: "20px 8px",
-                  }}
-                >
-                  <div style={{ fontSize: 30, marginBottom: 10 }}>
-                    ◉
-                  </div>
-                  <strong>Tidak ada peserta ditemukan</strong>
-                  <p
-                    style={{
-                      color: C.muted,
-                      fontSize: 13,
-                      marginBottom: 0,
-                    }}
-                  >
-                    Coba pilih semua site atau ubah kata pencarian.
+                  <p className="mt-card-sub">
+                    Rata-rata enam pencapaian terverifikasi
+                    pada masing-masing site
                   </p>
-                </div>
-              </section>
-            )}
 
-            {filteredPrograms.map((program) => {
-              const d = participantData[program.id];
-              if (!d) return null;
-
-              return (
-                <section
-                  key={program.id}
-                  style={{
-                    ...CARD,
-                    padding: 0,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: "18px 17px",
-                      background:
-                        "linear-gradient(135deg,#f0fdf4 0%,#ffffff 100%)",
-                      borderBottom: `1px solid ${C.border}`,
-                      borderTop: `4px solid ${C.gold}`,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        gap: 10,
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
+                  {siteChart.length ? (
+                    <div className="mt-bars">
+                      {siteChart.map(item => (
                         <div
-                          style={{
-                            color: "#8a6a16",
-                            fontSize: 10,
-                            fontWeight: 800,
-                            letterSpacing: 1,
-                            marginBottom: 7,
-                          }}
+                          className="mt-bar-row"
+                          key={item.site}
                         >
-                          PESERTA OJT
-                        </div>
-                        <h3
-                          style={{
-                            margin: 0,
-                            fontSize: 19,
-                            lineHeight: 1.35,
-                            color: C.dark,
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {program.peserta?.full_name || "Peserta OJT"}
-                        </h3>
-                        <p
-                          style={{
-                            color: C.muted,
-                            fontSize: 12,
-                            margin: "6px 0 0",
-                          }}
-                        >
-                          {program.peserta?.department ||
-                            "Departemen belum diisi"}
-                        </p>
-                      </div>
+                          <strong>{item.site}</strong>
 
-                      <span
-                        style={{
-                          background: "#dcfce7",
-                          color: "#166534",
-                          border: "1px solid #bbf7d0",
-                          borderRadius: 20,
-                          padding: "6px 9px",
-                          fontSize: 10,
-                          fontWeight: 800,
-                          flexShrink: 0,
-                        }}
-                      >
-                        AKTIF
-                      </span>
+                          <Progress value={item.value} />
+
+                          <span>{item.value}%</span>
+                        </div>
+                      ))}
                     </div>
+                  ) : (
+                    <p className="mt-note">
+                      Belum ada peserta aktif.
+                    </p>
+                  )}
+                </section>
 
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 9,
-                        marginTop: 15,
-                      }}
-                    >
-                      <div
-                        style={{
-                          background: "#ffffff",
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 10,
-                          padding: 10,
-                        }}
-                      >
-                        <div
-                          style={{
-                            color: C.muted,
-                            fontSize: 10,
-                            marginBottom: 5,
-                          }}
-                        >
-                          SITE PENEMPATAN
-                        </div>
-                        <div
-                          style={{
-                            color: C.green,
-                            fontWeight: 800,
-                            fontSize: 13,
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {program.site || "Belum Ditentukan"}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          background: "#ffffff",
-                          border: `1px solid ${C.border}`,
-                          borderRadius: 10,
-                          padding: 10,
-                        }}
-                      >
-                        <div
-                          style={{
-                            color: C.muted,
-                            fontSize: 10,
-                            marginBottom: 5,
-                          }}
-                        >
-                          PERIODE OJT
-                        </div>
-                        <div
-                          style={{
-                            color: C.text,
-                            fontWeight: 700,
-                            fontSize: 11,
-                            lineHeight: 1.6,
-                          }}
-                        >
-                          {formatDate(program.start_date)}
-                          <br />
-                          s.d. {formatDate(program.end_date)}
-                        </div>
-                      </div>
-                    </div>
+                <section className="mt-card">
+                  <h2>Ringkasan Monitoring</h2>
+
+                  <div className="mt-summary-row">
+                    <span>Program OJT aktif</span>
+                    <strong>{metrics.active}</strong>
                   </div>
 
-                  <div style={{ padding: 16 }}>
-                    <div
-                      style={{
-                        background: "#f8faf9",
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 14,
-                        padding: 14,
-                        marginBottom: 13,
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <strong
-                          style={{
-                            fontSize: 14,
-                            color: C.dark,
-                          }}
-                        >
-                          Enam Pencapaian OJT
-                        </strong>
-                        <span
-                          style={{
-                            color: C.green,
-                            fontWeight: 900,
-                            fontSize: 15,
-                          }}
-                        >
-                          {d.achievementProgress}%
-                        </span>
-                      </div>
+                  <div className="mt-summary-row">
+                    <span>Pencapaian lengkap</span>
+                    <strong>{metrics.done}</strong>
+                  </div>
 
-                      <p
-                        style={{
-                          fontSize: 11,
-                          color: C.muted,
-                          margin: "7px 0 0",
-                        }}
-                      >
-                        {d.verifiedCategories.length} dari 6 kategori
-                        terverifikasi
-                      </p>
+                  <div className="mt-summary-row">
+                    <span>SIMPER lulus</span>
+                    <strong>
+                      {filtered.filter(
+                        p => dataByProgram[p.id]?.simperPassed
+                      ).length}
+                    </strong>
+                  </div>
 
-                      <ProgressBar
-                        value={d.achievementProgress}
-                        color={C.green}
-                      />
+                  <div className="mt-summary-row">
+                    <span>Samapta pernah lulus</span>
+                    <strong>
+                      {filtered.filter(
+                        p => dataByProgram[p.id]?.samaptaPassed
+                      ).length}
+                    </strong>
+                  </div>
 
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-                          gap: 7,
-                          marginTop: 14,
-                        }}
-                      >
-                        {ACHIEVEMENTS.map((name) => {
-                          const done =
-                            d.verifiedCategories.includes(name);
-
-                          return (
-                            <div
-                              key={name}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 7,
-                                padding: "9px 8px",
-                                borderRadius: 9,
-                                border: `1px solid ${
-                                  done ? "#bbf7d0" : "#e2e8f0"
-                                }`,
-                                background: done ? "#f0fdf4" : "#ffffff",
-                                color: done ? "#166534" : "#64748b",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                lineHeight: 1.4,
-                                minWidth: 0,
-                              }}
-                            >
-                              <span style={{ fontSize: 13 }}>
-                                {done ? "✓" : "○"}
-                              </span>
-                              <span style={{ overflowWrap: "anywhere" }}>
-                                {name}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-                        gap: 9,
-                        marginBottom: 13,
-                      }}
-                    >
-                      <Stat
-                        title="POST-TEST TEORI"
-                        value={average(d.pt)}
-                        subtitle={`${d.pt.length} tes tercatat`}
-                        accent="#2563eb"
-                      />
-                      <Stat
-                        title="PRAKTIK MINGGUAN"
-                        value={average(d.pr)}
-                        subtitle={`${d.pr.length} penilaian`}
-                        accent="#0f766e"
-                      />
-                      <Stat
-                        title="SAMAPTA LULUS"
-                        value={d.passedSamapta}
-                        subtitle={`${d.sm.length} tes · ${d.failedSamapta} tidak lulus`}
-                        accent="#16a34a"
-                      />
-                      <Stat
-                        title="STATUS SIMPER"
-                        value={statusLabel(d.sp?.status)}
-                        subtitle={`${d.passedStages} dari 4 tahapan lulus`}
-                        accent={C.purple}
-                      />
-                    </div>
-
-                    <div
-                      style={{
-                        background: "#faf5ff",
-                        border: "1px solid #e9d5ff",
-                        borderRadius: 13,
-                        padding: 14,
-                        marginBottom: 15,
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <strong
-                          style={{
-                            fontSize: 13,
-                            color: "#581c87",
-                          }}
-                        >
-                          Progres SIMPER
-                        </strong>
-                        <span
-                          style={{
-                            fontSize: 15,
-                            fontWeight: 900,
-                            color: C.purple,
-                          }}
-                        >
-                          {d.simperProgress}%
-                        </span>
-                      </div>
-                      <ProgressBar
-                        value={d.simperProgress}
-                        color={C.purple}
-                      />
-                      <p
-                        style={{
-                          color: "#6b21a8",
-                          fontSize: 10,
-                          margin: "8px 0 0",
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        Progres berdasarkan empat tahapan SIMPER
-                        yang berstatus lulus.
-                      </p>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr",
-                        gap: 9,
-                      }}
-                    >
-                      <ActionButton
-                        onClick={() =>
-                          router.push(`/peserta/${program.id}`)
-                        }
-                        color={C.green}
-                      >
-                        Lihat Detail Peserta →
-                      </ActionButton>
-
-                      <ActionButton
-                        onClick={() =>
-                          router.push(`/simper/${program.id}`)
-                        }
-                        color={C.purple}
-                      >
-                        Monitoring SIMPER →
-                      </ActionButton>
-
-                      <ActionButton
-                        onClick={() =>
-                          router.push(`/samapta/${program.id}`)
-                        }
-                        color="#15803d"
-                      >
-                        Monitoring Samapta →
-                      </ActionButton>
-
-                      <ActionButton
-                        onClick={() =>
-                          router.push(`/praktik/${program.id}`)
-                        }
-                        color="#0f766e"
-                      >
-                        Penilaian Praktik Mingguan →
-                      </ActionButton>
-                    </div>
+                  <div className="mt-summary-row">
+                    <span>Rata-rata Post-Test</span>
+                    <strong>
+                      {fmtScore(
+                        avg(
+                          postTests.filter(r =>
+                            filtered.some(p => p.id === r.program_id)
+                          )
+                        )
+                      )}
+                    </strong>
                   </div>
                 </section>
-              );
-            })}
-          </>
-        )}
 
-        <footer
-          style={{
-            textAlign: "center",
-            padding: "20px 10px",
-            color: C.muted,
-            fontSize: 11,
-            lineHeight: 1.8,
-          }}
-        >
-          <div
-            style={{
-              width: 45,
-              height: 3,
-              background: C.gold,
-              borderRadius: 5,
-              margin: "0 auto 12px",
-            }}
-          />
-          <strong style={{ color: C.green }}>
-            OJT MineTrack
-          </strong>
-          <div>Emergency Response Group</div>
-          <div>© 2026 PT Berau Coal</div>
-        </footer>
-      </div>
-    </main>
+                <section className="mt-card">
+                  <h2>Aksi Cepat Mentor</h2>
+
+                  <div className="mt-actions">
+                    <button
+                      className="mt-action"
+                      type="button"
+                      onClick={() =>
+                        go("/mentor/monitoring-peserta")
+                      }
+                    >
+                      Monitoring Peserta
+                      <Icon name="arrow" size={17} />
+                    </button>
+
+                    <button
+                      className="mt-action"
+                      type="button"
+                      onClick={() =>
+                        go("/mentor/persetujuan-peserta")
+                      }
+                    >
+                      Review Persetujuan
+                      <Icon name="arrow" size={17} />
+                    </button>
+
+                    <button
+                      className="mt-action"
+                      type="button"
+                      onClick={() =>
+                        go("/mentor/daftar-peserta")
+                      }
+                    >
+                      Pendaftaran Peserta
+                      <Icon name="arrow" size={17} />
+                    </button>
+                  </div>
+                </section>
+
+                <section className="mt-card">
+                  <h2>Status Penilaian</h2>
+
+                  <p className="mt-card-sub">
+                    Jumlah peserta yang memiliki catatan
+                    pada setiap jenis penilaian
+                  </p>
+
+                  {[
+                    {
+                      label: "Post-Test",
+                      count: filtered.filter(
+                        p => dataByProgram[p.id]?.pt.length
+                      ).length
+                    },
+                    {
+                      label: "Praktik Mingguan",
+                      count: filtered.filter(
+                        p => dataByProgram[p.id]?.pr.length
+                      ).length
+                    },
+                    {
+                      label: "Samapta",
+                      count: filtered.filter(
+                        p => dataByProgram[p.id]?.sm.length
+                      ).length
+                    },
+                    {
+                      label: "SIMPER",
+                      count: filtered.filter(
+                        p => dataByProgram[p.id]?.sp.length
+                      ).length
+                    }
+                  ].map(item => (
+                    <div
+                      className="mt-summary-row"
+                      key={item.label}
+                    >
+                      <span>{item.label}</span>
+
+                      <strong>
+                        {item.count} / {metrics.active}
+                      </strong>
+                    </div>
+                  ))}
+
+                  <p className="mt-note">
+                    Jumlah catatan tidak otomatis menunjukkan
+                    kelulusan. Buka detail peserta untuk melihat
+                    status dan nilai lengkap.
+                  </p>
+                </section>
+              </div>
+
+              <section
+                className="mt-card"
+                style={{ marginTop: 16 }}
+              >
+                <div className="mt-list-head">
+                  <h2>Daftar Peserta OJT Aktif</h2>
+
+                  <div className="mt-filters">
+                    <input
+                      className="mt-field"
+                      type="search"
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      placeholder="Cari nama / departemen"
+                      aria-label="Cari nama peserta"
+                    />
+
+                    <select
+                      className="mt-field"
+                      value={siteFilter}
+                      onChange={e => setSiteFilter(e.target.value)}
+                      aria-label="Filter site"
+                    >
+                      <option value="ALL">Semua Site</option>
+                      {SITES.map(site => (
+                        <option key={site} value={site}>
+                          {site}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-table-wrap">
+                  <table className="mt-table">
+                    <thead>
+                      <tr>
+                        <th>No</th>
+                        <th>Nama Peserta</th>
+                        <th>Departemen</th>
+                        <th>Site</th>
+                        <th>Periode OJT</th>
+                        <th>Progres</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {filtered.map((program, index) => (
+                        <tr key={program.id}>
+                          <td>{index + 1}</td>
+
+                          <td>
+                            <span className="mt-name">
+                              {program.peserta?.full_name ||
+                                "Peserta OJT"}
+                            </span>
+                          </td>
+
+                          <td>
+                            {program.peserta?.department || "—"}
+                          </td>
+
+                          <td>{program.site || "—"}</td>
+
+                          <td>
+                            {fmtDate(program.start_date)}
+                            {" – "}
+                            {fmtDate(program.end_date)}
+                          </td>
+
+                          <td>
+                            <div
+                              style={{
+                                minWidth: 110,
+                                display: "flex",
+                                gap: 7,
+                                alignItems: "center"
+                              }}
+                            >
+                              <Progress
+                                value={
+                                  dataByProgram[program.id]?.progress || 0
+                                }
+                              />
+                              <strong>
+                                {dataByProgram[program.id]?.progress || 0}%
+                              </strong>
+                            </div>
+                          </td>
+
+                          <td>
+                            <span className="mt-pill">
+                              Aktif
+                            </span>
+                          </td>
+
+                          <td>
+                            <button
+                              className="mt-view"
+                              type="button"
+                              onClick={() =>
+                                go(`/peserta/${program.id}`)
+                              }
+                            >
+                              Lihat Detail →
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {!filtered.length && (
+                        <tr>
+                          <td
+                            colSpan="8"
+                            style={{
+                              textAlign: "center",
+                              padding: 25
+                            }}
+                          >
+                            Tidak ada peserta yang sesuai filter.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="mt-note">
+                  Pilih Lihat Detail untuk mengakses
+                  Post-Test, Praktik Mingguan, Samapta,
+                  SIMPER, dan pencapaian peserta.
+                </p>
+              </section>
+            </>
+          )}
+
+          <div className="mt-footer">
+            OJT MineTrack v2.0 · Emergency Response Group ·
+            PT Berau Coal
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }
