@@ -24,23 +24,22 @@ function normalize(value) {
 
 function parseDate(value) {
   if (!value) return null;
+
   const parts = String(value).slice(0, 10).split("-").map(Number);
   if (parts.length !== 3 || parts.some(n => !Number.isInteger(n))) {
     return null;
   }
 
-  const [year, month, day] = parts;
-  const result = new Date(Date.UTC(year, month - 1, day));
+  const [y, m, d] = parts;
+  const date = new Date(Date.UTC(y, m - 1, d));
 
   if (
-    result.getUTCFullYear() !== year ||
-    result.getUTCMonth() !== month - 1 ||
-    result.getUTCDate() !== day
-  ) {
-    return null;
-  }
+    date.getUTCFullYear() !== y ||
+    date.getUTCMonth() !== m - 1 ||
+    date.getUTCDate() !== d
+  ) return null;
 
-  return result;
+  return date;
 }
 
 function dateText(value) {
@@ -72,19 +71,18 @@ function numberOrNull(value) {
   if (value === null || value === undefined || value === "") {
     return null;
   }
-
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
 function average(values) {
-  const valid = values
+  const clean = values
     .map(numberOrNull)
-    .filter(value => value !== null);
+    .filter(v => v !== null);
 
-  return valid.length
-    ? valid.reduce((a, b) => a + b, 0) / valid.length
-    : null;
+  if (!clean.length) return null;
+
+  return clean.reduce((a, b) => a + b, 0) / clean.length;
 }
 
 function fmt(value) {
@@ -122,9 +120,9 @@ function getSimperProgress(record) {
     };
   }
 
+  const notes = String(record.notes || "");
   const startTag = "[[SIMPER_V2]]";
   const endTag = "[[/SIMPER_V2]]";
-  const notes = String(record.notes || "");
 
   const start = notes.lastIndexOf(startTag);
   const end = notes.lastIndexOf(endTag);
@@ -188,26 +186,21 @@ function getSamaptaResults(records) {
 
     const running = findScore("Lari 12 Menit");
 
-    const others = [
+    const other = [
       findScore("Pull-Up"),
       findScore("Push-Up"),
       findScore("Sit-Up"),
       findScore("Shuttle Run"),
     ];
 
-    if (
-      running === null ||
-      others.some(value => value === null)
-    ) {
+    if (running === null || other.some(v => v === null)) {
       continue;
     }
 
-    const b = average(others);
+    const b = average(other);
 
     result.push({
       date,
-      a: running,
-      b,
       final: (running + b) / 2,
     });
   }
@@ -215,17 +208,13 @@ function getSamaptaResults(records) {
   return result.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function StatCard({ label, value, detail }) {
-  return (
-    <div className="rp-stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {detail && <small>{detail}</small>}
-    </div>
-  );
-}
-
-function Section({ title, children, expanded, onToggle, number }) {
+function Section({
+  number,
+  title,
+  expanded,
+  onToggle,
+  children,
+}) {
   return (
     <section className="rp-section">
       <button
@@ -234,7 +223,7 @@ function Section({ title, children, expanded, onToggle, number }) {
         onClick={onToggle}
         aria-expanded={expanded}
       >
-        <span>
+        <span className="rp-section-label">
           <b>{number}</b>
           {title}
         </span>
@@ -243,18 +232,20 @@ function Section({ title, children, expanded, onToggle, number }) {
         </span>
       </button>
 
-      <div className="rp-section-title rp-print-only">
+      <div className="rp-print-only rp-section-title">
         {number}. {title}
       </div>
 
-      <div className={`rp-section-body ${expanded ? "" : "rp-collapsed"}`}>
+      <div className={`rp-section-body ${
+        expanded ? "" : "rp-collapsed"
+      }`}>
         {children}
       </div>
     </section>
   );
 }
 
-function PrintWeekTable({ title, weeks }) {
+function PrintWeeks({ title, weeks }) {
   const groups = [];
 
   for (let i = 0; i < TOTAL_WEEKS; i += 5) {
@@ -262,24 +253,24 @@ function PrintWeekTable({ title, weeks }) {
   }
 
   return (
-    <section className="rp-print-section">
+    <div className="rp-print-week-section">
       <div className="rp-section-title">{title}</div>
 
-      <table className="rp-table rp-week-table">
+      <table className="rp-print-table">
         <thead>
           <tr>
-            <th>GRUP</th>
-            {Array.from({ length: 5 }, (_, index) => (
-              <th key={index} colSpan={2}>
-                MINGGU {index + 1}
+            <th>NO</th>
+            {Array.from({ length: 5 }, (_, i) => (
+              <th key={i} colSpan={2}>
+                PENILAIAN
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {groups.map((group, index) => (
-            <tr key={index}>
-              <td>{index + 1}</td>
+          {groups.map((group, i) => (
+            <tr key={i}>
+              <td>{i + 1}</td>
               {group.map(item => (
                 <FragmentWeek key={item.week} item={item} />
               ))}
@@ -287,17 +278,15 @@ function PrintWeekTable({ title, weeks }) {
           ))}
         </tbody>
       </table>
-    </section>
+    </div>
   );
 }
 
 function FragmentWeek({ item }) {
   return (
     <>
-      <td className="rp-week-label">
-        W{String(item.week).padStart(2, "0")}
-      </td>
-      <td className="rp-week-value">{fmt(item.score)}</td>
+      <td>W{String(item.week).padStart(2, "0")}</td>
+      <td>{fmt(item.score)}</td>
     </>
   );
 }
@@ -335,26 +324,32 @@ export default function RaporOJT() {
 
   async function loadRecords(id) {
     const results = await Promise.all([
-      supabase.from("achievement_types")
+      supabase
+        .from("achievement_types")
         .select("code,name"),
 
-      supabase.from("achievement_records")
+      supabase
+        .from("achievement_records")
         .select("id,type_code,status,activity_date")
         .eq("program_id", id),
 
-      supabase.from("post_test_scores")
+      supabase
+        .from("post_test_scores")
         .select("id,test_date,score")
         .eq("program_id", id),
 
-      supabase.from("weekly_practice_scores")
+      supabase
+        .from("weekly_practice_scores")
         .select("id,practice_date,practice_name,score")
         .eq("program_id", id),
 
-      supabase.from("samapta_records")
+      supabase
+        .from("samapta_records")
         .select("id,test_date,test_type,score")
         .eq("program_id", id),
 
-      supabase.from("simper_records")
+      supabase
+        .from("simper_records")
         .select(
           "id,administration_status,theory_status,practice_status,graduation_date,notes"
         )
@@ -412,7 +407,7 @@ export default function RaporOJT() {
           .single();
 
         if (profileError || !profile) {
-          throw new Error("Profil tidak ditemukan.");
+          throw new Error("Profil pengguna tidak ditemukan.");
         }
 
         const mentor = profile.role === "mentor";
@@ -421,7 +416,7 @@ export default function RaporOJT() {
         );
 
         if (!mentor && !participant) {
-          throw new Error("Akun tidak diizinkan.");
+          throw new Error("Akun tidak memiliki akses.");
         }
 
         let query = supabase
@@ -456,9 +451,7 @@ export default function RaporOJT() {
         }
 
         if (!mentor && program.participant_id !== user.id) {
-          throw new Error(
-            "Anda tidak memiliki akses ke rapor peserta ini."
-          );
+          throw new Error("Akses ke rapor peserta lain ditolak.");
         }
 
         if (!parseDate(program.start_date)) {
@@ -469,7 +462,11 @@ export default function RaporOJT() {
 
         if (!active) return;
 
-        setData({ profile, program, ...records });
+        setData({
+          profile,
+          program,
+          ...records,
+        });
       } catch (err) {
         if (active) {
           setError(err?.message || "Gagal memuat rapor.");
@@ -494,7 +491,10 @@ export default function RaporOJT() {
 
     try {
       const records = await loadRecords(data.program.id);
-      setData(old => ({ ...old, ...records }));
+      setData(old => ({
+        ...old,
+        ...records,
+      }));
     } catch (err) {
       setError(err?.message || "Gagal memperbarui data.");
     } finally {
@@ -525,14 +525,14 @@ export default function RaporOJT() {
             item =>
               item.type_code === type.code &&
               item.status === "verified" &&
-              weekOf(
-                item.activity_date,
-                program.start_date
-              ) !== null
+              weekOf(item.activity_date, program.start_date) !== null
           ).length
         : 0;
 
-      return { name, verified };
+      return {
+        name,
+        verified,
+      };
     });
 
     const verifiedCount = categories.filter(
@@ -551,13 +551,11 @@ export default function RaporOJT() {
       "practice_date"
     );
 
-    const samaptaComplete = getSamaptaResults(samapta);
+    const completeSamapta = getSamaptaResults(samapta);
 
-    const lastSamapta = samaptaComplete.length
-      ? samaptaComplete[samaptaComplete.length - 1]
+    const lastSamapta = completeSamapta.length
+      ? completeSamapta[completeSamapta.length - 1]
       : null;
-
-    const simperData = getSimperProgress(simper);
 
     const activeWeeks = new Set();
 
@@ -576,25 +574,31 @@ export default function RaporOJT() {
       verifiedCount,
       postWeeks,
       practiceWeeks,
-      postAverage: average(postWeeks.map(item => item.score)),
+      postAverage: average(
+        postWeeks.map(item => item.score)
+      ),
       practiceAverage: average(
         practiceWeeks.map(item => item.score)
       ),
       lastSamapta,
-      simperData,
+      simperData: getSimperProgress(simper),
       activeWeeks: activeWeeks.size,
     };
   }, [data]);
 
   if (loading) {
-    return <main className="rp-loading">Memuat Rapor OJT...</main>;
+    return (
+      <main className="rp-loading">
+        Memuat Rapor OJT...
+      </main>
+    );
   }
 
   if (!data || !report) {
     return (
       <main className="rp-loading">
         <h2>Rapor Tidak Dapat Ditampilkan</h2>
-        <p>{error || "Data tidak tersedia."}</p>
+        <p>{error || "Data belum tersedia."}</p>
         <button onClick={() => router.back()}>
           Kembali
         </button>
@@ -603,14 +607,15 @@ export default function RaporOJT() {
   }
 
   const { profile, program } = data;
+
   const mentor = profile.role === "mentor";
+
+  const participantName =
+    program.peserta?.full_name || "Peserta OJT";
 
   const backPath = mentor
     ? `/peserta/${program.id}`
     : "/dashboard-peserta";
-
-  const participantName =
-    program.peserta?.full_name || "Peserta OJT";
 
   const selectedData =
     activeTab === "post"
@@ -635,93 +640,106 @@ export default function RaporOJT() {
         .rp-root {
           min-height: 100vh;
           background: #eef3f0;
-          color: #1b342a;
+          color: #1c372b;
           font-family: Arial, Helvetica, sans-serif;
+          overflow-x: clip;
         }
 
         .rp-topbar {
           background: #082731;
           color: white;
-          padding: 13px 18px;
+          padding: 11px 13px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
         }
 
         .rp-brand {
-          font-size: 18px;
+          font-size: 17px;
           font-weight: 900;
+          white-space: nowrap;
         }
 
         .rp-brand span {
-          color: #3dd49b;
+          color: #3fd39b;
         }
 
         .rp-btn {
-          background: #087b59;
-          border: 0;
+          border: none;
+          background: #087f5d;
           color: white;
-          border-radius: 9px;
           padding: 10px 12px;
+          border-radius: 9px;
           font-size: 12px;
           font-weight: 800;
           cursor: pointer;
+          min-width: 0;
         }
 
         .rp-btn:disabled {
-          opacity: .55;
+          opacity: .5;
         }
 
         .rp-back {
-          background: #ffffff22;
-          border: 1px solid #ffffff30;
+          background: #ffffff20;
+          border: 1px solid #ffffff35;
         }
 
         .rp-page {
           max-width: 1050px;
-          margin: auto;
-          padding: 14px;
+          margin: 0 auto;
+          padding: 11px;
+          width: 100%;
+          min-width: 0;
         }
 
         .rp-toolbar {
-          display: flex;
-          justify-content: flex-end;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
           gap: 8px;
-          margin-bottom: 12px;
+          width: 100%;
+          margin-bottom: 10px;
+        }
+
+        .rp-toolbar .rp-btn {
+          width: 100%;
+          padding: 11px 8px;
         }
 
         .rp-paper {
           background: white;
-          padding: 16px;
-          border-radius: 13px;
-          border: 1px solid #dbe4de;
-          box-shadow: 0 5px 18px #16392910;
+          padding: 12px;
+          border-radius: 12px;
+          border: 1px solid #dce6df;
+          box-shadow: 0 4px 18px #16392910;
+          min-width: 0;
         }
 
         .rp-heading {
-          background: #0d2e48;
+          background: #0c2d46;
+          border-bottom: 4px solid #d7b568;
           color: white;
-          border-bottom: 4px solid #d7b667;
-          padding: 14px;
+          padding: 12px;
+          border-radius: 8px;
           display: grid;
-          grid-template-columns: 140px 1fr 80px;
-          gap: 10px;
+          grid-template-columns: 140px 1fr 75px;
+          gap: 8px;
           align-items: center;
-          border-radius: 7px;
         }
 
         .rp-heading-brand {
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 900;
         }
 
         .rp-heading-brand small {
           display: block;
-          margin-top: 4px;
           font-size: 9px;
-          color: #cfe5dc;
-          line-height: 1.5;
+          font-weight: 400;
+          line-height: 1.4;
+          color: #d5e8dd;
+          margin-top: 3px;
         }
 
         .rp-heading-title {
@@ -730,304 +748,252 @@ export default function RaporOJT() {
 
         .rp-heading-title strong {
           display: block;
-          font-size: 25px;
+          font-size: 24px;
           letter-spacing: 1px;
         }
 
         .rp-heading-title small {
           display: block;
-          margin-top: 4px;
-          font-size: 11px;
+          font-size: 10px;
+          margin-top: 3px;
         }
 
         .rp-heading-mark {
-          width: 63px;
-          height: 63px;
-          border: 3px solid #d7b667;
+          border: 3px solid #d7b568;
           border-radius: 50%;
+          width: 60px;
+          height: 60px;
           display: grid;
           place-items: center;
-          text-align: center;
-          font-weight: 900;
-          font-size: 11px;
           justify-self: end;
+          text-align: center;
+          font-size: 10px;
+          font-weight: 900;
         }
 
         .rp-profile {
+          margin-top: 10px;
           border: 1px solid #dce7df;
+          background: #f8faf8;
           border-radius: 10px;
-          padding: 13px;
-          margin-top: 12px;
-          background: #f8fbf9;
+          padding: 11px;
         }
 
         .rp-profile-top {
           display: flex;
-          align-items: center;
           justify-content: space-between;
+          align-items: center;
           gap: 8px;
         }
 
         .rp-profile-name {
-          font-size: 17px;
+          font-size: 16px;
           font-weight: 900;
+          min-width: 0;
+          overflow-wrap: anywhere;
         }
 
-        .rp-profile-site {
-          background: #e5f4eb;
-          color: #07704c;
-          border-radius: 100px;
-          font-weight: 800;
+        .rp-site {
+          background: #e4f4e9;
+          color: #087a51;
+          border-radius: 50px;
+          padding: 5px 9px;
           font-size: 10px;
-          padding: 6px 10px;
+          font-weight: 900;
+          flex-shrink: 0;
         }
 
         .rp-profile-sub {
-          margin-top: 5px;
-          color: #678174;
+          margin-top: 4px;
           font-size: 11px;
-          line-height: 1.5;
+          color: #708578;
+          line-height: 1.45;
         }
 
         .rp-stats {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 9px;
-          margin-top: 12px;
+          gap: 7px;
+          margin-top: 10px;
         }
 
         .rp-stat {
+          border: 1px solid #e0e9e2;
           background: white;
-          border: 1px solid #dce7df;
-          border-radius: 10px;
-          padding: 11px 7px;
+          border-radius: 9px;
+          padding: 9px 5px;
           text-align: center;
           min-width: 0;
         }
 
         .rp-stat span {
           display: block;
+          color: #708477;
           font-size: 10px;
-          color: #6b8174;
-          margin-bottom: 5px;
+          margin-bottom: 4px;
         }
 
         .rp-stat strong {
+          font-size: 20px;
           display: block;
-          font-size: 23px;
+          color: #087c57;
           font-weight: 900;
-          color: #0b7957;
-        }
-
-        .rp-stat small {
-          display: block;
-          color: #8a9a8e;
-          font-size: 9px;
-          margin-top: 4px;
         }
 
         .rp-section {
-          margin-top: 11px;
-          border: 1px solid #dae6de;
+          margin-top: 9px;
+          border: 1px solid #dce6de;
           border-radius: 10px;
           overflow: hidden;
           background: white;
         }
 
         .rp-section-head {
+          border: 0;
+          width: 100%;
+          background: #f8faf8;
+          color: #193e30;
+          padding: 11px 12px;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          width: 100%;
-          padding: 13px;
-          border: none;
-          background: #f9fbf9;
-          color: #183d30;
-          font-size: 13px;
-          font-weight: 800;
-          cursor: pointer;
           text-align: left;
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+          gap: 8px;
         }
 
-        .rp-section-head > span:first-child {
+        .rp-section-label {
           display: flex;
-          align-items: center;
           gap: 9px;
+          align-items: center;
         }
 
-        .rp-section-head b {
-          background: #e7f3eb;
-          color: #087b59;
-          border-radius: 7px;
+        .rp-section-label b {
+          background: #e5f3ea;
+          color: #087f5d;
           padding: 5px 8px;
+          border-radius: 7px;
           font-size: 11px;
         }
 
         .rp-chevron {
-          color: #087b59;
-          font-size: 22px;
+          font-size: 21px;
           line-height: 1;
+          color: #087f5d;
         }
 
         .rp-section-body {
-          padding: 13px;
-          border-top: 1px solid #e8eee9;
+          padding: 10px;
+          border-top: 1px solid #edf1ed;
+          min-width: 0;
         }
 
         .rp-tabs {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 6px;
-          background: #eaf0ec;
-          padding: 4px;
+          gap: 4px;
+          background: #e8f0eb;
           border-radius: 9px;
+          padding: 4px;
         }
 
         .rp-tab {
-          border: 0;
-          border-radius: 7px;
           background: transparent;
-          padding: 10px;
-          font-weight: 800;
+          border: 0;
+          padding: 10px 6px;
+          border-radius: 7px;
           font-size: 12px;
-          color: #73867b;
+          font-weight: 900;
+          color: #718477;
           cursor: pointer;
         }
 
         .rp-tab.active {
-          background: #087b59;
           color: white;
+          background: #087f5d;
         }
 
-        .rp-week-control {
-          display: flex;
-          gap: 9px;
-          align-items: center;
-          justify-content: space-between;
-          margin: 12px 0;
+        .rp-week-compact {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 105px;
+          gap: 10px;
+          align-items: end;
+          margin-top: 10px;
         }
 
-        .rp-week-btn {
-          background: #eaf4ed;
-          color: #087b59;
-          border: none;
-          border-radius: 9px;
-          font-size: 18px;
-          font-weight: 900;
-          width: 42px;
-          height: 42px;
-          cursor: pointer;
+        .rp-week-selector {
+          min-width: 0;
         }
 
-        .rp-week-btn:disabled {
-          opacity: .3;
-        }
-
-        .rp-week-center {
-          text-align: center;
-          flex: 1;
-        }
-
-        .rp-week-center strong {
+        .rp-week-selector label {
           display: block;
-          font-size: 18px;
-          color: #13392c;
-        }
-
-        .rp-week-center small {
-          display: block;
-          margin-top: 3px;
-          color: #718779;
+          color: #73887b;
           font-size: 10px;
+          margin-bottom: 5px;
         }
 
         .rp-week-select {
           width: 100%;
+          min-width: 0;
           padding: 10px;
-          border: 1px solid #d8e7dd;
+          border: 1px solid #dce7df;
           border-radius: 8px;
-          color: #244537;
           background: white;
-          font-size: 12px;
+          color: #224535;
+          font-size: 13px;
         }
 
-        .rp-week-result {
-          padding: 14px;
-          border: 1px solid #e1eae3;
-          background: #f9fbf9;
-          border-radius: 10px;
-          margin-top: 12px;
+        .rp-week-inline-score {
+          background: #f5faf6;
+          border: 1px solid #dfebe3;
+          border-radius: 8px;
+          padding: 7px 6px;
           text-align: center;
+          min-width: 0;
         }
 
-        .rp-week-result span {
+        .rp-week-inline-score span {
           display: block;
-          color: #75877b;
-          font-size: 11px;
+          color: #73887b;
+          font-size: 9px;
+          white-space: nowrap;
         }
 
-        .rp-week-result strong {
+        .rp-week-inline-score strong {
           display: block;
-          font-size: 34px;
-          color: #087b59;
-          margin: 5px 0;
+          color: #087f5d;
+          font-size: 19px;
+          margin-top: 2px;
         }
 
-        .rp-week-result small {
-          display: block;
+        .rp-week-meta {
+          color: #83978a;
           font-size: 10px;
-          color: #7c9083;
-          line-height: 1.5;
+          margin-top: 7px;
+          line-height: 1.45;
         }
 
         .rp-practice-name {
+          color: #335b44;
+          background: #f5faf6;
+          border: 1px solid #e0eae2;
+          padding: 8px 10px;
           margin-top: 9px;
-          padding-top: 9px;
-          border-top: 1px solid #dae5dc;
-          text-align: left;
+          border-radius: 7px;
           font-size: 11px;
-          color: #385c49;
-          line-height: 1.6;
+          line-height: 1.5;
           overflow-wrap: anywhere;
-        }
-
-        .rp-table {
-          width: 100%;
-          border-collapse: collapse;
-          table-layout: fixed;
-        }
-
-        .rp-table th,
-        .rp-table td {
-          border: 1px solid #dce7df;
-          padding: 7px 5px;
-          text-align: center;
-          font-size: 11px;
-          overflow-wrap: anywhere;
-        }
-
-        .rp-table th {
-          background: #eef5f0;
-          font-weight: 900;
-        }
-
-        .rp-ok {
-          color: #078557;
-          font-weight: 800;
-        }
-
-        .rp-pending {
-          color: #a27226;
-          font-weight: 700;
         }
 
         .rp-list-row {
           display: flex;
-          align-items: center;
           justify-content: space-between;
-          padding: 9px 0;
-          gap: 12px;
-          font-size: 12px;
+          align-items: center;
+          gap: 9px;
+          padding: 8px 0;
+          font-size: 11px;
           border-bottom: 1px solid #edf1ed;
         }
 
@@ -1035,49 +1001,95 @@ export default function RaporOJT() {
           border-bottom: none;
         }
 
+        .rp-ok {
+          color: #087f5d;
+          font-weight: 800;
+        }
+
+        .rp-pending {
+          color: #b07e31;
+          font-weight: 800;
+        }
+
         .rp-note {
+          color: #687e71;
           font-size: 11px;
-          line-height: 1.65;
-          color: #64786b;
+          line-height: 1.5;
           margin: 0;
         }
 
         .rp-small {
+          color: #849589;
           font-size: 10px;
-          color: #76897b;
-          line-height: 1.5;
-          margin: 8px 0 0;
+          line-height: 1.45;
+          margin: 7px 0 0;
+        }
+
+        .rp-footer {
+          text-align: center;
+          color: #839589;
+          font-size: 9px;
+          padding-top: 9px;
+          border-top: 1px solid #e5ede7;
+          margin-top: 12px;
+        }
+
+        .rp-loading {
+          min-height: 100vh;
+          background: #eef3f0;
+          padding: 25px;
+          color: #1c372b;
+          font-family: Arial, sans-serif;
+        }
+
+        .rp-error {
+          padding: 10px;
+          margin-bottom: 10px;
+          border: 1px solid #efbdbd;
+          background: #fff1f1;
+          color: #a52c2c;
+          border-radius: 8px;
+          font-size: 12px;
         }
 
         .rp-print-only {
           display: none;
         }
 
-        .rp-footer {
+        .rp-print-week-section {
+          margin-top: 7px;
+        }
+
+        .rp-section-title {
+          background: #153b72;
+          color: white;
           font-size: 10px;
-          color: #839487;
+          font-weight: 900;
+          padding: 6px 8px;
+        }
+
+        .rp-print-table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+
+        .rp-print-table th,
+        .rp-print-table td {
+          border: 1px solid #dce7df;
           text-align: center;
-          margin-top: 16px;
-          padding-top: 10px;
-          border-top: 1px solid #e5ece6;
+          padding: 4px 2px;
+          font-size: 8px;
         }
 
-        .rp-loading {
-          padding: 25px;
-          min-height: 100vh;
-          background: #eef3f0;
-          color: #18382b;
-          font-family: Arial, sans-serif;
+        .rp-print-signature {
+          margin-top: 11px;
+          font-size: 10px;
+          text-align: right;
         }
 
-        .rp-error {
-          padding: 12px;
-          border: 1px solid #eebbbb;
-          border-radius: 9px;
-          background: #fff1f1;
-          color: #b52c2c;
-          font-size: 12px;
-          margin-bottom: 12px;
+        .rp-print-signature-space {
+          height: 35px;
         }
 
         @media screen {
@@ -1087,24 +1099,10 @@ export default function RaporOJT() {
         }
 
         @media (max-width: 700px) {
-          .rp-topbar {
-            padding: 12px;
-          }
-
-          .rp-page {
-            padding: 9px;
-          }
-
-          .rp-paper {
-            padding: 10px;
-            border-radius: 10px;
-          }
-
           .rp-heading {
             grid-template-columns: 1fr;
             text-align: center;
-            gap: 5px;
-            padding: 12px;
+            gap: 4px;
           }
 
           .rp-heading-brand {
@@ -1123,12 +1121,14 @@ export default function RaporOJT() {
             display: none;
           }
 
-          .rp-stat strong {
-            font-size: 20px;
+          .rp-page {
+            padding: 8px;
+          }
+
+          .rp-paper {
+            padding: 9px;
           }
         }
-
-        /* CETAK RAPOR LENGKAP A4 PORTRAIT */
 
         @page {
           size: A4 portrait;
@@ -1136,7 +1136,8 @@ export default function RaporOJT() {
         }
 
         @media print {
-          html, body {
+          html,
+          body {
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
@@ -1159,28 +1160,23 @@ export default function RaporOJT() {
             -webkit-print-color-adjust: exact;
           }
 
-          .rp-page {
+          .rp-page,
+          .rp-paper {
             width: 200mm !important;
             max-width: none !important;
             margin: 0 !important;
             padding: 0 !important;
-          }
-
-          .rp-paper {
-            width: 200mm !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border: none !important;
+            border: 0 !important;
             border-radius: 0 !important;
             box-shadow: none !important;
           }
 
           .rp-heading {
             display: grid !important;
-            grid-template-columns: 125px 1fr 75px !important;
-            text-align: initial !important;
-            padding: 6px 10px !important;
+            grid-template-columns: 125px 1fr 65px !important;
+            padding: 6px 9px !important;
             gap: 6px !important;
+            text-align: initial !important;
           }
 
           .rp-heading-brand {
@@ -1193,7 +1189,7 @@ export default function RaporOJT() {
           }
 
           .rp-heading-title strong {
-            font-size: 21px !important;
+            font-size: 20px !important;
           }
 
           .rp-heading-title small {
@@ -1202,8 +1198,8 @@ export default function RaporOJT() {
 
           .rp-heading-mark {
             display: grid !important;
-            width: 48px !important;
-            height: 48px !important;
+            width: 47px !important;
+            height: 47px !important;
             font-size: 9px !important;
           }
 
@@ -1218,13 +1214,12 @@ export default function RaporOJT() {
 
           .rp-profile-sub {
             font-size: 8px !important;
-            margin-top: 2px !important;
           }
 
           .rp-stats {
             grid-template-columns: repeat(3, 1fr) !important;
-            gap: 5px !important;
             margin-top: 6px !important;
+            gap: 5px !important;
           }
 
           .rp-stat {
@@ -1233,16 +1228,10 @@ export default function RaporOJT() {
 
           .rp-stat span {
             font-size: 8px !important;
-            margin-bottom: 2px !important;
           }
 
           .rp-stat strong {
             font-size: 15px !important;
-          }
-
-          .rp-stat small {
-            font-size: 7px !important;
-            margin-top: 1px !important;
           }
 
           .rp-section {
@@ -1251,43 +1240,26 @@ export default function RaporOJT() {
             break-inside: avoid !important;
           }
 
-          .rp-section-title {
-            padding: 5px 7px !important;
-            font-size: 9px !important;
-            background: #153b72 !important;
-            color: white !important;
-            font-weight: 900 !important;
-          }
-
           .rp-section-body,
           .rp-collapsed {
             display: block !important;
             padding: 5px !important;
-            border-top: none !important;
           }
 
-          .rp-table th,
-          .rp-table td {
-            padding: 3px 2px !important;
-            font-size: 8px !important;
-            line-height: 1.15 !important;
+          .rp-section-title {
+            font-size: 9px !important;
+            padding: 5px 7px !important;
           }
 
-          .rp-print-section {
-            margin-top: 6px !important;
-            border: 1px solid #dce7df !important;
+          .rp-print-week-section {
+            margin-top: 5px !important;
             break-inside: avoid !important;
           }
 
-          .rp-week-table th,
-          .rp-week-table td {
+          .rp-print-table th,
+          .rp-print-table td {
             font-size: 7px !important;
             padding: 3px 1px !important;
-          }
-
-          .rp-small {
-            font-size: 7px !important;
-            margin: 3px 0 !important;
           }
 
           .rp-list-row {
@@ -1300,10 +1272,9 @@ export default function RaporOJT() {
             line-height: 1.3 !important;
           }
 
-          .rp-footer {
+          .rp-small {
             font-size: 7px !important;
-            margin-top: 5px !important;
-            padding-top: 4px !important;
+            margin: 3px 0 !important;
           }
 
           .rp-print-bottom {
@@ -1314,12 +1285,17 @@ export default function RaporOJT() {
 
           .rp-print-signature {
             font-size: 8px !important;
-            text-align: right !important;
-            padding-top: 8px !important;
+            margin-top: 6px !important;
           }
 
           .rp-print-signature-space {
             height: 22px !important;
+          }
+
+          .rp-footer {
+            font-size: 7px !important;
+            padding-top: 4px !important;
+            margin-top: 5px !important;
           }
         }
       `}</style>
@@ -1354,12 +1330,14 @@ export default function RaporOJT() {
             className="rp-btn"
             onClick={() => window.print()}
           >
-            Cetak / PDF
+            Cetak / Simpan PDF
           </button>
         </div>
 
         {error && (
-          <div className="rp-error rp-screen-only">{error}</div>
+          <div className="rp-error rp-screen-only">
+            {error}
+          </div>
         )}
 
         <article className="rp-paper">
@@ -1391,7 +1369,7 @@ export default function RaporOJT() {
                 {participantName}
               </div>
 
-              <span className="rp-profile-site">
+              <span className="rp-site">
                 {program.site || "—"}
               </span>
             </div>
@@ -1405,22 +1383,20 @@ export default function RaporOJT() {
             </div>
 
             <div className="rp-stats">
-              <StatCard
-                label="Kompetensi"
-                value={`${report.verifiedCount}/6`}
-              />
+              <div className="rp-stat">
+                <span>Kompetensi</span>
+                <strong>{report.verifiedCount}/6</strong>
+              </div>
 
-              <StatCard
-                label="Post-Test"
-                value={fmt(report.postAverage)}
-                detail="Rata-rata per minggu"
-              />
+              <div className="rp-stat">
+                <span>Post-Test</span>
+                <strong>{fmt(report.postAverage)}</strong>
+              </div>
 
-              <StatCard
-                label="Praktik"
-                value={fmt(report.practiceAverage)}
-                detail="Rata-rata per minggu"
-              />
+              <div className="rp-stat">
+                <span>Praktik</span>
+                <strong>{fmt(report.practiceAverage)}</strong>
+              </div>
             </div>
           </div>
 
@@ -1433,11 +1409,9 @@ export default function RaporOJT() {
             {report.categories.map(item => (
               <div className="rp-list-row" key={item.name}>
                 <span>{item.name}</span>
-                <span
-                  className={
-                    item.verified > 0 ? "rp-ok" : "rp-pending"
-                  }
-                >
+                <span className={
+                  item.verified > 0 ? "rp-ok" : "rp-pending"
+                }>
                   {item.verified > 0
                     ? `${item.verified} Terverifikasi`
                     : "Belum"}
@@ -1446,8 +1420,8 @@ export default function RaporOJT() {
             ))}
 
             <p className="rp-small">
-              Kategori terpenuhi jika mempunyai minimal
-              satu aktivitas terverifikasi dalam periode OJT.
+              Kategori dianggap terpenuhi jika memiliki
+              minimal satu kegiatan terverifikasi.
             </p>
           </Section>
 
@@ -1460,111 +1434,83 @@ export default function RaporOJT() {
             <div className="rp-screen-only">
               <div className="rp-tabs">
                 <button
+                  type="button"
                   className={`rp-tab ${
                     activeTab === "post" ? "active" : ""
                   }`}
                   onClick={() => setActiveTab("post")}
-                  type="button"
                 >
                   Post-Test
                 </button>
 
                 <button
+                  type="button"
                   className={`rp-tab ${
                     activeTab === "practice" ? "active" : ""
                   }`}
                   onClick={() => setActiveTab("practice")}
-                  type="button"
                 >
                   Praktik
                 </button>
               </div>
 
-              <div className="rp-week-control">
-                <button
-                  type="button"
-                  className="rp-week-btn"
-                  disabled={selectedWeek === 1}
-                  onClick={() =>
-                    setSelectedWeek(old => Math.max(1, old - 1))
-                  }
-                >
-                  ‹
-                </button>
+              <div className="rp-week-compact">
+                <div className="rp-week-selector">
+                  <label htmlFor="rp-select-week">
+                    Pilih Minggu
+                  </label>
 
-                <div className="rp-week-center">
-                  <strong>
-                    Week {String(selectedWeek).padStart(2, "0")}
-                  </strong>
-                  <small>Dari 25 minggu OJT</small>
+                  <select
+                    id="rp-select-week"
+                    className="rp-week-select"
+                    value={selectedWeek}
+                    onChange={event =>
+                      setSelectedWeek(Number(event.target.value))
+                    }
+                  >
+                    {Array.from(
+                      { length: TOTAL_WEEKS },
+                      (_, index) => index + 1
+                    ).map(week => (
+                      <option key={week} value={week}>
+                        Week {String(week).padStart(2, "0")}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <button
-                  type="button"
-                  className="rp-week-btn"
-                  disabled={selectedWeek === TOTAL_WEEKS}
-                  onClick={() =>
-                    setSelectedWeek(old =>
-                      Math.min(TOTAL_WEEKS, old + 1)
-                    )
-                  }
-                >
-                  ›
-                </button>
+                <div className="rp-week-inline-score">
+                  <span>
+                    {activeTab === "post"
+                      ? "Post-Test"
+                      : "Praktik"}
+                  </span>
+                  <strong>{fmt(selectedData?.score)}</strong>
+                </div>
               </div>
 
-              <select
-                className="rp-week-select"
-                value={selectedWeek}
-                onChange={event =>
-                  setSelectedWeek(Number(event.target.value))
-                }
-                aria-label="Pilih minggu OJT"
-              >
-                {Array.from(
-                  { length: TOTAL_WEEKS },
-                  (_, index) => index + 1
-                ).map(week => (
-                  <option key={week} value={week}>
-                    Week {String(week).padStart(2, "0")}
-                  </option>
-                ))}
-              </select>
-
-              <div className="rp-week-result">
-                <span>
-                  {activeTab === "post"
-                    ? "Nilai Post-Test"
-                    : "Nilai Praktik"}
-                </span>
-
-                <strong>{fmt(selectedData?.score)}</strong>
-
-                <small>
-                  {selectedData?.count
-                    ? `${selectedData.count} catatan penilaian`
-                    : "Belum ada nilai pada minggu ini"}
-                </small>
-
-                {activeTab === "practice" &&
-                  selectedData?.names?.length > 0 && (
-                    <div className="rp-practice-name">
-                      <strong>Nama Praktik:</strong>
-                      <div>
-                        {selectedData.names.join(", ")}
-                      </div>
-                    </div>
-                  )}
+              <div className="rp-week-meta">
+                {selectedData?.count
+                  ? `${selectedData.count} catatan penilaian pada minggu ini`
+                  : "Belum ada nilai pada minggu ini"}
               </div>
+
+              {activeTab === "practice" &&
+                selectedData?.names?.length > 0 && (
+                  <div className="rp-practice-name">
+                    <strong>Nama Praktik:</strong>
+                    <div>{selectedData.names.join(", ")}</div>
+                  </div>
+                )}
             </div>
 
             <div className="rp-print-only">
-              <PrintWeekTable
+              <PrintWeeks
                 title="2. PENILAIAN POST-TEST WEEK 1–25"
                 weeks={report.postWeeks}
               />
 
-              <PrintWeekTable
+              <PrintWeeks
                 title="3. PENILAIAN PRAKTIK WEEK 1–25"
                 weeks={report.practiceWeeks}
               />
@@ -1580,7 +1526,9 @@ export default function RaporOJT() {
             >
               <div className="rp-list-row">
                 <span>Nilai Samapta Terakhir</span>
-                <strong>{fmt(report.lastSamapta?.final)}</strong>
+                <strong>
+                  {fmt(report.lastSamapta?.final)}
+                </strong>
               </div>
 
               <div className="rp-list-row">
@@ -1600,13 +1548,11 @@ export default function RaporOJT() {
               {simperStages.map((stage, index) => (
                 <div className="rp-list-row" key={stage}>
                   <span>{stage}</span>
-                  <span
-                    className={
-                      report.simperData.stages[index]
-                        ? "rp-ok"
-                        : "rp-pending"
-                    }
-                  >
+                  <span className={
+                    report.simperData.stages[index]
+                      ? "rp-ok"
+                      : "rp-pending"
+                  }>
                     {report.simperData.stages[index]
                       ? "Selesai"
                       : "Belum"}
@@ -1616,7 +1562,9 @@ export default function RaporOJT() {
 
               <div className="rp-list-row">
                 <strong>Total Progres</strong>
-                <strong>{report.simperData.percent}%</strong>
+                <strong>
+                  {report.simperData.percent}%
+                </strong>
               </div>
             </Section>
           </div>
@@ -1628,25 +1576,27 @@ export default function RaporOJT() {
             onToggle={() => toggleSection("catatan")}
           >
             <p className="rp-note">
-              Terdapat {report.verifiedCount} dari 6 kategori
-              kompetensi yang terverifikasi. Rapor ini merupakan
-              ringkasan otomatis data OJT dan bukan keputusan
-              kelulusan akhir. Nilai serta predikat kelulusan
-              resmi mengikuti ketentuan perusahaan.
+              {report.verifiedCount} dari 6 kategori
+              kompetensi telah terverifikasi.
+              Terdapat aktivitas pada{" "}
+              {report.activeWeeks} dari 25 minggu OJT.
+              Rapor ini merupakan rekap monitoring,
+              bukan penetapan kelulusan akhir.
             </p>
 
             <div className="rp-print-signature">
-              <p className="rp-note" style={{ marginTop: 10 }}>
+              <div>
                 Tanggal cetak:{" "}
                 {new Date().toLocaleDateString("id-ID")}
-              </p>
-
-              <strong>Mengetahui,</strong>
-              <div>Mentor / Penanggung Jawab</div>
+              </div>
+              <div style={{ marginTop: 7 }}>
+                Mengetahui,
+              </div>
+              <strong>Mentor / Penanggung Jawab</strong>
 
               <div className="rp-print-signature-space" />
 
-              <div>______________________</div>
+              <div>_____________________</div>
               <strong>
                 {mentor
                   ? profile.full_name || "Nama Mentor"
