@@ -5,86 +5,60 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-const styles = {
-  page: {
-    minHeight: "100vh",
-    backgroundColor: "#f1f5f9",
-    backgroundImage:
-      'linear-gradient(rgba(241,245,249,0.86),rgba(241,245,249,0.94)),url("/background-erg.png.PNG")',
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    backgroundAttachment: "fixed",
-    color: "#0f172a",
-    padding: 18,
-    fontFamily: "Arial, sans-serif",
-  },
-  container: {
-    maxWidth: 850,
-    margin: "0 auto",
-  },
-  header: {
-    background: "rgba(15,23,42,0.96)",
-    color: "#ffffff",
-    padding: 24,
-    borderRadius: 16,
-    marginBottom: 20,
-  },
-  card: {
-    background: "rgba(255,255,255,0.97)",
-    borderRadius: 14,
-    padding: 20,
-    marginBottom: 16,
-    border: "1px solid #e2e8f0",
-  },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: 12,
-    marginTop: 6,
-    marginBottom: 18,
-    borderRadius: 9,
-    border: "1px solid #cbd5e1",
-    fontSize: 16,
-    fontFamily: "inherit",
-    background: "#ffffff",
-    color: "#0f172a",
-  },
-  button: {
-    background: "#2563eb",
-    color: "#ffffff",
-    border: "none",
-    padding: "12px 17px",
-    borderRadius: 9,
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-};
-
-function hariIni() {
-  const now = new Date();
-
-  const local = new Date(
-    now.getTime() -
-      now.getTimezoneOffset() * 60000
-  );
-
+function today() {
+  const d = new Date();
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 10);
 }
 
-function formatTanggal(value) {
+function formatDate(value) {
   if (!value) return "-";
-
-  const parts = String(value)
-    .slice(0, 10)
-    .split("-");
-
+  const parts = String(value).slice(0, 10).split("-");
   if (parts.length !== 3) return String(value);
-
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-function namaPeserta(item) {
-  return item?.peserta?.full_name || "Nama belum tersedia";
+function participantName(item) {
+  return item?.peserta?.full_name || "Peserta OJT";
+}
+
+function Icon({ name, size = 20 }) {
+  const icons = {
+    back: <path d="m15 18-6-6 6-6M9 12h12" />,
+    users: <>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3 20v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5" />
+    </>,
+    calendar: <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M7 3v4M17 3v4M3 10h18" />
+    </>,
+    clipboard: <>
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4V2h6v2M9 11h6M9 15h5" />
+    </>,
+    chart: <path d="M4 20V10M10 20V4M16 20v-8M22 20V7" />,
+    check: <path d="m4 12 5 5L20 6" />,
+    edit: <path d="m4 20 4-.8L20 7a2 2 0 0 0-3-3L5 16z" />,
+    trash: <path d="M4 7h16M9 4h6M6 7l1 14h10l1-14M10 11v6M14 11v6" />,
+    arrow: <path d="m9 5 7 7-7 7" />
+  };
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {icons[name] || icons.check}
+    </svg>
+  );
 }
 
 export default function PraktikMingguan() {
@@ -97,33 +71,29 @@ export default function PraktikMingguan() {
 
   const [mentor, setMentor] = useState(null);
   const [program, setProgram] = useState(null);
-  const [daftarProgram, setDaftarProgram] = useState([]);
-  const [riwayat, setRiwayat] = useState([]);
+  const [programs, setPrograms] = useState([]);
+  const [records, setRecords] = useState([]);
 
-  const [tanggal, setTanggal] = useState(hariIni);
-  const [namaPraktik, setNamaPraktik] = useState("");
-  const [nilai, setNilai] = useState("");
-  const [catatan, setCatatan] = useState("");
+  const [date, setDate] = useState(today);
+  const [practice, setPractice] = useState("");
+  const [score, setScore] = useState("");
+  const [notes, setNotes] = useState("");
   const [editId, setEditId] = useState(null);
 
   const [loading, setLoading] = useState(true);
-  const [menyimpan, setMenyimpan] = useState(false);
-  const [aksiId, setAksiId] = useState(null);
-
+  const [saving, setSaving] = useState(false);
+  const [actionId, setActionId] = useState(null);
   const [error, setError] = useState("");
-  const [pesan, setPesan] = useState("");
+  const [message, setMessage] = useState("");
 
-  // Ambil riwayat berdasarkan program peserta.
-  async function ambilRiwayat(id) {
+  async function fetchRecords(id) {
     const { data, error: err } = await supabase
       .from("weekly_practice_scores")
       .select(
         "id,program_id,practice_date,practice_name,score,notes,created_at"
       )
       .eq("program_id", id)
-      .order("practice_date", {
-        ascending: false,
-      });
+      .order("practice_date", { ascending: false });
 
     if (err) throw err;
 
@@ -133,24 +103,24 @@ export default function PraktikMingguan() {
   useEffect(() => {
     if (!programId) return;
 
-    let aktif = true;
+    let active = true;
 
-    async function mulai() {
+    async function initialize() {
       setLoading(true);
       setError("");
-      setPesan("");
+      setMessage("");
       setProgram(null);
-      setRiwayat([]);
+      setRecords([]);
       setEditId(null);
-      setTanggal(hariIni());
-      setNamaPraktik("");
-      setNilai("");
-      setCatatan("");
+      setDate(today());
+      setPractice("");
+      setScore("");
+      setNotes("");
 
       try {
         const {
           data: { user },
-          error: authError,
+          error: authError
         } = await supabase.auth.getUser();
 
         if (authError || !user) {
@@ -159,28 +129,25 @@ export default function PraktikMingguan() {
         }
 
         const {
-          data: profil,
-          error: profilError,
+          data: profile,
+          error: profileError
         } = await supabase
           .from("profiles")
           .select("id,full_name,role")
           .eq("id", user.id)
           .single();
 
-        if (profilError) throw profilError;
+        if (profileError) throw profileError;
 
-        if (profil?.role !== "mentor") {
+        if (profile?.role !== "mentor") {
           throw new Error(
             "Halaman penilaian hanya untuk Mentor ERG."
           );
         }
 
-        // Membaca seluruh program aktif.
-        // RLS database menentukan siapa
-        // yang boleh membaca data.
         const {
-          data: programs,
-          error: programsError,
+          data: allPrograms,
+          error: programError
         } = await supabase
           .from("ojt_programs")
           .select(`
@@ -197,126 +164,111 @@ export default function PraktikMingguan() {
           `)
           .eq("status", "active");
 
-        if (programsError) throw programsError;
+        if (programError) throw programError;
 
-        const list = (programs || []).sort(
+        const list = (allPrograms || []).sort(
           (a, b) =>
-            namaPeserta(a).localeCompare(
-              namaPeserta(b),
+            participantName(a).localeCompare(
+              participantName(b),
               "id"
             )
         );
 
-        const pilihan = list.find(
-          (item) => item.id === programId
+        const selected = list.find(
+          item => item.id === programId
         );
 
-        if (!pilihan) {
+        if (!selected) {
           throw new Error(
-            "Program peserta tidak ditemukan atau sudah tidak aktif."
+            "Program peserta tidak ditemukan atau tidak aktif."
           );
         }
 
-        const dataNilai =
-          await ambilRiwayat(pilihan.id);
+        const history = await fetchRecords(selected.id);
 
-        if (!aktif) return;
+        if (!active) return;
 
-        setMentor(profil);
-        setDaftarProgram(list);
-        setProgram(pilihan);
-        setRiwayat(dataNilai);
+        setMentor(profile);
+        setPrograms(list);
+        setProgram(selected);
+        setRecords(history);
       } catch (err) {
-        if (aktif) {
-          setError(
-            err.message || "Gagal memuat data."
-          );
+        if (active) {
+          setError(err.message || "Gagal memuat data.");
         }
       } finally {
-        if (aktif) setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
-    mulai();
+    initialize();
 
     return () => {
-      aktif = false;
+      active = false;
     };
   }, [programId, router]);
 
   function resetForm() {
     setEditId(null);
-    setTanggal(hariIni());
-    setNamaPraktik("");
-    setNilai("");
-    setCatatan("");
+    setDate(today());
+    setPractice("");
+    setScore("");
+    setNotes("");
   }
 
-  // Saat peserta dipilih, URL ikut berubah.
-  // Ini memastikan nilai dan riwayat
-  // hanya menggunakan program yang dipilih.
-  function pilihPeserta(id) {
+  function changeParticipant(id) {
     if (
       !id ||
       id === programId ||
-      menyimpan ||
-      aksiId
-    ) {
-      return;
-    }
+      saving ||
+      actionId
+    ) return;
 
     setError("");
-    setPesan("");
-    setEditId(null);
+    setMessage("");
     setProgram(null);
-    setRiwayat([]);
+    setRecords([]);
     setLoading(true);
 
     router.push(`/praktik/${id}`);
   }
 
-  async function simpanPraktik(event) {
+  async function savePractice(event) {
     event.preventDefault();
 
     if (
       !mentor ||
       !program ||
       program.id !== programId ||
-      menyimpan ||
-      aksiId
-    ) {
-      return;
-    }
+      saving ||
+      actionId
+    ) return;
 
-    const angka = Number(nilai);
+    const numericScore = Number(score);
 
-    if (!tanggal || !namaPraktik.trim()) {
-      setError(
-        "Tanggal dan jenis praktik wajib diisi."
-      );
+    if (!date || !practice.trim()) {
+      setError("Tanggal dan materi praktik wajib diisi.");
       return;
     }
 
     if (
-      nilai.trim() === "" ||
-      !Number.isFinite(angka) ||
-      angka < 0 ||
-      angka > 100
+      score.trim() === "" ||
+      !Number.isFinite(numericScore) ||
+      numericScore < 0 ||
+      numericScore > 100
     ) {
-      setError(
-        "Nilai harus antara 0 sampai 100."
-      );
+      setError("Nilai harus antara 0 sampai 100.");
       return;
     }
 
-    setMenyimpan(true);
+    setSaving(true);
     setError("");
-    setPesan("");
+    setMessage("");
 
     try {
       const {
-        data: programAktif,
-        error: programError,
+        data: activeProgram,
+        error: activeError
       } = await supabase
         .from("ojt_programs")
         .select("id,status")
@@ -324,622 +276,1002 @@ export default function PraktikMingguan() {
         .eq("status", "active")
         .maybeSingle();
 
-      if (programError) throw programError;
+      if (activeError) throw activeError;
 
-      if (!programAktif) {
-        throw new Error(
-          "Program OJT sudah tidak aktif."
-        );
+      if (!activeProgram) {
+        throw new Error("Program OJT sudah tidak aktif.");
       }
 
-      const input = {
-        practice_date: tanggal,
-        practice_name: namaPraktik.trim(),
-        score: angka,
-        notes: catatan.trim() || null,
+      const payload = {
+        practice_date: date,
+        practice_name: practice.trim(),
+        score: numericScore,
+        notes: notes.trim() || null
       };
 
-      const sedangEdit = Boolean(editId);
+      const updating = Boolean(editId);
 
-      const hasil = sedangEdit
+      const result = updating
         ? await supabase
             .from("weekly_practice_scores")
-            .update(input)
+            .update(payload)
             .eq("id", editId)
             .eq("program_id", program.id)
             .select("id")
         : await supabase
             .from("weekly_practice_scores")
             .insert({
-              ...input,
+              ...payload,
               program_id: program.id,
-              created_by: mentor.id,
+              created_by: mentor.id
             })
             .select("id");
 
-      if (hasil.error) throw hasil.error;
+      if (result.error) throw result.error;
 
-      if (!hasil.data?.length) {
+      if (!result.data?.length) {
         throw new Error(
           "Nilai praktik tidak berhasil disimpan."
         );
       }
 
-      const dataTerbaru =
-        await ambilRiwayat(program.id);
+      const latest = await fetchRecords(program.id);
 
-      setRiwayat(dataTerbaru);
+      setRecords(latest);
       resetForm();
 
-      setPesan(
-        sedangEdit
-          ? `Nilai ${namaPeserta(program)} berhasil diperbarui.`
-          : `Nilai ${namaPeserta(program)} berhasil disimpan.`
+      setMessage(
+        updating
+          ? `Nilai ${participantName(program)} berhasil diperbarui.`
+          : `Nilai ${participantName(program)} berhasil disimpan.`
       );
     } catch (err) {
       setError(
         err.message || "Gagal menyimpan nilai."
       );
     } finally {
-      setMenyimpan(false);
+      setSaving(false);
     }
   }
 
-  function editPraktik(item) {
+  function editPractice(item) {
     if (
       !program ||
-      item.program_id !== program.id
-    ) {
-      return;
-    }
+      item.program_id !== program.id ||
+      saving ||
+      actionId
+    ) return;
 
     setEditId(item.id);
-    setTanggal(item.practice_date);
-    setNamaPraktik(item.practice_name);
-    setNilai(String(item.score));
-    setCatatan(item.notes || "");
+    setDate(item.practice_date);
+    setPractice(item.practice_name);
+    setScore(String(item.score));
+    setNotes(item.notes || "");
     setError("");
-    setPesan("");
+    setMessage("");
 
     document
-      .getElementById("form-praktik")
+      .getElementById("practice-form")
       ?.scrollIntoView({
         behavior: "smooth",
-        block: "start",
+        block: "start"
       });
   }
 
-  async function hapusPraktik(item) {
+  async function deletePractice(item) {
     if (
       !mentor ||
       !program ||
       program.id !== programId ||
-      aksiId ||
-      menyimpan
-    ) {
-      return;
-    }
+      saving ||
+      actionId
+    ) return;
 
     const confirmed = window.confirm(
       `Hapus penilaian ini?\n\n` +
-        `Peserta: ${namaPeserta(program)}\n` +
-        `Site: ${program.site}\n` +
-        `Materi: ${item.practice_name}\n` +
-        `Nilai: ${item.score}`
+      `Peserta: ${participantName(program)}\n` +
+      `Materi: ${item.practice_name}\n` +
+      `Nilai: ${item.score}`
     );
 
     if (!confirmed) return;
 
-    setAksiId(item.id);
+    setActionId(item.id);
     setError("");
-    setPesan("");
+    setMessage("");
 
     try {
-      const { data, error: err } =
-        await supabase
-          .from("weekly_practice_scores")
-          .delete()
-          .eq("id", item.id)
-          .eq("program_id", program.id)
-          .select("id");
+      const { data, error: err } = await supabase
+        .from("weekly_practice_scores")
+        .delete()
+        .eq("id", item.id)
+        .eq("program_id", program.id)
+        .select("id");
 
       if (err) throw err;
 
       if (!data?.length) {
-        throw new Error(
-          "Nilai praktik tidak berhasil dihapus."
-        );
+        throw new Error("Nilai praktik tidak berhasil dihapus.");
       }
 
-      if (editId === item.id) {
-        resetForm();
-      }
+      if (editId === item.id) resetForm();
 
-      const dataTerbaru =
-        await ambilRiwayat(program.id);
+      const latest = await fetchRecords(program.id);
+      setRecords(latest);
 
-      setRiwayat(dataTerbaru);
-
-      setPesan(
-        `Nilai ${namaPeserta(program)} berhasil dihapus.`
+      setMessage(
+        `Nilai ${participantName(program)} berhasil dihapus.`
       );
     } catch (err) {
       setError(
         err.message || "Gagal menghapus nilai."
       );
     } finally {
-      setAksiId(null);
+      setActionId(null);
     }
   }
 
-  const totalPenilaian = riwayat.length;
+  const total = records.length;
 
-  const rataRata = totalPenilaian
-    ? riwayat.reduce(
-        (total, item) =>
-          total + Number(item.score),
+  const average = total
+    ? records.reduce(
+        (sum, item) => sum + Number(item.score),
         0
-      ) / totalPenilaian
+      ) / total
     : null;
 
-  if (loading) {
-    return (
-      <main style={styles.page}>
-        <div style={styles.container}>
-          <section style={styles.card}>
-            <h2>Monitoring OJT</h2>
-            <p>Memuat daftar peserta dan nilai praktik...</p>
-          </section>
+  return (
+    <main className="pm-root">
+      <style>{`
+        * { box-sizing: border-box; }
+
+        .pm-root {
+          min-height: 100vh;
+          background: #f2f6f7;
+          color: #18352c;
+          font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .pm-topbar {
+          background: #071e25;
+          color: white;
+          min-height: 66px;
+          padding: 14px 22px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .pm-brand {
+          font-size: 21px;
+          font-weight: 900;
+          letter-spacing: -.5px;
+        }
+
+        .pm-brand span {
+          color: #2dcb92;
+        }
+
+        .pm-back {
+          background: #ffffff13;
+          border: 1px solid #ffffff30;
+          border-radius: 9px;
+          color: white;
+          padding: 10px 13px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+        }
+
+        .pm-container {
+          max-width: 1040px;
+          margin: 0 auto;
+          padding: 22px;
+        }
+
+        .pm-hero {
+          border-radius: 17px;
+          padding: 30px;
+          margin-bottom: 18px;
+          color: white;
+          background:
+            linear-gradient(
+              90deg,
+              rgba(5,25,31,.96),
+              rgba(8,46,40,.77),
+              rgba(5,35,37,.35)
+            ),
+            url("/background-erg.png.PNG");
+          background-size: cover;
+          background-position: center;
+        }
+
+        .pm-kicker {
+          color: #ecc46f;
+          font-size: 10px;
+          letter-spacing: 1.7px;
+          font-weight: 800;
+        }
+
+        .pm-hero h1 {
+          font-size: 30px;
+          line-height: 1.2;
+          margin: 13px 0 8px;
+        }
+
+        .pm-hero p {
+          color: #daebe5;
+          font-size: 13px;
+          margin: 0;
+        }
+
+        .pm-card {
+          background: white;
+          border: 1px solid #e3eae6;
+          border-radius: 16px;
+          padding: 20px;
+          margin-bottom: 16px;
+          box-shadow: 0 5px 19px #102e2510;
+        }
+
+        .pm-title {
+          color: #19382e;
+          font-size: 18px;
+          font-weight: 900;
+          margin: 0 0 9px;
+        }
+
+        .pm-muted {
+          color: #82948b;
+          font-size: 12px;
+          line-height: 1.6;
+          margin: 0 0 17px;
+        }
+
+        .pm-label {
+          display: block;
+          font-size: 12px;
+          font-weight: 800;
+          color: #354b40;
+          margin-bottom: 8px;
+        }
+
+        .pm-field {
+          display: block;
+          width: 100%;
+          padding: 12px;
+          background: white;
+          border: 1px solid #d9e4dd;
+          border-radius: 10px;
+          color: #17372b;
+          font-size: 16px;
+          font-family: inherit;
+          margin-bottom: 17px;
+        }
+
+        .pm-field:focus {
+          outline: 2px solid #8ad5b5;
+          outline-offset: 1px;
+        }
+
+        textarea.pm-field {
+          resize: vertical;
+        }
+
+        .pm-identity {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 15px;
+          background: #f3faf6;
+          border: 1px solid #dcefe3;
+          border-radius: 12px;
+          margin-top: 10px;
+        }
+
+        .pm-avatar {
+          flex-shrink: 0;
+          width: 52px;
+          height: 52px;
+          border-radius: 13px;
+          background: #d9f4e6;
+          color: #087c54;
+          display: grid;
+          place-items: center;
+          font-weight: 900;
+          font-size: 19px;
+        }
+
+        .pm-person-name {
+          font-size: 16px;
+          font-weight: 900;
+          color: #15392a;
+          overflow-wrap: anywhere;
+        }
+
+        .pm-person-sub {
+          font-size: 12px;
+          color: #70877a;
+          margin-top: 5px;
+          line-height: 1.6;
+        }
+
+        .pm-badge {
+          background: #dff7e9;
+          color: #087d51;
+          border-radius: 20px;
+          padding: 7px 10px;
+          font-size: 11px;
+          font-weight: 800;
+          white-space: nowrap;
+          margin-left: auto;
+        }
+
+        .pm-stats {
+          display: grid;
+          grid-template-columns: repeat(2,minmax(0,1fr));
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .pm-stat {
+          border-radius: 15px;
+          padding: 20px;
+          background: white;
+          border: 1px solid #e3eae6;
+          box-shadow: 0 5px 19px #102e2510;
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }
+
+        .pm-stat-icon {
+          width: 47px;
+          height: 47px;
+          flex-shrink: 0;
+          border-radius: 12px;
+          display: grid;
+          place-items: center;
+          background: #e4f7ee;
+          color: #11845e;
+        }
+
+        .pm-stat-label {
+          color: #74877c;
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .pm-stat-number {
+          font-weight: 900;
+          color: #143629;
+          font-size: 26px;
+          margin-top: 4px;
+        }
+
+        .pm-btn {
+          padding: 12px 17px;
+          border: none;
+          border-radius: 10px;
+          background: #148761;
+          color: white;
+          font-weight: 800;
+          font-size: 13px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+        }
+
+        .pm-btn:disabled {
+          opacity: .55;
+          cursor: not-allowed;
+        }
+
+        .pm-btn.blue { background: #347bcc; }
+        .pm-btn.red { background: #d33c42; }
+        .pm-btn.gray { background: #697b86; }
+
+        .pm-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 7px;
+        }
+
+        .pm-form-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          column-gap: 17px;
+        }
+
+        .pm-full {
+          grid-column: 1 / -1;
+        }
+
+        .pm-error {
+          padding: 14px;
+          border-radius: 11px;
+          border: 1px solid #fecaca;
+          background: #fff1f2;
+          color: #b91c1c;
+          margin-bottom: 15px;
+          font-size: 13px;
+          overflow-wrap: anywhere;
+        }
+
+        .pm-success {
+          padding: 14px;
+          border-radius: 11px;
+          border: 1px solid #bbebd0;
+          background: #ebfbf1;
+          color: #087849;
+          margin-bottom: 15px;
+          font-size: 13px;
+        }
+
+        .pm-history {
+          border: 1px solid #e2eae5;
+          border-radius: 13px;
+          background: #ffffff;
+          padding: 17px;
+          margin-bottom: 12px;
+        }
+
+        .pm-history-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 10px;
+        }
+
+        .pm-history-name {
+          font-weight: 900;
+          font-size: 15px;
+          color: #19382b;
+          overflow-wrap: anywhere;
+        }
+
+        .pm-history-date {
+          color: #88958e;
+          font-size: 11px;
+          margin-top: 7px;
+        }
+
+        .pm-score {
+          color: #0f855e;
+          background: #e6f8ee;
+          border-radius: 12px;
+          font-size: 21px;
+          font-weight: 900;
+          padding: 10px 13px;
+          white-space: nowrap;
+        }
+
+        .pm-notes {
+          font-size: 12px;
+          color: #5e7669;
+          line-height: 1.7;
+          margin: 14px 0;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        }
+
+        .pm-empty {
+          text-align: center;
+          padding: 25px 12px;
+          color: #84968c;
+          font-size: 13px;
+        }
+
+        .pm-footer {
+          text-align: center;
+          color: #91a096;
+          font-size: 11px;
+          padding: 20px;
+          line-height: 1.7;
+        }
+
+        @media(max-width:760px) {
+          .pm-topbar {
+            min-height: 60px;
+            padding: 13px 16px;
+          }
+
+          .pm-brand { font-size: 18px; }
+
+          .pm-back {
+            padding: 9px;
+            font-size: 0;
+          }
+
+          .pm-back svg {
+            width: 20px;
+            height: 20px;
+          }
+
+          .pm-container {
+            padding: 12px;
+          }
+
+          .pm-hero {
+            padding: 23px 18px;
+            border-radius: 14px;
+            margin-bottom: 12px;
+          }
+
+          .pm-hero h1 { font-size: 24px; }
+
+          .pm-card {
+            padding: 15px;
+            border-radius: 14px;
+            margin-bottom: 12px;
+          }
+
+          .pm-title { font-size: 16px; }
+
+          .pm-identity {
+            gap: 10px;
+            padding: 12px;
+          }
+
+          .pm-avatar {
+            width: 43px;
+            height: 43px;
+            font-size: 16px;
+          }
+
+          .pm-person-name { font-size: 14px; }
+
+          .pm-person-sub { font-size: 11px; }
+
+          .pm-stats { gap: 9px; }
+
+          .pm-stat {
+            padding: 13px 11px;
+            gap: 9px;
+          }
+
+          .pm-stat-icon {
+            width: 34px;
+            height: 34px;
+          }
+
+          .pm-stat-icon svg {
+            width: 19px;
+            height: 19px;
+          }
+
+          .pm-stat-number {
+            font-size: 22px;
+          }
+
+          .pm-stat-label { font-size: 10px; }
+
+          .pm-form-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .pm-full { grid-column: auto; }
+
+          .pm-history { padding: 14px; }
+
+          .pm-history-name { font-size: 14px; }
+
+          .pm-score {
+            padding: 9px 11px;
+            font-size: 18px;
+          }
+        }
+      `}</style>
+
+      <header className="pm-topbar">
+        <div className="pm-brand">
+          OJT <span>MineTrack</span>
         </div>
-      </main>
-    );
-  }
 
-  if (!mentor || !program) {
-    return (
-      <main style={styles.page}>
-        <div style={styles.container}>
-          <section style={styles.card}>
-            <h2>Data Tidak Dapat Ditampilkan</h2>
+        <button
+          type="button"
+          className="pm-back"
+          onClick={() =>
+            router.push(
+              programId
+                ? `/peserta/${programId}`
+                : "/"
+            )
+          }
+        >
+          <Icon name="back" size={18} />
+          Detail Peserta
+        </button>
+      </header>
 
-            <p style={{ color: "#dc2626" }}>
+      <div className="pm-container">
+        <section className="pm-hero">
+          <div className="pm-kicker">
+            EMERGENCY RESPONSE GROUP · PT BERAU COAL
+          </div>
+
+          <h1>Praktik Mingguan</h1>
+
+          <p>
+            Penilaian Kompetensi dan Kegiatan Praktik OJT
+          </p>
+        </section>
+
+        {loading ? (
+          <section className="pm-card">
+            <h2 className="pm-title">Memuat Data...</h2>
+            <p className="pm-muted">
+              Mengambil daftar peserta dan riwayat penilaian.
+            </p>
+          </section>
+        ) : !mentor || !program ? (
+          <section className="pm-card">
+            <h2 className="pm-title">
+              Data Tidak Dapat Ditampilkan
+            </h2>
+
+            <p className="pm-error">
               {error || "Program tidak ditemukan."}
             </p>
 
             <button
               type="button"
-              style={styles.button}
+              className="pm-btn"
               onClick={() => router.push("/")}
             >
               Kembali ke Dashboard
             </button>
           </section>
-        </div>
-      </main>
-    );
-  }
-
-  return (
-    <main style={styles.page}>
-      <div style={styles.container}>
-        <header style={styles.header}>
-          <h1>Monitoring OJT</h1>
-          <h3>Emergency Response Group</h3>
-          <p>PT Berau Coal 2026</p>
-          <p>Penilaian Praktik Mingguan</p>
-          <small>
-            Mentor: {mentor.full_name || "Mentor OJT"}
-          </small>
-        </header>
-
-        <button
-          type="button"
-          style={{
-            ...styles.button,
-            marginBottom: 18,
-          }}
-          onClick={() => router.push("/")}
-        >
-          ← Dashboard Mentor
-        </button>
-
-        {/* PILIH NAMA PESERTA */}
-        <section
-          style={{
-            ...styles.card,
-            background: "#eff6ff",
-            border: "2px solid #93c5fd",
-          }}
-        >
-          <h2>Pilih Peserta OJT</h2>
-
-          <p
-            style={{
-              color: "#475569",
-              lineHeight: 1.7,
-            }}
-          >
-            Pilih nama peserta sebelum memasukkan
-            atau mengubah nilai praktik.
-          </p>
-
-          <label htmlFor="pilih-peserta">
-            <strong>Nama Peserta OJT *</strong>
-          </label>
-
-          <select
-            id="pilih-peserta"
-            value={program.id}
-            onChange={(e) =>
-              pilihPeserta(e.target.value)
-            }
-            disabled={menyimpan || Boolean(aksiId)}
-            style={{
-              ...styles.input,
-              fontWeight: 700,
-            }}
-          >
-            {daftarProgram.map((item) => (
-              <option
-                key={item.id}
-                value={item.id}
-              >
-                {namaPeserta(item)} — {item.site}
-              </option>
-            ))}
-          </select>
-
-          <div
-            style={{
-              background: "#ffffff",
-              border: "1px solid #bfdbfe",
-              borderRadius: 12,
-              padding: 15,
-            }}
-          >
-            <p>
-              <strong>Nama Peserta:</strong>{" "}
-              {namaPeserta(program)}
-            </p>
-
-            <p>
-              <strong>Site:</strong>{" "}
-              {program.site || "-"}
-            </p>
-
-            <p>
-              <strong>Departemen:</strong>{" "}
-              {program.peserta?.department || "-"}
-            </p>
-
-            <p>
-              <strong>Periode OJT:</strong>{" "}
-              {formatTanggal(program.start_date)}
-              {" s.d. "}
-              {formatTanggal(program.end_date)}
-            </p>
-
-            <p
-              style={{
-                color: "#15803d",
-                fontWeight: 700,
-                marginBottom: 0,
-              }}
-            >
-              ✓ Nilai akan disimpan untuk peserta
-              yang sedang dipilih.
-            </p>
-          </div>
-        </section>
-
-        {/* RINGKASAN NILAI */}
-        <section style={styles.card}>
-          <h2>Ringkasan Penilaian Praktik</h2>
-
-          <p>
-            Peserta:{" "}
-            <strong>{namaPeserta(program)}</strong>
-          </p>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                "repeat(2,minmax(0,1fr))",
-              gap: 12,
-            }}
-          >
-            <div
-              style={{
-                background: "#eff6ff",
-                borderRadius: 12,
-                padding: 16,
-                textAlign: "center",
-              }}
-            >
-              <small>Total Penilaian</small>
-              <h2>{totalPenilaian}</h2>
-            </div>
-
-            <div
-              style={{
-                background: "#f0fdf4",
-                borderRadius: 12,
-                padding: 16,
-                textAlign: "center",
-              }}
-            >
-              <small>Rata-rata Nilai</small>
-              <h2>
-                {rataRata === null
-                  ? "-"
-                  : rataRata.toFixed(2)}
+        ) : (
+          <>
+            <section className="pm-card">
+              <h2 className="pm-title">
+                Pilih Peserta OJT
               </h2>
-            </div>
-          </div>
-        </section>
 
-        {error && (
-          <section
-            style={styles.card}
-            role="alert"
-          >
-            <p style={{ color: "#dc2626" }}>
-              {error}
-            </p>
-          </section>
-        )}
+              <p className="pm-muted">
+                Pilih peserta sebelum memasukkan atau
+                mengubah nilai praktik.
+              </p>
 
-        {pesan && (
-          <section
-            style={{
-              ...styles.card,
-              background: "#f0fdf4",
-              borderColor: "#86efac",
-            }}
-            role="status"
-          >
-            <p
-              style={{
-                color: "#15803d",
-                fontWeight: 700,
-              }}
-            >
-              ✓ {pesan}
-            </p>
-          </section>
-        )}
-
-        {/* FORM PENILAIAN */}
-        <section
-          style={styles.card}
-          id="form-praktik"
-        >
-          <h2>
-            {editId
-              ? "Edit Penilaian Praktik"
-              : "Input Penilaian Praktik Mingguan"}
-          </h2>
-
-          <p
-            style={{
-              padding: 12,
-              background: "#f8fafc",
-              borderRadius: 9,
-              lineHeight: 1.7,
-            }}
-          >
-            <strong>
-              Peserta: {namaPeserta(program)}
-            </strong>
-            <br />
-            Site: {program.site || "-"}
-          </p>
-
-          <form onSubmit={simpanPraktik}>
-            <label htmlFor="tanggal-praktik">
-              Tanggal Pelaksanaan
-            </label>
-
-            <input
-              id="tanggal-praktik"
-              type="date"
-              value={tanggal}
-              onChange={(e) =>
-                setTanggal(e.target.value)
-              }
-              style={styles.input}
-              disabled={menyimpan}
-              required
-            />
-
-            <label htmlFor="nama-praktik">
-              Jenis / Materi Praktik
-            </label>
-
-            <input
-              id="nama-praktik"
-              type="text"
-              value={namaPraktik}
-              onChange={(e) =>
-                setNamaPraktik(e.target.value)
-              }
-              placeholder="Contoh: Fire Fighting"
-              style={styles.input}
-              disabled={menyimpan}
-              required
-            />
-
-            <label htmlFor="nilai-praktik">
-              Nilai Praktik (0–100)
-            </label>
-
-            <input
-              id="nilai-praktik"
-              type="number"
-              min="0"
-              max="100"
-              step="0.01"
-              value={nilai}
-              onChange={(e) =>
-                setNilai(e.target.value)
-              }
-              placeholder="Contoh: 90"
-              style={styles.input}
-              disabled={menyimpan}
-              required
-            />
-
-            <label htmlFor="catatan-praktik">
-              Catatan Evaluasi Mentor
-            </label>
-
-            <textarea
-              id="catatan-praktik"
-              value={catatan}
-              onChange={(e) =>
-                setCatatan(e.target.value)
-              }
-              placeholder="Catatan hasil praktik peserta"
-              rows={4}
-              style={styles.input}
-              disabled={menyimpan}
-            />
-
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 10,
-              }}
-            >
-              <button
-                type="submit"
-                disabled={menyimpan || Boolean(aksiId)}
-                style={{
-                  ...styles.button,
-                  opacity: menyimpan ? 0.6 : 1,
-                }}
+              <label
+                htmlFor="pm-participant"
+                className="pm-label"
               >
-                {menyimpan
-                  ? "Menyimpan..."
-                  : editId
-                  ? "Simpan Perubahan"
-                  : "Simpan Nilai Praktik"}
-              </button>
+                Nama Peserta OJT
+              </label>
 
-              {editId && (
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  disabled={menyimpan}
+              <select
+                id="pm-participant"
+                className="pm-field"
+                value={program.id}
+                onChange={e =>
+                  changeParticipant(e.target.value)
+                }
+                disabled={saving || Boolean(actionId)}
+              >
+                {programs.map(item => (
+                  <option
+                    key={item.id}
+                    value={item.id}
+                  >
+                    {participantName(item)} — {item.site}
+                  </option>
+                ))}
+              </select>
+
+              <div className="pm-identity">
+                <div className="pm-avatar">
+                  {participantName(program)
+                    .split(" ")
+                    .map(part => part[0])
+                    .slice(0, 2)
+                    .join("")
+                    .toUpperCase()}
+                </div>
+
+                <div style={{ minWidth: 0 }}>
+                  <div className="pm-person-name">
+                    {participantName(program)}
+                  </div>
+
+                  <div className="pm-person-sub">
+                    {program.peserta?.department || "-"}
+                    {" · "}
+                    {program.site || "-"}
+                    <br />
+                    {formatDate(program.start_date)}
+                    {" – "}
+                    {formatDate(program.end_date)}
+                  </div>
+                </div>
+
+                <span className="pm-badge">
+                  Aktif
+                </span>
+              </div>
+            </section>
+
+            <div className="pm-stats">
+              <div className="pm-stat">
+                <div className="pm-stat-icon">
+                  <Icon name="clipboard" />
+                </div>
+
+                <div>
+                  <div className="pm-stat-label">
+                    Total Penilaian
+                  </div>
+
+                  <div className="pm-stat-number">
+                    {total}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pm-stat">
+                <div
+                  className="pm-stat-icon"
                   style={{
-                    ...styles.button,
-                    background: "#64748b",
+                    background: "#e8f1ff",
+                    color: "#347bcc"
                   }}
                 >
-                  Batal Edit
-                </button>
-              )}
-            </div>
-          </form>
-        </section>
+                  <Icon name="chart" />
+                </div>
 
-        {/* RIWAYAT PER PESERTA */}
-        <section style={styles.card}>
-          <h2>Riwayat Penilaian Praktik</h2>
+                <div>
+                  <div className="pm-stat-label">
+                    Rata-rata Nilai
+                  </div>
 
-          <p style={{ color: "#64748b" }}>
-            Riwayat peserta:{" "}
-            <strong>{namaPeserta(program)}</strong>
-          </p>
-
-          {riwayat.length === 0 && (
-            <p>
-              Belum ada nilai praktik untuk peserta ini.
-            </p>
-          )}
-
-          {riwayat.map((item) => (
-            <div
-              key={item.id}
-              style={{
-                border: "1px solid #e2e8f0",
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 12,
-              }}
-            >
-              <h3>{item.practice_name}</h3>
-              <h2>Nilai: {item.score}</h2>
-
-              <p>
-                <strong>Peserta:</strong>{" "}
-                {namaPeserta(program)}
-              </p>
-
-              <p>
-                <strong>Site:</strong>{" "}
-                {program.site || "-"}
-              </p>
-
-              <p>
-                Tanggal Pelaksanaan:{" "}
-                {formatTanggal(item.practice_date)}
-              </p>
-
-              <p>
-                Catatan Mentor:{" "}
-                {item.notes || "-"}
-              </p>
-
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 10,
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() =>
-                    editPraktik(item)
-                  }
-                  disabled={Boolean(aksiId) || menyimpan}
-                  style={styles.button}
-                >
-                  Edit
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    hapusPraktik(item)
-                  }
-                  disabled={Boolean(aksiId) || menyimpan}
-                  style={{
-                    ...styles.button,
-                    background: "#dc2626",
-                  }}
-                >
-                  {aksiId === item.id
-                    ? "Menghapus..."
-                    : "Hapus"}
-                </button>
+                  <div className="pm-stat-number">
+                    {average === null
+                      ? "—"
+                      : average.toFixed(2)}
+                  </div>
+                </div>
               </div>
             </div>
-          ))}
-        </section>
 
-        <footer
-          style={{
-            textAlign: "center",
-            padding: 20,
-            color: "#475569",
-          }}
-        >
-          Monitoring OJT — Emergency Response Group
-          <p>© 2026 PT Berau Coal</p>
+            {error && (
+              <div className="pm-error" role="alert">
+                {error}
+              </div>
+            )}
+
+            {message && (
+              <div className="pm-success" role="status">
+                ✓ {message}
+              </div>
+            )}
+
+            <section
+              className="pm-card"
+              id="practice-form"
+            >
+              <h2 className="pm-title">
+                {editId
+                  ? "Edit Penilaian Praktik"
+                  : "Input Penilaian Praktik"}
+              </h2>
+
+              <p className="pm-muted">
+                Nilai akan disimpan untuk{" "}
+                <strong>{participantName(program)}</strong>.
+              </p>
+
+              <form onSubmit={savePractice}>
+                <div className="pm-form-grid">
+                  <div>
+                    <label
+                      htmlFor="pm-date"
+                      className="pm-label"
+                    >
+                      Tanggal Pelaksanaan
+                    </label>
+
+                    <input
+                      id="pm-date"
+                      className="pm-field"
+                      type="date"
+                      value={date}
+                      onChange={e =>
+                        setDate(e.target.value)
+                      }
+                      disabled={saving}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="pm-score"
+                      className="pm-label"
+                    >
+                      Nilai Praktik (0–100)
+                    </label>
+
+                    <input
+                      id="pm-score"
+                      className="pm-field"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={score}
+                      onChange={e =>
+                        setScore(e.target.value)
+                      }
+                      placeholder="Contoh: 90"
+                      disabled={saving}
+                      required
+                    />
+                  </div>
+
+                  <div className="pm-full">
+                    <label
+                      htmlFor="pm-practice"
+                      className="pm-label"
+                    >
+                      Materi / Jenis Praktik
+                    </label>
+
+                    <input
+                      id="pm-practice"
+                      className="pm-field"
+                      type="text"
+                      value={practice}
+                      onChange={e =>
+                        setPractice(e.target.value)
+                      }
+                      placeholder="Contoh: Fire Fighting"
+                      disabled={saving}
+                      required
+                    />
+                  </div>
+
+                  <div className="pm-full">
+                    <label
+                      htmlFor="pm-notes"
+                      className="pm-label"
+                    >
+                      Catatan Evaluasi Mentor
+                    </label>
+
+                    <textarea
+                      id="pm-notes"
+                      className="pm-field"
+                      rows={4}
+                      value={notes}
+                      onChange={e =>
+                        setNotes(e.target.value)
+                      }
+                      placeholder="Tuliskan hasil dan evaluasi praktik..."
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+
+                <div className="pm-actions">
+                  <button
+                    type="submit"
+                    className="pm-btn"
+                    disabled={
+                      saving || Boolean(actionId)
+                    }
+                  >
+                    <Icon name="check" size={17} />
+                    {saving
+                      ? "Menyimpan..."
+                      : editId
+                      ? "Simpan Perubahan"
+                      : "Simpan Nilai Praktik"}
+                  </button>
+
+                  {editId && (
+                    <button
+                      type="button"
+                      className="pm-btn gray"
+                      onClick={resetForm}
+                      disabled={saving}
+                    >
+                      Batal Edit
+                    </button>
+                  )}
+                </div>
+              </form>
+            </section>
+
+            <section className="pm-card">
+              <h2 className="pm-title">
+                Riwayat Penilaian Praktik
+              </h2>
+
+              <p className="pm-muted">
+                {total} penilaian untuk{" "}
+                <strong>{participantName(program)}</strong>
+              </p>
+
+              {records.length === 0 && (
+                <div className="pm-empty">
+                  Belum ada nilai praktik untuk peserta ini.
+                </div>
+              )}
+
+              {records.map(item => (
+                <article
+                  key={item.id}
+                  className="pm-history"
+                >
+                  <div className="pm-history-header">
+                    <div>
+                      <div className="pm-history-name">
+                        {item.practice_name}
+                      </div>
+
+                      <div className="pm-history-date">
+                        {formatDate(item.practice_date)}
+                      </div>
+                    </div>
+
+                    <div className="pm-score">
+                      {item.score}
+                    </div>
+                  </div>
+
+                  <div className="pm-notes">
+                    {item.notes || "Tidak ada catatan evaluasi."}
+                  </div>
+
+                  <div className="pm-actions">
+                    <button
+                      type="button"
+                      className="pm-btn blue"
+                      onClick={() =>
+                        editPractice(item)
+                      }
+                      disabled={
+                        saving || Boolean(actionId)
+                      }
+                    >
+                      <Icon name="edit" size={15} />
+                      Edit
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pm-btn red"
+                      onClick={() =>
+                        deletePractice(item)
+                      }
+                      disabled={
+                        saving || Boolean(actionId)
+                      }
+                    >
+                      <Icon name="trash" size={15} />
+                      {actionId === item.id
+                        ? "Menghapus..."
+                        : "Hapus"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </section>
+          </>
+        )}
+
+        <footer className="pm-footer">
+          OJT MineTrack v2.0 · Emergency Response Group
+          {" · "}
+          PT Berau Coal
         </footer>
       </div>
     </main>
