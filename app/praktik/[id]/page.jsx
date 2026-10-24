@@ -55,15 +55,17 @@ const styles = {
     border: "none",
     padding: "12px 17px",
     borderRadius: 9,
-    fontWeight: 600,
+    fontWeight: 700,
     cursor: "pointer",
   },
 };
 
 function hariIni() {
-  const date = new Date();
+  const now = new Date();
+
   const local = new Date(
-    date.getTime() - date.getTimezoneOffset() * 60000
+    now.getTime() -
+      now.getTimezoneOffset() * 60000
   );
 
   return local.toISOString().slice(0, 10);
@@ -72,17 +74,30 @@ function hariIni() {
 function formatTanggal(value) {
   if (!value) return "-";
 
-  const [year, month, day] = value.split("-");
-  return `${day}/${month}/${year}`;
+  const parts = String(value)
+    .slice(0, 10)
+    .split("-");
+
+  if (parts.length !== 3) return String(value);
+
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function namaPeserta(item) {
+  return item?.peserta?.full_name || "Nama belum tersedia";
 }
 
 export default function PraktikMingguan() {
-  const params = useParams();
   const router = useRouter();
-  const programId = params?.id;
+  const params = useParams();
+
+  const programId = Array.isArray(params?.id)
+    ? params.id[0]
+    : params?.id;
 
   const [mentor, setMentor] = useState(null);
   const [program, setProgram] = useState(null);
+  const [daftarProgram, setDaftarProgram] = useState([]);
   const [riwayat, setRiwayat] = useState([]);
 
   const [tanggal, setTanggal] = useState(hariIni);
@@ -94,21 +109,25 @@ export default function PraktikMingguan() {
   const [loading, setLoading] = useState(true);
   const [menyimpan, setMenyimpan] = useState(false);
   const [aksiId, setAksiId] = useState(null);
+
   const [error, setError] = useState("");
   const [pesan, setPesan] = useState("");
 
-  async function muatRiwayat() {
+  // Ambil riwayat berdasarkan program peserta.
+  async function ambilRiwayat(id) {
     const { data, error: err } = await supabase
       .from("weekly_practice_scores")
       .select(
-        "id,practice_date,practice_name,score,notes,created_at"
+        "id,program_id,practice_date,practice_name,score,notes,created_at"
       )
-      .eq("program_id", programId)
-      .order("practice_date", { ascending: false });
+      .eq("program_id", id)
+      .order("practice_date", {
+        ascending: false,
+      });
 
     if (err) throw err;
 
-    setRiwayat(data || []);
+    return data || [];
   }
 
   useEffect(() => {
@@ -119,6 +138,14 @@ export default function PraktikMingguan() {
     async function mulai() {
       setLoading(true);
       setError("");
+      setPesan("");
+      setProgram(null);
+      setRiwayat([]);
+      setEditId(null);
+      setTanggal(hariIni());
+      setNamaPraktik("");
+      setNilai("");
+      setCatatan("");
 
       try {
         const {
@@ -131,63 +158,79 @@ export default function PraktikMingguan() {
           return;
         }
 
-        const { data: profil, error: profilError } =
-          await supabase
-            .from("profiles")
-            .select("id,full_name,role")
-            .eq("id", user.id)
-            .single();
+        const {
+          data: profil,
+          error: profilError,
+        } = await supabase
+          .from("profiles")
+          .select("id,full_name,role")
+          .eq("id", user.id)
+          .single();
 
         if (profilError) throw profilError;
 
-        if (profil?.role === "participant") {
-          router.replace("/peserta");
-          return;
-        }
-
         if (profil?.role !== "mentor") {
           throw new Error(
-            "Halaman penilaian hanya dapat diakses Mentor."
+            "Halaman penilaian hanya untuk Mentor ERG."
           );
         }
 
-        const { data: dataProgram, error: programError } =
-          await supabase
-            .from("ojt_programs")
-            .select(`
-              id,
-              start_date,
-              end_date,
-              status,
-              peserta:profiles!ojt_programs_participant_id_fkey(
-                full_name,
-                department
-              )
-            `)
-            .eq("id", programId)
-            .single();
-
-        if (programError) throw programError;
-
-        const { data: dataNilai, error: nilaiError } =
-          await supabase
-            .from("weekly_practice_scores")
-            .select(
-              "id,practice_date,practice_name,score,notes,created_at"
+        // Membaca seluruh program aktif.
+        // RLS database menentukan siapa
+        // yang boleh membaca data.
+        const {
+          data: programs,
+          error: programsError,
+        } = await supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            participant_id,
+            site,
+            start_date,
+            end_date,
+            status,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
             )
-            .eq("program_id", programId)
-            .order("practice_date", { ascending: false });
+          `)
+          .eq("status", "active");
 
-        if (nilaiError) throw nilaiError;
+        if (programsError) throw programsError;
+
+        const list = (programs || []).sort(
+          (a, b) =>
+            namaPeserta(a).localeCompare(
+              namaPeserta(b),
+              "id"
+            )
+        );
+
+        const pilihan = list.find(
+          (item) => item.id === programId
+        );
+
+        if (!pilihan) {
+          throw new Error(
+            "Program peserta tidak ditemukan atau sudah tidak aktif."
+          );
+        }
+
+        const dataNilai =
+          await ambilRiwayat(pilihan.id);
 
         if (!aktif) return;
 
         setMentor(profil);
-        setProgram(dataProgram);
-        setRiwayat(dataNilai || []);
+        setDaftarProgram(list);
+        setProgram(pilihan);
+        setRiwayat(dataNilai);
       } catch (err) {
         if (aktif) {
-          setError(err.message || "Gagal memuat data.");
+          setError(
+            err.message || "Gagal memuat data."
+          );
         }
       } finally {
         if (aktif) setLoading(false);
@@ -209,16 +252,47 @@ export default function PraktikMingguan() {
     setCatatan("");
   }
 
-  async function simpanPraktik(e) {
-    e.preventDefault();
+  // Saat peserta dipilih, URL ikut berubah.
+  // Ini memastikan nilai dan riwayat
+  // hanya menggunakan program yang dipilih.
+  function pilihPeserta(id) {
+    if (
+      !id ||
+      id === programId ||
+      menyimpan ||
+      aksiId
+    ) {
+      return;
+    }
 
-    if (!mentor || !program || menyimpan) return;
+    setError("");
+    setPesan("");
+    setEditId(null);
+    setProgram(null);
+    setRiwayat([]);
+    setLoading(true);
+
+    router.push(`/praktik/${id}`);
+  }
+
+  async function simpanPraktik(event) {
+    event.preventDefault();
+
+    if (
+      !mentor ||
+      !program ||
+      program.id !== programId ||
+      menyimpan ||
+      aksiId
+    ) {
+      return;
+    }
 
     const angka = Number(nilai);
 
     if (!tanggal || !namaPraktik.trim()) {
       setError(
-        "Tanggal pelaksanaan dan jenis praktik wajib diisi."
+        "Tanggal dan jenis praktik wajib diisi."
       );
       return;
     }
@@ -229,7 +303,9 @@ export default function PraktikMingguan() {
       angka < 0 ||
       angka > 100
     ) {
-      setError("Nilai harus antara 0 sampai 100.");
+      setError(
+        "Nilai harus antara 0 sampai 100."
+      );
       return;
     }
 
@@ -238,6 +314,24 @@ export default function PraktikMingguan() {
     setPesan("");
 
     try {
+      const {
+        data: programAktif,
+        error: programError,
+      } = await supabase
+        .from("ojt_programs")
+        .select("id,status")
+        .eq("id", program.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (programError) throw programError;
+
+      if (!programAktif) {
+        throw new Error(
+          "Program OJT sudah tidak aktif."
+        );
+      }
+
       const input = {
         practice_date: tanggal,
         practice_name: namaPraktik.trim(),
@@ -252,13 +346,13 @@ export default function PraktikMingguan() {
             .from("weekly_practice_scores")
             .update(input)
             .eq("id", editId)
-            .eq("program_id", programId)
+            .eq("program_id", program.id)
             .select("id")
         : await supabase
             .from("weekly_practice_scores")
             .insert({
               ...input,
-              program_id: programId,
+              program_id: program.id,
               created_by: mentor.id,
             })
             .select("id");
@@ -271,28 +365,39 @@ export default function PraktikMingguan() {
         );
       }
 
-      await muatRiwayat();
+      const dataTerbaru =
+        await ambilRiwayat(program.id);
+
+      setRiwayat(dataTerbaru);
       resetForm();
 
       setPesan(
         sedangEdit
-          ? "Nilai praktik berhasil diperbarui."
-          : "Nilai Praktik Mingguan berhasil disimpan."
+          ? `Nilai ${namaPeserta(program)} berhasil diperbarui.`
+          : `Nilai ${namaPeserta(program)} berhasil disimpan.`
       );
     } catch (err) {
-      setError(err.message || "Gagal menyimpan nilai.");
+      setError(
+        err.message || "Gagal menyimpan nilai."
+      );
     } finally {
       setMenyimpan(false);
     }
   }
 
   function editPraktik(item) {
+    if (
+      !program ||
+      item.program_id !== program.id
+    ) {
+      return;
+    }
+
     setEditId(item.id);
     setTanggal(item.practice_date);
     setNamaPraktik(item.practice_name);
     setNilai(String(item.score));
     setCatatan(item.notes || "");
-
     setError("");
     setPesan("");
 
@@ -305,27 +410,38 @@ export default function PraktikMingguan() {
   }
 
   async function hapusPraktik(item) {
-    if (!mentor || aksiId) return;
-
     if (
-      !window.confirm(
-        `Yakin ingin menghapus penilaian ${item.practice_name}?`
-      )
+      !mentor ||
+      !program ||
+      program.id !== programId ||
+      aksiId ||
+      menyimpan
     ) {
       return;
     }
+
+    const confirmed = window.confirm(
+      `Hapus penilaian ini?\n\n` +
+        `Peserta: ${namaPeserta(program)}\n` +
+        `Site: ${program.site}\n` +
+        `Materi: ${item.practice_name}\n` +
+        `Nilai: ${item.score}`
+    );
+
+    if (!confirmed) return;
 
     setAksiId(item.id);
     setError("");
     setPesan("");
 
     try {
-      const { data, error: err } = await supabase
-        .from("weekly_practice_scores")
-        .delete()
-        .eq("id", item.id)
-        .eq("program_id", programId)
-        .select("id");
+      const { data, error: err } =
+        await supabase
+          .from("weekly_practice_scores")
+          .delete()
+          .eq("id", item.id)
+          .eq("program_id", program.id)
+          .select("id");
 
       if (err) throw err;
 
@@ -339,10 +455,18 @@ export default function PraktikMingguan() {
         resetForm();
       }
 
-      await muatRiwayat();
-      setPesan("Nilai praktik berhasil dihapus.");
+      const dataTerbaru =
+        await ambilRiwayat(program.id);
+
+      setRiwayat(dataTerbaru);
+
+      setPesan(
+        `Nilai ${namaPeserta(program)} berhasil dihapus.`
+      );
     } catch (err) {
-      setError(err.message || "Gagal menghapus nilai.");
+      setError(
+        err.message || "Gagal menghapus nilai."
+      );
     } finally {
       setAksiId(null);
     }
@@ -352,7 +476,8 @@ export default function PraktikMingguan() {
 
   const rataRata = totalPenilaian
     ? riwayat.reduce(
-        (total, item) => total + Number(item.score),
+        (total, item) =>
+          total + Number(item.score),
         0
       ) / totalPenilaian
     : null;
@@ -361,8 +486,10 @@ export default function PraktikMingguan() {
     return (
       <main style={styles.page}>
         <div style={styles.container}>
-          <h2>Monitoring OJT</h2>
-          <p>Memuat Penilaian Praktik Mingguan...</p>
+          <section style={styles.card}>
+            <h2>Monitoring OJT</h2>
+            <p>Memuat daftar peserta dan nilai praktik...</p>
+          </section>
         </div>
       </main>
     );
@@ -376,7 +503,7 @@ export default function PraktikMingguan() {
             <h2>Data Tidak Dapat Ditampilkan</h2>
 
             <p style={{ color: "#dc2626" }}>
-              {error || "Data tidak ditemukan."}
+              {error || "Program tidak ditemukan."}
             </p>
 
             <button
@@ -411,35 +538,108 @@ export default function PraktikMingguan() {
             ...styles.button,
             marginBottom: 18,
           }}
-          onClick={() =>
-            router.push(`/peserta/${programId}`)
-          }
+          onClick={() => router.push("/")}
         >
-          ← Kembali ke Detail Peserta
+          ← Dashboard Mentor
         </button>
 
-        <section style={styles.card}>
-          <h2>
-            {program.peserta?.full_name || "Peserta OJT"}
-          </h2>
+        {/* PILIH NAMA PESERTA */}
+        <section
+          style={{
+            ...styles.card,
+            background: "#eff6ff",
+            border: "2px solid #93c5fd",
+          }}
+        >
+          <h2>Pilih Peserta OJT</h2>
 
-          <p>
-            Departemen:{" "}
-            {program.peserta?.department || "-"}
+          <p
+            style={{
+              color: "#475569",
+              lineHeight: 1.7,
+            }}
+          >
+            Pilih nama peserta sebelum memasukkan
+            atau mengubah nilai praktik.
           </p>
 
-          <p>
-            Periode OJT:{" "}
-            {formatTanggal(program.start_date)}
-            {" - "}
-            {formatTanggal(program.end_date)}
-          </p>
+          <label htmlFor="pilih-peserta">
+            <strong>Nama Peserta OJT *</strong>
+          </label>
 
-          <p>Status: {program.status}</p>
+          <select
+            id="pilih-peserta"
+            value={program.id}
+            onChange={(e) =>
+              pilihPeserta(e.target.value)
+            }
+            disabled={menyimpan || Boolean(aksiId)}
+            style={{
+              ...styles.input,
+              fontWeight: 700,
+            }}
+          >
+            {daftarProgram.map((item) => (
+              <option
+                key={item.id}
+                value={item.id}
+              >
+                {namaPeserta(item)} — {item.site}
+              </option>
+            ))}
+          </select>
+
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1px solid #bfdbfe",
+              borderRadius: 12,
+              padding: 15,
+            }}
+          >
+            <p>
+              <strong>Nama Peserta:</strong>{" "}
+              {namaPeserta(program)}
+            </p>
+
+            <p>
+              <strong>Site:</strong>{" "}
+              {program.site || "-"}
+            </p>
+
+            <p>
+              <strong>Departemen:</strong>{" "}
+              {program.peserta?.department || "-"}
+            </p>
+
+            <p>
+              <strong>Periode OJT:</strong>{" "}
+              {formatTanggal(program.start_date)}
+              {" s.d. "}
+              {formatTanggal(program.end_date)}
+            </p>
+
+            <p
+              style={{
+                color: "#15803d",
+                fontWeight: 700,
+                marginBottom: 0,
+              }}
+            >
+              ✓ Nilai akan disimpan untuk peserta
+              yang sedang dipilih.
+            </p>
+          </div>
         </section>
 
+        {/* RINGKASAN NILAI */}
         <section style={styles.card}>
           <h2>Ringkasan Penilaian Praktik</h2>
+
+          <p>
+            Peserta:{" "}
+            <strong>{namaPeserta(program)}</strong>
+          </p>
 
           <div
             style={{
@@ -480,27 +680,37 @@ export default function PraktikMingguan() {
         </section>
 
         {error && (
-          <section style={styles.card}>
-            <p
-              role="alert"
-              style={{
-                color: "#dc2626",
-                overflowWrap: "anywhere",
-              }}
-            >
+          <section
+            style={styles.card}
+            role="alert"
+          >
+            <p style={{ color: "#dc2626" }}>
               {error}
             </p>
           </section>
         )}
 
         {pesan && (
-          <section style={styles.card}>
-            <p style={{ color: "#15803d" }}>
-              {pesan}
+          <section
+            style={{
+              ...styles.card,
+              background: "#f0fdf4",
+              borderColor: "#86efac",
+            }}
+            role="status"
+          >
+            <p
+              style={{
+                color: "#15803d",
+                fontWeight: 700,
+              }}
+            >
+              ✓ {pesan}
             </p>
           </section>
         )}
 
+        {/* FORM PENILAIAN */}
         <section
           style={styles.card}
           id="form-praktik"
@@ -511,9 +721,19 @@ export default function PraktikMingguan() {
               : "Input Penilaian Praktik Mingguan"}
           </h2>
 
-          <p style={{ color: "#64748b" }}>
-            Input nilai berdasarkan tanggal pelaksanaan
-            praktik yang sebenarnya.
+          <p
+            style={{
+              padding: 12,
+              background: "#f8fafc",
+              borderRadius: 9,
+              lineHeight: 1.7,
+            }}
+          >
+            <strong>
+              Peserta: {namaPeserta(program)}
+            </strong>
+            <br />
+            Site: {program.site || "-"}
           </p>
 
           <form onSubmit={simpanPraktik}>
@@ -529,6 +749,7 @@ export default function PraktikMingguan() {
                 setTanggal(e.target.value)
               }
               style={styles.input}
+              disabled={menyimpan}
               required
             />
 
@@ -545,6 +766,7 @@ export default function PraktikMingguan() {
               }
               placeholder="Contoh: Fire Fighting"
               style={styles.input}
+              disabled={menyimpan}
               required
             />
 
@@ -564,6 +786,7 @@ export default function PraktikMingguan() {
               }
               placeholder="Contoh: 90"
               style={styles.input}
+              disabled={menyimpan}
               required
             />
 
@@ -577,21 +800,22 @@ export default function PraktikMingguan() {
               onChange={(e) =>
                 setCatatan(e.target.value)
               }
-              placeholder="Contoh: Penggunaan APAR sudah sesuai prosedur."
+              placeholder="Catatan hasil praktik peserta"
               rows={4}
               style={styles.input}
+              disabled={menyimpan}
             />
 
             <div
               style={{
                 display: "flex",
-                gap: 10,
                 flexWrap: "wrap",
+                gap: 10,
               }}
             >
               <button
                 type="submit"
-                disabled={menyimpan}
+                disabled={menyimpan || Boolean(aksiId)}
                 style={{
                   ...styles.button,
                   opacity: menyimpan ? 0.6 : 1,
@@ -608,6 +832,7 @@ export default function PraktikMingguan() {
                 <button
                   type="button"
                   onClick={resetForm}
+                  disabled={menyimpan}
                   style={{
                     ...styles.button,
                     background: "#64748b",
@@ -620,12 +845,18 @@ export default function PraktikMingguan() {
           </form>
         </section>
 
+        {/* RIWAYAT PER PESERTA */}
         <section style={styles.card}>
           <h2>Riwayat Penilaian Praktik</h2>
 
+          <p style={{ color: "#64748b" }}>
+            Riwayat peserta:{" "}
+            <strong>{namaPeserta(program)}</strong>
+          </p>
+
           {riwayat.length === 0 && (
             <p>
-              Belum ada nilai praktik yang tersimpan.
+              Belum ada nilai praktik untuk peserta ini.
             </p>
           )}
 
@@ -640,8 +871,17 @@ export default function PraktikMingguan() {
               }}
             >
               <h3>{item.practice_name}</h3>
-
               <h2>Nilai: {item.score}</h2>
+
+              <p>
+                <strong>Peserta:</strong>{" "}
+                {namaPeserta(program)}
+              </p>
+
+              <p>
+                <strong>Site:</strong>{" "}
+                {program.site || "-"}
+              </p>
 
               <p>
                 Tanggal Pelaksanaan:{" "}
@@ -649,22 +889,23 @@ export default function PraktikMingguan() {
               </p>
 
               <p>
-                Catatan Mentor: {item.notes || "-"}
+                Catatan Mentor:{" "}
+                {item.notes || "-"}
               </p>
 
               <div
                 style={{
                   display: "flex",
-                  gap: 10,
                   flexWrap: "wrap",
+                  gap: 10,
                 }}
               >
                 <button
                   type="button"
-                  disabled={Boolean(aksiId)}
                   onClick={() =>
                     editPraktik(item)
                   }
+                  disabled={Boolean(aksiId) || menyimpan}
                   style={styles.button}
                 >
                   Edit
@@ -672,10 +913,10 @@ export default function PraktikMingguan() {
 
                 <button
                   type="button"
-                  disabled={Boolean(aksiId)}
                   onClick={() =>
                     hapusPraktik(item)
                   }
+                  disabled={Boolean(aksiId) || menyimpan}
                   style={{
                     ...styles.button,
                     background: "#dc2626",
