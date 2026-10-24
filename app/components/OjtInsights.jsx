@@ -1,153 +1,416 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
-const box = {
-  background: "#fff",
-  border: "1px solid #dbe3ef",
-  borderRadius: 14,
-  padding: 18,
-  marginBottom: 14,
-};
+const TOTAL_WEEKS = 25;
 
-const btn = {
-  background: "#2563eb",
-  color: "white",
-  padding: "12px 16px",
-  border: 0,
-  borderRadius: 9,
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const stages = [
-  "administration_status",
-  "training_status",
-  "theory_status",
-  "practice_status",
+const CATEGORIES = [
+  "Fisik",
+  "Training",
+  "Sosialisasi",
+  "Coaching",
+  "Orientasi Area",
+  "Hazard",
 ];
 
-const labels = {
-  pass: "Lulus",
-  fail: "Tidak Lulus",
-  pending: "Menunggu",
-  passed: "Lulus",
-  failed: "Tidak Lulus",
-  in_progress: "Dalam Proses",
-  not_started: "Belum Proses",
-};
+const SIMPER_META_START = "[[SIMPER_V2]]";
+const SIMPER_META_END = "[[/SIMPER_V2]]";
+
+function normalize(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function dateText(value) {
+  if (!value) return "—";
+
+  return String(value)
+    .slice(0, 10)
+    .split("-")
+    .reverse()
+    .join("/");
+}
+
+function parseDate(value) {
+  if (!value) return null;
+
+  const parts = String(value)
+    .slice(0, 10)
+    .split("-")
+    .map(Number);
+
+  if (
+    parts.length !== 3 ||
+    parts.some((n) => !Number.isInteger(n))
+  ) {
+    return null;
+  }
+
+  const [year, month, day] = parts;
+
+  const result = new Date(
+    Date.UTC(year, month - 1, day)
+  );
+
+  if (
+    result.getUTCFullYear() !== year ||
+    result.getUTCMonth() !== month - 1 ||
+    result.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return result;
+}
+
+function weekOf(value, startValue) {
+  const date = parseDate(value);
+  const start = parseDate(startValue);
+
+  if (!date || !start) return null;
+
+  const days = Math.round(
+    (date.getTime() - start.getTime()) / 86400000
+  );
+
+  if (days < 0) return null;
+
+  const week = Math.floor(days / 7) + 1;
+
+  return week >= 1 && week <= TOTAL_WEEKS
+    ? week
+    : null;
+}
 
 function average(rows) {
-  const numbers = rows
-    .map((x) => Number(x.score))
-    .filter((x) => Number.isFinite(x));
+  const values = rows
+    .map((row) => {
+      if (
+        row.score === null ||
+        row.score === undefined ||
+        row.score === ""
+      ) {
+        return null;
+      }
 
-  return numbers.length
-    ? (
-        numbers.reduce((a, b) => a + b, 0) /
-        numbers.length
-      ).toFixed(1)
-    : "-";
+      const n = Number(row.score);
+
+      return Number.isFinite(n) ? n : null;
+    })
+    .filter((value) => value !== null);
+
+  if (!values.length) return null;
+
+  return (
+    values.reduce((sum, value) => sum + value, 0) /
+    values.length
+  );
 }
 
-function date(value) {
-  return value
-    ? String(value)
-        .slice(0, 10)
-        .split("-")
-        .reverse()
-        .join("/")
-    : "-";
+function fmt(value) {
+  return value == null
+    ? "—"
+    : Number(value).toFixed(2);
 }
 
-function Bar({
-  name,
-  pct,
-  color = "#2563eb",
+function initials(value) {
+  return String(value || "Peserta OJT")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((item) => item[0])
+    .join("")
+    .toUpperCase();
+}
+
+function parseSimperMetadata(notes) {
+  const text = String(notes || "");
+
+  const start = text.lastIndexOf(
+    SIMPER_META_START
+  );
+
+  const end = text.lastIndexOf(
+    SIMPER_META_END
+  );
+
+  if (start < 0 || end <= start) {
+    return null;
+  }
+
+  try {
+    const content = text.slice(
+      start + SIMPER_META_START.length,
+      end
+    );
+
+    const metadata = JSON.parse(content);
+
+    return metadata?.version === 2
+      ? metadata
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function getSimperProgress(simper) {
+  if (!simper) {
+    return {
+      percentage: 0,
+      validation: false,
+      theory: false,
+      practice: false,
+      released: false,
+      meta: null,
+    };
+  }
+
+  const meta = parseSimperMetadata(
+    simper.notes
+  );
+
+  const validation =
+    simper.administration_status === "passed";
+
+  const theory =
+    simper.theory_status === "passed";
+
+  const practice =
+    simper.practice_status === "passed";
+
+  const released =
+    validation &&
+    theory &&
+    practice &&
+    meta?.application_status === "approved" &&
+    meta?.orientation_status === "completed" &&
+    meta?.issuance_status === "issued" &&
+    Boolean(simper.graduation_date);
+
+  const count = [
+    validation,
+    theory,
+    practice,
+    released,
+  ].filter(Boolean).length;
+
+  return {
+    percentage: count * 25,
+    validation,
+    theory,
+    practice,
+    released,
+    meta,
+  };
+}
+
+function getSamaptaResults(records) {
+  const groups = new Map();
+
+  records.forEach((item) => {
+    if (!item.test_date) return;
+
+    if (!groups.has(item.test_date)) {
+      groups.set(item.test_date, []);
+    }
+
+    groups.get(item.test_date).push(item);
+  });
+
+  const results = [];
+
+  groups.forEach((items, testDate) => {
+    const findScore = (type) => {
+      const item = items.find(
+        (row) =>
+          normalize(row.test_type) ===
+          normalize(type)
+      );
+
+      if (
+        !item ||
+        item.score === null ||
+        item.score === undefined
+      ) {
+        return null;
+      }
+
+      const value = Number(item.score);
+
+      return Number.isFinite(value)
+        ? value
+        : null;
+    };
+
+    const a = findScore("Lari 12 Menit");
+
+    const parts = [
+      findScore("Pull-Up"),
+      findScore("Push-Up"),
+      findScore("Sit-Up"),
+      findScore("Shuttle Run"),
+    ];
+
+    if (
+      a === null ||
+      parts.some((item) => item === null)
+    ) {
+      return;
+    }
+
+    const b =
+      parts.reduce(
+        (sum, value) => sum + value,
+        0
+      ) / 4;
+
+    const running = items.find(
+      (item) =>
+        normalize(item.test_type) ===
+        "lari12menit"
+    );
+
+    const distance =
+      running?.result_value == null
+        ? null
+        : Number(running.result_value);
+
+    results.push({
+      date: testDate,
+      a,
+      b,
+      final: (a + b) / 2,
+      distance,
+      outcome:
+        distance == null
+          ? "pending"
+          : distance >= 2600
+          ? "pass"
+          : "fail",
+    });
+  });
+
+  return results.sort(
+    (a, b) => a.date.localeCompare(b.date)
+  );
+}
+
+function ProgressBar({
+  value,
+  color = "#119769",
 }) {
   return (
-    <div style={{ marginBottom: 18 }}>
+    <div className="oi-progress-track">
       <div
+        className="oi-progress-fill"
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 10,
+          width: `${Math.max(
+            0,
+            Math.min(100, value)
+          )}%`,
+          background: color,
         }}
-      >
-        <strong>{name}</strong>
-        <strong>{pct}%</strong>
-      </div>
-
-      <div
-        style={{
-          height: 12,
-          background: "#e2e8f0",
-          borderRadius: 10,
-          overflow: "hidden",
-          marginTop: 8,
-        }}
-      >
-        <div
-          style={{
-            width: `${pct}%`,
-            height: "100%",
-            background: color,
-          }}
-        />
-      </div>
+      />
     </div>
   );
 }
 
-function ScoreList({
+function Stat({ label, value, helper }) {
+  return (
+    <div className="oi-stat">
+      <span>{label}</span>
+
+      <strong>{value}</strong>
+
+      <small>{helper}</small>
+    </div>
+  );
+}
+
+function Indicator({
+  title,
+  detail,
+  passed,
+}) {
+  return (
+    <div className="oi-indicator">
+      <div
+        className={
+          passed
+            ? "oi-indicator-icon completed"
+            : "oi-indicator-icon"
+        }
+      >
+        {passed ? "✓" : "○"}
+      </div>
+
+      <div className="oi-indicator-content">
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </div>
+
+      <span
+        className={
+          passed
+            ? "oi-pill completed"
+            : "oi-pill"
+        }
+      >
+        {passed
+          ? "Terpenuhi"
+          : "Belum Terpenuhi"}
+      </span>
+    </div>
+  );
+}
+
+function History({
   title,
   rows,
   dateKey,
   nameKey,
-  showOutcome = false,
 }) {
   return (
-    <section style={box}>
-      <h3>{title}</h3>
+    <section className="oi-card">
+      <h2>{title}</h2>
 
-      {!rows.length && (
-        <p>Belum ada data.</p>
-      )}
-
-      {rows.map((r) => (
-        <div
-          key={r.id}
-          style={{
-            padding: "12px 0",
-            borderBottom:
-              "1px solid #e2e8f0",
-          }}
-        >
-          <strong>
-            Nilai: {r.score ?? "-"}
-          </strong>
-
-          <p style={{ margin: "5px 0" }}>
-            Tanggal: {date(r[dateKey])}
-          </p>
-
-          {nameKey && r[nameKey] && (
-            <p style={{ margin: "5px 0" }}>
-              Jenis: {r[nameKey]}
-            </p>
-          )}
-
-          {showOutcome && (
-            <p style={{ margin: "5px 0" }}>
-              Hasil:{" "}
-              {labels[r.outcome] || "-"}
-            </p>
-          )}
+      {!rows.length ? (
+        <div className="oi-empty">
+          Belum ada data.
         </div>
-      ))}
+      ) : (
+        rows.map((item) => (
+          <div
+            className="oi-history"
+            key={item.id}
+          >
+            <div>
+              <strong>
+                {nameKey
+                  ? item[nameKey] || title
+                  : dateText(item[dateKey])}
+              </strong>
+
+              <span>
+                {dateText(item[dateKey])}
+              </span>
+
+              {item.notes && (
+                <p>{item.notes}</p>
+              )}
+            </div>
+
+            <div className="oi-history-score">
+              {fmt(item.score)}
+            </div>
+          </div>
+        ))
+      )}
     </section>
   );
 }
@@ -158,17 +421,79 @@ export default function OjtInsights({
 }) {
   const router = useRouter();
 
-  const [data, setData] =
-    useState(null);
+  const programId = Array.isArray(id)
+    ? id[0]
+    : id;
 
-  const [error, setError] =
-    useState("");
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [loading, setLoading] =
-    useState(true);
+  async function getMonitoringData(programId) {
+    const results = await Promise.all([
+      supabase
+        .from("achievement_types")
+        .select("code,name"),
+
+      supabase
+        .from("achievement_records")
+        .select(
+          "id,type_code,status,activity_date"
+        )
+        .eq("program_id", programId),
+
+      supabase
+        .from("post_test_scores")
+        .select(
+          "id,test_date,score,notes"
+        )
+        .eq("program_id", programId)
+        .order("test_date"),
+
+      supabase
+        .from("weekly_practice_scores")
+        .select(
+          "id,practice_date,practice_name,score,notes"
+        )
+        .eq("program_id", programId)
+        .order("practice_date"),
+
+      supabase
+        .from("samapta_records")
+        .select(
+          "id,test_date,test_type,score,outcome,result_value"
+        )
+        .eq("program_id", programId)
+        .order("test_date"),
+
+      supabase
+        .from("simper_records")
+        .select(
+          "id,status,administration_status,training_status,theory_status,practice_status,application_date,graduation_date,notes"
+        )
+        .eq("program_id", programId)
+        .maybeSingle(),
+    ]);
+
+    for (const result of results) {
+      if (result.error) {
+        throw result.error;
+      }
+    }
+
+    return {
+      types: results[0].data || [],
+      ach: results[1].data || [],
+      post: results[2].data || [],
+      practice: results[3].data || [],
+      samapta: results[4].data || [],
+      simper: results[5].data || null,
+    };
+  }
 
   useEffect(() => {
-    if (!id) {
+    if (!programId) {
       setError(
         "ID program OJT tidak tersedia."
       );
@@ -178,20 +503,22 @@ export default function OjtInsights({
 
     let alive = true;
 
-    async function run() {
+    async function initialize() {
+      setLoading(true);
+      setError("");
+      setData(null);
+
       try {
         const {
           data: { user },
           error: authError,
-        } =
-          await supabase.auth.getUser();
+        } = await supabase.auth.getUser();
 
         if (authError || !user) {
           router.replace("/login");
           return;
         }
 
-        // 1. Periksa profil login.
         const {
           data: profile,
           error: profileError,
@@ -225,7 +552,6 @@ export default function OjtInsights({
           );
         }
 
-        // 2. Periksa program OJT.
         const {
           data: program,
           error: programError,
@@ -234,16 +560,16 @@ export default function OjtInsights({
           .select(`
             id,
             participant_id,
+            site,
+            status,
             start_date,
             end_date,
-            status,
-            site,
             peserta:profiles!ojt_programs_participant_id_fkey(
               full_name,
               department
             )
           `)
-          .eq("id", id)
+          .eq("id", programId)
           .single();
 
         if (programError || !program) {
@@ -252,8 +578,6 @@ export default function OjtInsights({
           );
         }
 
-        // 3. Peserta hanya boleh
-        // membuka program miliknya.
         if (
           isParticipant &&
           program.participant_id !== user.id
@@ -263,18 +587,13 @@ export default function OjtInsights({
           );
         }
 
-        // 4. Periksa persetujuan mentor.
         if (isParticipant) {
           const {
             data: registrations,
             error: registrationError,
           } = await supabase
-            .from(
-              "participant_registrations"
-            )
-            .select(
-              "status,created_at"
-            )
+            .from("participant_registrations")
+            .select("status,created_at")
             .eq("user_id", user.id)
             .order("created_at", {
               ascending: false,
@@ -283,141 +602,44 @@ export default function OjtInsights({
 
           if (registrationError) {
             throw new Error(
-              "Gagal memeriksa status persetujuan mentor."
+              "Gagal memeriksa persetujuan mentor."
             );
           }
 
           const registration =
             registrations?.[0] || null;
 
-          // Jika ada pengajuan,
-          // status harus approved.
           if (
             registration &&
             registration.status !== "approved"
           ) {
             throw new Error(
-              registration.status === "pending"
-                ? "Pendaftaran Anda masih menunggu persetujuan mentor."
-                : "Pendaftaran Anda belum disetujui mentor."
+              "Pendaftaran peserta belum disetujui mentor."
             );
           }
 
-          // Peserta baru tanpa pengajuan
-          // tidak boleh membuka monitoring.
-          // Peserta lama dengan program aktif
-          // tetap dapat menggunakan aplikasi.
-          if (
-            !registration &&
-            program.status !== "active"
-          ) {
+          if (program.status !== "active") {
             throw new Error(
               "Program OJT belum aktif."
             );
           }
-
-          if (
-            registration?.status === "approved" &&
-            program.status !== "active"
-          ) {
-            throw new Error(
-              "Program OJT belum diaktifkan mentor."
-            );
-          }
-
-          if (
-            !registration &&
-            program.status === "active"
-          ) {
-            // Kompatibilitas akun peserta lama.
-            // Harus tetap dilindungi RLS.
-          }
         }
 
-        // 5. Data monitoring hanya
-        // diambil setelah pemeriksaan akses.
-        const results =
-          await Promise.all([
-            supabase
-              .from("achievement_types")
-              .select("code,name"),
-
-            supabase
-              .from("achievement_records")
-              .select(
-                "id,type_code,status"
-              )
-              .eq("program_id", id),
-
-            supabase
-              .from("post_test_scores")
-              .select(
-                "id,test_date,score"
-              )
-              .eq("program_id", id)
-              .order("test_date"),
-
-            supabase
-              .from(
-                "weekly_practice_scores"
-              )
-              .select(
-                "id,practice_date,practice_name,score"
-              )
-              .eq("program_id", id)
-              .order("practice_date"),
-
-            supabase
-              .from("samapta_records")
-              .select(
-                "id,test_date,test_type,score,outcome"
-              )
-              .eq("program_id", id)
-              .order("test_date"),
-
-            supabase
-              .from("simper_records")
-              .select(`
-                status,
-                administration_status,
-                training_status,
-                theory_status,
-                practice_status,
-                graduation_date
-              `)
-              .eq("program_id", id)
-              .maybeSingle(),
-          ]);
-
-        for (const result of results) {
-          if (result.error) {
-            throw result.error;
-          }
-        }
+        const monitoring =
+          await getMonitoringData(programId);
 
         if (alive) {
           setData({
             profile,
             program,
-            types:
-              results[0].data || [],
-            ach:
-              results[1].data || [],
-            post:
-              results[2].data || [],
-            practice:
-              results[3].data || [],
-            samapta:
-              results[4].data || [],
-            simper:
-              results[5].data,
+            ...monitoring,
           });
         }
       } catch (err) {
         if (alive) {
           setError(
             err.message ||
-              "Gagal memuat data OJT."
+            "Gagal memuat data OJT."
           );
         }
       } finally {
@@ -427,466 +649,1197 @@ export default function OjtInsights({
       }
     }
 
-    run();
+    initialize();
 
     return () => {
       alive = false;
     };
-  }, [id, router]);
+  }, [programId, router]);
+
+  async function refresh() {
+    if (
+      !programId ||
+      refreshing ||
+      !data
+    ) {
+      return;
+    }
+
+    setRefreshing(true);
+    setError("");
+
+    try {
+      const next =
+        await getMonitoringData(programId);
+
+      setData((old) => ({
+        ...old,
+        ...next,
+      }));
+    } catch (err) {
+      setError(
+        err.message ||
+        "Gagal memperbarui data."
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  const analysis = useMemo(() => {
+    if (!data) return null;
+
+    const {
+      program,
+      types,
+      ach,
+      post,
+      practice,
+      samapta,
+      simper,
+    } = data;
+
+    const verifiedCodes = new Set(
+      ach
+        .filter(
+          (item) =>
+            item.status === "verified"
+        )
+        .map(
+          (item) => item.type_code
+        )
+    );
+
+    const categoryStatus =
+      CATEGORIES.map((name) => {
+        const type = types.find(
+          (item) =>
+            normalize(item.name) ===
+            normalize(name)
+        );
+
+        return {
+          name,
+          verified: Boolean(
+            type &&
+            verifiedCodes.has(type.code)
+          ),
+        };
+      });
+
+    const verifiedCount =
+      categoryStatus.filter(
+        (item) => item.verified
+      ).length;
+
+    const achievementPct = Math.round(
+      (verifiedCount /
+        CATEGORIES.length) *
+        100
+    );
+
+    const samaptaResults =
+      getSamaptaResults(samapta);
+
+    const latestSamapta =
+      samaptaResults.length
+        ? samaptaResults[
+            samaptaResults.length - 1
+          ]
+        : null;
+
+    const simperProgress =
+      getSimperProgress(simper);
+
+    const activityWeeks = new Set();
+
+    const markWeek = (value) => {
+      const week = weekOf(
+        value,
+        program.start_date
+      );
+
+      if (week !== null) {
+        activityWeeks.add(week);
+      }
+    };
+
+    ach.forEach((item) =>
+      markWeek(item.activity_date)
+    );
+
+    post.forEach((item) =>
+      markWeek(item.test_date)
+    );
+
+    practice.forEach((item) =>
+      markWeek(item.practice_date)
+    );
+
+    samapta.forEach((item) =>
+      markWeek(item.test_date)
+    );
+
+    const activityCount =
+      activityWeeks.size;
+
+    const indicators = [
+      {
+        title:
+          "Pencapaian Kompetensi OJT",
+        detail:
+          `${verifiedCount} dari 6 kategori terverifikasi`,
+        ok: verifiedCount === 6,
+      },
+      {
+        title: "Post-Test",
+        detail:
+          `${post.length} hasil tes tercatat`,
+        ok: post.some(
+          (item) =>
+            item.score !== null &&
+            item.score !== undefined &&
+            Number.isFinite(
+              Number(item.score)
+            )
+        ),
+      },
+      {
+        title: "Praktik Mingguan",
+        detail:
+          `${practice.length} penilaian tercatat`,
+        ok: practice.some(
+          (item) =>
+            item.score !== null &&
+            item.score !== undefined &&
+            Number.isFinite(
+              Number(item.score)
+            )
+        ),
+      },
+      {
+        title: "Samapta",
+        detail: latestSamapta
+          ? `Tes lengkap terakhir: ${dateText(
+              latestSamapta.date
+            )} · ${
+              latestSamapta.outcome === "pass"
+                ? "Lari lulus"
+                : latestSamapta.outcome === "fail"
+                ? "Lari tidak lulus"
+                : "Status lari belum tersedia"
+            }`
+          : "Belum ada lima komponen lengkap",
+        ok: Boolean(latestSamapta),
+      },
+      {
+        title: "Penerbitan SIMPER",
+        detail: simperProgress.released
+          ? "SIMPER telah terbit dengan tahapan lengkap"
+          : `${simperProgress.percentage}% tahapan SIMPER selesai`,
+        ok: simperProgress.released,
+      },
+      {
+        title:
+          "Cakupan Aktivitas 25 Minggu",
+        detail:
+          `${activityCount} dari 25 minggu memiliki aktivitas`,
+        ok:
+          activityCount === TOTAL_WEEKS,
+      },
+    ];
+
+    const fulfilled =
+      indicators.filter(
+        (item) => item.ok
+      ).length;
+
+    return {
+      categoryStatus,
+      verifiedCount,
+      achievementPct,
+      theoryAverage: average(post),
+      practiceAverage: average(practice),
+      samaptaResults,
+      latestSamapta,
+      simperProgress,
+      activityCount,
+      activityPct: Math.round(
+        (activityCount / TOTAL_WEEKS) *
+        100
+      ),
+      indicators,
+      fulfilled,
+      completeness: Math.round(
+        (fulfilled /
+          indicators.length) *
+        100
+      ),
+    };
+  }, [data]);
 
   if (loading) {
     return (
-      <main style={{ padding: 24 }}>
+      <main className="oi-loading">
         Memeriksa akses dan memuat data OJT...
       </main>
     );
   }
 
-  if (error || !data) {
+  if (!data || !analysis) {
     return (
-      <main
-        style={{
-          padding: 24,
-          minHeight: "100vh",
-          background: "#f1f5f9",
-          color: "#0f172a",
-        }}
-      >
-        <section style={box}>
-          <h2 style={{ color: "#b91c1c" }}>
-            Akses Tidak Tersedia
-          </h2>
+      <main className="oi-loading">
+        <h2>Akses Tidak Tersedia</h2>
 
-          <p>
-            {error ||
-              "Data tidak tersedia."}
-          </p>
+        <p>
+          {error ||
+            "Data belum tersedia."}
+        </p>
 
-          <button
-            style={btn}
-            onClick={() =>
-              router.replace(
-                "/dashboard-peserta"
-              )
-            }
-          >
-            Kembali ke Dashboard Peserta
-          </button>
-        </section>
+        <button
+          onClick={() => router.back()}
+        >
+          Kembali
+        </button>
       </main>
     );
   }
 
   const {
     program,
-    types,
-    ach,
+    profile,
     post,
     practice,
-    samapta,
     simper,
   } = data;
 
-  const verified = new Set(
-    ach
-      .filter(
-        (x) =>
-          x.status === "verified"
-      )
-      .map(
-        (x) =>
-          x.type_code
-      )
-  );
+  const participantName =
+    program.peserta?.full_name ||
+    "Peserta OJT";
 
-  const totalCategories =
-    types.length || 6;
+  const isReport = mode === "laporan";
 
-  const achPct = Math.min(
-    100,
-    Math.round(
-      (verified.size /
-        totalCategories) *
-        100
-    )
-  );
-
-  const passedStages = simper
-    ? stages.filter(
-        (key) =>
-          simper[key] === "passed"
-      ).length
-    : 0;
-
-  const simperPct =
-    passedStages * 25;
-
-  const passedSamapta =
-    samapta.filter(
-      (x) =>
-        x.outcome === "pass"
-    ).length;
-
-  const checks = [
-    {
-      title:
-        "Enam kategori OJT terverifikasi",
-      ok:
-        verified.size >=
-        totalCategories,
-    },
-    {
-      title:
-        "Memiliki nilai Post-Test",
-      ok:
-        post.length > 0,
-    },
-    {
-      title:
-        "Memiliki penilaian praktik",
-      ok:
-        practice.length > 0,
-    },
-    {
-      title:
-        "Memiliki hasil Samapta",
-      ok:
-        samapta.length > 0,
-    },
-    {
-      title:
-        "SIMPER berstatus lulus",
-      ok:
-        simper?.status ===
-        "passed",
-    },
-  ];
-
-  const checksPassed =
-    checks.filter(
-      (x) => x.ok
-    ).length;
-
-  const pageTitle =
-    {
-      analisis:
-        "Grafik Perkembangan OJT",
-      evaluasi:
-        "Evaluasi Kesiapan Kelulusan",
-      laporan:
-        "Laporan Monitoring OJT",
-    }[mode] ||
-    "Monitoring OJT";
+  const pageTitle = isReport
+    ? "Laporan Monitoring OJT"
+    : "Evaluasi Kesiapan OJT";
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#f1f5f9",
-        padding: 18,
-        fontFamily:
-          "Arial, sans-serif",
-        color: "#0f172a",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 850,
-          margin: "auto",
-        }}
-      >
-        <div
-          className="no-print"
-          style={{
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            marginBottom: 15,
-          }}
-        >
-          <button
-            style={btn}
-            onClick={() =>
-              router.back()
-            }
-          >
-            ← Kembali
-          </button>
+    <main className="oi-root">
+      <style>{`
+        * {
+          box-sizing: border-box;
+        }
 
-          {mode === "laporan" && (
-            <button
-              style={{
-                ...btn,
-                background:
-                  "#0f766e",
-              }}
-              onClick={() =>
-                window.print()
-              }
-            >
-              Cetak / Simpan PDF
-            </button>
-          )}
+        .oi-root {
+          min-height: 100vh;
+          background: #f2f6f7;
+          color: #183b2d;
+          font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .oi-topbar {
+          background: #09232b;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 15px 22px;
+        }
+
+        .oi-brand {
+          font-size: 21px;
+          font-weight: 900;
+        }
+
+        .oi-brand span {
+          color: #35c993;
+        }
+
+        .oi-container {
+          max-width: 1050px;
+          margin: auto;
+          padding: 20px;
+        }
+
+        .oi-hero {
+          padding: 30px;
+          border-radius: 18px;
+          margin-bottom: 15px;
+          color: white;
+          background:
+            linear-gradient(
+              90deg,
+              rgba(5,27,34,.98),
+              rgba(7,43,39,.86),
+              rgba(5,36,33,.35)
+            ),
+            url("/background-erg.png.PNG");
+          background-size: cover;
+          background-position: center;
+        }
+
+        .oi-hero small {
+          color: #ebc87f;
+          font-size: 10px;
+          font-weight: 800;
+          letter-spacing: 1.5px;
+        }
+
+        .oi-hero h1 {
+          font-size: 29px;
+          margin: 12px 0 8px;
+        }
+
+        .oi-hero p {
+          margin: 0;
+          font-size: 13px;
+          color: #dcebe4;
+        }
+
+        .oi-card {
+          background: white;
+          border: 1px solid #e2ebe5;
+          border-radius: 16px;
+          padding: 20px;
+          margin-bottom: 15px;
+          box-shadow: 0 4px 17px #123e2609;
+        }
+
+        .oi-card h2 {
+          font-size: 17px;
+          margin: 0 0 15px;
+        }
+
+        .oi-back {
+          border: 1px solid #ffffff35;
+          background: #ffffff16;
+          color: white;
+          border-radius: 10px;
+          padding: 10px 13px;
+          font-size: 12px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .oi-person {
+          display: flex;
+          align-items: center;
+          gap: 13px;
+          background: #f5fbf7;
+          border: 1px solid #deefe4;
+          border-radius: 12px;
+          padding: 15px;
+        }
+
+        .oi-avatar {
+          width: 52px;
+          height: 52px;
+          flex-shrink: 0;
+          display: grid;
+          place-items: center;
+          border-radius: 13px;
+          background: #dbf5e7;
+          color: #087b51;
+          font-size: 18px;
+          font-weight: 900;
+        }
+
+        .oi-name {
+          font-size: 16px;
+          font-weight: 900;
+          overflow-wrap: anywhere;
+        }
+
+        .oi-meta {
+          color: #788b7e;
+          font-size: 11px;
+          margin-top: 5px;
+          line-height: 1.7;
+        }
+
+        .oi-lock {
+          background: #effaf3;
+          border: 1px solid #d5eddd;
+          border-radius: 11px;
+          padding: 12px;
+          margin-top: 12px;
+          font-size: 12px;
+          color: #0c7c54;
+        }
+
+        .oi-stats {
+          display: grid;
+          grid-template-columns:
+            repeat(3, 1fr);
+          gap: 11px;
+        }
+
+        .oi-stat {
+          background: #f7faf8;
+          border: 1px solid #e5eee8;
+          border-radius: 12px;
+          padding: 16px;
+          min-width: 0;
+        }
+
+        .oi-stat span {
+          color: #748a7c;
+          display: block;
+          font-size: 11px;
+        }
+
+        .oi-stat strong {
+          color: #0b8058;
+          display: block;
+          font-size: 26px;
+          margin: 10px 0 5px;
+        }
+
+        .oi-stat small {
+          color: #84978a;
+          font-size: 10px;
+          line-height: 1.5;
+        }
+
+        .oi-progress-track {
+          height: 11px;
+          background: #e5eee7;
+          border-radius: 20px;
+          overflow: hidden;
+          margin: 12px 0;
+        }
+
+        .oi-progress-fill {
+          height: 100%;
+          border-radius: 20px;
+          transition: width .2s;
+        }
+
+        .oi-progress-head {
+          display: flex;
+          justify-content:
+            space-between;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .oi-progress-head strong {
+          font-size: 30px;
+          color: #087e55;
+        }
+
+        .oi-indicator {
+          display: flex;
+          align-items: center;
+          gap: 13px;
+          border-bottom:
+            1px solid #e9efea;
+          padding: 14px 0;
+        }
+
+        .oi-indicator-icon {
+          width: 38px;
+          height: 38px;
+          border-radius: 11px;
+          display: grid;
+          place-items: center;
+          background: #edf1ef;
+          color: #708375;
+          font-size: 19px;
+          font-weight: 900;
+          flex-shrink: 0;
+        }
+
+        .oi-indicator-icon.completed {
+          background: #dcf7e6;
+          color: #087d52;
+        }
+
+        .oi-indicator-content {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .oi-indicator-content strong {
+          font-size: 13px;
+          display: block;
+          margin-bottom: 5px;
+        }
+
+        .oi-indicator-content span {
+          font-size: 11px;
+          color: #799080;
+          line-height: 1.5;
+        }
+
+        .oi-pill {
+          background: #edf2ef;
+          color: #647a6d;
+          padding: 7px 9px;
+          border-radius: 20px;
+          font-size: 10px;
+          font-weight: 800;
+          text-align: center;
+        }
+
+        .oi-pill.completed {
+          background: #dff7e8;
+          color: #087950;
+        }
+
+        .oi-row {
+          display: flex;
+          justify-content:
+            space-between;
+          gap: 10px;
+          padding: 12px 0;
+          border-bottom:
+            1px solid #e8efea;
+          font-size: 12px;
+        }
+
+        .oi-row strong {
+          color: #0b7f55;
+          text-align: right;
+        }
+
+        .oi-alert {
+          border-radius: 11px;
+          padding: 15px;
+          background: #fff8e7;
+          border: 1px solid #f0e1b3;
+          color: #765b1c;
+          font-size: 12px;
+          line-height: 1.7;
+          margin-top: 15px;
+        }
+
+        .oi-error {
+          background: #fff0f1;
+          border-color: #fecdd3;
+          color: #b91c1c;
+        }
+
+        .oi-history {
+          display: flex;
+          align-items:
+            flex-start;
+          justify-content:
+            space-between;
+          gap: 12px;
+          padding: 13px 0;
+          border-bottom:
+            1px solid #ebf0ec;
+        }
+
+        .oi-history strong {
+          display: block;
+          font-size: 12px;
+        }
+
+        .oi-history span,
+        .oi-history p {
+          display: block;
+          color: #819286;
+          font-size: 11px;
+          line-height: 1.6;
+          margin: 5px 0 0;
+        }
+
+        .oi-history-score {
+          font-weight: 900;
+          color: #0b8057;
+          font-size: 16px;
+        }
+
+        .oi-empty {
+          text-align: center;
+          padding: 16px;
+          border-radius: 10px;
+          background: #f8faf9;
+          color: #84968a;
+          font-size: 12px;
+        }
+
+        .oi-actions {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-bottom: 15px;
+        }
+
+        .oi-button {
+          background: #0b9465;
+          color: white;
+          border: none;
+          border-radius: 10px;
+          padding: 12px 15px;
+          font-weight: 800;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .oi-button.secondary {
+          background: #eaf0ec;
+          color: #315b46;
+        }
+
+        .oi-button:disabled {
+          opacity: .6;
+          cursor: not-allowed;
+        }
+
+        .oi-footer {
+          color: #8a9c91;
+          font-size: 11px;
+          text-align: center;
+          padding: 20px;
+        }
+
+        .oi-loading {
+          padding: 25px;
+          min-height: 100vh;
+          background: #f2f6f7;
+          color: #173c2e;
+          font-family: Arial, sans-serif;
+        }
+
+        @media(max-width:700px) {
+          .oi-topbar {
+            padding: 13px 15px;
+          }
+
+          .oi-brand {
+            font-size: 18px;
+          }
+
+          .oi-back {
+            padding: 9px;
+            font-size: 11px;
+          }
+
+          .oi-container {
+            padding: 12px;
+          }
+
+          .oi-hero {
+            padding: 24px 17px;
+            border-radius: 14px;
+          }
+
+          .oi-hero h1 {
+            font-size: 23px;
+          }
+
+          .oi-card {
+            padding: 15px;
+            border-radius: 14px;
+          }
+
+          .oi-person {
+            padding: 12px;
+          }
+
+          .oi-avatar {
+            width: 44px;
+            height: 44px;
+            font-size: 15px;
+          }
+
+          .oi-name {
+            font-size: 14px;
+          }
+
+          .oi-stats {
+            grid-template-columns:
+              repeat(2, 1fr);
+            gap: 8px;
+          }
+
+          .oi-stat {
+            padding: 12px;
+          }
+
+          .oi-stat strong {
+            font-size: 23px;
+          }
+
+          .oi-indicator {
+            flex-wrap: wrap;
+          }
+
+          .oi-pill {
+            margin-left: 50px;
+          }
+        }
+
+        @media print {
+          .oi-no-print {
+            display: none !important;
+          }
+
+          .oi-root {
+            background: white;
+          }
+
+          .oi-container {
+            max-width: none;
+            padding: 0;
+          }
+
+          .oi-card {
+            box-shadow: none;
+            break-inside: avoid;
+          }
+
+          .oi-hero {
+            print-color-adjust: exact;
+            -webkit-print-color-adjust:
+              exact;
+          }
+        }
+      `}</style>
+
+      <header className="oi-topbar oi-no-print">
+        <div className="oi-brand">
+          OJT <span>MineTrack</span>
         </div>
 
-        <header
-          style={{
-            ...box,
-            background: "#0f172a",
-            color: "white",
-          }}
+        <button
+          type="button"
+          className="oi-back"
+          onClick={() =>
+            router.push(
+              programId
+                ? `/peserta/${programId}`
+                : "/"
+            )
+          }
         >
+          ← Detail Peserta
+        </button>
+      </header>
+
+      <div className="oi-container">
+        <section className="oi-hero">
+          <small>
+            EMERGENCY RESPONSE GROUP · PT BERAU COAL
+          </small>
+
           <h1>{pageTitle}</h1>
 
           <p>
-            Emergency Response Group
+            {isReport
+              ? "Professional OJT Monitoring Report"
+              : "Readiness Assessment · Program OJT 25 Weeks"}
+          </p>
+        </section>
+
+        <section className="oi-card">
+          <div className="oi-person">
+            <div className="oi-avatar">
+              {initials(participantName)}
+            </div>
+
+            <div
+              style={{
+                flex: 1,
+                minWidth: 0,
+              }}
+            >
+              <div className="oi-name">
+                {participantName}
+              </div>
+
+              <div className="oi-meta">
+                {program.peserta?.department || "—"}
+                {" · "}
+                {program.site || "—"}
+
+                <br />
+
+                {dateText(program.start_date)}
+                {" – "}
+                {dateText(program.end_date)}
+              </div>
+            </div>
+
+            <span
+              className={
+                program.status === "active"
+                  ? "oi-pill completed"
+                  : "oi-pill"
+              }
+            >
+              {program.status === "active"
+                ? "Aktif"
+                : "Tidak Aktif"}
+            </span>
+          </div>
+
+          <div className="oi-lock">
+            🔒 Identitas peserta otomatis dan
+            terkunci berdasarkan program OJT.
+          </div>
+        </section>
+
+        {error && (
+          <div className="oi-alert oi-error">
+            {error}
+          </div>
+        )}
+
+        <section className="oi-card">
+          <h2>Ringkasan Monitoring</h2>
+
+          <div className="oi-stats">
+            <Stat
+              label="Pencapaian OJT"
+              value={`${analysis.achievementPct}%`}
+              helper={
+                `${analysis.verifiedCount}/6 kategori`
+              }
+            />
+
+            <Stat
+              label="Rata-rata Post-Test"
+              value={fmt(analysis.theoryAverage)}
+              helper={`${post.length} nilai`}
+            />
+
+            <Stat
+              label="Rata-rata Praktik"
+              value={fmt(analysis.practiceAverage)}
+              helper={`${practice.length} nilai`}
+            />
+
+            <Stat
+              label="Nilai Samapta Terakhir"
+              value={fmt(
+                analysis.latestSamapta?.final
+              )}
+              helper={
+                `${analysis.samaptaResults.length} tes lengkap`
+              }
+            />
+
+            <Stat
+              label="Progres SIMPER"
+              value={
+                `${analysis.simperProgress.percentage}%`
+              }
+              helper={
+                analysis.simperProgress.released
+                  ? "SIMPER terbit"
+                  : "Belum lengkap"
+              }
+            />
+
+            <Stat
+              label="Aktivitas OJT"
+              value={`${analysis.activityCount}/25`}
+              helper="Minggu memiliki catatan"
+            />
+          </div>
+        </section>
+
+        <section className="oi-card">
+          <div className="oi-progress-head">
+            <div>
+              <h2 style={{ marginBottom: 4 }}>
+                Kelengkapan Indikator Monitoring
+              </h2>
+
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "#758b7c",
+                }}
+              >
+                {analysis.fulfilled} dari 6
+                indikator terpenuhi
+              </span>
+            </div>
+
+            <strong>
+              {analysis.completeness}%
+            </strong>
+          </div>
+
+          <ProgressBar
+            value={analysis.completeness}
+          />
+
+          <p
+            style={{
+              fontSize: 12,
+              color: "#748b7b",
+              lineHeight: 1.7,
+            }}
+          >
+            Persentase menunjukkan kelengkapan
+            enam indikator monitoring, bukan
+            skor kesiapan operasional atau
+            kelulusan OJT.
           </p>
 
-          <p>
-            PT Berau Coal 2026
-          </p>
+          {analysis.indicators.map((item) => (
+            <Indicator
+              key={item.title}
+              title={item.title}
+              detail={item.detail}
+              passed={item.ok}
+            />
+          ))}
 
+          <div className="oi-alert">
+            <strong>
+              Kesimpulan Monitoring:
+            </strong>{" "}
+
+            {analysis.fulfilled === 6
+              ? "Seluruh indikator kelengkapan monitoring telah terpenuhi. Verifikasi hasil dan keputusan kesiapan operasional tetap harus dilakukan oleh mentor atau penanggung jawab yang berwenang."
+              : "Masih terdapat indikator monitoring yang belum terpenuhi. Mentor perlu memeriksa dan menindaklanjuti data yang belum lengkap."}
+
+            <br />
+            <br />
+
+            Kelengkapan indikator tidak otomatis
+            menyatakan peserta lulus OJT atau
+            berwenang menjalankan tugas operasional.
+            Keputusan akhir mengikuti SOP perusahaan.
+          </div>
+        </section>
+
+        <section className="oi-card">
           <h2>
-            {program.peserta
-              ?.full_name ||
-              "Peserta OJT"}
+            Rincian Pencapaian Kompetensi
           </h2>
 
-          <p>
-            {program.peserta
-              ?.department ||
-              "-"}
-          </p>
+          {analysis.categoryStatus.map((item) => (
+            <div
+              className="oi-row"
+              key={item.name}
+            >
+              <span>{item.name}</span>
 
-          <p>
-            {date(
-              program.start_date
-            )}{" "}
-            –{" "}
-            {date(
-              program.end_date
+              <strong>
+                {item.verified
+                  ? "✓ Terverifikasi"
+                  : "Belum Terverifikasi"}
+              </strong>
+            </div>
+          ))}
+        </section>
+
+        <section className="oi-card">
+          <h2>Rincian Tahapan SIMPER</h2>
+
+          {[
+            [
+              "Validasi Persyaratan",
+              analysis.simperProgress.validation,
+            ],
+            [
+              "Ujian Teori",
+              analysis.simperProgress.theory,
+            ],
+            [
+              "Ujian Praktek",
+              analysis.simperProgress.practice,
+            ],
+            [
+              "Penerbitan SIMPER",
+              analysis.simperProgress.released,
+            ],
+          ].map(([title, complete]) => (
+            <div
+              className="oi-row"
+              key={title}
+            >
+              <span>{title}</span>
+
+              <strong>
+                {complete
+                  ? "Selesai"
+                  : "Belum Selesai"}
+              </strong>
+            </div>
+          ))}
+
+          <div className="oi-row">
+            <span>Tanggal Terbit</span>
+
+            <strong>
+              {analysis.simperProgress.released
+                ? dateText(
+                    simper?.graduation_date
+                  )
+                : "—"}
+            </strong>
+          </div>
+
+          {!analysis.simperProgress.meta &&
+            simper?.status === "passed" && (
+              <div className="oi-alert">
+                Terdapat status lulus dari data
+                SIMPER lama, tetapi rincian
+                penerbitannya belum terverifikasi.
+                Progres tidak otomatis dihitung
+                100%.
+              </div>
             )}
-          </p>
-        </header>
+        </section>
 
-        {(mode === "analisis" ||
-          mode === "laporan") && (
+        {isReport && (
           <>
-            <section style={box}>
-              <h2>
-                Grafik Progres OJT
-              </h2>
-
-              <Bar
-                name="Enam Pencapaian OJT"
-                pct={achPct}
-              />
-
-              <Bar
-                name="Tahapan SIMPER"
-                pct={simperPct}
-                color="#7c3aed"
-              />
-
-              <p>
-                {verified.size} dari{" "}
-                {totalCategories} kategori
-                terverifikasi.
-              </p>
-
-              <p>
-                {passedStages} dari 4
-                tahapan SIMPER lulus.
-              </p>
-            </section>
-
-            <section style={box}>
-              <h2>
-                Ringkasan Nilai
-              </h2>
-
-              <p>
-                Post-Test:{" "}
-                <strong>
-                  {average(post)}
-                </strong>{" "}
-                ({post.length} tes)
-              </p>
-
-              <p>
-                Praktik Mingguan:{" "}
-                <strong>
-                  {average(practice)}
-                </strong>{" "}
-                ({practice.length}
-                {" "}penilaian)
-              </p>
-
-              <p>
-                Samapta:{" "}
-                <strong>
-                  {average(samapta)}
-                </strong>{" "}
-                ({samapta.length}
-                {" "}tes,{" "}
-                {passedSamapta}
-                {" "}lulus)
-              </p>
-
-              <p>
-                SIMPER:{" "}
-                <strong>
-                  {labels[
-                    simper?.status
-                  ] ||
-                    "Belum Proses"}
-                </strong>
-              </p>
-            </section>
-
-            <ScoreList
+            <History
               title="Riwayat Post-Test"
               rows={post}
               dateKey="test_date"
             />
 
-            <ScoreList
+            <History
               title="Riwayat Praktik Mingguan"
               rows={practice}
               dateKey="practice_date"
               nameKey="practice_name"
             />
 
-            <ScoreList
-              title="Riwayat Samapta"
-              rows={samapta}
-              dateKey="test_date"
-              nameKey="test_type"
-              showOutcome
-            />
+            <section className="oi-card">
+              <h2>Riwayat Samapta</h2>
+
+              {!analysis.samaptaResults.length ? (
+                <div className="oi-empty">
+                  Belum ada tes Samapta lengkap.
+                </div>
+              ) : (
+                analysis.samaptaResults.map(
+                  (item) => (
+                    <div
+                      className="oi-history"
+                      key={item.date}
+                    >
+                      <div>
+                        <strong>
+                          {dateText(item.date)}
+                        </strong>
+
+                        <span>
+                          Nilai A: {fmt(item.a)}
+                          {" · "}
+                          Nilai B: {fmt(item.b)}
+                        </span>
+
+                        <span>
+                          Status lari:{" "}
+                          {item.outcome === "pass"
+                            ? "Lulus"
+                            : item.outcome === "fail"
+                            ? "Tidak Lulus"
+                            : "Belum Dinilai"}
+                        </span>
+                      </div>
+
+                      <div className="oi-history-score">
+                        {fmt(item.final)}
+                      </div>
+                    </div>
+                  )
+                )
+              )}
+            </section>
+
+            <section className="oi-card">
+              <h2>
+                Catatan dan Pengesahan
+              </h2>
+
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "#6e8476",
+                  lineHeight: 1.7,
+                }}
+              >
+                Laporan ini adalah hasil rekap
+                otomatis data monitoring OJT.
+                Keputusan akhir kelulusan atau
+                kesiapan operasional memerlukan
+                pemeriksaan dan pengesahan sesuai
+                ketentuan perusahaan.
+              </p>
+
+              <p style={{ fontSize: 12 }}>
+                Tanggal cetak:{" "}
+                {new Date().toLocaleDateString(
+                  "id-ID"
+                )}
+              </p>
+
+              <div
+                style={{
+                  marginTop: 35,
+                  fontSize: 12,
+                }}
+              >
+                Mengetahui,
+
+                <p>
+                  Mentor / Penanggung Jawab
+                </p>
+
+                <div
+                  style={{
+                    height: 65,
+                  }}
+                />
+
+                <strong>
+                  __________________________
+                </strong>
+
+                <p>
+                  {profile.role === "mentor"
+                    ? profile.full_name
+                    : "Nama Penanggung Jawab"}
+                </p>
+              </div>
+            </section>
           </>
         )}
 
-        {(mode === "evaluasi" ||
-          mode === "laporan") && (
-          <section style={box}>
-            <h2>
-              Evaluasi Kesiapan OJT
-            </h2>
+        <div className="oi-actions oi-no-print">
+          <button
+            type="button"
+            className="oi-button secondary"
+            onClick={refresh}
+            disabled={refreshing}
+          >
+            {refreshing
+              ? "Memuat..."
+              : "Refresh Data"}
+          </button>
 
-            <Bar
-              name="Kelengkapan Indikator"
-              pct={
-                checksPassed * 20
-              }
-              color="#16a34a"
-            />
-
-            {checks.map(
-              (item) => (
-                <p
-                  key={
-                    item.title
-                  }
-                >
-                  {item.ok
-                    ? "✓"
-                    : "○"}{" "}
-                  {item.title} —{" "}
-                  <strong>
-                    {item.ok
-                      ? "Terpenuhi"
-                      : "Belum Terpenuhi"}
-                  </strong>
-                </p>
-              )
-            )}
-
-            <p
-              style={{
-                fontSize: 13,
-                color:
-                  "#475569",
-              }}
+          {isReport && (
+            <button
+              type="button"
+              className="oi-button"
+              onClick={() => window.print()}
             >
-              Evaluasi ini hanya
-              indikator kelengkapan
-              awal, bukan keputusan
-              kelulusan resmi.
-              Standar nilai dan
-              persyaratan akhir
-              mengikuti SOP
-              perusahaan.
-            </p>
-          </section>
-        )}
+              Cetak / Simpan PDF
+            </button>
+          )}
+        </div>
 
-        {mode === "laporan" && (
-          <section style={box}>
-            <h2>
-              Catatan Evaluasi
-            </h2>
-
-            <p>
-              Keputusan kelulusan
-              ditetapkan oleh Mentor
-              atau penanggung jawab
-              sesuai standar resmi.
-            </p>
-
-            <p>
-              Tanggal laporan:{" "}
-              {new Date()
-                .toLocaleDateString(
-                  "id-ID"
-                )}
-            </p>
-
-            <div
-              style={{
-                marginTop: 50,
-              }}
-            >
-              Mengetahui,
-              <p>
-                Mentor / Penilai
-              </p>
-              <div
-                style={{
-                  height: 45,
-                }}
-              />
-              ____________________________
-            </div>
-          </section>
-        )}
+        <footer className="oi-footer">
+          OJT MineTrack v2.0 ·
+          Emergency Response Group ·
+          PT Berau Coal
+        </footer>
       </div>
-
-      <style jsx global>{`
-        @media print {
-          .no-print {
-            display: none !important;
-          }
-
-          body {
-            background: white !important;
-          }
-
-          main {
-            padding: 0 !important;
-            background: white !important;
-          }
-
-          section,
-          header {
-            break-inside: avoid;
-          }
-
-          button {
-            display: none !important;
-          }
-        }
-      `}</style>
     </main>
   );
 }
