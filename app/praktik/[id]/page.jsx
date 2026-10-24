@@ -7,41 +7,54 @@ import { supabase } from "../../../lib/supabase";
 
 function today() {
   const d = new Date();
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  const local = new Date(
+    d.getTime() - d.getTimezoneOffset() * 60000
+  );
   return local.toISOString().slice(0, 10);
 }
 
 function formatDate(value) {
   if (!value) return "-";
+
   const parts = String(value).slice(0, 10).split("-");
   if (parts.length !== 3) return String(value);
+
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-function participantName(item) {
-  return item?.peserta?.full_name || "Peserta OJT";
+function participantName(program) {
+  return program?.peserta?.full_name || "Peserta OJT";
 }
 
 function Icon({ name, size = 20 }) {
-  const icons = {
+  const paths = {
     back: <path d="m15 18-6-6 6-6M9 12h12" />,
-    users: <>
-      <circle cx="9" cy="8" r="3" />
-      <path d="M3 20v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5" />
-    </>,
-    calendar: <>
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M7 3v4M17 3v4M3 10h18" />
-    </>,
-    clipboard: <>
-      <rect x="5" y="4" width="14" height="17" rx="2" />
-      <path d="M9 4V2h6v2M9 11h6M9 15h5" />
-    </>,
+    clipboard: (
+      <>
+        <rect x="5" y="4" width="14" height="17" rx="2" />
+        <path d="M9 4V2h6v2M9 11h6M9 15h5" />
+      </>
+    ),
     chart: <path d="M4 20V10M10 20V4M16 20v-8M22 20V7" />,
     check: <path d="m4 12 5 5L20 6" />,
     edit: <path d="m4 20 4-.8L20 7a2 2 0 0 0-3-3L5 16z" />,
-    trash: <path d="M4 7h16M9 4h6M6 7l1 14h10l1-14M10 11v6M14 11v6" />,
-    arrow: <path d="m9 5 7 7-7 7" />
+    trash: (
+      <>
+        <path d="M4 7h16M9 4h6M6 7l1 14h10l1-14M10 11v6M14 11v6" />
+      </>
+    ),
+    lock: (
+      <>
+        <rect x="5" y="10" width="14" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      </>
+    ),
+    calendar: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M7 3v4M17 3v4M3 10h18" />
+      </>
+    ),
   };
 
   return (
@@ -56,7 +69,7 @@ function Icon({ name, size = 20 }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {icons[name] || icons.check}
+      {paths[name] || paths.check}
     </svg>
   );
 }
@@ -71,7 +84,6 @@ export default function PraktikMingguan() {
 
   const [mentor, setMentor] = useState(null);
   const [program, setProgram] = useState(null);
-  const [programs, setPrograms] = useState([]);
   const [records, setRecords] = useState([]);
 
   const [date, setDate] = useState(today);
@@ -83,6 +95,7 @@ export default function PraktikMingguan() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [actionId, setActionId] = useState(null);
+
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -120,7 +133,7 @@ export default function PraktikMingguan() {
       try {
         const {
           data: { user },
-          error: authError
+          error: authError,
         } = await supabase.auth.getUser();
 
         if (authError || !user) {
@@ -130,7 +143,7 @@ export default function PraktikMingguan() {
 
         const {
           data: profile,
-          error: profileError
+          error: profileError,
         } = await supabase
           .from("profiles")
           .select("id,full_name,role")
@@ -140,14 +153,16 @@ export default function PraktikMingguan() {
         if (profileError) throw profileError;
 
         if (profile?.role !== "mentor") {
-          throw new Error(
-            "Halaman penilaian hanya untuk Mentor ERG."
-          );
+          router.replace("/dashboard-peserta");
+          return;
         }
 
+        // Peserta diambil langsung berdasarkan ID
+        // pada alamat halaman Detail Peserta.
+        // Tidak ada dropdown untuk mengganti peserta.
         const {
-          data: allPrograms,
-          error: programError
+          data: selected,
+          error: programError,
         } = await supabase
           .from("ojt_programs")
           .select(`
@@ -162,25 +177,18 @@ export default function PraktikMingguan() {
               department
             )
           `)
-          .eq("status", "active");
+          .eq("id", programId)
+          .single();
 
         if (programError) throw programError;
 
-        const list = (allPrograms || []).sort(
-          (a, b) =>
-            participantName(a).localeCompare(
-              participantName(b),
-              "id"
-            )
-        );
-
-        const selected = list.find(
-          item => item.id === programId
-        );
-
         if (!selected) {
+          throw new Error("Program peserta tidak ditemukan.");
+        }
+
+        if (selected.status !== "active") {
           throw new Error(
-            "Program peserta tidak ditemukan atau tidak aktif."
+            "Program OJT peserta ini sudah tidak aktif."
           );
         }
 
@@ -189,7 +197,6 @@ export default function PraktikMingguan() {
         if (!active) return;
 
         setMentor(profile);
-        setPrograms(list);
         setProgram(selected);
         setRecords(history);
       } catch (err) {
@@ -216,38 +223,35 @@ export default function PraktikMingguan() {
     setNotes("");
   }
 
-  function changeParticipant(id) {
-    if (
-      !id ||
-      id === programId ||
-      saving ||
-      actionId
-    ) return;
-
-    setError("");
-    setMessage("");
-    setProgram(null);
-    setRecords([]);
-    setLoading(true);
-
-    router.push(`/praktik/${id}`);
+  function goBack() {
+    if (programId) {
+      router.push(`/peserta/${programId}`);
+    } else {
+      router.push("/");
+    }
   }
 
   async function savePractice(event) {
     event.preventDefault();
 
+    // Pengamanan agar nilai hanya diproses
+    // untuk program peserta yang sedang dibuka.
     if (
       !mentor ||
       !program ||
       program.id !== programId ||
       saving ||
       actionId
-    ) return;
+    ) {
+      return;
+    }
 
     const numericScore = Number(score);
 
     if (!date || !practice.trim()) {
-      setError("Tanggal dan materi praktik wajib diisi.");
+      setError(
+        "Tanggal pelaksanaan dan materi praktik wajib diisi."
+      );
       return;
     }
 
@@ -268,7 +272,7 @@ export default function PraktikMingguan() {
     try {
       const {
         data: activeProgram,
-        error: activeError
+        error: activeError,
       } = await supabase
         .from("ojt_programs")
         .select("id,status")
@@ -286,7 +290,7 @@ export default function PraktikMingguan() {
         practice_date: date,
         practice_name: practice.trim(),
         score: numericScore,
-        notes: notes.trim() || null
+        notes: notes.trim() || null,
       };
 
       const updating = Boolean(editId);
@@ -303,7 +307,7 @@ export default function PraktikMingguan() {
             .insert({
               ...payload,
               program_id: program.id,
-              created_by: mentor.id
+              created_by: mentor.id,
             })
             .select("id");
 
@@ -326,9 +330,7 @@ export default function PraktikMingguan() {
           : `Nilai ${participantName(program)} berhasil disimpan.`
       );
     } catch (err) {
-      setError(
-        err.message || "Gagal menyimpan nilai."
-      );
+      setError(err.message || "Gagal menyimpan nilai.");
     } finally {
       setSaving(false);
     }
@@ -337,10 +339,13 @@ export default function PraktikMingguan() {
   function editPractice(item) {
     if (
       !program ||
+      program.id !== programId ||
       item.program_id !== program.id ||
       saving ||
       actionId
-    ) return;
+    ) {
+      return;
+    }
 
     setEditId(item.id);
     setDate(item.practice_date);
@@ -354,7 +359,7 @@ export default function PraktikMingguan() {
       .getElementById("practice-form")
       ?.scrollIntoView({
         behavior: "smooth",
-        block: "start"
+        block: "start",
       });
   }
 
@@ -363,13 +368,17 @@ export default function PraktikMingguan() {
       !mentor ||
       !program ||
       program.id !== programId ||
+      item.program_id !== program.id ||
       saving ||
       actionId
-    ) return;
+    ) {
+      return;
+    }
 
     const confirmed = window.confirm(
       `Hapus penilaian ini?\n\n` +
       `Peserta: ${participantName(program)}\n` +
+      `Site: ${program.site || "-"}\n` +
       `Materi: ${item.practice_name}\n` +
       `Nilai: ${item.score}`
     );
@@ -391,21 +400,23 @@ export default function PraktikMingguan() {
       if (err) throw err;
 
       if (!data?.length) {
-        throw new Error("Nilai praktik tidak berhasil dihapus.");
+        throw new Error(
+          "Nilai praktik tidak berhasil dihapus."
+        );
       }
 
-      if (editId === item.id) resetForm();
+      if (editId === item.id) {
+        resetForm();
+      }
 
       const latest = await fetchRecords(program.id);
-      setRecords(latest);
 
+      setRecords(latest);
       setMessage(
         `Nilai ${participantName(program)} berhasil dihapus.`
       );
     } catch (err) {
-      setError(
-        err.message || "Gagal menghapus nilai."
-      );
+      setError(err.message || "Gagal menghapus nilai.");
     } finally {
       setActionId(null);
     }
@@ -413,17 +424,37 @@ export default function PraktikMingguan() {
 
   const total = records.length;
 
-  const average = total
-    ? records.reduce(
-        (sum, item) => sum + Number(item.score),
-        0
-      ) / total
+  const validScores = records
+    .filter(
+      (item) =>
+        item.score !== null &&
+        item.score !== undefined &&
+        item.score !== ""
+    )
+    .map((item) => Number(item.score))
+    .filter(Number.isFinite);
+
+  const average = validScores.length
+    ? validScores.reduce((sum, value) => sum + value, 0) /
+      validScores.length
     : null;
+
+  const name = participantName(program);
+
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
     <main className="pm-root">
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .pm-root {
           min-height: 100vh;
@@ -566,17 +597,16 @@ export default function PraktikMingguan() {
           display: flex;
           align-items: center;
           gap: 14px;
-          padding: 15px;
+          padding: 16px;
           background: #f3faf6;
           border: 1px solid #dcefe3;
-          border-radius: 12px;
-          margin-top: 10px;
+          border-radius: 13px;
         }
 
         .pm-avatar {
           flex-shrink: 0;
-          width: 52px;
-          height: 52px;
+          width: 54px;
+          height: 54px;
           border-radius: 13px;
           background: #d9f4e6;
           color: #087c54;
@@ -587,7 +617,7 @@ export default function PraktikMingguan() {
         }
 
         .pm-person-name {
-          font-size: 16px;
+          font-size: 17px;
           font-weight: 900;
           color: #15392a;
           overflow-wrap: anywhere;
@@ -609,6 +639,20 @@ export default function PraktikMingguan() {
           font-weight: 800;
           white-space: nowrap;
           margin-left: auto;
+        }
+
+        .pm-locked-note {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: #087a54;
+          background: #f0fbf5;
+          border: 1px solid #d3eedf;
+          border-radius: 10px;
+          padding: 11px 13px;
+          margin-top: 13px;
+          font-size: 12px;
+          line-height: 1.6;
         }
 
         .pm-stats {
@@ -673,9 +717,17 @@ export default function PraktikMingguan() {
           cursor: not-allowed;
         }
 
-        .pm-btn.blue { background: #347bcc; }
-        .pm-btn.red { background: #d33c42; }
-        .pm-btn.gray { background: #697b86; }
+        .pm-btn.blue {
+          background: #347bcc;
+        }
+
+        .pm-btn.red {
+          background: #d33c42;
+        }
+
+        .pm-btn.gray {
+          background: #697b86;
+        }
 
         .pm-actions {
           display: flex;
@@ -777,13 +829,15 @@ export default function PraktikMingguan() {
           line-height: 1.7;
         }
 
-        @media(max-width:760px) {
+        @media (max-width: 760px) {
           .pm-topbar {
             min-height: 60px;
             padding: 13px 16px;
           }
 
-          .pm-brand { font-size: 18px; }
+          .pm-brand {
+            font-size: 18px;
+          }
 
           .pm-back {
             padding: 9px;
@@ -805,7 +859,9 @@ export default function PraktikMingguan() {
             margin-bottom: 12px;
           }
 
-          .pm-hero h1 { font-size: 24px; }
+          .pm-hero h1 {
+            font-size: 24px;
+          }
 
           .pm-card {
             padding: 15px;
@@ -813,7 +869,9 @@ export default function PraktikMingguan() {
             margin-bottom: 12px;
           }
 
-          .pm-title { font-size: 16px; }
+          .pm-title {
+            font-size: 16px;
+          }
 
           .pm-identity {
             gap: 10px;
@@ -826,11 +884,17 @@ export default function PraktikMingguan() {
             font-size: 16px;
           }
 
-          .pm-person-name { font-size: 14px; }
+          .pm-person-name {
+            font-size: 14px;
+          }
 
-          .pm-person-sub { font-size: 11px; }
+          .pm-person-sub {
+            font-size: 11px;
+          }
 
-          .pm-stats { gap: 9px; }
+          .pm-stats {
+            gap: 9px;
+          }
 
           .pm-stat {
             padding: 13px 11px;
@@ -851,17 +915,25 @@ export default function PraktikMingguan() {
             font-size: 22px;
           }
 
-          .pm-stat-label { font-size: 10px; }
+          .pm-stat-label {
+            font-size: 10px;
+          }
 
           .pm-form-grid {
             grid-template-columns: 1fr;
           }
 
-          .pm-full { grid-column: auto; }
+          .pm-full {
+            grid-column: auto;
+          }
 
-          .pm-history { padding: 14px; }
+          .pm-history {
+            padding: 14px;
+          }
 
-          .pm-history-name { font-size: 14px; }
+          .pm-history-name {
+            font-size: 14px;
+          }
 
           .pm-score {
             padding: 9px 11px;
@@ -878,13 +950,8 @@ export default function PraktikMingguan() {
         <button
           type="button"
           className="pm-back"
-          onClick={() =>
-            router.push(
-              programId
-                ? `/peserta/${programId}`
-                : "/"
-            )
-          }
+          onClick={goBack}
+          aria-label="Kembali ke Detail Peserta"
         >
           <Icon name="back" size={18} />
           Detail Peserta
@@ -908,7 +975,8 @@ export default function PraktikMingguan() {
           <section className="pm-card">
             <h2 className="pm-title">Memuat Data...</h2>
             <p className="pm-muted">
-              Mengambil daftar peserta dan riwayat penilaian.
+              Mengambil identitas peserta dan riwayat
+              penilaian dari Supabase.
             </p>
           </section>
         ) : !mentor || !program ? (
@@ -917,8 +985,8 @@ export default function PraktikMingguan() {
               Data Tidak Dapat Ditampilkan
             </h2>
 
-            <p className="pm-error">
-              {error || "Program tidak ditemukan."}
+            <p className="pm-error" role="alert">
+              {error || "Program peserta tidak ditemukan."}
             </p>
 
             <button
@@ -931,55 +999,25 @@ export default function PraktikMingguan() {
           </section>
         ) : (
           <>
+            {/* IDENTITAS PESERTA OTOMATIS */}
             <section className="pm-card">
               <h2 className="pm-title">
-                Pilih Peserta OJT
+                Peserta yang Sedang Dinilai
               </h2>
 
               <p className="pm-muted">
-                Pilih peserta sebelum memasukkan atau
-                mengubah nilai praktik.
+                Identitas otomatis berdasarkan peserta yang
+                dipilih dari Dashboard Mentor.
               </p>
-
-              <label
-                htmlFor="pm-participant"
-                className="pm-label"
-              >
-                Nama Peserta OJT
-              </label>
-
-              <select
-                id="pm-participant"
-                className="pm-field"
-                value={program.id}
-                onChange={e =>
-                  changeParticipant(e.target.value)
-                }
-                disabled={saving || Boolean(actionId)}
-              >
-                {programs.map(item => (
-                  <option
-                    key={item.id}
-                    value={item.id}
-                  >
-                    {participantName(item)} — {item.site}
-                  </option>
-                ))}
-              </select>
 
               <div className="pm-identity">
                 <div className="pm-avatar">
-                  {participantName(program)
-                    .split(" ")
-                    .map(part => part[0])
-                    .slice(0, 2)
-                    .join("")
-                    .toUpperCase()}
+                  {initials}
                 </div>
 
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="pm-person-name">
-                    {participantName(program)}
+                    {name}
                   </div>
 
                   <div className="pm-person-sub">
@@ -997,8 +1035,18 @@ export default function PraktikMingguan() {
                   Aktif
                 </span>
               </div>
+
+              <div className="pm-locked-note">
+                <Icon name="lock" size={17} />
+                <span>
+                  Peserta terkunci untuk halaman ini.
+                  Nilai hanya disimpan pada program{" "}
+                  <strong>{name}</strong>.
+                </span>
+              </div>
             </section>
 
+            {/* STATISTIK */}
             <div className="pm-stats">
               <div className="pm-stat">
                 <div className="pm-stat-icon">
@@ -1021,7 +1069,7 @@ export default function PraktikMingguan() {
                   className="pm-stat-icon"
                   style={{
                     background: "#e8f1ff",
-                    color: "#347bcc"
+                    color: "#347bcc",
                   }}
                 >
                   <Icon name="chart" />
@@ -1053,6 +1101,7 @@ export default function PraktikMingguan() {
               </div>
             )}
 
+            {/* FORM INPUT */}
             <section
               className="pm-card"
               id="practice-form"
@@ -1065,7 +1114,7 @@ export default function PraktikMingguan() {
 
               <p className="pm-muted">
                 Nilai akan disimpan untuk{" "}
-                <strong>{participantName(program)}</strong>.
+                <strong>{name}</strong>.
               </p>
 
               <form onSubmit={savePractice}>
@@ -1083,7 +1132,7 @@ export default function PraktikMingguan() {
                       className="pm-field"
                       type="date"
                       value={date}
-                      onChange={e =>
+                      onChange={(e) =>
                         setDate(e.target.value)
                       }
                       disabled={saving}
@@ -1107,7 +1156,7 @@ export default function PraktikMingguan() {
                       max="100"
                       step="0.01"
                       value={score}
-                      onChange={e =>
+                      onChange={(e) =>
                         setScore(e.target.value)
                       }
                       placeholder="Contoh: 90"
@@ -1129,7 +1178,7 @@ export default function PraktikMingguan() {
                       className="pm-field"
                       type="text"
                       value={practice}
-                      onChange={e =>
+                      onChange={(e) =>
                         setPractice(e.target.value)
                       }
                       placeholder="Contoh: Fire Fighting"
@@ -1151,7 +1200,7 @@ export default function PraktikMingguan() {
                       className="pm-field"
                       rows={4}
                       value={notes}
-                      onChange={e =>
+                      onChange={(e) =>
                         setNotes(e.target.value)
                       }
                       placeholder="Tuliskan hasil dan evaluasi praktik..."
@@ -1169,6 +1218,7 @@ export default function PraktikMingguan() {
                     }
                   >
                     <Icon name="check" size={17} />
+
                     {saving
                       ? "Menyimpan..."
                       : editId
@@ -1190,6 +1240,7 @@ export default function PraktikMingguan() {
               </form>
             </section>
 
+            {/* RIWAYAT PESERTA */}
             <section className="pm-card">
               <h2 className="pm-title">
                 Riwayat Penilaian Praktik
@@ -1197,7 +1248,7 @@ export default function PraktikMingguan() {
 
               <p className="pm-muted">
                 {total} penilaian untuk{" "}
-                <strong>{participantName(program)}</strong>
+                <strong>{name}</strong>.
               </p>
 
               {records.length === 0 && (
@@ -1206,7 +1257,7 @@ export default function PraktikMingguan() {
                 </div>
               )}
 
-              {records.map(item => (
+              {records.map((item) => (
                 <article
                   key={item.id}
                   className="pm-history"
@@ -1228,16 +1279,15 @@ export default function PraktikMingguan() {
                   </div>
 
                   <div className="pm-notes">
-                    {item.notes || "Tidak ada catatan evaluasi."}
+                    {item.notes ||
+                      "Tidak ada catatan evaluasi."}
                   </div>
 
                   <div className="pm-actions">
                     <button
                       type="button"
                       className="pm-btn blue"
-                      onClick={() =>
-                        editPractice(item)
-                      }
+                      onClick={() => editPractice(item)}
                       disabled={
                         saving || Boolean(actionId)
                       }
@@ -1249,9 +1299,7 @@ export default function PraktikMingguan() {
                     <button
                       type="button"
                       className="pm-btn red"
-                      onClick={() =>
-                        deletePractice(item)
-                      }
+                      onClick={() => deletePractice(item)}
                       disabled={
                         saving || Boolean(actionId)
                       }
