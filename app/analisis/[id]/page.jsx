@@ -26,6 +26,7 @@ const COLORS = {
 
 function parseDate(value) {
   if (!value) return null;
+
   const parts = String(value)
     .slice(0, 10)
     .split("-")
@@ -34,7 +35,9 @@ function parseDate(value) {
   if (
     parts.length !== 3 ||
     parts.some((n) => !Number.isInteger(n))
-  ) return null;
+  ) {
+    return null;
+  }
 
   const [y, m, d] = parts;
   const result = new Date(Date.UTC(y, m - 1, d));
@@ -43,7 +46,9 @@ function parseDate(value) {
     result.getUTCFullYear() !== y ||
     result.getUTCMonth() !== m - 1 ||
     result.getUTCDate() !== d
-  ) return null;
+  ) {
+    return null;
+  }
 
   return result;
 }
@@ -65,6 +70,7 @@ function weekOf(value, startValue) {
 
 function formatDate(value) {
   const date = parseDate(value);
+
   if (!date) return "—";
 
   return new Intl.DateTimeFormat("id-ID", {
@@ -82,10 +88,15 @@ function average(records) {
         record.score === null ||
         record.score === undefined ||
         record.score === ""
-      ) return null;
+      ) {
+        return null;
+      }
 
       const value = Number(record.score);
-      return Number.isFinite(value) ? value : null;
+
+      return Number.isFinite(value)
+        ? value
+        : null;
     })
     .filter((value) => value !== null);
 
@@ -138,15 +149,17 @@ function calculateSamapta(records) {
     const get = (name) => {
       const record = items.find(
         (item) =>
-          normalize(item.test_type) ===
-          normalize(name)
+          normalize(item.test_type) === normalize(name)
       );
 
       if (
         !record ||
-        record.score == null ||
+        record.score === null ||
+        record.score === undefined ||
         record.score === ""
-      ) return null;
+      ) {
+        return null;
+      }
 
       const value = Number(record.score);
 
@@ -167,11 +180,15 @@ function calculateSamapta(records) {
     if (
       a === null ||
       components.some((value) => value === null)
-    ) return;
+    ) {
+      return;
+    }
 
     const b =
-      components.reduce((sum, value) => sum + value, 0) /
-      4;
+      components.reduce(
+        (sum, value) => sum + value,
+        0
+      ) / 4;
 
     results.push({
       date,
@@ -208,7 +225,10 @@ function buildWeeklyData(
   const practiceByWeek = new Map();
 
   postTests.forEach((item) => {
-    const week = weekOf(item.test_date, startDate);
+    const week = weekOf(
+      item.test_date,
+      startDate
+    );
 
     if (!week || week > TOTAL_WEEKS) return;
 
@@ -220,7 +240,10 @@ function buildWeeklyData(
   });
 
   practice.forEach((item) => {
-    const week = weekOf(item.practice_date, startDate);
+    const week = weekOf(
+      item.practice_date,
+      startDate
+    );
 
     if (!week || week > TOTAL_WEEKS) return;
 
@@ -241,8 +264,6 @@ function buildWeeklyData(
     );
   });
 
-  // Jika lebih dari satu tes Samapta pada minggu
-  // yang sama, gunakan tes lengkap paling akhir.
   samaptaResults.forEach((item) => {
     const week = weekOf(item.date, startDate);
 
@@ -290,7 +311,9 @@ function TrendChart({ data, series }) {
   const weekTicks = [1, 5, 9, 13, 17, 21, 25];
 
   const hasData = series.some((item) =>
-    data.some((point) => point[item.key] != null)
+    data.some(
+      (point) => point[item.key] != null
+    )
   );
 
   return (
@@ -312,9 +335,7 @@ function TrendChart({ data, series }) {
         className="gr-chart"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={
-          "Grafik perkembangan nilai sepanjang 25 minggu"
-        }
+        aria-label="Grafik perkembangan nilai sepanjang 25 minggu"
       >
         {ticks.map((tick) => (
           <g key={tick}>
@@ -353,7 +374,10 @@ function TrendChart({ data, series }) {
 
         {series.map((item) => {
           const points = data
-            .filter((point) => point[item.key] != null)
+            .filter(
+              (point) =>
+                point[item.key] != null
+            )
             .map((point) => ({
               x: x(point.week),
               y: y(point[item.key]),
@@ -361,8 +385,6 @@ function TrendChart({ data, series }) {
               value: point[item.key],
             }));
 
-          // Sambungkan hanya minggu yang berurutan.
-          // Tidak membuat data imajiner pada minggu kosong.
           const segments = [];
           let current = [];
           let previousWeek = null;
@@ -375,6 +397,7 @@ function TrendChart({ data, series }) {
               if (current.length > 1) {
                 segments.push(current);
               }
+
               current = [];
             }
 
@@ -388,19 +411,24 @@ function TrendChart({ data, series }) {
 
           return (
             <g key={item.key}>
-              {segments.map((segment, index) => (
-                <polyline
-                  key={index}
-                  points={segment
-                    .map((point) => `${point.x},${point.y}`)
-                    .join(" ")}
-                  fill="none"
-                  stroke={item.color}
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ))}
+              {segments.map(
+                (segment, index) => (
+                  <polyline
+                    key={index}
+                    points={segment
+                      .map(
+                        (point) =>
+                          `${point.x},${point.y}`
+                      )
+                      .join(" ")}
+                    fill="none"
+                    stroke={item.color}
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )
+              )}
 
               {points.map((point) => (
                 <circle
@@ -413,8 +441,8 @@ function TrendChart({ data, series }) {
                   strokeWidth="2"
                 >
                   <title>
-                    {item.name} · Week {point.week}
-                    {" · Nilai "}
+                    {item.name} · Week{" "}
+                    {point.week} · Nilai{" "}
                     {scoreText(point.value)}
                   </title>
                 </circle>
@@ -433,9 +461,10 @@ function TrendChart({ data, series }) {
 
       <p className="gr-hint">
         Titik menunjukkan nilai yang tercatat.
-        Garis hanya menghubungkan minggu berurutan
-        yang memiliki nilai. Minggu kosong tidak
-        dianggap bernilai nol.
+        Garis hanya menghubungkan minggu
+        berurutan yang memiliki nilai.
+        Minggu kosong tidak dianggap
+        bernilai nol.
       </p>
     </div>
   );
@@ -450,7 +479,10 @@ function CategoryChart({ items }) {
   return (
     <div className="gr-bars">
       {items.map((item) => (
-        <div className="gr-bar-row" key={item.name}>
+        <div
+          className="gr-bar-row"
+          key={item.name}
+        >
           <div className="gr-bar-label">
             {item.name}
           </div>
@@ -459,8 +491,9 @@ function CategoryChart({ items }) {
             <div
               className="gr-bar-fill"
               style={{
-                width:
-                  `${(item.verified / max) * 100}%`,
+                width: `${
+                  (item.verified / max) * 100
+                }%`,
               }}
             />
           </div>
@@ -470,8 +503,8 @@ function CategoryChart({ items }) {
       ))}
 
       <p className="gr-hint">
-        Jumlah kegiatan terverifikasi pada seluruh
-        periode 25 minggu, bukan persentase
+        Jumlah kegiatan terverifikasi selama
+        25 minggu, bukan persentase
         penyelesaian kategori.
       </p>
     </div>
@@ -497,16 +530,41 @@ export default function GrafikPerkembanganOJT() {
     : params?.id;
 
   const [program, setProgram] = useState(null);
-  const [categories, setCategories] = useState([]);
-  const [achievements, setAchievements] = useState([]);
-  const [postTests, setPostTests] = useState([]);
-  const [practice, setPractice] = useState([]);
-  const [samapta, setSamapta] = useState([]);
+  const [viewerRole, setViewerRole] =
+    useState(null);
 
-  const [range, setRange] = useState("all");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
+  const [categories, setCategories] =
+    useState([]);
+
+  const [achievements, setAchievements] =
+    useState([]);
+
+  const [postTests, setPostTests] =
+    useState([]);
+
+  const [practice, setPractice] =
+    useState([]);
+
+  const [samapta, setSamapta] =
+    useState([]);
+
+  const [range, setRange] =
+    useState("all");
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const isMentor = viewerRole === "mentor";
+
+  const backPath = isMentor
+    ? `/peserta/${programId}`
+    : "/dashboard-peserta";
 
   async function fetchData(id) {
     const results = await Promise.all([
@@ -516,7 +574,9 @@ export default function GrafikPerkembanganOJT() {
 
       supabase
         .from("achievement_records")
-        .select("id,type_code,activity_date,status")
+        .select(
+          "id,type_code,activity_date,status"
+        )
         .eq("program_id", id),
 
       supabase
@@ -538,7 +598,9 @@ export default function GrafikPerkembanganOJT() {
     ]);
 
     for (const result of results) {
-      if (result.error) throw result.error;
+      if (result.error) {
+        throw result.error;
+      }
     }
 
     return {
@@ -559,7 +621,11 @@ export default function GrafikPerkembanganOJT() {
   }
 
   useEffect(() => {
-    if (!programId) return;
+    if (!programId) {
+      setLoading(false);
+      setError("ID program OJT tidak tersedia.");
+      return;
+    }
 
     let active = true;
 
@@ -567,6 +633,7 @@ export default function GrafikPerkembanganOJT() {
       setLoading(true);
       setError("");
       setProgram(null);
+      setViewerRole(null);
       setRange("all");
 
       try {
@@ -574,6 +641,8 @@ export default function GrafikPerkembanganOJT() {
           data: { user },
           error: authError,
         } = await supabase.auth.getUser();
+
+        if (!active) return;
 
         if (authError || !user) {
           router.replace("/login");
@@ -589,20 +658,30 @@ export default function GrafikPerkembanganOJT() {
           .eq("id", user.id)
           .single();
 
-        if (profileError) throw profileError;
+        if (!active) return;
 
-        if (profile?.role !== "mentor") {
-          router.replace("/dashboard-peserta");
-          return;
+        if (profileError || !profile) {
+          throw new Error(
+            "Profil pengguna tidak ditemukan."
+          );
         }
 
-        const {
-          data: programData,
-          error: programError,
-        } = await supabase
+        const mentor =
+          profile.role === "mentor";
+
+        setViewerRole(
+          mentor ? "mentor" : "peserta"
+        );
+
+        // Mentor boleh melihat seluruh peserta.
+        // Peserta hanya boleh membuka program
+        // yang memiliki participant_id miliknya.
+
+        let programQuery = supabase
           .from("ojt_programs")
           .select(`
             id,
+            participant_id,
             site,
             start_date,
             end_date,
@@ -612,10 +691,38 @@ export default function GrafikPerkembanganOJT() {
               department
             )
           `)
-          .eq("id", programId)
-          .single();
+          .eq("id", programId);
 
-        if (programError) throw programError;
+        if (!mentor) {
+          programQuery = programQuery.eq(
+            "participant_id",
+            user.id
+          );
+        }
+
+        const {
+          data: programData,
+          error: programError,
+        } = await programQuery.single();
+
+        if (!active) return;
+
+        if (programError || !programData) {
+          throw new Error(
+            "Program OJT tidak ditemukan atau " +
+            "Anda tidak memiliki izin akses."
+          );
+        }
+
+        if (
+          !mentor &&
+          programData.participant_id !== user.id
+        ) {
+          throw new Error(
+            "Anda tidak memiliki izin melihat " +
+            "grafik peserta lain."
+          );
+        }
 
         if (!parseDate(programData.start_date)) {
           throw new Error(
@@ -623,21 +730,27 @@ export default function GrafikPerkembanganOJT() {
           );
         }
 
-        const data = await fetchData(programId);
+        // Supabase RLS tetap memverifikasi
+        // hak akses untuk setiap tabel.
+        const data = await fetchData(
+          programData.id
+        );
 
         if (!active) return;
 
         setProgram(programData);
         applyData(data);
       } catch (err) {
-        if (active) {
-          setError(
-            err.message ||
-              "Gagal memuat Grafik Perkembangan."
-          );
-        }
+        if (!active) return;
+
+        setError(
+          err?.message ||
+          "Gagal memuat Grafik Perkembangan."
+        );
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
@@ -649,16 +762,28 @@ export default function GrafikPerkembanganOJT() {
   }, [programId, router]);
 
   async function refresh() {
-    if (!programId || refreshing || loading) return;
+    if (
+      !program?.id ||
+      refreshing ||
+      loading
+    ) {
+      return;
+    }
 
     setRefreshing(true);
     setError("");
 
     try {
-      const data = await fetchData(programId);
+      const data = await fetchData(
+        program.id
+      );
+
       applyData(data);
     } catch (err) {
-      setError(err.message || "Gagal memperbarui data.");
+      setError(
+        err?.message ||
+        "Gagal memperbarui data."
+      );
     } finally {
       setRefreshing(false);
     }
@@ -670,7 +795,9 @@ export default function GrafikPerkembanganOJT() {
   );
 
   const weeklyData = useMemo(() => {
-    if (!program?.start_date) return [];
+    if (!program?.start_date) {
+      return [];
+    }
 
     return buildWeeklyData(
       program.start_date,
@@ -685,40 +812,57 @@ export default function GrafikPerkembanganOJT() {
     samaptaResults,
   ]);
 
-  const filteredData = weeklyData.filter((item) => {
-    if (range === "first") return item.week <= 13;
-    if (range === "second") return item.week >= 14;
-    return true;
-  });
+  const filteredData = weeklyData.filter(
+    (item) => {
+      if (range === "first") {
+        return item.week <= 13;
+      }
+
+      if (range === "second") {
+        return item.week >= 14;
+      }
+
+      return true;
+    }
+  );
 
   const categoryData = useMemo(() => {
     return CATEGORIES.map((name) => {
       const category = categories.find(
         (item) =>
-          normalize(item.name) === normalize(name)
+          normalize(item.name) ===
+          normalize(name)
       );
 
       const code = category?.code;
 
       const verified = code
-        ? achievements.filter(
-            (item) =>
+        ? achievements.filter((item) => {
+            const week = weekOf(
+              item.activity_date,
+              program?.start_date
+            );
+
+            return (
               item.type_code === code &&
               item.status === "verified" &&
-              weekOf(
-                item.activity_date,
-                program?.start_date
-              ) >= 1 &&
-              weekOf(
-                item.activity_date,
-                program?.start_date
-              ) <= TOTAL_WEEKS
-          ).length
+              week !== null &&
+              week >= 1 &&
+              week <= TOTAL_WEEKS
+            );
+          }).length
         : 0;
 
-      return { name, verified };
+      return {
+        name,
+        verified,
+      };
     });
-  }, [categories, achievements, program]);
+  }, [
+    categories,
+    achievements,
+    program,
+  ]);
 
   const theoryLatest = latestValue(
     weeklyData,
@@ -748,12 +892,15 @@ export default function GrafikPerkembanganOJT() {
   ).length;
 
   const participantName =
-    program?.peserta?.full_name || "Peserta OJT";
+    program?.peserta?.full_name ||
+    "Peserta OJT";
 
   return (
     <main className="gr-root">
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .gr-root {
           min-height: 100vh;
@@ -895,11 +1042,12 @@ export default function GrafikPerkembanganOJT() {
           border-radius: 11px;
           padding: 12px;
           margin-top: 12px;
+          line-height: 1.7;
         }
 
         .gr-stats {
           display: grid;
-          grid-template-columns: repeat(3,1fr);
+          grid-template-columns: repeat(3, 1fr);
           gap: 12px;
         }
 
@@ -1047,6 +1195,7 @@ export default function GrafikPerkembanganOJT() {
           display: flex;
           justify-content: flex-end;
           gap: 10px;
+          flex-wrap: wrap;
         }
 
         .gr-btn {
@@ -1088,7 +1237,7 @@ export default function GrafikPerkembanganOJT() {
           padding: 20px;
         }
 
-        @media(max-width:700px) {
+        @media (max-width: 700px) {
           .gr-topbar {
             padding: 13px 15px;
           }
@@ -1099,7 +1248,7 @@ export default function GrafikPerkembanganOJT() {
 
           .gr-back {
             padding: 9px;
-            font-size: 0;
+            font-size: 11px;
           }
 
           .gr-container {
@@ -1135,7 +1284,7 @@ export default function GrafikPerkembanganOJT() {
           }
 
           .gr-stats {
-            grid-template-columns: repeat(2,1fr);
+            grid-template-columns: repeat(2, 1fr);
             gap: 8px;
           }
 
@@ -1186,46 +1335,56 @@ export default function GrafikPerkembanganOJT() {
           type="button"
           className="gr-back"
           onClick={() =>
-            router.push(
-              programId
-                ? `/peserta/${programId}`
-                : "/"
-            )
+            router.push(backPath)
           }
         >
-          ← Detail Peserta
+          {isMentor
+            ? "← Detail Peserta"
+            : "← Dashboard Peserta"}
         </button>
       </header>
 
       <div className="gr-container">
         <section className="gr-hero">
           <small>
-            EMERGENCY RESPONSE GROUP · PT BERAU COAL
+            EMERGENCY RESPONSE GROUP ·
+            PT BERAU COAL
           </small>
 
           <h1>Grafik Perkembangan</h1>
 
           <p>
-            Performance Analytics · 25 Weeks OJT
+            Performance Analytics ·
+            25 Weeks OJT
           </p>
         </section>
 
         {loading ? (
           <section className="gr-card">
             <h2>Memuat Data Grafik...</h2>
+
             <p className="gr-hint">
-              Mengambil hasil monitoring peserta.
+              Mengambil hasil monitoring
+              peserta.
             </p>
           </section>
         ) : !program ? (
           <section className="gr-card">
-            <h2>Grafik Tidak Dapat Ditampilkan</h2>
+            <h2>
+              Grafik Tidak Dapat Ditampilkan
+            </h2>
+
             <div className="gr-error">
-              {error || "Data peserta belum tersedia."}
+              {error ||
+                "Data peserta belum tersedia."}
             </div>
+
             <button
+              type="button"
               className="gr-btn"
-              onClick={() => router.push("/")}
+              onClick={() =>
+                router.push(backPath)
+              }
             >
               Kembali ke Dashboard
             </button>
@@ -1238,33 +1397,42 @@ export default function GrafikPerkembanganOJT() {
                   {initials(participantName)}
                 </div>
 
-                <div style={{
-                  minWidth: 0,
-                  flex: 1,
-                }}>
+                <div
+                  style={{
+                    minWidth: 0,
+                    flex: 1,
+                  }}
+                >
                   <div className="gr-name">
                     {participantName}
                   </div>
 
                   <div className="gr-person-meta">
-                    {program.peserta?.department || "—"}
+                    {program.peserta?.department ||
+                      "—"}
                     {" · "}
                     {program.site || "—"}
                     <br />
-                    {formatDate(program.start_date)}
+                    {formatDate(
+                      program.start_date
+                    )}
                     {" – "}
-                    {formatDate(program.end_date)}
+                    {formatDate(
+                      program.end_date
+                    )}
                   </div>
                 </div>
 
-                <span style={{
-                  color: "#0b8056",
-                  background: "#dff7e8",
-                  borderRadius: 20,
-                  fontSize: 10,
-                  fontWeight: 800,
-                  padding: "8px 10px",
-                }}>
+                <span
+                  style={{
+                    color: "#0b8056",
+                    background: "#dff7e8",
+                    borderRadius: 20,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "8px 10px",
+                  }}
+                >
                   {program.status === "active"
                     ? "Aktif"
                     : "Tidak Aktif"}
@@ -1274,35 +1442,55 @@ export default function GrafikPerkembanganOJT() {
               <div className="gr-lock">
                 🔒 Identitas peserta otomatis.
                 Grafik hanya menampilkan data{" "}
-                <strong>{participantName}</strong>.
+                <strong>
+                  {participantName}
+                </strong>.
+                {!isMentor && (
+                  <>
+                    {" "}
+                    Akses peserta dibatasi
+                    pada program OJT miliknya.
+                  </>
+                )}
               </div>
             </section>
 
             {error && (
-              <div className="gr-error" role="alert">
+              <div
+                className="gr-error"
+                role="alert"
+              >
                 {error}
               </div>
             )}
 
             <section className="gr-card">
-              <h2>Ringkasan Performance</h2>
+              <h2>
+                Ringkasan Performance
+              </h2>
 
               <div className="gr-stats">
                 <Stat
                   label="Nilai Teori Terakhir"
-                  value={scoreText(theoryLatest)}
+                  value={scoreText(
+                    theoryLatest
+                  )}
                   caption={`${theoryWeeks} minggu memiliki nilai`}
                 />
 
                 <Stat
                   label="Nilai Praktik Terakhir"
-                  value={scoreText(practiceLatest)}
+                  value={scoreText(
+                    practiceLatest
+                  )}
                   caption={`${practiceWeeks} minggu memiliki nilai`}
                 />
 
                 <Stat
                   label="Nilai Samapta Terakhir"
-                  value={scoreText(samaptaLatest)}
+                  value={scoreText(
+                    samaptaLatest
+                  )}
                   caption={`${samaptaWeeks} minggu memiliki tes lengkap`}
                 />
               </div>
@@ -1321,9 +1509,13 @@ export default function GrafikPerkembanganOJT() {
                     type="button"
                     key={key}
                     className={
-                      range === key ? "active" : ""
+                      range === key
+                        ? "active"
+                        : ""
                     }
-                    onClick={() => setRange(key)}
+                    onClick={() =>
+                      setRange(key)
+                    }
                   >
                     {text}
                   </button>
@@ -1331,16 +1523,18 @@ export default function GrafikPerkembanganOJT() {
               </div>
 
               <p className="gr-hint">
-                Filter periode berlaku untuk grafik
-                nilai Teori, Praktik, dan Samapta.
-                Pencapaian kompetensi dihitung
-                secara keseluruhan selama 25 minggu.
+                Filter periode berlaku
+                untuk grafik nilai Teori,
+                Praktik, dan Samapta.
+                Pencapaian kompetensi
+                dihitung selama 25 minggu.
               </p>
             </section>
 
             <section className="gr-card">
               <h2>
-                Perkembangan Nilai Teori & Praktik
+                Perkembangan Nilai
+                Teori & Praktik
               </h2>
 
               <TrendChart
@@ -1398,22 +1592,34 @@ export default function GrafikPerkembanganOJT() {
             </section>
 
             <section className="gr-card">
-              <h2>Kesimpulan Monitoring</h2>
+              <h2>
+                Kesimpulan Monitoring
+              </h2>
 
               <p className="gr-hint">
                 Data Post-Test tersedia pada{" "}
-                <strong>{theoryWeeks}</strong> minggu,
-                Praktik Mingguan pada{" "}
-                <strong>{practiceWeeks}</strong> minggu,
-                dan Samapta lengkap pada{" "}
-                <strong>{samaptaWeeks}</strong> minggu.
+                <strong>
+                  {theoryWeeks}
+                </strong>{" "}
+                minggu, Praktik Mingguan
+                pada{" "}
+                <strong>
+                  {practiceWeeks}
+                </strong>{" "}
+                minggu, dan Samapta lengkap
+                pada{" "}
+                <strong>
+                  {samaptaWeeks}
+                </strong>{" "}
+                minggu.
               </p>
 
               <p className="gr-hint">
-                Grafik hanya merangkum catatan
-                yang telah tersedia. Tidak ada
-                nilai otomatis untuk minggu kosong,
-                dan grafik ini bukan keputusan
+                Grafik hanya merangkum
+                catatan yang tersedia.
+                Tidak ada nilai otomatis
+                untuk minggu kosong.
+                Grafik ini bukan keputusan
                 kelulusan akhir peserta OJT.
               </p>
 
@@ -1432,7 +1638,9 @@ export default function GrafikPerkembanganOJT() {
                 <button
                   type="button"
                   className="gr-btn"
-                  onClick={() => window.print()}
+                  onClick={() =>
+                    window.print()
+                  }
                 >
                   Cetak / Simpan Grafik
                 </button>
