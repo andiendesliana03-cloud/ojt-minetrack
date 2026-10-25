@@ -21,18 +21,18 @@ const META_START = "[[SIMPER_V2]]";
 const META_END = "[[/SIMPER_V2]]";
 
 function today() {
-  const d = new Date();
+  const date = new Date();
   const local = new Date(
-    d.getTime() - d.getTimezoneOffset() * 60000
+    date.getTime() - date.getTimezoneOffset() * 60000
   );
   return local.toISOString().slice(0, 10);
 }
 
 function dateText(value) {
   if (!value) return "—";
-  const p = String(value).slice(0, 10).split("-");
-  return p.length === 3
-    ? `${p[2]}/${p[1]}/${p[0]}`
+  const parts = String(value).slice(0, 10).split("-");
+  return parts.length === 3
+    ? `${parts[2]}/${parts[1]}/${parts[0]}`
     : String(value);
 }
 
@@ -44,25 +44,35 @@ function normalize(value) {
 
 function parseDate(value) {
   if (!value) return null;
-  const p = String(value).slice(0, 10).split("-").map(Number);
+
+  const parts = String(value)
+    .slice(0, 10)
+    .split("-")
+    .map(Number);
 
   if (
-    p.length !== 3 ||
-    p.some(n => !Number.isInteger(n))
+    parts.length !== 3 ||
+    parts.some(n => !Number.isInteger(n))
   ) return null;
 
-  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  const [year, month, day] = parts;
+  const date = new Date(
+    Date.UTC(year, month - 1, day)
+  );
 
-  return (
-    d.getUTCFullYear() === p[0] &&
-    d.getUTCMonth() === p[1] - 1 &&
-    d.getUTCDate() === p[2]
-  ) ? d : null;
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) return null;
+
+  return date;
 }
 
 function weekOf(value, startValue) {
   const date = parseDate(value);
   const start = parseDate(startValue);
+
   if (!date || !start) return null;
 
   const days = Math.round(
@@ -76,33 +86,39 @@ function weekOf(value, startValue) {
     : null;
 }
 
-function average(rows) {
-  const values = rows
-    .filter(
-      r =>
-        r.score !== null &&
-        r.score !== undefined &&
-        r.score !== ""
+function average(records) {
+  const numbers = records
+    .map(record => record.score)
+    .filter(value =>
+      value !== null &&
+      value !== undefined &&
+      value !== ""
     )
-    .map(r => Number(r.score))
+    .map(Number)
     .filter(Number.isFinite);
 
-  return values.length
-    ? values.reduce((a, b) => a + b, 0) / values.length
-    : null;
+  if (!numbers.length) return null;
+
+  return (
+    numbers.reduce((a, b) => a + b, 0) /
+    numbers.length
+  );
 }
 
 function fmt(value) {
-  return value == null
+  return value === null || value === undefined
     ? "—"
     : Number(value).toFixed(2);
 }
 
 function fmtKm(value) {
-  return Number(value || 0).toLocaleString("id-ID", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
+  return Number(value || 0).toLocaleString(
+    "id-ID",
+    {
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 3,
+    }
+  );
 }
 
 function initials(value) {
@@ -110,23 +126,23 @@ function initials(value) {
     .trim()
     .split(/\s+/)
     .slice(0, 2)
-    .map(s => s[0])
+    .map(part => part[0])
     .join("")
     .toUpperCase();
 }
 
 function simperMeta(notes) {
   const text = String(notes || "");
-  const a = text.lastIndexOf(META_START);
-  const b = text.lastIndexOf(META_END);
+  const start = text.lastIndexOf(META_START);
+  const end = text.lastIndexOf(META_END);
 
-  if (a < 0 || b <= a) return null;
+  if (start < 0 || end <= start) return null;
 
   try {
-    const meta = JSON.parse(
-      text.slice(a + META_START.length, b)
+    const value = JSON.parse(
+      text.slice(start + META_START.length, end)
     );
-    return meta?.version === 2 ? meta : null;
+    return value?.version === 2 ? value : null;
   } catch {
     return null;
   }
@@ -134,18 +150,27 @@ function simperMeta(notes) {
 
 function simperSummary(record) {
   if (!record) {
-    return { percentage: 0, released: false };
+    return {
+      percentage: 0,
+      released: false,
+    };
   }
 
   const meta = simperMeta(record.notes);
-  const first = record.administration_status === "passed";
-  const second = record.theory_status === "passed";
-  const third = record.practice_status === "passed";
 
-  const fourth =
-    first &&
-    second &&
-    third &&
+  const administration =
+    record.administration_status === "passed";
+
+  const theory =
+    record.theory_status === "passed";
+
+  const practice =
+    record.practice_status === "passed";
+
+  const released =
+    administration &&
+    theory &&
+    practice &&
     meta?.application_status === "approved" &&
     meta?.orientation_status === "completed" &&
     meta?.issuance_status === "issued" &&
@@ -153,80 +178,91 @@ function simperSummary(record) {
 
   return {
     percentage:
-      [first, second, third, fourth].filter(Boolean).length * 25,
-    released: fourth,
+      [administration, theory, practice, released]
+        .filter(Boolean).length * 25,
+    released,
   };
 }
 
 function samaptaSessions(records) {
   const dates = [
     ...new Set(
-      records.map(r => r.test_date).filter(Boolean)
+      records.map(row => row.test_date).filter(Boolean)
     ),
   ].sort();
 
   const sessions = [];
 
-  dates.forEach(date => {
+  for (const date of dates) {
     const items = records.filter(
-      r => r.test_date === date
+      row => row.test_date === date
     );
 
-    function score(type) {
-      const row = items.find(
-        r => normalize(r.test_type) === normalize(type)
+    function findScore(name) {
+      const item = items.find(
+        row =>
+          normalize(row.test_type) === normalize(name)
       );
 
       if (
-        row?.score === null ||
-        row?.score === undefined ||
-        row?.score === ""
+        item?.score === null ||
+        item?.score === undefined ||
+        item?.score === ""
       ) return null;
 
-      const n = Number(row.score);
-      return Number.isFinite(n) ? n : null;
+      const value = Number(item.score);
+
+      return Number.isFinite(value)
+        ? value
+        : null;
     }
 
-    const a = score("Lari 12 Menit");
+    const running = findScore("Lari 12 Menit");
 
-    const parts = [
-      score("Pull-Up"),
-      score("Push-Up"),
-      score("Sit-Up"),
-      score("Shuttle Run"),
+    const others = [
+      findScore("Pull-Up"),
+      findScore("Push-Up"),
+      findScore("Sit-Up"),
+      findScore("Shuttle Run"),
     ];
 
     if (
-      a === null ||
-      parts.some(n => n === null)
-    ) return;
+      running === null ||
+      others.some(value => value === null)
+    ) continue;
 
-    const b =
-      parts.reduce((sum, n) => sum + n, 0) / 4;
+    const averageOthers =
+      others.reduce((sum, value) => sum + value, 0) /
+      others.length;
 
-    const run = items.find(
-      r => normalize(r.test_type) === "lari12menit"
+    const runningRecord = items.find(
+      row =>
+        normalize(row.test_type) === "lari12menit"
     );
 
+    const rawDistance = runningRecord?.result_value;
+
     const distance =
-      run?.result_value == null
+      rawDistance === null ||
+      rawDistance === undefined ||
+      rawDistance === ""
         ? null
-        : Number(run.result_value);
+        : Number(rawDistance);
 
     sessions.push({
       date,
-      a,
-      b,
-      final: (a + b) / 2,
-      distance: Number.isFinite(distance)
-        ? distance
-        : null,
+      final: (running + averageOthers) / 2,
+      distance:
+        distance !== null &&
+        Number.isFinite(distance)
+          ? distance
+          : null,
       runPassed:
         distance !== null &&
         Number.isFinite(distance) &&
         distance >= 2600,
     });
-  });
+  }
 
   return sessions;
 }
@@ -304,7 +340,13 @@ function Progress({ value }) {
   );
 }
 
-function MenuCard({ icon, title, detail, color, onClick }) {
+function MenuCard({
+  icon,
+  title,
+  detail,
+  color,
+  onClick,
+}) {
   return (
     <button
       type="button"
@@ -321,8 +363,13 @@ function MenuCard({ icon, title, detail, color, onClick }) {
         <Icon name={icon} size={23} />
       </div>
 
-      <div className="dp-menu-name">{title}</div>
-      <div className="dp-menu-detail">{detail}</div>
+      <div className="dp-menu-name">
+        {title}
+      </div>
+
+      <div className="dp-menu-detail">
+        {detail}
+      </div>
 
       <div className="dp-menu-arrow">
         <Icon name="arrow" size={16} />
@@ -363,7 +410,11 @@ export default function DetailPeserta() {
   const [jenis, setJenis] = useState("");
   const [tanggal, setTanggal] = useState(today);
   const [deskripsi, setDeskripsi] = useState("");
-  const [jarakKm, setJarakKm] = useState("");
+
+  // INPUT FISIK: KILOMETER + METER
+  const [fisikKm, setFisikKm] = useState("0");
+  const [fisikMeter, setFisikMeter] = useState("0");
+
   const [editId, setEditId] = useState(null);
 
   const [tanggalTes, setTanggalTes] = useState(today);
@@ -389,6 +440,26 @@ export default function DetailPeserta() {
     Boolean(kategoriFisik) &&
     jenis === kategoriFisik.code;
 
+  const nilaiKm = Number(fisikKm);
+  const nilaiMeter = Number(fisikMeter);
+
+  const jarakValid =
+    fisikKm !== "" &&
+    fisikMeter !== "" &&
+    Number.isInteger(nilaiKm) &&
+    Number.isInteger(nilaiMeter) &&
+    nilaiKm >= 0 &&
+    nilaiKm <= 100 &&
+    nilaiMeter >= 0 &&
+    nilaiMeter <= 999 &&
+    (nilaiKm > 0 || nilaiMeter > 0);
+
+  const totalJarak = jarakValid
+    ? Number(
+        (nilaiKm + nilaiMeter / 1000).toFixed(3)
+      )
+    : null;
+
   async function fetchRecords() {
     const results = await Promise.all([
       supabase
@@ -397,17 +468,25 @@ export default function DetailPeserta() {
           "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
         )
         .eq("program_id", programId)
-        .order("activity_date", { ascending: false }),
+        .order("activity_date", {
+          ascending: false,
+        }),
 
       supabase
         .from("post_test_scores")
-        .select("id,test_date,score,notes,created_at")
+        .select(
+          "id,test_date,score,notes,created_at"
+        )
         .eq("program_id", programId)
-        .order("test_date", { ascending: false }),
+        .order("test_date", {
+          ascending: false,
+        }),
 
       supabase
         .from("weekly_practice_scores")
-        .select("id,practice_date,practice_name,score")
+        .select(
+          "id,practice_date,practice_name,score"
+        )
         .eq("program_id", programId),
 
       supabase
@@ -426,7 +505,7 @@ export default function DetailPeserta() {
         .maybeSingle(),
     ]);
 
-    const names = [
+    const labels = [
       "Pencapaian",
       "Post-Test",
       "Praktik",
@@ -434,10 +513,10 @@ export default function DetailPeserta() {
       "SIMPER",
     ];
 
-    results.forEach((result, i) => {
+    results.forEach((result, index) => {
       if (result.error) {
         throw new Error(
-          `${names[i]}: ${result.error.message}`
+          `${labels[index]}: ${result.error.message}`
         );
       }
     });
@@ -451,23 +530,28 @@ export default function DetailPeserta() {
     };
   }
 
-  function applyRecords(data) {
-    setCatatan(data.catatan);
-    setPostTests(data.postTests);
-    setPraktik(data.praktik);
-    setSamapta(data.samapta);
-    setSimper(data.simper);
+  function applyRecords(records) {
+    setCatatan(records.catatan);
+    setPostTests(records.postTests);
+    setPraktik(records.praktik);
+    setSamapta(records.samapta);
+    setSimper(records.simper);
   }
 
   async function refresh() {
-    if (refreshing || loading || !programId) return;
+    if (
+      refreshing ||
+      loading ||
+      !programId
+    ) return;
 
     setRefreshing(true);
     setError("");
     setPesan("");
 
     try {
-      applyRecords(await fetchRecords());
+      const records = await fetchRecords();
+      applyRecords(records);
     } catch (err) {
       setError(
         err.message || "Gagal memperbarui data."
@@ -484,25 +568,37 @@ export default function DetailPeserta() {
         "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
       )
       .eq("program_id", programId)
-      .order("activity_date", { ascending: false });
+      .order("activity_date", {
+        ascending: false,
+      });
 
     if (err) throw err;
+
     setCatatan(data || []);
   }
 
   async function muatPostTests() {
     const { data, error: err } = await supabase
       .from("post_test_scores")
-      .select("id,test_date,score,notes,created_at")
+      .select(
+        "id,test_date,score,notes,created_at"
+      )
       .eq("program_id", programId)
-      .order("test_date", { ascending: false });
+      .order("test_date", {
+        ascending: false,
+      });
 
     if (err) throw err;
+
     setPostTests(data || []);
   }
 
   useEffect(() => {
-    if (!programId) return;
+    if (!programId) {
+      setError("ID program tidak tersedia.");
+      setLoading(false);
+      return;
+    }
 
     let aktif = true;
 
@@ -557,9 +653,14 @@ export default function DetailPeserta() {
           supabase
             .from("ojt_programs")
             .select(`
-              id,site,start_date,end_date,status,
+              id,
+              site,
+              start_date,
+              end_date,
+              status,
               peserta:profiles!ojt_programs_participant_id_fkey(
-                full_name,department
+                full_name,
+                department
               )
             `)
             .eq("id", programId)
@@ -586,7 +687,9 @@ export default function DetailPeserta() {
         setMentor(profil);
         setProgram(programResult.data);
         setKategori(kategoriResult.data || []);
-        setJenis(kategoriResult.data?.[0]?.code || "");
+        setJenis(
+          kategoriResult.data?.[0]?.code || ""
+        );
         applyRecords(recordResult);
       } catch (err) {
         if (aktif) {
@@ -610,6 +713,7 @@ export default function DetailPeserta() {
     setPanel(nama);
     setError("");
     setPesan("");
+
     window.scrollTo({
       top: 0,
       behavior: "smooth",
@@ -621,7 +725,9 @@ export default function DetailPeserta() {
     setJenis(kategori[0]?.code || "");
     setTanggal(today());
     setDeskripsi("");
-    setJarakKm("");
+
+    setFisikKm("0");
+    setFisikMeter("0");
   }
 
   function resetTes() {
@@ -631,8 +737,8 @@ export default function DetailPeserta() {
     setCatatanTes("");
   }
 
-  async function simpanPencapaian(e) {
-    e.preventDefault();
+  async function simpanPencapaian(event) {
+    event.preventDefault();
 
     if (
       !mentor ||
@@ -652,31 +758,21 @@ export default function DetailPeserta() {
       return;
     }
 
-    const minggu = weekOf(
+    const week = weekOf(
       tanggal,
       program.start_date
     );
 
-    if (minggu === null) {
+    if (week === null) {
       setError(
         "Tanggal kegiatan harus berada dalam periode Week 1–25 OJT."
       );
       return;
     }
 
-    const jarak = Number(jarakKm);
-
-    if (
-      isFisik &&
-      (
-        jarakKm.trim() === "" ||
-        !Number.isFinite(jarak) ||
-        jarak <= 0 ||
-        !/^\d+(\.\d{1,2})?$/.test(jarakKm)
-      )
-    ) {
+    if (isFisik && !jarakValid) {
       setError(
-        "Masukkan jarak Fisik lebih dari 0 km, maksimal 2 angka desimal."
+        "Masukkan kilometer 0–100 dan meter 0–999. Total jarak harus lebih dari 0."
       );
       return;
     }
@@ -685,12 +781,16 @@ export default function DetailPeserta() {
     setError("");
     setPesan("");
 
+    const kategoriSaatSimpan = isFisik;
+
     try {
       const dataInput = {
         type_code: jenis,
         activity_date: tanggal,
         description: deskripsi.trim(),
-        distance_km: isFisik ? jarak : null,
+        distance_km: kategoriSaatSimpan
+          ? totalJarak
+          : null,
         status: "pending",
         verified_by: null,
       };
@@ -714,7 +814,7 @@ export default function DetailPeserta() {
 
       if (!hasil.data?.length) {
         throw new Error(
-          "Pencapaian tidak tersimpan."
+          "Pencapaian tidak berhasil disimpan."
         );
       }
 
@@ -722,8 +822,8 @@ export default function DetailPeserta() {
       resetPencapaian();
 
       setPesan(
-        isFisik
-          ? "Kegiatan Fisik berhasil disimpan. Jarak akan dihitung setelah diverifikasi."
+        kategoriSaatSimpan
+          ? "Jarak Fisik berhasil disimpan dan menunggu verifikasi Mentor."
           : "Pencapaian berhasil disimpan dan menunggu verifikasi."
       );
     } catch (err) {
@@ -741,10 +841,17 @@ export default function DetailPeserta() {
     setTanggal(item.activity_date);
     setDeskripsi(item.description || "");
 
-    setJarakKm(
-      item.distance_km == null
-        ? ""
-        : String(item.distance_km)
+    // Konversi jarak desimal menjadi km + meter
+    const totalMeter = Math.round(
+      Number(item.distance_km || 0) * 1000
+    );
+
+    setFisikKm(
+      String(Math.floor(totalMeter / 1000))
+    );
+
+    setFisikMeter(
+      String(totalMeter % 1000)
     );
 
     setError("");
@@ -758,7 +865,11 @@ export default function DetailPeserta() {
   }
 
   async function verifikasi(item) {
-    if (!mentor || aksiId || menyimpan) return;
+    if (
+      !mentor ||
+      aksiId ||
+      menyimpan
+    ) return;
 
     const itemFisik =
       Boolean(kategoriFisik) &&
@@ -767,13 +878,14 @@ export default function DetailPeserta() {
     if (
       itemFisik &&
       (
-        item.distance_km == null ||
+        item.distance_km === null ||
+        item.distance_km === undefined ||
         !Number.isFinite(Number(item.distance_km)) ||
         Number(item.distance_km) <= 0
       )
     ) {
       setError(
-        "Jarak Fisik belum diisi. Edit catatan dan lengkapi kilometer sebelum verifikasi."
+        "Jarak Fisik belum valid. Edit catatan dan lengkapi kilometer serta meter sebelum verifikasi."
       );
       return;
     }
@@ -812,7 +924,7 @@ export default function DetailPeserta() {
 
       setPesan(
         itemFisik
-          ? "Jarak Fisik berhasil diverifikasi dan siap dihitung dalam monitoring."
+          ? "Jarak Fisik berhasil diverifikasi dan masuk perhitungan monitoring."
           : "Pencapaian berhasil diverifikasi."
       );
     } catch (err) {
@@ -825,7 +937,11 @@ export default function DetailPeserta() {
   }
 
   async function hapusPencapaian(item) {
-    if (!mentor || aksiId || menyimpan) return;
+    if (
+      !mentor ||
+      aksiId ||
+      menyimpan
+    ) return;
 
     if (
       !window.confirm(
@@ -868,8 +984,8 @@ export default function DetailPeserta() {
     }
   }
 
-  async function simpanPostTest(e) {
-    e.preventDefault();
+  async function simpanPostTest(event) {
+    event.preventDefault();
 
     if (
       !mentor ||
@@ -894,7 +1010,7 @@ export default function DetailPeserta() {
       nilai > 100
     ) {
       setError(
-        "Nilai harus antara 0 dan 100."
+        "Nilai Post-Test harus antara 0 dan 100."
       );
       return;
     }
@@ -1017,28 +1133,33 @@ export default function DetailPeserta() {
 
   const ringkasan = useMemo(() => {
     const codeByName = new Map(
-      kategori.map(k => [
-        normalize(k.name),
-        k.code,
+      kategori.map(item => [
+        normalize(item.name),
+        item.code,
       ])
     );
 
     const verifiedCodes = new Set(
       catatan
-        .filter(item => item.status === "verified")
+        .filter(
+          item => item.status === "verified"
+        )
         .map(item => item.type_code)
     );
 
-    const doneCategories = CATEGORY_NAMES.filter(name => {
-      const code = codeByName.get(
-        normalize(name)
-      );
+    const doneCategories = CATEGORY_NAMES.filter(
+      name => {
+        const code = codeByName.get(
+          normalize(name)
+        );
 
-      return code && verifiedCodes.has(code);
-    }).length;
+        return code && verifiedCodes.has(code);
+      }
+    ).length;
 
     const progress = Math.round(
-      doneCategories / CATEGORY_NAMES.length * 100
+      (doneCategories / CATEGORY_NAMES.length) *
+        100
     );
 
     const sessions = samaptaSessions(samapta);
@@ -1047,20 +1168,34 @@ export default function DetailPeserta() {
       ? sessions[sessions.length - 1]
       : null;
 
-    const weeks = new Set();
+    const activeWeeks = new Set();
 
-    function mark(value) {
-      const w = weekOf(
-        value,
+    function addWeek(date) {
+      const week = weekOf(
+        date,
         program?.start_date
       );
-      if (w !== null) weeks.add(w);
+
+      if (week !== null) {
+        activeWeeks.add(week);
+      }
     }
 
-    catatan.forEach(r => mark(r.activity_date));
-    postTests.forEach(r => mark(r.test_date));
-    praktik.forEach(r => mark(r.practice_date));
-    samapta.forEach(r => mark(r.test_date));
+    catatan.forEach(
+      item => addWeek(item.activity_date)
+    );
+
+    postTests.forEach(
+      item => addWeek(item.test_date)
+    );
+
+    praktik.forEach(
+      item => addWeek(item.practice_date)
+    );
+
+    samapta.forEach(
+      item => addWeek(item.test_date)
+    );
 
     const fisikCode = codeByName.get("fisik");
 
@@ -1068,78 +1203,101 @@ export default function DetailPeserta() {
       item =>
         item.type_code === fisikCode &&
         item.status === "verified" &&
+        item.distance_km !== null &&
+        item.distance_km !== undefined &&
+        Number.isFinite(Number(item.distance_km)) &&
+        Number(item.distance_km) >= 0 &&
         weekOf(
           item.activity_date,
           program?.start_date
-        ) !== null &&
-        item.distance_km != null
+        ) !== null
     );
 
-    const totalKm = fisikVerified.reduce(
+    const totalMeterVerified = fisikVerified.reduce(
       (sum, item) =>
-        sum + Number(item.distance_km || 0),
+        sum +
+        Math.round(
+          Number(item.distance_km) * 1000
+        ),
       0
     );
 
-    const fisikPerWeek = Array.from(
+    const totalKm = totalMeterVerified / 1000;
+
+    const fisikWeeks = Array.from(
       { length: TOTAL_WEEKS },
       (_, index) => {
-        const minggu = index + 1;
+        const week = index + 1;
 
-        const km = fisikVerified
+        const meter = fisikVerified
           .filter(
             item =>
               weekOf(
                 item.activity_date,
                 program?.start_date
-              ) === minggu
+              ) === week
           )
           .reduce(
             (sum, item) =>
-              sum + Number(item.distance_km || 0),
+              sum +
+              Math.round(
+                Number(item.distance_km) * 1000
+              ),
             0
           );
 
+        const km = meter / 1000;
+
         return {
-          week: minggu,
+          week,
           km,
-          percent:
+          percentage:
             (km / FISIK_TARGET_KM) * 100,
-          achieved: km >= FISIK_TARGET_KM,
+          achieved:
+            meter >= FISIK_TARGET_KM * 1000,
         };
       }
     );
 
-    const weeksAchieved = fisikPerWeek.filter(
+    const weeksAchieved = fisikWeeks.filter(
       item => item.achieved
     ).length;
 
     return {
       total: catatan.length,
+
       verified: catatan.filter(
         item => item.status === "verified"
       ).length,
+
       pending: catatan.filter(
         item => item.status === "pending"
       ).length,
+
       doneCategories,
       progress,
+
       postAverage: average(postTests),
       practiceAverage: average(praktik),
+
       samaptaCount: sessions.length,
       samaptaLatest: latest,
+
       simper: simperSummary(simper),
-      activityWeeks: weeks.size,
+
+      activityWeeks: activeWeeks.size,
+
       activityPct: Math.round(
-        (weeks.size / TOTAL_WEEKS) * 100
+        (activeWeeks.size / TOTAL_WEEKS) * 100
       ),
+
       fisik: {
         totalKm,
         targetWeekly: FISIK_TARGET_KM,
         targetTotal:
           FISIK_TARGET_KM * TOTAL_WEEKS,
         weeksAchieved,
-        weeks: fisikPerWeek,
+        weeks: fisikWeeks,
       },
     };
   }, [
@@ -1160,7 +1318,8 @@ export default function DetailPeserta() {
     {
       key: "pencapaian",
       title: "Pencapaian OJT",
-      detail: `${ringkasan.doneCategories} dari 6 kategori`,
+      detail:
+        `${ringkasan.doneCategories} dari 6 kategori`,
       icon: "target",
       color: "#0c976b",
       action: () => bukaPanel("pencapaian"),
@@ -1168,7 +1327,8 @@ export default function DetailPeserta() {
     {
       key: "posttest",
       title: "Post-Test",
-      detail: `${postTests.length} nilai tercatat`,
+      detail:
+        `${postTests.length} nilai tercatat`,
       icon: "file",
       color: "#317bd0",
       action: () => bukaPanel("posttest"),
@@ -1176,7 +1336,8 @@ export default function DetailPeserta() {
     {
       key: "praktik",
       title: "Praktik Mingguan",
-      detail: `${praktik.length} penilaian · rata-rata ${fmt(ringkasan.practiceAverage)}`,
+      detail:
+        `${praktik.length} penilaian · rata-rata ${fmt(ringkasan.practiceAverage)}`,
       icon: "book",
       color: "#d49b22",
       action: () =>
@@ -1185,7 +1346,8 @@ export default function DetailPeserta() {
     {
       key: "samapta",
       title: "Samapta",
-      detail: `${ringkasan.samaptaCount} tes lengkap`,
+      detail:
+        `${ringkasan.samaptaCount} tes lengkap`,
       icon: "run",
       color: "#139a5b",
       action: () =>
@@ -1194,7 +1356,8 @@ export default function DetailPeserta() {
     {
       key: "simper",
       title: "SIMPER",
-      detail: `${ringkasan.simper.percentage}% · 4 tahapan`,
+      detail:
+        `${ringkasan.simper.percentage}% · 4 tahapan`,
       icon: "id",
       color: "#8055ce",
       action: () =>
@@ -1203,7 +1366,8 @@ export default function DetailPeserta() {
     {
       key: "mingguan",
       title: "Evaluasi Mingguan",
-      detail: `${ringkasan.activityWeeks} dari 25 minggu ada aktivitas`,
+      detail:
+        `${ringkasan.activityWeeks} dari 25 minggu ada aktivitas`,
       icon: "calendar",
       color: "#0894b5",
       action: () =>
@@ -1212,7 +1376,8 @@ export default function DetailPeserta() {
     {
       key: "analisis",
       title: "Grafik Perkembangan",
-      detail: "Grafik nilai sepanjang Week 1–25",
+      detail:
+        "Grafik nilai sepanjang Week 1–25",
       icon: "chart",
       color: "#356fc1",
       action: () =>
@@ -1221,7 +1386,8 @@ export default function DetailPeserta() {
     {
       key: "evaluasi",
       title: "Evaluasi Kesiapan",
-      detail: "Kelengkapan enam indikator",
+      detail:
+        "Kelengkapan enam indikator",
       icon: "check",
       color: "#13885b",
       action: () =>
@@ -1230,7 +1396,8 @@ export default function DetailPeserta() {
     {
       key: "laporan",
       title: "Laporan OJT",
-      detail: "Rekapitulasi dan cetak PDF",
+      detail:
+        "Rekapitulasi dan cetak PDF",
       icon: "file",
       color: "#9b6acb",
       action: () =>
@@ -1251,9 +1418,13 @@ export default function DetailPeserta() {
     return (
       <main className="dp-loading">
         <h2>Data Tidak Dapat Ditampilkan</h2>
-        <p>{error || "Akses tidak tersedia."}</p>
+
+        <p>
+          {error || "Akses tidak tersedia."}
+        </p>
 
         <button
+          type="button"
           onClick={() => router.push("/")}
         >
           Kembali ke Dashboard
@@ -1661,6 +1832,14 @@ export default function DetailPeserta() {
           padding: 12px;
           font-size: 16px;
           font-family: inherit;
+          min-width: 0;
+        }
+
+        .dp-distance-grid {
+          display: grid;
+          grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+          gap: 10px;
         }
 
         textarea.dp-field {
@@ -1786,6 +1965,7 @@ export default function DetailPeserta() {
           border-radius: 9px;
           padding: 10px 5px;
           text-align: center;
+          min-width: 0;
         }
 
         .dp-fisik-stat small {
@@ -1799,6 +1979,27 @@ export default function DetailPeserta() {
           font-size: 17px;
           display: block;
           margin-top: 5px;
+        }
+
+        .dp-distance-total {
+          background: #e8f8ef;
+          border: 1px solid #bce7ce;
+          border-radius: 12px;
+          padding: 14px;
+          margin-top: 13px;
+        }
+
+        .dp-distance-total span {
+          font-size: 11px;
+          display: block;
+          color: #56796a;
+        }
+
+        .dp-distance-total strong {
+          font-size: 26px;
+          color: #087e57;
+          display: block;
+          margin: 6px 0;
         }
 
         .dp-footer {
@@ -1875,7 +2076,8 @@ export default function DetailPeserta() {
           }
 
           .dp-summary-grid {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns:
+              repeat(2, minmax(0, 1fr));
           }
 
           .dp-summary-box {
@@ -1934,12 +2136,12 @@ export default function DetailPeserta() {
             flex-wrap: wrap;
           }
 
-          .dp-summary-grid {
-            grid-template-columns: 1fr 1fr;
-          }
-
           .dp-menu-card {
             min-height: 146px;
+          }
+
+          .dp-distance-total strong {
+            font-size: 23px;
           }
         }
       `}</style>
@@ -1970,7 +2172,9 @@ export default function DetailPeserta() {
           <div className="dp-banner-label">
             EMERGENCY RESPONSE GROUP · PT BERAU COAL
           </div>
+
           <h1>Detail Peserta OJT</h1>
+
           <p>
             Monitoring Kompetensi dan Evaluasi OJT
           </p>
@@ -2011,14 +2215,13 @@ export default function DetailPeserta() {
             <span>
               Progres Pencapaian OJT
             </span>
+
             <strong>
               {ringkasan.progress}%
             </strong>
           </div>
 
-          <Progress
-            value={ringkasan.progress}
-          />
+          <Progress value={ringkasan.progress} />
 
           <div className="dp-metrics">
             <MiniStat
@@ -2045,7 +2248,10 @@ export default function DetailPeserta() {
         )}
 
         {pesan && (
-          <div className="dp-alert success" role="status">
+          <div
+            className="dp-alert success"
+            role="status"
+          >
             ✓ {pesan}
           </div>
         )}
@@ -2060,9 +2266,9 @@ export default function DetailPeserta() {
 
                 <button
                   className="dp-button outline"
+                  type="button"
                   onClick={refresh}
                   disabled={refreshing}
-                  type="button"
                 >
                   <Icon name="refresh" size={16} />{" "}
                   {refreshing
@@ -2161,7 +2367,7 @@ export default function DetailPeserta() {
                     {fmtKm(ringkasan.fisik.totalKm)} km
                   </strong>
                   <small>
-                    Target total: 625 km
+                    Target keseluruhan: 625 km
                   </small>
                 </div>
 
@@ -2171,7 +2377,7 @@ export default function DetailPeserta() {
                     {ringkasan.fisik.weeksAchieved}/25
                   </strong>
                   <small>
-                    Minggu mencapai 25 km
+                    Minggu mencapai target 25 km
                   </small>
                 </div>
               </div>
@@ -2232,8 +2438,8 @@ export default function DetailPeserta() {
                     id="dp-jenis"
                     className="dp-field"
                     value={jenis}
-                    onChange={e => {
-                      setJenis(e.target.value);
+                    onChange={event => {
+                      setJenis(event.target.value);
                       setError("");
                     }}
                     required
@@ -2265,45 +2471,112 @@ export default function DetailPeserta() {
                     type="date"
                     className="dp-field"
                     value={tanggal}
-                    onChange={e =>
-                      setTanggal(e.target.value)
+                    onChange={event =>
+                      setTanggal(event.target.value)
                     }
                     required
                   />
+
+                  <p
+                    className="dp-muted"
+                    style={{
+                      marginTop: 6,
+                      marginBottom: 0,
+                    }}
+                  >
+                    {weekOf(
+                      tanggal,
+                      program.start_date
+                    ) !== null
+                      ? `Week ${String(
+                          weekOf(
+                            tanggal,
+                            program.start_date
+                          )
+                        ).padStart(2, "0")}`
+                      : "Pilih tanggal dalam periode 25 minggu OJT."}
+                  </p>
                 </div>
 
                 {isFisik && (
                   <div className="dp-field-group">
-                    <label htmlFor="dp-jarak-km">
-                      Jarak Tempuh Fisik (km)
+                    <label>
+                      Jarak Tempuh Fisik
                     </label>
 
-                    <input
-                      id="dp-jarak-km"
-                      type="number"
-                      inputMode="decimal"
-                      min="0.01"
-                      step="0.01"
-                      className="dp-field"
-                      placeholder="Contoh: 5.50"
-                      value={jarakKm}
-                      onChange={e =>
-                        setJarakKm(e.target.value)
-                      }
-                      required
-                    />
+                    <div className="dp-distance-grid">
+                      <div>
+                        <label htmlFor="dp-fisik-km">
+                          Kilometer (km)
+                        </label>
 
-                    <p
-                      className="dp-muted"
-                      style={{
-                        marginTop: 7,
-                        marginBottom: 0,
-                      }}
-                    >
-                      Target: 25 km setiap minggu.
-                      Masukkan jarak aktual kegiatan.
-                      Jarak dihitung setelah diverifikasi.
-                    </p>
+                        <select
+                          id="dp-fisik-km"
+                          className="dp-field"
+                          value={fisikKm}
+                          onChange={event =>
+                            setFisikKm(
+                              event.target.value
+                            )
+                          }
+                        >
+                          {Array.from(
+                            { length: 101 },
+                            (_, index) => (
+                              <option
+                                key={index}
+                                value={index}
+                              >
+                                {index} km
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label htmlFor="dp-fisik-meter">
+                          Tambahan Meter (m)
+                        </label>
+
+                        <input
+                          id="dp-fisik-meter"
+                          className="dp-field"
+                          type="number"
+                          inputMode="numeric"
+                          min="0"
+                          max="999"
+                          step="1"
+                          placeholder="0–999"
+                          value={fisikMeter}
+                          onChange={event =>
+                            setFisikMeter(
+                              event.target.value
+                            )
+                          }
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="dp-distance-total">
+                      <span>
+                        Total Jarak Kegiatan
+                      </span>
+
+                      <strong>
+                        {totalJarak === null
+                          ? "—"
+                          : fmtKm(totalJarak)}{" "}
+                        km
+                      </strong>
+
+                      <span>
+                        Target Fisik 25 km per minggu.
+                        Jarak akan diakumulasikan
+                        setelah diverifikasi Mentor.
+                      </span>
+                    </div>
                   </div>
                 )}
 
@@ -2316,13 +2589,15 @@ export default function DetailPeserta() {
                     id="dp-deskripsi"
                     className="dp-field"
                     value={deskripsi}
-                    onChange={e =>
-                      setDeskripsi(e.target.value)
+                    onChange={event =>
+                      setDeskripsi(
+                        event.target.value
+                      )
                     }
                     rows={4}
                     placeholder={
                       isFisik
-                        ? "Contoh: Latihan lari pagi di area kerja selama 5 km."
+                        ? "Contoh: Latihan lari pagi di area kerja."
                         : "Uraikan kegiatan atau pencapaian peserta..."
                     }
                     required
@@ -2366,13 +2641,13 @@ export default function DetailPeserta() {
               </h2>
 
               <p className="dp-muted">
-                Jarak Fisik dihitung hanya dari catatan
-                yang sudah diverifikasi mentor.
+                Jarak Fisik dihitung dari catatan
+                yang telah diverifikasi Mentor.
               </p>
 
               <div className="dp-fisik-box">
                 <div className="dp-fisik-title">
-                  Target OJT Fisik
+                  Target Pencapaian Fisik
                 </div>
 
                 <div className="dp-fisik-grid">
@@ -2387,9 +2662,11 @@ export default function DetailPeserta() {
                   </div>
 
                   <div className="dp-fisik-stat">
-                    <small>Terverifikasi</small>
+                    <small>Realisasi</small>
                     <strong>
-                      {fmtKm(ringkasan.fisik.totalKm)} km
+                      {fmtKm(
+                        ringkasan.fisik.totalKm
+                      )} km
                     </strong>
                   </div>
                 </div>
@@ -2397,40 +2674,52 @@ export default function DetailPeserta() {
 
               <div className="dp-field-group">
                 <label>
-                  Progres Target Fisik Mingguan
+                  Monitoring Week 1–25
                 </label>
 
                 <div className="dp-category-grid">
-                  {ringkasan.fisik.weeks.map(item => (
-                    <div
-                      key={item.week}
-                      className={
-                        `dp-category ${
-                          item.achieved ? "verified" : ""
-                        }`
-                      }
-                    >
-                      <strong>
-                        Week {String(item.week).padStart(2, "0")}
-                      </strong>
+                  {ringkasan.fisik.weeks.map(
+                    item => (
+                      <div
+                        key={item.week}
+                        className={
+                          `dp-category ${
+                            item.achieved
+                              ? "verified"
+                              : ""
+                          }`
+                        }
+                      >
+                        <strong>
+                          Week{" "}
+                          {String(item.week).padStart(
+                            2,
+                            "0"
+                          )}
+                        </strong>
 
-                      <small>
-                        {fmtKm(item.km)} / 25 km
-                      </small>
+                        <small>
+                          {fmtKm(item.km)} / 25 km
+                        </small>
 
-                      <div style={{ marginTop: 9 }}>
-                        <Progress
-                          value={item.percent}
-                        />
+                        <div
+                          style={{
+                            marginTop: 9,
+                          }}
+                        >
+                          <Progress
+                            value={item.percentage}
+                          />
+                        </div>
+
+                        <small>
+                          {item.achieved
+                            ? "✓ Tercapai"
+                            : "Belum tercapai"}
+                        </small>
                       </div>
-
-                      <small>
-                        {item.achieved
-                          ? "✓ Tercapai"
-                          : "Belum tercapai"}
-                      </small>
-                    </div>
-                  ))}
+                    )
+                  )}
                 </div>
               </div>
             </section>
@@ -2442,21 +2731,26 @@ export default function DetailPeserta() {
 
               <p className="dp-muted">
                 Kategori dengan catatan terverifikasi
-                ditandai hijau.
+                ditandai hijau. Ini menunjukkan adanya
+                kegiatan terverifikasi, bukan berarti
+                seluruh target kategori telah tercapai.
               </p>
 
               <div className="dp-category-grid">
                 {kategori.map(item => {
-                  const daftar = catatan.filter(
-                    c => c.type_code === item.code
+                  const records = catatan.filter(
+                    record =>
+                      record.type_code === item.code
                   );
 
-                  const verified = daftar.filter(
-                    c => c.status === "verified"
+                  const verified = records.filter(
+                    record =>
+                      record.status === "verified"
                   ).length;
 
-                  const pending = daftar.filter(
-                    c => c.status === "pending"
+                  const pending = records.filter(
+                    record =>
+                      record.status === "pending"
                   ).length;
 
                   return (
@@ -2464,7 +2758,9 @@ export default function DetailPeserta() {
                       key={item.code}
                       className={
                         `dp-category ${
-                          verified ? "verified" : ""
+                          verified
+                            ? "verified"
+                            : ""
                         }`
                       }
                     >
@@ -2499,101 +2795,106 @@ export default function DetailPeserta() {
                 </p>
               )}
 
-              {catatan.map(item => (
-                <div
-                  className="dp-history-item"
-                  key={item.id}
-                >
-                  <div className="dp-history-title">
-                    {kategori.find(
-                      k => k.code === item.type_code
-                    )?.name || item.type_code}
-                  </div>
+              {catatan.map(item => {
+                const minggu = weekOf(
+                  item.activity_date,
+                  program.start_date
+                );
 
-                  <div className="dp-history-meta">
-                    {dateText(item.activity_date)}
-                    {" · "}
-                    {item.status === "verified"
-                      ? "Terverifikasi"
-                      : item.status === "pending"
-                      ? "Menunggu Verifikasi"
-                      : item.status}
-
-                    {weekOf(
-                      item.activity_date,
-                      program.start_date
-                    ) !== null && (
-                      <>
-                        {" · "}
-                        Week{" "}
-                        {weekOf(
-                          item.activity_date,
-                          program.start_date
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  <p className="dp-history-desc">
-                    {item.description}
-                  </p>
-
-                  {item.distance_km != null && (
-                    <div className="dp-history-meta">
-                      Jarak Fisik:{" "}
-                      <strong>
-                        {fmtKm(item.distance_km)} km
-                      </strong>
+                return (
+                  <div
+                    className="dp-history-item"
+                    key={item.id}
+                  >
+                    <div className="dp-history-title">
+                      {kategori.find(
+                        k =>
+                          k.code === item.type_code
+                      )?.name || item.type_code}
                     </div>
-                  )}
 
-                  <div className="dp-history-actions">
-                    {item.status === "pending" && (
+                    <div className="dp-history-meta">
+                      {dateText(item.activity_date)}
+                      {" · "}
+                      {item.status === "verified"
+                        ? "Terverifikasi"
+                        : item.status === "pending"
+                        ? "Menunggu Verifikasi"
+                        : item.status}
+
+                      {minggu !== null && (
+                        <>
+                          {" · "}
+                          Week {minggu}
+                        </>
+                      )}
+                    </div>
+
+                    <p className="dp-history-desc">
+                      {item.description}
+                    </p>
+
+                    {item.distance_km != null && (
+                      <div className="dp-history-meta">
+                        Jarak Fisik:{" "}
+                        <strong>
+                          {fmtKm(
+                            item.distance_km
+                          )} km
+                        </strong>
+                      </div>
+                    )}
+
+                    <div className="dp-history-actions">
+                      {item.status === "pending" && (
+                        <button
+                          type="button"
+                          className="dp-button"
+                          disabled={
+                            Boolean(aksiId) ||
+                            menyimpan
+                          }
+                          onClick={() =>
+                            verifikasi(item)
+                          }
+                        >
+                          ✓ Verifikasi
+                        </button>
+                      )}
+
                       <button
                         type="button"
-                        className="dp-button"
+                        className="dp-button blue"
                         disabled={
                           Boolean(aksiId) ||
                           menyimpan
                         }
-                        onClick={() => verifikasi(item)}
+                        onClick={() =>
+                          editPencapaian(item)
+                        }
                       >
-                        ✓ Verifikasi
+                        Edit
                       </button>
-                    )}
 
-                    <button
-                      type="button"
-                      className="dp-button blue"
-                      disabled={
-                        Boolean(aksiId) ||
-                        menyimpan
-                      }
-                      onClick={() =>
-                        editPencapaian(item)
-                      }
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      type="button"
-                      className="dp-button red"
-                      disabled={
-                        Boolean(aksiId) ||
-                        menyimpan
-                      }
-                      onClick={() =>
-                        hapusPencapaian(item)
-                      }
-                    >
-                      {aksiId === item.id
-                        ? "Memproses..."
-                        : "Hapus"}
-                    </button>
+                      <button
+                        type="button"
+                        className="dp-button red"
+                        disabled={
+                          Boolean(aksiId) ||
+                          menyimpan
+                        }
+                        onClick={() =>
+                          hapusPencapaian(item)
+                        }
+                      >
+                        {aksiId === item.id
+                          ? "Memproses..."
+                          : "Hapus"}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </section>
           </>
         )}
@@ -2630,7 +2931,9 @@ export default function DetailPeserta() {
 
                 <MiniStat
                   label="Rata-rata Nilai"
-                  value={fmt(ringkasan.postAverage)}
+                  value={fmt(
+                    ringkasan.postAverage
+                  )}
                 />
               </div>
 
@@ -2651,8 +2954,10 @@ export default function DetailPeserta() {
                     className="dp-field"
                     type="date"
                     value={tanggalTes}
-                    onChange={e =>
-                      setTanggalTes(e.target.value)
+                    onChange={event =>
+                      setTanggalTes(
+                        event.target.value
+                      )
                     }
                     required
                   />
@@ -2671,8 +2976,10 @@ export default function DetailPeserta() {
                     max="100"
                     step="0.01"
                     value={nilaiTes}
-                    onChange={e =>
-                      setNilaiTes(e.target.value)
+                    onChange={event =>
+                      setNilaiTes(
+                        event.target.value
+                      )
                     }
                     placeholder="Contoh: 85"
                     required
@@ -2689,8 +2996,10 @@ export default function DetailPeserta() {
                     className="dp-field"
                     rows={3}
                     value={catatanTes}
-                    onChange={e =>
-                      setCatatanTes(e.target.value)
+                    onChange={event =>
+                      setCatatanTes(
+                        event.target.value
+                      )
                     }
                     placeholder="Catatan evaluasi peserta..."
                   />
@@ -2756,7 +3065,8 @@ export default function DetailPeserta() {
                   </div>
 
                   <p className="dp-history-desc">
-                    {item.notes || "Tidak ada catatan."}
+                    {item.notes ||
+                      "Tidak ada catatan."}
                   </p>
 
                   <div className="dp-history-actions">
