@@ -1,35 +1,76 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  useParams,
+  useRouter,
+} from "next/navigation";
+
 import { supabase } from "../../../lib/supabase";
 
 const TOTAL_WEEKS = 25;
 
 const TARGETS = [
-  { key: "Fisik", title: "FISIK", target: 25, unit: "km" },
-  { key: "Training", title: "INTERNAL TRAINING", target: 4, unit: "kegiatan" },
-  { key: "Sosialisasi", title: "SOSIALISASI", target: 3, unit: "kegiatan" },
-  { key: "Orientasi Area", title: "ORIENTASI", target: 2, unit: "kegiatan" },
-  { key: "Coaching", title: "COACHING", target: 1, unit: "kegiatan" },
-  { key: "Hazard", title: "HAZARD", target: 2, unit: "kegiatan" },
+  {
+    key: "Fisik",
+    title: "FISIK",
+    target: 25,
+    unit: "km",
+    color: "#d84542",
+  },
+  {
+    key: "Training",
+    title: "INTERNAL TRAINING",
+    target: 4,
+    unit: "kegiatan",
+    color: "#e6a22f",
+  },
+  {
+    key: "Sosialisasi",
+    title: "SOSIALISASI",
+    target: 3,
+    unit: "kegiatan",
+    color: "#d9b91b",
+  },
+  {
+    key: "Orientasi Area",
+    title: "ORIENTASI",
+    target: 2,
+    unit: "kegiatan",
+    color: "#21834d",
+  },
+  {
+    key: "Coaching",
+    title: "COACHING",
+    target: 1,
+    unit: "kegiatan",
+    color: "#199dc1",
+  },
+  {
+    key: "Hazard",
+    title: "HAZARD",
+    target: 2,
+    unit: "kegiatan",
+    color: "#286bd0",
+  },
 ];
 
-const COLORS = [
-  "#df4b45",
-  "#e7a42a",
-  "#e4cb24",
-  "#268a4e",
-  "#219fc2",
-  "#3070d5",
-];
+const SIMPER_START = "[[SIMPER_V2]]";
+const SIMPER_END = "[[/SIMPER_V2]]";
 
-const META_START = "[[SIMPER_V2]]";
-const META_END = "[[/SIMPER_V2]]";
+function pad(n) {
+  return String(n).padStart(2, "0");
+}
 
 function normalize(value) {
-  return String(value || "")
+  return String(value ?? "")
+    .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
 }
@@ -39,14 +80,21 @@ function numberOrNull(value) {
     value === null ||
     value === undefined ||
     value === ""
-  ) return null;
+  ) {
+    return null;
+  }
 
   const n = Number(value);
+
   return Number.isFinite(n) ? n : null;
 }
 
 function fmt(value, digits = 0) {
-  if (value === null || value === undefined) {
+  if (
+    value === null ||
+    value === undefined ||
+    !Number.isFinite(Number(value))
+  ) {
     return "—";
   }
 
@@ -56,24 +104,19 @@ function fmt(value, digits = 0) {
   });
 }
 
-function pad(value) {
-  return String(value).padStart(2, "0");
-}
-
 function parseDate(value) {
   if (!value) return null;
 
-  const parts = String(value)
-    .slice(0, 10)
-    .split("-")
-    .map(Number);
+  const source = String(value).slice(0, 10);
+  const match = source.match(
+    /^(\d{4})-(\d{2})-(\d{2})$/
+  );
 
-  if (
-    parts.length !== 3 ||
-    parts.some(n => !Number.isInteger(n))
-  ) return null;
+  if (!match) return null;
 
-  const [year, month, day] = parts;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
 
   const result = new Date(
     Date.UTC(year, month - 1, day)
@@ -83,13 +126,16 @@ function parseDate(value) {
     result.getUTCFullYear() !== year ||
     result.getUTCMonth() !== month - 1 ||
     result.getUTCDate() !== day
-  ) return null;
+  ) {
+    return null;
+  }
 
   return result;
 }
 
 function dateText(value) {
   const date = parseDate(value);
+
   if (!date) return "—";
 
   return new Intl.DateTimeFormat("id-ID", {
@@ -100,88 +146,99 @@ function dateText(value) {
   }).format(date);
 }
 
-function weekOf(value, startValue) {
-  const date = parseDate(value);
+function weekOf(dateValue, startValue) {
+  const date = parseDate(dateValue);
   const start = parseDate(startValue);
 
   if (!date || !start) return null;
 
-  const difference = Math.round(
-    (date.getTime() - start.getTime()) / 86400000
+  const days = Math.round(
+    (date.getTime() - start.getTime()) /
+      86400000
   );
 
-  const week = Math.floor(difference / 7) + 1;
+  const week = Math.floor(days / 7) + 1;
 
-  return week >= 1 && week <= TOTAL_WEEKS
-    ? week
-    : null;
-}
+  if (week < 1 || week > TOTAL_WEEKS) {
+    return null;
+  }
 
-function average(rows) {
-  const values = rows
-    .map(row => numberOrNull(row.score))
-    .filter(value => value !== null);
-
-  if (!values.length) return null;
-
-  return (
-    values.reduce((sum, value) => sum + value, 0) /
-    values.length
-  );
+  return week;
 }
 
 function readSimperMeta(notes) {
-  const text = String(notes || "");
+  const text = String(notes ?? "");
 
-  const a = text.lastIndexOf(META_START);
-  const b = text.lastIndexOf(META_END);
+  const start = text.lastIndexOf(SIMPER_START);
+  const end = text.lastIndexOf(SIMPER_END);
 
-  if (a < 0 || b <= a) return null;
+  if (start < 0 || end <= start) {
+    return null;
+  }
 
   try {
-    const value = JSON.parse(
-      text.slice(a + META_START.length, b)
+    const raw = text.slice(
+      start + SIMPER_START.length,
+      end
     );
 
-    return value?.version === 2
-      ? value
+    const parsed = JSON.parse(raw);
+
+    return parsed?.version === 2
+      ? parsed
       : null;
   } catch {
     return null;
   }
 }
 
-function splitWeeks(items, size = 7) {
+function getPredikat(average) {
+  if (average === null) {
+    return {
+      letter: "—",
+      label: "BELUM ADA NILAI",
+    };
+  }
+
+  if (average >= 85) {
+    return {
+      letter: "A",
+      label: "SANGAT BAIK",
+    };
+  }
+
+  if (average >= 75) {
+    return {
+      letter: "B",
+      label: "BAIK",
+    };
+  }
+
+  if (average >= 60) {
+    return {
+      letter: "C",
+      label: "CUKUP",
+    };
+  }
+
+  return {
+    letter: "D",
+    label: "KURANG",
+  };
+}
+
+function groupWeeks(items, size = 7) {
   const result = [];
 
-  for (let index = 0; index < items.length; index += size) {
+  for (
+    let index = 0;
+    index < items.length;
+    index += size
+  ) {
     result.push(items.slice(index, index + size));
   }
 
   return result;
-}
-
-function getPredikat(value) {
-  if (value === null) {
-    return {
-      letter: "—",
-      label: "Belum ada nilai",
-    };
-  }
-
-  if (value >= 85) {
-    return { letter: "A", label: "SANGAT BAIK" };
-  }
-
-  if (value >= 75) {
-    return { letter: "B", label: "BAIK" };
-  }
-
-  if (value >= 60) {
-    return { letter: "C", label: "CUKUP" };
-  }
-
-  return { letter: "D", label: "KURANG" };
 }
 
 function WeekSelector({
@@ -189,18 +246,22 @@ function WeekSelector({
   onChange,
   from = 1,
 }) {
+  const options = Array.from(
+    {
+      length: TOTAL_WEEKS - from + 1,
+    },
+    (_, index) => index + from
+  );
+
   return (
     <select
-      className="rapor-input"
+      className="rp-select"
       value={value}
-      onChange={event =>
+      onChange={(event) =>
         onChange(Number(event.target.value))
       }
     >
-      {Array.from(
-        { length: TOTAL_WEEKS - from + 1 },
-        (_, index) => index + from
-      ).map(week => (
+      {options.map((week) => (
         <option key={week} value={week}>
           Week {pad(week)}
         </option>
@@ -209,15 +270,109 @@ function WeekSelector({
   );
 }
 
-function TableTitle({ children }) {
+function SectionTitle({ children }) {
   return (
-    <div className="rapor-section-title">
+    <div className="rp-section-title">
       {children}
     </div>
   );
 }
 
-export default function RaporOJT() {
+function ScoreCell({ items, type }) {
+  if (!items?.length) {
+    return <span>—</span>;
+  }
+
+  return (
+    <div className="rp-scores">
+      {items.map((item, index) => {
+        const name =
+          type === "practice"
+            ? item.practice_name
+            : item.notes;
+
+        const score = numberOrNull(item.score);
+
+        return (
+          <div
+            className="rp-score"
+            key={item.id ?? index}
+          >
+            {name &&
+              String(name).trim() && (
+                <div className="rp-score-name">
+                  {String(name).trim()}
+                </div>
+              )}
+
+            <strong>{fmt(score, 2)}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+async function getRecords(programId) {
+  const results = await Promise.all([
+    supabase
+      .from("achievement_types")
+      .select("code,name"),
+
+    supabase
+      .from("achievement_records")
+      .select(
+        "id,type_code,activity_date,description,distance_km,status"
+      )
+      .eq("program_id", programId),
+
+    supabase
+      .from("post_test_scores")
+      .select("id,test_date,score,notes")
+      .eq("program_id", programId),
+
+    supabase
+      .from("weekly_practice_scores")
+      .select(
+        "id,practice_date,practice_name,score"
+      )
+      .eq("program_id", programId),
+
+    supabase
+      .from("simper_records")
+      .select(
+        "id,administration_status,theory_status,practice_status,status,graduation_date,notes"
+      )
+      .eq("program_id", programId)
+      .maybeSingle(),
+  ]);
+
+  const labels = [
+    "Kategori kegiatan",
+    "Pencapaian",
+    "Nilai teori",
+    "Nilai praktik",
+    "SIMPER",
+  ];
+
+  results.forEach((result, index) => {
+    if (result.error) {
+      throw new Error(
+        `${labels[index]}: ${result.error.message}`
+      );
+    }
+  });
+
+  return {
+    types: results[0].data ?? [],
+    achievements: results[1].data ?? [],
+    theory: results[2].data ?? [],
+    practices: results[3].data ?? [],
+    simper: results[4].data ?? null,
+  };
+}
+
+export default function RaporOJTPage() {
   const params = useParams();
   const router = useRouter();
 
@@ -226,105 +381,50 @@ export default function RaporOJT() {
     : params?.id;
 
   const [data, setData] = useState(null);
-
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] =
+    useState(false);
+
   const [error, setError] = useState("");
 
   const [mode, setMode] = useState("range");
 
-  const [singleWeek, setSingleWeek] = useState(3);
-  const [fromWeek, setFromWeek] = useState(3);
-  const [toWeek, setToWeek] = useState(7);
+  const [singleWeek, setSingleWeek] =
+    useState(1);
 
-  const [customWeeks, setCustomWeeks] = useState([
-    1, 3, 5,
-  ]);
+  const [fromWeek, setFromWeek] = useState(1);
+  const [toWeek, setToWeek] = useState(1);
+
+  const [customWeeks, setCustomWeeks] =
+    useState([1]);
 
   const [preview, setPreview] = useState(true);
 
-  async function fetchRecords(id) {
-    const results = await Promise.all([
-      supabase
-        .from("achievement_types")
-        .select("code,name"),
-
-      supabase
-        .from("achievement_records")
-        .select(
-          "id,type_code,activity_date,description,distance_km,status"
-        )
-        .eq("program_id", id),
-
-      supabase
-        .from("post_test_scores")
-        .select("id,test_date,score,notes")
-        .eq("program_id", id),
-
-      supabase
-        .from("weekly_practice_scores")
-        .select(
-          "id,practice_date,practice_name,score"
-        )
-        .eq("program_id", id),
-
-      supabase
-        .from("simper_records")
-        .select(
-          "id,administration_status,theory_status,practice_status,status,graduation_date,notes"
-        )
-        .eq("program_id", id)
-        .maybeSingle(),
-    ]);
-
-    const names = [
-      "Kategori",
-      "Pencapaian",
-      "Teori",
-      "Praktik",
-      "SIMPER",
-    ];
-
-    results.forEach((result, index) => {
-      if (result.error) {
-        throw new Error(
-          `${names[index]}: ${result.error.message}`
-        );
-      }
-    });
-
-    return {
-      types: results[0].data || [],
-      achievements: results[1].data || [],
-      theory: results[2].data || [],
-      practice: results[3].data || [],
-      simper: results[4].data || null,
-    };
-  }
-
   useEffect(() => {
-    if (!programId) {
-      setError("ID program tidak tersedia.");
-      setLoading(false);
-      return;
-    }
-
     let active = true;
 
     async function load() {
+      if (!programId) {
+        setError("ID program tidak tersedia.");
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError("");
 
       try {
         const {
-          data: auth,
+          data: authData,
           error: authError,
         } = await supabase.auth.getUser();
 
-        if (authError || !auth?.user) {
+        if (authError || !authData?.user) {
           router.replace("/login");
           return;
         }
+
+        const userId = authData.user.id;
 
         const {
           data: profile,
@@ -332,7 +432,7 @@ export default function RaporOJT() {
         } = await supabase
           .from("profiles")
           .select("id,role,full_name")
-          .eq("id", auth.user.id)
+          .eq("id", userId)
           .single();
 
         if (profileError || !profile) {
@@ -350,7 +450,9 @@ export default function RaporOJT() {
         ].includes(profile.role);
 
         if (!isMentor && !isParticipant) {
-          throw new Error("Akun tidak memiliki akses.");
+          throw new Error(
+            "Akun tidak memiliki akses ke rapor."
+          );
         }
 
         let query = supabase
@@ -372,7 +474,7 @@ export default function RaporOJT() {
         if (isParticipant) {
           query = query.eq(
             "participant_id",
-            auth.user.id
+            userId
           );
         }
 
@@ -389,11 +491,13 @@ export default function RaporOJT() {
 
         if (!parseDate(program.start_date)) {
           throw new Error(
-            "Tanggal mulai OJT tidak valid."
+            "Tanggal mulai program OJT belum valid."
           );
         }
 
-        const records = await fetchRecords(programId);
+        const records = await getRecords(
+          programId
+        );
 
         if (!active) return;
 
@@ -405,11 +509,14 @@ export default function RaporOJT() {
       } catch (err) {
         if (active) {
           setError(
-            err?.message || "Gagal memuat rapor."
+            err?.message ??
+              "Terjadi kesalahan saat memuat rapor."
           );
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
@@ -420,24 +527,25 @@ export default function RaporOJT() {
     };
   }, [programId, router]);
 
-  async function refresh() {
+  async function refreshData() {
     if (!data || refreshing) return;
 
     setRefreshing(true);
     setError("");
 
     try {
-      const records = await fetchRecords(
+      const records = await getRecords(
         data.program.id
       );
 
-      setData(old => ({
-        ...old,
+      setData((previous) => ({
+        ...previous,
         ...records,
       }));
     } catch (err) {
       setError(
-        err?.message || "Gagal memperbarui data."
+        err?.message ??
+          "Gagal memperbarui data."
       );
     } finally {
       setRefreshing(false);
@@ -450,20 +558,22 @@ export default function RaporOJT() {
     }
 
     if (mode === "range") {
-      return Array.from(
-        {
-          length: Math.max(
-            0,
-            toWeek - fromWeek + 1
-          ),
-        },
-        (_, index) => fromWeek + index
-      );
+      const weeks = [];
+
+      for (
+        let week = fromWeek;
+        week <= toWeek;
+        week++
+      ) {
+        weeks.push(week);
+      }
+
+      return weeks;
     }
 
     return [...new Set(customWeeks)]
       .filter(
-        week =>
+        (week) =>
           week >= 1 &&
           week <= TOTAL_WEEKS
       )
@@ -476,12 +586,16 @@ export default function RaporOJT() {
     customWeeks,
   ]);
 
-  function toggleWeek(week) {
-    setCustomWeeks(old =>
-      old.includes(week)
-        ? old.filter(value => value !== week)
-        : [...old, week]
-    );
+  function toggleCustomWeek(week) {
+    setCustomWeeks((previous) => {
+      if (previous.includes(week)) {
+        return previous.filter(
+          (item) => item !== week
+        );
+      }
+
+      return [...previous, week];
+    });
   }
 
   const report = useMemo(() => {
@@ -492,227 +606,289 @@ export default function RaporOJT() {
       types,
       achievements,
       theory,
-      practice,
+      practices,
       simper,
     } = data;
 
-    const codeMap = new Map(
-      types.map(item => [
-        normalize(item.name),
-        item.code,
-      ])
-    );
+    const typeMap = new Map();
 
-    function getCode(key) {
-      if (key === "Training") {
-        return (
-          codeMap.get("training") ||
-          codeMap.get("internaltraining")
+    types.forEach((item) => {
+      if (item.name) {
+        typeMap.set(
+          normalize(item.name),
+          item.code
         );
       }
 
-      return codeMap.get(normalize(key));
+      if (item.code) {
+        typeMap.set(
+          normalize(item.code),
+          item.code
+        );
+      }
+    });
+
+    function categoryCode(key) {
+      if (key === "Training") {
+        return (
+          typeMap.get("training") ??
+          typeMap.get("internaltraining") ??
+          null
+        );
+      }
+
+      return typeMap.get(normalize(key)) ?? null;
     }
 
-    const weekly = selectedWeeks.map(week => {
-      const achievementsThisWeek =
-        achievements.filter(
-          item =>
+    const weekly = selectedWeeks.map(
+      (weekNumber) => {
+        const weekAchievements =
+          achievements.filter(
+            (item) =>
+              weekOf(
+                item.activity_date,
+                program.start_date
+              ) === weekNumber
+          );
+
+        const competency = TARGETS.map(
+          (target) => {
+            const code = categoryCode(
+              target.key
+            );
+
+            const matching = code
+              ? weekAchievements.filter(
+                  (item) =>
+                    item.type_code === code
+                )
+              : [];
+
+            const verified = matching.filter(
+              (item) =>
+                item.status === "verified"
+            );
+
+            let realized = 0;
+
+            if (target.key === "Fisik") {
+              const totalMeters =
+                verified.reduce(
+                  (sum, item) =>
+                    sum +
+                    Math.round(
+                      (
+                        numberOrNull(
+                          item.distance_km
+                        ) ?? 0
+                      ) * 1000
+                    ),
+                  0
+                );
+
+              realized = totalMeters / 1000;
+            } else {
+              realized = verified.length;
+            }
+
+            return {
+              ...target,
+              realized,
+              recorded: matching.length,
+            };
+          }
+        );
+
+        const weekTheory = theory.filter(
+          (item) =>
             weekOf(
-              item.activity_date,
+              item.test_date,
               program.start_date
-            ) === week
+            ) === weekNumber
         );
 
-      const activities = TARGETS.map(target => {
-        const typeCode = getCode(target.key);
+        const weekPractices =
+          practices.filter(
+            (item) =>
+              weekOf(
+                item.practice_date,
+                program.start_date
+              ) === weekNumber
+          );
 
-        const matching = typeCode
-          ? achievementsThisWeek.filter(
-              item =>
-                item.type_code === typeCode
+        return {
+          week: weekNumber,
+          competency,
+          theory: weekTheory,
+          practices: weekPractices,
+        };
+      }
+    );
+
+    const competencySummary = TARGETS.map(
+      (target) => {
+        const entries = weekly.map(
+          (week) =>
+            week.competency.find(
+              (item) =>
+                item.key === target.key
             )
-          : [];
-
-        const verified = matching.filter(
-          item => item.status === "verified"
         );
 
-        let realized = 0;
+        let realized;
 
         if (target.key === "Fisik") {
-          const meters = verified.reduce(
+          const totalMeters = entries.reduce(
             (sum, item) =>
               sum +
               Math.round(
-                (numberOrNull(item.distance_km) || 0) *
-                  1000
+                item.realized * 1000
               ),
             0
           );
 
-          realized = meters / 1000;
+          realized = totalMeters / 1000;
         } else {
-          realized = verified.length;
+          realized = entries.reduce(
+            (sum, item) =>
+              sum + item.realized,
+            0
+          );
         }
+
+        const totalTarget =
+          target.target *
+          selectedWeeks.length;
+
+        const percentage =
+          totalTarget > 0
+            ? (realized / totalTarget) * 100
+            : 0;
 
         return {
           ...target,
           realized,
-          recorded: matching.length,
-          verifiedCount: verified.length,
-          pendingCount: matching.filter(
-            item => item.status === "pending"
-          ).length,
+          totalTarget,
+          percentage,
+          achieved:
+            totalTarget > 0 &&
+            realized >= totalTarget,
+          hasData: entries.some(
+            (item) => item.recorded > 0
+          ),
         };
-      });
-
-      return {
-        week,
-        activities,
-
-        tests: theory.filter(
-          item =>
-            weekOf(
-              item.test_date,
-              program.start_date
-            ) === week
-        ),
-
-        practices: practice.filter(
-          item =>
-            weekOf(
-              item.practice_date,
-              program.start_date
-            ) === week
-        ),
-      };
-    });
-
-    const summary = TARGETS.map(target => {
-      const entries = weekly.map(
-        week =>
-          week.activities.find(
-            item => item.key === target.key
-          )
-      );
-
-      let realized;
-
-      if (target.key === "Fisik") {
-        const meters = entries.reduce(
-          (sum, item) =>
-            sum +
-            Math.round(item.realized * 1000),
-          0
-        );
-
-        realized = meters / 1000;
-      } else {
-        realized = entries.reduce(
-          (sum, item) =>
-            sum + item.realized,
-          0
-        );
       }
+    );
 
-      const totalTarget =
-        target.target * selectedWeeks.length;
-
-      return {
-        ...target,
-        totalTarget,
-        realized,
-        percentage: totalTarget > 0
-          ? realized / totalTarget * 100
-          : 0,
-        achieved:
-          totalTarget > 0 &&
-          realized >= totalTarget,
-        hasData: entries.some(
-          item => item.recorded > 0
-        ),
-      };
-    });
-
-    const allTests = weekly.flatMap(
-      week => week.tests
+    const allTheory = weekly.flatMap(
+      (week) => week.theory
     );
 
     const allPractices = weekly.flatMap(
-      week => week.practices
+      (week) => week.practices
     );
 
-    const validScores = [
-      ...allTests,
+    const scores = [
+      ...allTheory,
       ...allPractices,
     ]
-      .map(item => numberOrNull(item.score))
-      .filter(value => value !== null);
+      .map((item) =>
+        numberOrNull(item.score)
+      )
+      .filter((value) => value !== null);
 
-    const scoreTotal = validScores.reduce(
+    const scoreTotal = scores.reduce(
       (sum, value) => sum + value,
       0
     );
 
-    const scoreAverage = validScores.length
-      ? scoreTotal / validScores.length
-      : null;
+    const scoreAverage =
+      scores.length > 0
+        ? scoreTotal / scores.length
+        : null;
 
-    const metadata = readSimperMeta(
+    const simperMeta = readSimperMeta(
       simper?.notes
     );
 
+    const practiceValidated =
+      simper?.practice_status === "passed";
+
+    const orientationValidated =
+      simperMeta?.orientation_status ===
+      "completed";
+
     const validation = {
       kmkop: "Belum terkonfirmasi",
-      kmkopValidation: "—",
+      kmkopValidation:
+        "Belum terkonfirmasi",
 
-      practice:
-        simper?.practice_status === "passed"
-          ? "Lulus (data sistem)"
-          : "Belum terkonfirmasi",
+      practice: practiceValidated
+        ? "LULUS"
+        : "Belum terkonfirmasi",
 
       practiceValidation:
-        "Perlu konfirmasi",
-
-      orientation:
-        metadata?.orientation_status === "completed"
-          ? "Selesai (data sistem)"
+        practiceValidated
+          ? "Sesuai data sistem"
           : "Belum terkonfirmasi",
+
+      orientation: orientationValidated
+        ? "SELESAI"
+        : "Belum terkonfirmasi",
+
+      description:
+        "Status merupakan data SIMPER terakhir. Riwayat validasi per minggu belum tersedia.",
     };
 
-    const unfinished = summary.filter(
-      item => !item.achieved
-    );
+    const incompleteCompetencies =
+      competencySummary.filter(
+        (item) => !item.achieved
+      );
 
     return {
       weekly,
-      summary,
-      allTests,
+      competencySummary,
+      allTheory,
       allPractices,
       scoreTotal,
       scoreAverage,
-      scoreCount: validScores.length,
-      grade: getPredikat(scoreAverage),
+      scoreCount: scores.length,
+      predikat: getPredikat(scoreAverage),
       validation,
-      unfinished,
+      incompleteCompetencies,
     };
   }, [data, selectedWeeks]);
 
+  function printReport() {
+    if (!selectedWeeks.length) return;
+
+    if (!preview) {
+      setPreview(true);
+
+      setTimeout(() => {
+        window.print();
+      }, 150);
+    } else {
+      window.print();
+    }
+  }
+
   if (loading) {
     return (
-      <main className="rapor-loading">
-        Memuat Rapor OJT...
+      <main className="rp-loading">
+        Memuat data Rapor OJT...
       </main>
     );
   }
 
   if (!data || !report) {
     return (
-      <main className="rapor-loading">
+      <main className="rp-loading">
         <h2>Rapor Tidak Dapat Ditampilkan</h2>
+
         <p>
-          {error || "Data belum tersedia."}
+          {error ||
+            "Data rapor belum tersedia."}
         </p>
 
         <button
@@ -727,119 +903,103 @@ export default function RaporOJT() {
   const { profile, program } = data;
 
   const participantName =
-    program.peserta?.full_name ||
+    program.peserta?.full_name ??
     "Peserta OJT";
+
+  const department =
+    program.peserta?.department ?? "—";
+
+  const site = program.site ?? "—";
+
+  const selectedLabel =
+    selectedWeeks.map(
+      (week) => `Week ${pad(week)}`
+    ).join(", ");
 
   const backPath =
     profile.role === "mentor"
       ? `/peserta/${programId}`
       : "/dashboard-peserta";
 
-  const selectedLabel = selectedWeeks
-    .map(week => `Week ${pad(week)}`)
-    .join(", ");
-
-  const fisikSummary = report.summary.find(
-    item => item.key === "Fisik"
-  );
-
-  const runningCount = report.weekly.reduce(
-    (sum, week) =>
-      sum +
-      (
-        week.activities.find(
-          item => item.key === "Fisik"
-        )?.recorded || 0
-      ),
-    0
-  );
-
-  function printReport() {
-    if (!selectedWeeks.length) return;
-
-    setPreview(true);
-
-    requestAnimationFrame(() => {
-      window.print();
-    });
-  }
+  const fisikData =
+    report.competencySummary.find(
+      (item) => item.key === "Fisik"
+    );
 
   return (
-    <main className="rapor-root">
+    <main className="rp-root">
       <style>{`
-        .rapor-root,
-        .rapor-root * {
+        .rp-root,
+        .rp-root * {
           box-sizing: border-box;
         }
 
-        .rapor-root {
+        .rp-root {
           min-height: 100vh;
-          background: #edf3f4;
-          color: #152d49;
-          font-family: Arial, Helvetica, sans-serif;
+          background: #eef3f4;
+          color: #163047;
+          font-family: Arial, sans-serif;
           font-size: 12px;
         }
 
-        .rapor-loading {
-          min-height: 100vh;
+        .rp-loading {
           padding: 25px;
-          background: #edf3f4;
-          color: #152d49;
           font-family: Arial, sans-serif;
+          color: #17334a;
         }
 
-        .rapor-topbar {
-          background: #092b37;
+        .rp-topbar {
+          background: #082f39;
           color: white;
-          padding: 14px 20px;
+          padding: 15px 18px;
           display: flex;
-          justify-content: space-between;
           align-items: center;
+          justify-content: space-between;
           gap: 10px;
         }
 
-        .rapor-brand {
-          font-size: 20px;
+        .rp-brand {
+          font-size: 21px;
           font-weight: 900;
         }
 
-        .rapor-brand span {
-          color: #35c995;
+        .rp-brand span {
+          color: #36c98e;
         }
 
-        .rapor-container {
+        .rp-container {
           max-width: 1250px;
           margin: 0 auto;
           padding: 15px;
         }
 
-        .rapor-controls {
+        .rp-controls {
           background: white;
-          border: 1px solid #d7e3e7;
+          border: 1px solid #d6e2e5;
           border-radius: 12px;
           padding: 18px;
           margin-bottom: 16px;
         }
 
-        .rapor-controls h2 {
+        .rp-controls h2 {
           font-size: 21px;
-          margin: 0 0 6px;
+          margin: 0 0 8px;
         }
 
-        .rapor-muted {
-          color: #677d89;
-          line-height: 1.5;
+        .rp-muted {
           font-size: 11px;
+          color: #667c8a;
+          line-height: 1.6;
         }
 
-        .rapor-modes {
+        .rp-modes {
           display: flex;
           flex-wrap: wrap;
           gap: 20px;
-          margin: 17px 0;
+          margin: 18px 0;
         }
 
-        .rapor-modes label {
+        .rp-modes label {
           display: flex;
           align-items: center;
           gap: 7px;
@@ -847,398 +1007,402 @@ export default function RaporOJT() {
           cursor: pointer;
         }
 
-        .rapor-options {
+        .rp-options {
           display: grid;
-          grid-template-columns:
-            repeat(2, minmax(0, 1fr));
+          grid-template-columns: 1fr 1fr;
+          max-width: 620px;
           gap: 12px;
-          max-width: 680px;
         }
 
-        .rapor-options label {
+        .rp-field-label {
           display: block;
-          font-weight: 800;
           font-size: 11px;
-          margin-bottom: 6px;
+          font-weight: 800;
+          margin-bottom: 7px;
         }
 
-        .rapor-input {
+        .rp-select {
           width: 100%;
-          padding: 11px;
-          border: 1px solid #cbd9df;
-          border-radius: 8px;
           background: white;
-          color: #152d49;
+          border: 1px solid #c9d7dc;
+          border-radius: 8px;
+          padding: 11px;
+          color: #163047;
           font-size: 14px;
         }
 
-        .rapor-custom {
+        .rp-custom-grid {
           display: grid;
           grid-template-columns:
             repeat(13, minmax(0, 1fr));
           gap: 5px;
         }
 
-        .rapor-custom button {
-          padding: 9px 2px;
+        .rp-week-button {
+          border: 1px solid #cbd8da;
           border-radius: 6px;
-          border: 1px solid #cadbdc;
           background: white;
-          color: #183846;
+          padding: 9px 2px;
           cursor: pointer;
+          color: #163047;
         }
 
-        .rapor-custom button.active {
-          background: #07835d;
+        .rp-week-button.active {
+          background: #078459;
           color: white;
+          border-color: #078459;
         }
 
-        .rapor-actions {
+        .rp-actions {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
           margin-top: 14px;
         }
 
-        .rapor-button {
-          border: none;
-          background: #07805a;
+        .rp-button {
+          background: #087e59;
           color: white;
-          font-weight: 800;
+          border: none;
+          border-radius: 8px;
           padding: 11px 14px;
-          border-radius: 9px;
-          font-size: 12px;
           cursor: pointer;
+          font-weight: 800;
+          font-size: 12px;
         }
 
-        .rapor-button.secondary {
+        .rp-button.secondary {
           background: #173e68;
         }
 
-        .rapor-button.light {
-          background: #e8f3ec;
-          color: #126d4d;
+        .rp-button.light {
+          background: #e6f2ec;
+          color: #116d49;
         }
 
-        .rapor-button:disabled {
-          opacity: .5;
+        .rp-button:disabled {
           cursor: not-allowed;
+          opacity: .5;
         }
 
-        .rapor-error {
+        .rp-error {
           background: #fff0f0;
-          color: #a62332;
+          border: 1px solid #f1c9ca;
+          color: #a3272e;
+          border-radius: 7px;
           padding: 10px;
-          border-radius: 8px;
-          margin-top: 9px;
+          margin-top: 10px;
         }
 
-        .rapor-paper {
+        .rp-paper {
           background: white;
+          border: 1px solid #c5d2dc;
+          box-shadow: 0 5px 20px #12345612;
           padding: 18px;
-          border: 1px solid #cbd9e0;
-          box-shadow: 0 5px 22px #163d6116;
         }
 
-        .rapor-header {
+        .rp-header {
           display: grid;
           grid-template-columns: 1fr 2fr 1fr;
           align-items: center;
-          text-align: center;
           gap: 12px;
-          border-top: 5px solid #209448;
-          border-bottom: 5px solid #123c70;
-          padding: 14px 10px;
+          padding: 13px 10px;
+          border-top: 5px solid #168b40;
+          border-bottom: 5px solid #102c63;
+          text-align: center;
         }
 
-        .rapor-company {
+        .rp-company {
           font-size: 22px;
           font-weight: 900;
-          color: #152b43;
+          color: #102b48;
           text-align: left;
         }
 
-        .rapor-company span {
-          color: #188d45;
+        .rp-company span {
+          color: #189349;
         }
 
-        .rapor-header h1 {
-          color: #0c2c62;
+        .rp-header h1 {
+          color: #0a2c62;
           font-size: 34px;
           margin: 0;
+          line-height: 1.15;
         }
 
-        .rapor-header h2 {
-          color: #188c45;
-          margin: 2px 0 8px;
+        .rp-header h2 {
           font-size: 15px;
+          color: #14803b;
+          margin: 4px 0 8px;
         }
 
-        .rapor-header small {
+        .rp-header small {
           display: block;
-          background: #0b2b5c;
+          background: #0c2f64;
           color: white;
           padding: 5px;
           font-size: 10px;
         }
 
-        .rapor-emblem {
-          justify-self: center;
-          border: 3px solid #d6b255;
+        .rp-emblem {
+          width: 76px;
+          height: 76px;
           border-radius: 50%;
-          width: 75px;
-          height: 75px;
+          border: 3px solid #d6b452;
           display: grid;
           place-items: center;
-          color: #0d2d60;
           font-weight: 900;
+          justify-self: center;
+          color: #0c2f64;
           text-align: center;
         }
 
-        .rapor-intro {
+        .rp-intro {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 12px;
           margin: 12px 0;
         }
 
-        .rapor-box {
-          border: 1px solid #9fadc0;
+        .rp-box {
+          border: 1px solid #9eafbf;
           border-radius: 5px;
-          padding: 10px;
+          padding: 11px;
           min-width: 0;
         }
 
-        .rapor-section-title {
+        .rp-section-title {
           display: inline-block;
-          background: #0b2c61;
+          background: #0a2b61;
           color: white;
-          font-size: 11px;
           font-weight: 900;
-          padding: 6px 13px;
+          font-size: 11px;
+          padding: 6px 12px;
           margin-bottom: 7px;
         }
 
-        .rapor-info {
+        .rp-info {
           display: grid;
-          grid-template-columns: 105px 1fr;
-          gap: 5px 7px;
+          grid-template-columns: 108px 1fr;
+          gap: 6px;
           line-height: 1.5;
         }
 
-        .rapor-description {
+        .rp-description {
           font-size: 11px;
           line-height: 1.7;
-          margin: 3px 0 9px;
+          margin: 4px 0 9px;
         }
 
-        .rapor-section {
-          margin: 13px 0;
+        .rp-section {
+          margin: 14px 0;
           break-inside: avoid-page;
         }
 
-        .rapor-scroll {
+        .rp-table-scroll {
           overflow-x: auto;
+          max-width: 100%;
         }
 
-        .rapor-table {
+        .rp-table {
+          width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          width: 100%;
           font-size: 10px;
         }
 
-        .rapor-table th,
-        .rapor-table td {
-          border: 1px solid #bdc9d5;
+        .rp-table th,
+        .rp-table td {
+          border: 1px solid #bdcbd6;
           padding: 6px 4px;
           text-align: center;
-          overflow-wrap: anywhere;
           vertical-align: middle;
+          overflow-wrap: anywhere;
         }
 
-        .rapor-table th {
-          background: #eaf0f6;
+        .rp-table th {
+          background: #edf1f6;
         }
 
-        .rapor-competence th {
+        .rp-competency th {
           font-size: 9px;
         }
 
-        .rapor-competence .group {
+        .rp-competency .rp-group {
           color: white;
           font-weight: 900;
         }
 
-        .rapor-weektable td {
+        .rp-week-table td {
           vertical-align: top;
         }
 
-        .rapor-score-item {
-          padding: 3px 0;
-          border-bottom: 1px solid #edf0f2;
-          line-height: 1.45;
+        .rp-score {
+          padding: 4px 1px;
+          border-bottom: 1px solid #e9edf2;
+          line-height: 1.5;
         }
 
-        .rapor-score-item:last-child {
+        .rp-score:last-child {
           border-bottom: none;
         }
 
-        .rapor-small {
-          color: #627588;
+        .rp-score-name {
+          font-size: 9px;
+          margin-bottom: 3px;
+        }
+
+        .rp-small {
           font-size: 10px;
+          color: #687c8d;
           line-height: 1.5;
           margin: 6px 0;
         }
 
-        .rapor-bottom {
+        .rp-bottom {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 12px;
           margin-top: 14px;
         }
 
-        .rapor-notes {
+        .rp-notes {
           font-size: 11px;
-          line-height: 1.65;
-          padding: 4px;
+          line-height: 1.7;
         }
 
-        .rapor-numbers {
+        .rp-numbers {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 9px;
+          gap: 10px;
           margin: 8px 0;
         }
 
-        .rapor-number {
-          border: 1px solid #dbe4eb;
-          background: #f8fafc;
+        .rp-number {
+          background: #f7fafc;
+          border: 1px solid #dce5ed;
           padding: 12px;
           text-align: center;
         }
 
-        .rapor-number span {
+        .rp-number span {
           display: block;
           font-size: 10px;
         }
 
-        .rapor-number strong {
+        .rp-number strong {
           display: block;
           font-size: 25px;
           margin-top: 6px;
-          color: #0a2d62;
+          color: #0d3061;
         }
 
-        .rapor-predikat {
+        .rp-predikat {
           display: flex;
           align-items: center;
-          gap: 15px;
-          margin-top: 10px;
+          gap: 14px;
+          margin-top: 11px;
         }
 
-        .rapor-predikat-letter {
-          border: 3px solid #1b924d;
-          border-radius: 50%;
-          color: #0c7a3e;
-          font-size: 36px;
-          font-weight: 900;
-          width: 75px;
-          height: 75px;
+        .rp-grade {
           display: grid;
           place-items: center;
+          width: 75px;
+          height: 75px;
           flex-shrink: 0;
+          border-radius: 50%;
+          border: 3px solid #168a49;
+          color: #0b7c3f;
+          font-weight: 900;
+          font-size: 35px;
         }
 
-        .rapor-footer {
+        .rp-footer {
           display: flex;
           justify-content: space-between;
           align-items: flex-end;
           gap: 15px;
           margin-top: 18px;
+          color: #66798a;
           font-size: 10px;
-          color: #607185;
         }
 
-        .rapor-signature {
+        .rp-signature {
           text-align: center;
           min-width: 190px;
         }
 
-        .rapor-sign-space {
-          height: 42px;
+        .rp-sign-space {
+          height: 44px;
         }
 
         @media (max-width: 700px) {
-          .rapor-container {
+          .rp-container {
             padding: 8px;
           }
 
-          .rapor-controls {
+          .rp-controls {
             padding: 13px;
           }
 
-          .rapor-controls h2 {
+          .rp-controls h2 {
             font-size: 18px;
           }
 
-          .rapor-modes {
+          .rp-modes {
             flex-direction: column;
             gap: 12px;
           }
 
-          .rapor-custom {
+          .rp-custom-grid {
             grid-template-columns:
               repeat(5, minmax(0, 1fr));
           }
 
-          .rapor-paper {
+          .rp-actions .rp-button {
+            flex: 1;
+          }
+
+          .rp-paper {
             padding: 9px;
           }
 
-          .rapor-header {
+          .rp-header {
             grid-template-columns: 1fr 2fr;
-            gap: 6px;
+            gap: 7px;
           }
 
-          .rapor-company {
-            font-size: 12px;
+          .rp-company {
+            font-size: 13px;
           }
 
-          .rapor-header h1 {
-            font-size: 22px;
+          .rp-header h1 {
+            font-size: 23px;
           }
 
-          .rapor-header h2 {
+          .rp-header h2 {
             font-size: 11px;
           }
 
-          .rapor-emblem {
+          .rp-emblem {
             display: none;
           }
 
-          .rapor-intro {
+          .rp-intro,
+          .rp-bottom {
             grid-template-columns: 1fr;
           }
 
-          .rapor-info {
+          .rp-info {
             grid-template-columns: 90px 1fr;
           }
 
-          .rapor-scroll .rapor-competence {
-            min-width: 780px;
+          .rp-competency {
+            min-width: 800px;
           }
 
-          .rapor-scroll .rapor-weektable {
+          .rp-week-table {
             min-width: 520px;
-          }
-
-          .rapor-bottom {
-            grid-template-columns: 1fr;
-          }
-
-          .rapor-actions .rapor-button {
-            flex: 1;
           }
         }
 
@@ -1250,149 +1414,145 @@ export default function RaporOJT() {
         @media print {
           html,
           body {
+            background: white !important;
             margin: 0 !important;
             padding: 0 !important;
-            background: white !important;
           }
 
-          .rapor-topbar,
-          .rapor-controls {
+          .rp-topbar,
+          .rp-controls {
             display: none !important;
           }
 
-          .rapor-root {
+          .rp-root {
             background: white !important;
             min-height: 0 !important;
             print-color-adjust: exact;
             -webkit-print-color-adjust: exact;
           }
 
-          .rapor-container {
-            max-width: none !important;
+          .rp-container {
             padding: 0 !important;
             margin: 0 !important;
+            max-width: none !important;
           }
 
-          .rapor-paper {
-            padding: 0 !important;
-            border: 0 !important;
+          .rp-paper {
+            border: none !important;
             box-shadow: none !important;
+            padding: 0 !important;
           }
 
-          .rapor-header {
+          .rp-header {
             grid-template-columns:
               1fr 2fr 1fr !important;
             padding: 8px !important;
           }
 
-          .rapor-company {
-            font-size: 17px !important;
+          .rp-company {
+            font-size: 18px !important;
           }
 
-          .rapor-header h1 {
-            font-size: 27px !important;
+          .rp-header h1 {
+            font-size: 28px !important;
           }
 
-          .rapor-header h2 {
+          .rp-header h2 {
             font-size: 13px !important;
           }
 
-          .rapor-emblem {
+          .rp-emblem {
             display: grid !important;
-            width: 57px !important;
-            height: 57px !important;
+            width: 58px !important;
+            height: 58px !important;
             font-size: 10px !important;
           }
 
-          .rapor-intro {
+          .rp-intro,
+          .rp-bottom {
             grid-template-columns:
               1fr 1fr !important;
             gap: 9px !important;
           }
 
-          .rapor-box {
+          .rp-box {
             padding: 7px !important;
           }
 
-          .rapor-section {
-            margin: 8px 0 !important;
+          .rp-section {
+            margin: 9px 0 !important;
           }
 
-          .rapor-section-title {
+          .rp-section-title {
             font-size: 9px !important;
             padding: 5px 10px !important;
           }
 
-          .rapor-scroll {
+          .rp-table-scroll {
             overflow: visible !important;
           }
 
-          .rapor-table,
-          .rapor-scroll .rapor-competence,
-          .rapor-scroll .rapor-weektable {
-            min-width: 0 !important;
+          .rp-table,
+          .rp-competency,
+          .rp-week-table {
             width: 100% !important;
+            min-width: 0 !important;
             font-size: 8px !important;
           }
 
-          .rapor-table th,
-          .rapor-table td {
+          .rp-table th,
+          .rp-table td {
             padding: 4px 2px !important;
           }
 
-          .rapor-description,
-          .rapor-small,
-          .rapor-notes {
+          .rp-description,
+          .rp-small,
+          .rp-notes {
             font-size: 9px !important;
             line-height: 1.4 !important;
           }
 
-          .rapor-bottom {
-            grid-template-columns:
-              1fr 1fr !important;
-          }
-
-          .rapor-number strong {
+          .rp-number strong {
             font-size: 19px !important;
           }
 
-          .rapor-predikat-letter {
-            width: 47px !important;
-            height: 47px !important;
+          .rp-grade {
+            width: 50px !important;
+            height: 50px !important;
             font-size: 26px !important;
           }
 
-          .rapor-sign-space {
-            height: 28px !important;
+          .rp-sign-space {
+            height: 27px !important;
           }
         }
       `}</style>
 
-      <header className="rapor-topbar">
-        <div className="rapor-brand">
+      <header className="rp-topbar">
+        <div className="rp-brand">
           OJT <span>MineTrack</span>
         </div>
 
         <button
           type="button"
-          className="rapor-button light"
+          className="rp-button light"
           onClick={() => router.push(backPath)}
         >
           ← Kembali
         </button>
       </header>
 
-      <div className="rapor-container">
-        <section className="rapor-controls">
+      <div className="rp-container">
+        <section className="rp-controls">
           <h2>Pengaturan Cetak Rapor OJT</h2>
 
-          <p className="rapor-muted">
-            Pilih periode laporan. Hanya minggu
-            yang dipilih mentor yang dimasukkan
-            ke dalam rapor.
+          <p className="rp-muted">
+            Pilih minggu yang ingin ditampilkan.
+            Seluruh penilaian dan target akan
+            mengikuti minggu yang dipilih.
           </p>
 
-          <div className="rapor-modes">
+          <div className="rp-modes">
             <label>
               <input
                 type="radio"
@@ -1414,7 +1574,7 @@ export default function RaporOJT() {
                   setMode("range")
                 }
               />
-              Rentang beberapa minggu
+              Rentang minggu
             </label>
 
             <label>
@@ -1426,14 +1586,16 @@ export default function RaporOJT() {
                   setMode("custom")
                 }
               />
-              Pilih minggu tertentu
+              Minggu tertentu
             </label>
           </div>
 
           {mode === "single" && (
-            <div className="rapor-options">
+            <div className="rp-options">
               <div>
-                <label>Pilih Minggu</label>
+                <label className="rp-field-label">
+                  Pilih Minggu
+                </label>
 
                 <WeekSelector
                   value={singleWeek}
@@ -1444,13 +1606,15 @@ export default function RaporOJT() {
           )}
 
           {mode === "range" && (
-            <div className="rapor-options">
+            <div className="rp-options">
               <div>
-                <label>Dari Minggu</label>
+                <label className="rp-field-label">
+                  Dari Minggu
+                </label>
 
                 <WeekSelector
                   value={fromWeek}
-                  onChange={week => {
+                  onChange={(week) => {
                     setFromWeek(week);
 
                     if (toWeek < week) {
@@ -1461,7 +1625,9 @@ export default function RaporOJT() {
               </div>
 
               <div>
-                <label>Sampai Minggu</label>
+                <label className="rp-field-label">
+                  Sampai Minggu
+                </label>
 
                 <WeekSelector
                   from={fromWeek}
@@ -1473,21 +1639,24 @@ export default function RaporOJT() {
           )}
 
           {mode === "custom" && (
-            <div className="rapor-custom">
+            <div className="rp-custom-grid">
               {Array.from(
                 { length: TOTAL_WEEKS },
                 (_, index) => index + 1
-              ).map(week => (
+              ).map((week) => (
                 <button
-                  type="button"
                   key={week}
+                  type="button"
                   className={
-                    customWeeks.includes(week)
-                      ? "active"
-                      : ""
+                    "rp-week-button " +
+                    (
+                      customWeeks.includes(week)
+                        ? "active"
+                        : ""
+                    )
                   }
                   onClick={() =>
-                    toggleWeek(week)
+                    toggleCustomWeek(week)
                   }
                 >
                   {pad(week)}
@@ -1496,25 +1665,25 @@ export default function RaporOJT() {
             </div>
           )}
 
-          <p className="rapor-muted">
+          <p className="rp-muted">
             <strong>
-              {selectedWeeks.length} minggu dipilih:
+              {selectedWeeks.length} minggu:
             </strong>{" "}
             {selectedLabel ||
               "Belum ada minggu dipilih"}
           </p>
 
           {error && (
-            <div className="rapor-error">
+            <div className="rp-error">
               {error}
             </div>
           )}
 
-          <div className="rapor-actions">
+          <div className="rp-actions">
             <button
               type="button"
-              className="rapor-button light"
-              onClick={refresh}
+              className="rp-button light"
+              onClick={refreshData}
               disabled={refreshing}
             >
               {refreshing
@@ -1524,9 +1693,9 @@ export default function RaporOJT() {
 
             <button
               type="button"
-              className="rapor-button secondary"
+              className="rp-button secondary"
               onClick={() =>
-                setPreview(old => !old)
+                setPreview((previous) => !previous)
               }
             >
               {preview
@@ -1536,7 +1705,7 @@ export default function RaporOJT() {
 
             <button
               type="button"
-              className="rapor-button"
+              className="rp-button"
               onClick={printReport}
               disabled={
                 refreshing ||
@@ -1547,124 +1716,128 @@ export default function RaporOJT() {
             </button>
           </div>
 
-          <p className="rapor-muted">
-            Format cetak A4 Landscape. Predikat A–D
-            menggunakan acuan rentang pada contoh
-            rapor, bukan keputusan kelulusan resmi.
+          <p className="rp-muted">
+            Format A4 Landscape. Predikat A–D
+            mengikuti acuan pada foto rapor,
+            bukan keputusan kelulusan resmi.
           </p>
         </section>
 
-        {preview && selectedWeeks.length > 0 && (
-          <article className="rapor-paper">
-            <div className="rapor-header">
-              <div className="rapor-company">
+        {preview &&
+          selectedWeeks.length > 0 && (
+          <article className="rp-paper">
+            <div className="rp-header">
+              <div className="rp-company">
                 BERAU <span>COAL</span>
-
-                <div
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 400,
-                    marginTop: 5,
-                  }}
-                >
-                  EMERGENCY RESPONSE GROUP
-                </div>
               </div>
 
               <div>
                 <h1>RAPOR OJT</h1>
-                <h2>ON THE JOB TRAINING</h2>
+
+                <h2>
+                  ON THE JOB TRAINING
+                </h2>
 
                 <small>
-                  PT BERAU COAL ·{" "}
-                  {selectedWeeks.length} MINGGU
+                  PT. BERAU COAL
                 </small>
               </div>
 
-              <div className="rapor-emblem">
+              <div className="rp-emblem">
                 OJT
                 <br />
                 TRAINING
               </div>
             </div>
 
-            <div className="rapor-intro">
-              <section className="rapor-box">
-                <TableTitle>
+            <div className="rp-intro">
+              <section className="rp-box">
+                <SectionTitle>
                   DATA PESERTA
-                </TableTitle>
+                </SectionTitle>
 
-                <div className="rapor-info">
+                <div className="rp-info">
                   <strong>Nama</strong>
-                  <span>: {participantName}</span>
+                  <span>
+                    : {participantName}
+                  </span>
 
                   <strong>Site</strong>
-                  <span>: {program.site || "—"}</span>
+                  <span>: {site}</span>
 
                   <strong>Jabatan</strong>
                   <span>: —</span>
 
                   <strong>Periode OJT</strong>
                   <span>
-                    : {dateText(program.start_date)}
+                    : {dateText(
+                      program.start_date
+                    )}
                     {" – "}
-                    {dateText(program.end_date)}
+                    {dateText(
+                      program.end_date
+                    )}
                   </span>
 
                   <strong>Departemen</strong>
                   <span>
-                    : {program.peserta?.department ||
-                      "—"}
+                    : {department}
                   </span>
 
-                  <strong>Periode Cetak</strong>
-                  <span>: {selectedLabel}</span>
+                  <strong>Minggu Rapor</strong>
+                  <span>
+                    : {selectedLabel}
+                  </span>
                 </div>
               </section>
 
-              <section className="rapor-box">
-                <TableTitle>
+              <section className="rp-box">
+                <SectionTitle>
                   KETERANGAN
-                </TableTitle>
+                </SectionTitle>
 
-                <p className="rapor-description">
+                <p className="rp-description">
                   On The Job Training (OJT)
-                  merupakan program pelatihan kerja
-                  yang bertujuan untuk meningkatkan
-                  kompetensi, pengetahuan, keterampilan
-                  serta sikap kerja peserta melalui
-                  pengalaman langsung di tempat kerja.
+                  merupakan program pelatihan
+                  kerja yang bertujuan untuk
+                  meningkatkan kompetensi,
+                  pengetahuan, keterampilan
+                  serta sikap kerja peserta
+                  melalui pengalaman langsung
+                  di tempat kerja.
                 </p>
 
-                <p className="rapor-description">
+                <p className="rp-description">
                   Penilaian ini dilakukan untuk
-                  mengetahui pencapaian peserta selama
-                  mengikuti program OJT sesuai
-                  standar yang ditetapkan perusahaan.
+                  mengetahui pencapaian peserta
+                  selama mengikuti program OJT
+                  sesuai standar yang ditetapkan
+                  perusahaan.
                 </p>
               </section>
             </div>
 
-            <section className="rapor-section">
-              <TableTitle>
+            <section className="rp-section">
+              <SectionTitle>
                 1. PENILAIAN KOMPETENSI UTAMA
-              </TableTitle>
+              </SectionTitle>
 
-              <div className="rapor-scroll">
-                <table className="rapor-table rapor-competence">
+              <div className="rp-table-scroll">
+                <table className="rp-table rp-competency">
                   <thead>
                     <tr>
-                      <th rowSpan={2} style={{ width: 28 }}>
+                      <th rowSpan={2}>
                         NO
                       </th>
 
-                      {TARGETS.map((target, index) => (
+                      {TARGETS.map((target) => (
                         <th
                           key={target.key}
                           colSpan={3}
-                          className="group"
+                          className="rp-group"
                           style={{
-                            background: COLORS[index],
+                            background:
+                              target.color,
                           }}
                         >
                           {target.title}
@@ -1673,8 +1846,10 @@ export default function RaporOJT() {
                     </tr>
 
                     <tr>
-                      {TARGETS.map(target => (
-                        <React.Fragment key={target.key}>
+                      {TARGETS.map((target) => (
+                        <React.Fragment
+                          key={target.key}
+                        >
                           <th>TARGET</th>
                           <th>PENCAPAIAN</th>
                           <th>PERSENTASE</th>
@@ -1687,218 +1862,232 @@ export default function RaporOJT() {
                     <tr>
                       <td>1</td>
 
-                      {report.summary.map(item => (
-                        <React.Fragment key={item.key}>
-                          <td>
-                            {fmt(item.totalTarget)}
-                          </td>
-
-                          <td>
-                            {fmt(
-                              item.realized,
-                              item.key === "Fisik"
-                                ? 3
-                                : 0
-                            )}
-                          </td>
-
-                          <td
-                            style={{
-                              color: item.achieved
-                                ? "#087b46"
-                                : "#c13940",
-                              fontWeight: 900,
-                            }}
+                      {report.competencySummary.map(
+                        (item) => (
+                          <React.Fragment
+                            key={item.key}
                           >
-                            {fmt(
-                              item.percentage,
-                              2
-                            )}%
-                          </td>
-                        </React.Fragment>
-                      ))}
+                            <td>
+                              {fmt(
+                                item.totalTarget
+                              )}
+                            </td>
+
+                            <td>
+                              {fmt(
+                                item.realized,
+                                item.key === "Fisik"
+                                  ? 3
+                                  : 0
+                              )}
+                            </td>
+
+                            <td
+                              style={{
+                                color:
+                                  item.achieved
+                                    ? "#087b43"
+                                    : "#c33740",
+                                fontWeight: 900,
+                              }}
+                            >
+                              {fmt(
+                                item.percentage,
+                                2
+                              )}%
+                            </td>
+                          </React.Fragment>
+                        )
+                      )}
                     </tr>
                   </tbody>
                 </table>
               </div>
 
-              <p className="rapor-small">
-                Fisik menggunakan satuan kilometer.
-                Komponen lainnya dihitung berdasarkan
-                jumlah kegiatan terverifikasi. Target
-                disesuaikan dengan{" "}
-                {selectedWeeks.length} minggu pilihan.
-                Jumlah catatan Fisik:{" "}
-                {runningCount}.
+              <p className="rp-small">
+                Target dihitung berdasarkan{" "}
+                {selectedWeeks.length} minggu.
+                Fisik menggunakan kilometer,
+                sedangkan kompetensi lainnya
+                menggunakan jumlah kegiatan
+                terverifikasi.
+                {fisikData && (
+                  <>
+                    {" "}Realisasi fisik:{" "}
+                    {fmt(
+                      fisikData.realized,
+                      3
+                    )} km.
+                  </>
+                )}
               </p>
             </section>
 
-            <section className="rapor-section">
-              <TableTitle>
+            <section className="rp-section">
+              <SectionTitle>
                 2. PENILAIAN PEMBELAJARAN MINGGUAN
-              </TableTitle>
+              </SectionTitle>
 
-              {splitWeeks(report.weekly, 7).map(
-                (weeks, index) => (
-                  <div
-                    key={index}
-                    className="rapor-scroll"
-                    style={{ marginBottom: 7 }}
-                  >
-                    <table className="rapor-table rapor-weektable">
-                      <thead>
-                        <tr>
-                          <th style={{ width: 48 }}>
-                            SITE
-                          </th>
+              {groupWeeks(
+                report.weekly,
+                7
+              ).map((weeks, index) => (
+                <div
+                  className="rp-table-scroll"
+                  key={index}
+                  style={{
+                    marginBottom: 8,
+                  }}
+                >
+                  <table className="rp-table rp-week-table">
+                    <thead>
+                      <tr>
+                        <th
+                          style={{
+                            width: 48,
+                          }}
+                        >
+                          SITE
+                        </th>
 
-                          {weeks.map(item => (
-                            <th key={item.week}>
-                              WEEK {pad(item.week)}
+                        {weeks.map(
+                          (item) => (
+                            <th
+                              key={item.week}
+                            >
+                              WEEK{" "}
+                              {pad(item.week)}
                             </th>
-                          ))}
-                        </tr>
-                      </thead>
+                          )
+                        )}
+                      </tr>
+                    </thead>
 
-                      <tbody>
-                        <tr>
-                          <td>
-                            {program.site || "—"}
-                          </td>
+                    <tbody>
+                      <tr>
+                        <td>{site}</td>
 
-                          {weeks.map(item => (
-                            <td key={item.week}>
-                              {item.tests.length ? (
-                                item.tests.map(test => (
-                                  <div
-                                    className="rapor-score-item"
-                                    key={test.id}
-                                  >
-                                    {test.notes?.trim() && (
-                                      <div>
-                                        {test.notes.trim()}
-                                      </div>
-                                    )}
-
-                                    <strong>
-                                      {fmt(
-                                        numberOrNull(
-                                          test.score
-                                        ),
-                                        2
-                                      )}
-                                    </strong>
-                                  </div>
-                                ))
-                              ) : (
-                                "—"
-                              )}
+                        {weeks.map(
+                          (item) => (
+                            <td
+                              key={item.week}
+                            >
+                              <ScoreCell
+                                items={
+                                  item.theory
+                                }
+                                type="theory"
+                              />
                             </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              )}
+                          )
+                        )}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ))}
             </section>
 
-            <section className="rapor-section">
-              <TableTitle>
+            <section className="rp-section">
+              <SectionTitle>
                 3. PENILAIAN PRAKTEK MINGGUAN
-              </TableTitle>
+              </SectionTitle>
 
-              {splitWeeks(report.weekly, 7).map(
-                (weeks, index) => (
-                  <div
-                    key={index}
-                    className="rapor-scroll"
-                    style={{ marginBottom: 7 }}
-                  >
-                    <table className="rapor-table rapor-weektable">
-                      <thead>
-                        <tr>
-                          <th style={{ width: 48 }}>
-                            SITE
-                          </th>
+              {groupWeeks(
+                report.weekly,
+                7
+              ).map((weeks, index) => (
+                <div
+                  className="rp-table-scroll"
+                  key={index}
+                  style={{
+                    marginBottom: 8,
+                  }}
+                >
+                  <table className="rp-table rp-week-table">
+                    <thead>
+                      <tr>
+                        <th
+                          style={{
+                            width: 48,
+                          }}
+                        >
+                          SITE
+                        </th>
 
-                          {weeks.map(item => (
-                            <th key={item.week}>
-                              WEEK {pad(item.week)}
+                        {weeks.map(
+                          (item) => (
+                            <th
+                              key={item.week}
+                            >
+                              WEEK{" "}
+                              {pad(item.week)}
                             </th>
-                          ))}
-                        </tr>
-                      </thead>
+                          )
+                        )}
+                      </tr>
+                    </thead>
 
-                      <tbody>
-                        <tr>
-                          <td>
-                            {program.site || "—"}
-                          </td>
+                    <tbody>
+                      <tr>
+                        <td>{site}</td>
 
-                          {weeks.map(item => (
-                            <td key={item.week}>
-                              {item.practices.length ? (
-                                item.practices.map(
-                                  practice => (
-                                    <div
-                                      className="rapor-score-item"
-                                      key={practice.id}
-                                    >
-                                      <div>
-                                        {practice.practice_name ||
-                                          "Praktek"}
-                                      </div>
-
-                                      <strong>
-                                        {fmt(
-                                          numberOrNull(
-                                            practice.score
-                                          ),
-                                          2
-                                        )}
-                                      </strong>
-                                    </div>
-                                  )
-                                )
-                              ) : (
-                                "—"
-                              )}
+                        {weeks.map(
+                          (item) => (
+                            <td
+                              key={item.week}
+                            >
+                              <ScoreCell
+                                items={
+                                  item.practices
+                                }
+                                type="practice"
+                              />
                             </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              )}
+                          )
+                        )}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ))}
             </section>
 
-            <section className="rapor-section">
-              <TableTitle>
+            <section className="rp-section">
+              <SectionTitle>
                 4. VALIDASI DAN KETERANGAN
-              </TableTitle>
+              </SectionTitle>
 
-              <div className="rapor-scroll">
-                <table className="rapor-table">
+              <div className="rp-table-scroll">
+                <table className="rp-table">
                   <thead>
                     <tr>
-                      <th>NAMA PERSONIL</th>
+                      <th>
+                        NAMA PERSONIL
+                      </th>
+
                       <th>KMKOP</th>
                       <th>VALIDASI</th>
                       <th>PRAKTEK</th>
                       <th>VALIDASI</th>
-                      <th>ORIENTASI AREA</th>
+                      <th>
+                        ORIENTASI AREA
+                      </th>
                       <th>KETERANGAN</th>
                     </tr>
                   </thead>
 
                   <tbody>
                     <tr>
-                      <td>{participantName}</td>
+                      <td>
+                        {participantName}
+                      </td>
 
                       <td>
-                        {report.validation.kmkop}
+                        {
+                          report.validation
+                            .kmkop
+                        }
                       </td>
 
                       <td>
@@ -1909,7 +2098,10 @@ export default function RaporOJT() {
                       </td>
 
                       <td>
-                        {report.validation.practice}
+                        {
+                          report.validation
+                            .practice
+                        }
                       </td>
 
                       <td>
@@ -1920,44 +2112,50 @@ export default function RaporOJT() {
                       </td>
 
                       <td>
-                        {report.validation.orientation}
+                        {
+                          report.validation
+                            .orientation
+                        }
                       </td>
 
                       <td>
-                        Perlu konfirmasi validasi
-                        persyaratan SIMPER.
+                        {
+                          report.validation
+                            .description
+                        }
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
 
-              <p className="rapor-small">
-                Status SIMPER menggunakan data terbaru
-                yang tersedia. Riwayat tanggal validasi
-                per minggu belum tersedia dalam struktur
-                data ini. Status KMKOP tidak otomatis
-                disamakan dengan administrasi.
+              <p className="rp-small">
+                Data SIMPER menampilkan status
+                terbaru yang tersedia dan
+                belum dapat dipastikan sebagai
+                status historis pada minggu
+                yang dipilih.
               </p>
             </section>
 
-            <div className="rapor-bottom">
-              <section className="rapor-box">
-                <TableTitle>
+            <div className="rp-bottom">
+              <section className="rp-box">
+                <SectionTitle>
                   CATATAN
-                </TableTitle>
+                </SectionTitle>
 
-                <div className="rapor-notes">
-                  {report.unfinished.length > 0 ? (
+                <div className="rp-notes">
+                  {report.incompleteCompetencies
+                    .length > 0 ? (
                     <p>
-                      Komponen yang belum memenuhi
-                      target periode terpilih:{" "}
+                      Kompetensi yang belum
+                      mencapai target pada
+                      periode pilihan:{" "}
                       <strong>
-                        {report.unfinished
-                          .map(item =>
-                            item.key === "Training"
-                              ? "Internal Training"
-                              : item.title
+                        {report.incompleteCompetencies
+                          .map(
+                            (item) =>
+                              item.title
                           )
                           .join(", ")}
                       </strong>
@@ -1965,51 +2163,67 @@ export default function RaporOJT() {
                     </p>
                   ) : (
                     <p>
-                      Seluruh target enam kompetensi
-                      utama pada periode terpilih telah
-                      terpenuhi.
+                      Seluruh target kompetensi
+                      utama pada periode terpilih
+                      telah terpenuhi.
                     </p>
                   )}
 
                   <p>
-                    Nilai teori tercatat:{" "}
+                    Jumlah penilaian teori
+                    tercatat:{" "}
                     <strong>
-                      {report.allTests.length}
+                      {
+                        report.allTheory
+                          .length
+                      }
                     </strong>
-                    . Nilai praktek tercatat:{" "}
+                    . Jumlah penilaian
+                    praktek tercatat:{" "}
                     <strong>
-                      {report.allPractices.length}
+                      {
+                        report.allPractices
+                          .length
+                      }
                     </strong>
                     .
                   </p>
 
                   <p>
-                    Rapor hanya menampilkan data pada
-                    minggu pilihan mentor. Ketiadaan
-                    nilai atau catatan tidak otomatis
-                    berarti peserta gagal.
+                    Kegiatan dan nilai yang
+                    belum tercatat tidak
+                    otomatis dinyatakan gagal.
+                    Mentor perlu melanjutkan
+                    monitoring dan validasi.
                   </p>
                 </div>
               </section>
 
-              <section className="rapor-box">
-                <TableTitle>
+              <section className="rp-box">
+                <SectionTitle>
                   RINGKASAN HASIL
-                </TableTitle>
+                </SectionTitle>
 
-                <div className="rapor-numbers">
-                  <div className="rapor-number">
-                    <span>NILAI TOTAL</span>
+                <div className="rp-numbers">
+                  <div className="rp-number">
+                    <span>
+                      NILAI TOTAL
+                    </span>
 
                     <strong>
                       {report.scoreCount
-                        ? fmt(report.scoreTotal, 2)
+                        ? fmt(
+                            report.scoreTotal,
+                            2
+                          )
                         : "—"}
                     </strong>
                   </div>
 
-                  <div className="rapor-number">
-                    <span>NILAI RATA-RATA</span>
+                  <div className="rp-number">
+                    <span>
+                      NILAI RATA-RATA
+                    </span>
 
                     <strong>
                       {fmt(
@@ -2020,36 +2234,53 @@ export default function RaporOJT() {
                   </div>
                 </div>
 
-                <div className="rapor-predikat">
-                  <div className="rapor-predikat-letter">
-                    {report.grade.letter}
+                <div className="rp-predikat">
+                  <div className="rp-grade">
+                    {
+                      report.predikat
+                        .letter
+                    }
                   </div>
 
                   <div>
                     <strong>
-                      {report.grade.label}
+                      {
+                        report.predikat
+                          .label
+                      }
                     </strong>
 
-                    <p className="rapor-small">
-                      Keterangan predikat (acuan
-                      template):
+                    <p className="rp-small">
+                      KETERANGAN PREDIKAT
                     </p>
 
-                    <p className="rapor-small">
-                      A = 85–100 (Sangat Baik)
+                    <p className="rp-small">
+                      85–100 = A
+                      (Sangat Baik)
                       <br />
-                      B = 75–84,99 (Baik)
+                      75–84,99 = B
+                      (Baik)
                       <br />
-                      C = 60–74,99 (Cukup)
+                      60–74,99 = C
+                      (Cukup)
                       <br />
-                      D = di bawah 60 (Kurang)
+                      Di bawah 60 = D
+                      (Kurang)
                     </p>
                   </div>
                 </div>
+
+                <p className="rp-small">
+                  Nilai total merupakan
+                  penjumlahan nilai teori dan
+                  praktek yang tersedia pada
+                  minggu pilihan. Predikat
+                  menggunakan acuan template.
+                </p>
               </section>
             </div>
 
-            <footer className="rapor-footer">
+            <footer className="rp-footer">
               <div>
                 OJT MineTrack · PT Berau Coal
                 <br />
@@ -2059,18 +2290,18 @@ export default function RaporOJT() {
                 )}
               </div>
 
-              <div className="rapor-signature">
+              <div className="rp-signature">
                 Mengetahui,
                 <br />
                 Mentor / Penanggung Jawab
 
-                <div className="rapor-sign-space" />
+                <div className="rp-sign-space" />
 
                 __________________________
                 <br />
 
                 {profile.role === "mentor"
-                  ? profile.full_name ||
+                  ? profile.full_name ??
                     "Nama Mentor"
                   : "Nama Mentor"}
               </div>
