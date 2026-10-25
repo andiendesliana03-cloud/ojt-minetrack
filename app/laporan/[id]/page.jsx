@@ -8,51 +8,25 @@ import { supabase } from "../../../lib/supabase";
 const TOTAL_WEEKS = 25;
 
 const TARGETS = [
-  { key: "Fisik", label: "Fisik", target: 25, unit: "km" },
-  { key: "Training", label: "Internal Training", target: 4, unit: "kegiatan" },
-  { key: "Coaching", label: "Coaching", target: 1, unit: "kegiatan" },
-  { key: "Sosialisasi", label: "Sosialisasi", target: 3, unit: "kegiatan" },
-  { key: "Orientasi Area", label: "Orientasi Area", target: 2, unit: "kegiatan" },
-  { key: "Hazard", label: "Hazard", target: 2, unit: "kegiatan" },
+  { key: "Fisik", title: "FISIK", target: 25, unit: "km" },
+  { key: "Training", title: "INTERNAL TRAINING", target: 4, unit: "kegiatan" },
+  { key: "Sosialisasi", title: "SOSIALISASI", target: 3, unit: "kegiatan" },
+  { key: "Orientasi Area", title: "ORIENTASI", target: 2, unit: "kegiatan" },
+  { key: "Coaching", title: "COACHING", target: 1, unit: "kegiatan" },
+  { key: "Hazard", title: "HAZARD", target: 2, unit: "kegiatan" },
 ];
 
-const SAMAPTA_TARGETS = [
-  {
-    name: "Lari 12 Menit",
-    aliases: ["lari12menit", "lari"],
-    target: 2600,
-    unit: "m",
-    lowerBetter: false,
-  },
-  {
-    name: "Pull-Up",
-    aliases: ["pullup"],
-    target: 17,
-    unit: "kali",
-    lowerBetter: false,
-  },
-  {
-    name: "Push-Up",
-    aliases: ["pushup"],
-    target: 38,
-    unit: "kali",
-    lowerBetter: false,
-  },
-  {
-    name: "Sit-Up",
-    aliases: ["situp"],
-    target: 45,
-    unit: "kali",
-    lowerBetter: false,
-  },
-  {
-    name: "Shuttle Run",
-    aliases: ["shuttlerun"],
-    target: 15.08,
-    unit: "detik",
-    lowerBetter: true,
-  },
+const COLORS = [
+  "#df4b45",
+  "#e7a42a",
+  "#e4cb24",
+  "#268a4e",
+  "#219fc2",
+  "#3070d5",
 ];
+
+const META_START = "[[SIMPER_V2]]";
+const META_END = "[[/SIMPER_V2]]";
 
 function normalize(value) {
   return String(value || "")
@@ -65,9 +39,7 @@ function numberOrNull(value) {
     value === null ||
     value === undefined ||
     value === ""
-  ) {
-    return null;
-  }
+  ) return null;
 
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -99,30 +71,25 @@ function parseDate(value) {
   if (
     parts.length !== 3 ||
     parts.some(n => !Number.isInteger(n))
-  ) {
-    return null;
-  }
+  ) return null;
 
   const [year, month, day] = parts;
 
-  const date = new Date(
+  const result = new Date(
     Date.UTC(year, month - 1, day)
   );
 
   if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    return null;
-  }
+    result.getUTCFullYear() !== year ||
+    result.getUTCMonth() !== month - 1 ||
+    result.getUTCDate() !== day
+  ) return null;
 
-  return date;
+  return result;
 }
 
 function dateText(value) {
   const date = parseDate(value);
-
   if (!date) return "—";
 
   return new Intl.DateTimeFormat("id-ID", {
@@ -133,52 +100,26 @@ function dateText(value) {
   }).format(date);
 }
 
-function weekOf(dateValue, startValue) {
-  const date = parseDate(dateValue);
+function weekOf(value, startValue) {
+  const date = parseDate(value);
   const start = parseDate(startValue);
 
   if (!date || !start) return null;
 
-  const days = Math.round(
+  const difference = Math.round(
     (date.getTime() - start.getTime()) / 86400000
   );
 
-  const week = Math.floor(days / 7) + 1;
+  const week = Math.floor(difference / 7) + 1;
 
   return week >= 1 && week <= TOTAL_WEEKS
     ? week
     : null;
 }
 
-function weekDateRange(startValue, week) {
-  const start = parseDate(startValue);
-  if (!start) return "—";
-
-  const first = new Date(
-    start.getTime() +
-    (week - 1) * 7 * 86400000
-  );
-
-  const last = new Date(
-    first.getTime() + 6 * 86400000
-  );
-
-  const toDateString = date =>
-    new Intl.DateTimeFormat("id-ID", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      timeZone: "UTC",
-    }).format(date);
-
-  return (
-    `${toDateString(first)} – ${toDateString(last)}`
-  );
-}
-
-function average(records) {
-  const values = records
-    .map(item => numberOrNull(item.score))
+function average(rows) {
+  const values = rows
+    .map(row => numberOrNull(row.score))
     .filter(value => value !== null);
 
   if (!values.length) return null;
@@ -189,120 +130,77 @@ function average(records) {
   );
 }
 
-function readSimperMetadata(notes) {
+function readSimperMeta(notes) {
   const text = String(notes || "");
 
-  const startTag = "[[SIMPER_V2]]";
-  const endTag = "[[/SIMPER_V2]]";
+  const a = text.lastIndexOf(META_START);
+  const b = text.lastIndexOf(META_END);
 
-  const start = text.lastIndexOf(startTag);
-  const end = text.lastIndexOf(endTag);
-
-  if (start < 0 || end <= start) return null;
+  if (a < 0 || b <= a) return null;
 
   try {
-    const parsed = JSON.parse(
-      text.slice(start + startTag.length, end)
+    const value = JSON.parse(
+      text.slice(a + META_START.length, b)
     );
 
-    return parsed?.version === 2
-      ? parsed
+    return value?.version === 2
+      ? value
       : null;
   } catch {
     return null;
   }
 }
 
-function buildSamaptaSessions(records) {
-  const dates = [
-    ...new Set(
-      records.map(item => item.test_date).filter(Boolean)
-    ),
-  ].sort();
+function splitWeeks(items, size = 7) {
+  const result = [];
 
-  return dates.map(date => {
-    const entries = records.filter(
-      item => item.test_date === date
-    );
-
-    const metrics = SAMAPTA_TARGETS.map(target => {
-      const matching = entries.find(
-        item =>
-          target.aliases.includes(
-            normalize(item.test_type)
-          )
-      );
-
-      const actual = numberOrNull(
-        matching?.result_value
-      );
-
-      let passed = null;
-
-      if (actual !== null) {
-        passed = target.lowerBetter
-          ? actual <= target.target
-          : actual >= target.target;
-      }
-
-      return {
-        ...target,
-        actual,
-        score: numberOrNull(matching?.score),
-        passed,
-      };
-    });
-
-    return {
-      date,
-      metrics,
-      complete: metrics.every(
-        metric => metric.actual !== null
-      ),
-      averageScore: average(entries),
-    };
-  });
-}
-
-function Status({ achieved, hasData = true }) {
-  if (!hasData) {
-    return (
-      <span className="rp-status rp-neutral">
-        Belum ada data
-      </span>
-    );
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
   }
 
-  return achieved ? (
-    <span className="rp-status rp-success">
-      Tercapai
-    </span>
-  ) : (
-    <span className="rp-status rp-warning">
-      Belum tercapai
-    </span>
-  );
+  return result;
 }
 
-function WeekSelect({
+function getPredikat(value) {
+  if (value === null) {
+    return {
+      letter: "—",
+      label: "Belum ada nilai",
+    };
+  }
+
+  if (value >= 85) {
+    return { letter: "A", label: "SANGAT BAIK" };
+  }
+
+  if (value >= 75) {
+    return { letter: "B", label: "BAIK" };
+  }
+
+  if (value >= 60) {
+    return { letter: "C", label: "CUKUP" };
+  }
+
+  return { letter: "D", label: "KURANG" };
+}
+
+function WeekSelector({
   value,
   onChange,
-  minWeek = 1,
+  from = 1,
 }) {
-  const weeks = Array.from(
-    { length: TOTAL_WEEKS - minWeek + 1 },
-    (_, index) => minWeek + index
-  );
-
   return (
     <select
-      className="rp-select"
+      className="rapor-input"
       value={value}
       onChange={event =>
         onChange(Number(event.target.value))
       }
     >
-      {weeks.map(week => (
+      {Array.from(
+        { length: TOTAL_WEEKS - from + 1 },
+        (_, index) => index + from
+      ).map(week => (
         <option key={week} value={week}>
           Week {pad(week)}
         </option>
@@ -311,24 +209,11 @@ function WeekSelect({
   );
 }
 
-function SectionTitle({ children }) {
+function TableTitle({ children }) {
   return (
-    <div className="rp-section-title">
+    <div className="rapor-section-title">
       {children}
     </div>
-  );
-}
-
-function EmptyRow({ colSpan, text }) {
-  return (
-    <tr>
-      <td
-        colSpan={colSpan}
-        className="rp-empty-cell"
-      >
-        {text}
-      </td>
-    </tr>
   );
 }
 
@@ -341,27 +226,22 @@ export default function RaporOJT() {
     : params?.id;
 
   const [data, setData] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  // MODE PEMILIHAN PERIODE RAPOR
   const [mode, setMode] = useState("range");
 
-  // SATU MINGGU
   const [singleWeek, setSingleWeek] = useState(3);
+  const [fromWeek, setFromWeek] = useState(3);
+  const [toWeek, setToWeek] = useState(7);
 
-  // RENTANG MINGGU
-  const [startWeek, setStartWeek] = useState(3);
-  const [endWeek, setEndWeek] = useState(7);
-
-  // MINGGU TERTENTU
   const [customWeeks, setCustomWeeks] = useState([
     1, 3, 5,
   ]);
 
-  // PRATINJAU
-  const [showPreview, setShowPreview] = useState(true);
+  const [preview, setPreview] = useState(true);
 
   async function fetchRecords(id) {
     const results = await Promise.all([
@@ -374,30 +254,19 @@ export default function RaporOJT() {
         .select(
           "id,type_code,activity_date,description,distance_km,status"
         )
-        .eq("program_id", id)
-        .order("activity_date"),
+        .eq("program_id", id),
 
       supabase
         .from("post_test_scores")
         .select("id,test_date,score,notes")
-        .eq("program_id", id)
-        .order("test_date"),
+        .eq("program_id", id),
 
       supabase
         .from("weekly_practice_scores")
         .select(
           "id,practice_date,practice_name,score"
         )
-        .eq("program_id", id)
-        .order("practice_date"),
-
-      supabase
-        .from("samapta_records")
-        .select(
-          "id,test_date,test_type,result_value,score,outcome"
-        )
-        .eq("program_id", id)
-        .order("test_date"),
+        .eq("program_id", id),
 
       supabase
         .from("simper_records")
@@ -408,19 +277,18 @@ export default function RaporOJT() {
         .maybeSingle(),
     ]);
 
-    const labels = [
+    const names = [
       "Kategori",
       "Pencapaian",
       "Teori",
       "Praktik",
-      "Samapta",
       "SIMPER",
     ];
 
     results.forEach((result, index) => {
       if (result.error) {
         throw new Error(
-          `${labels[index]}: ${result.error.message}`
+          `${names[index]}: ${result.error.message}`
         );
       }
     });
@@ -430,8 +298,7 @@ export default function RaporOJT() {
       achievements: results[1].data || [],
       theory: results[2].data || [],
       practice: results[3].data || [],
-      samapta: results[4].data || [],
-      simper: results[5].data || null,
+      simper: results[4].data || null,
     };
   }
 
@@ -444,7 +311,7 @@ export default function RaporOJT() {
 
     let active = true;
 
-    async function initialize() {
+    async function load() {
       setLoading(true);
       setError("");
 
@@ -483,9 +350,7 @@ export default function RaporOJT() {
         ].includes(profile.role);
 
         if (!isMentor && !isParticipant) {
-          throw new Error(
-            "Akun tidak mempunyai akses rapor."
-          );
+          throw new Error("Akun tidak memiliki akses.");
         }
 
         let query = supabase
@@ -518,7 +383,7 @@ export default function RaporOJT() {
 
         if (programError || !program) {
           throw new Error(
-            "Program tidak ditemukan atau akses ditolak."
+            "Program OJT tidak ditemukan atau akses ditolak."
           );
         }
 
@@ -540,7 +405,7 @@ export default function RaporOJT() {
       } catch (err) {
         if (active) {
           setError(
-            err.message || "Gagal memuat rapor."
+            err?.message || "Gagal memuat rapor."
           );
         }
       } finally {
@@ -548,14 +413,14 @@ export default function RaporOJT() {
       }
     }
 
-    initialize();
+    load();
 
     return () => {
       active = false;
     };
   }, [programId, router]);
 
-  async function refreshData() {
+  async function refresh() {
     if (!data || refreshing) return;
 
     setRefreshing(true);
@@ -572,7 +437,7 @@ export default function RaporOJT() {
       }));
     } catch (err) {
       setError(
-        err.message || "Gagal memperbarui data."
+        err?.message || "Gagal memperbarui data."
       );
     } finally {
       setRefreshing(false);
@@ -585,20 +450,18 @@ export default function RaporOJT() {
     }
 
     if (mode === "range") {
-      const count = Math.max(
-        0,
-        endWeek - startWeek + 1
-      );
-
       return Array.from(
-        { length: count },
-        (_, index) => startWeek + index
+        {
+          length: Math.max(
+            0,
+            toWeek - fromWeek + 1
+          ),
+        },
+        (_, index) => fromWeek + index
       );
     }
 
-    return [
-      ...new Set(customWeeks),
-    ]
+    return [...new Set(customWeeks)]
       .filter(
         week =>
           week >= 1 &&
@@ -608,15 +471,15 @@ export default function RaporOJT() {
   }, [
     mode,
     singleWeek,
-    startWeek,
-    endWeek,
+    fromWeek,
+    toWeek,
     customWeeks,
   ]);
 
-  function toggleCustomWeek(week) {
+  function toggleWeek(week) {
     setCustomWeeks(old =>
       old.includes(week)
-        ? old.filter(item => item !== week)
+        ? old.filter(value => value !== week)
         : [...old, week]
     );
   }
@@ -630,46 +493,44 @@ export default function RaporOJT() {
       achievements,
       theory,
       practice,
-      samapta,
       simper,
     } = data;
 
-    const typeCodes = new Map(
+    const codeMap = new Map(
       types.map(item => [
         normalize(item.name),
         item.code,
       ])
     );
 
-    function getTypeCode(name) {
-      if (name === "Training") {
+    function getCode(key) {
+      if (key === "Training") {
         return (
-          typeCodes.get("training") ||
-          typeCodes.get("internaltraining")
+          codeMap.get("training") ||
+          codeMap.get("internaltraining")
         );
       }
 
-      return typeCodes.get(normalize(name));
+      return codeMap.get(normalize(key));
     }
 
-    const allSamaptaSessions =
-      buildSamaptaSessions(samapta);
-
     const weekly = selectedWeeks.map(week => {
-      const weekAchievements = achievements.filter(
-        item =>
-          weekOf(
-            item.activity_date,
-            program.start_date
-          ) === week
-      );
+      const achievementsThisWeek =
+        achievements.filter(
+          item =>
+            weekOf(
+              item.activity_date,
+              program.start_date
+            ) === week
+        );
 
       const activities = TARGETS.map(target => {
-        const code = getTypeCode(target.key);
+        const typeCode = getCode(target.key);
 
-        const matching = code
-          ? weekAchievements.filter(
-              item => item.type_code === code
+        const matching = typeCode
+          ? achievementsThisWeek.filter(
+              item =>
+                item.type_code === typeCode
             )
           : [];
 
@@ -681,8 +542,8 @@ export default function RaporOJT() {
 
         if (target.key === "Fisik") {
           const meters = verified.reduce(
-            (total, item) =>
-              total +
+            (sum, item) =>
+              sum +
               Math.round(
                 (numberOrNull(item.distance_km) || 0) *
                   1000
@@ -703,45 +564,28 @@ export default function RaporOJT() {
           pendingCount: matching.filter(
             item => item.status === "pending"
           ).length,
-          achieved: realized >= target.target,
-          percentage:
-            (realized / target.target) * 100,
         };
       });
 
-      const tests = theory.filter(
-        item =>
-          weekOf(
-            item.test_date,
-            program.start_date
-          ) === week
-      );
-
-      const practices = practice.filter(
-        item =>
-          weekOf(
-            item.practice_date,
-            program.start_date
-          ) === week
-      );
-
-      const samSessions = allSamaptaSessions.filter(
-        item =>
-          weekOf(
-            item.date,
-            program.start_date
-          ) === week
-      );
-
       return {
         week,
-        achievements: weekAchievements,
         activities,
-        tests,
-        practices,
-        samSessions,
-        testAverage: average(tests),
-        practiceAverage: average(practices),
+
+        tests: theory.filter(
+          item =>
+            weekOf(
+              item.test_date,
+              program.start_date
+            ) === week
+        ),
+
+        practices: practice.filter(
+          item =>
+            weekOf(
+              item.practice_date,
+              program.start_date
+            ) === week
+        ),
       };
     });
 
@@ -757,86 +601,107 @@ export default function RaporOJT() {
 
       if (target.key === "Fisik") {
         const meters = entries.reduce(
-          (sum, entry) =>
-            sum + Math.round(entry.realized * 1000),
+          (sum, item) =>
+            sum +
+            Math.round(item.realized * 1000),
           0
         );
 
         realized = meters / 1000;
       } else {
         realized = entries.reduce(
-          (sum, entry) =>
-            sum + entry.realized,
+          (sum, item) =>
+            sum + item.realized,
           0
         );
       }
 
-      const targetTotal =
+      const totalTarget =
         target.target * selectedWeeks.length;
 
       return {
         ...target,
-        targetTotal,
+        totalTarget,
         realized,
-        percentage: targetTotal
-          ? (realized / targetTotal) * 100
+        percentage: totalTarget > 0
+          ? realized / totalTarget * 100
           : 0,
         achieved:
-          targetTotal > 0 &&
-          realized >= targetTotal,
+          totalTarget > 0 &&
+          realized >= totalTarget,
         hasData: entries.some(
-          entry => entry.recorded > 0
+          item => item.recorded > 0
         ),
       };
     });
 
-    const selectedTests = weekly.flatMap(
-      item => item.tests
+    const allTests = weekly.flatMap(
+      week => week.tests
     );
 
-    const selectedPractices = weekly.flatMap(
-      item => item.practices
+    const allPractices = weekly.flatMap(
+      week => week.practices
     );
 
-    const metadata = readSimperMetadata(
+    const validScores = [
+      ...allTests,
+      ...allPractices,
+    ]
+      .map(item => numberOrNull(item.score))
+      .filter(value => value !== null);
+
+    const scoreTotal = validScores.reduce(
+      (sum, value) => sum + value,
+      0
+    );
+
+    const scoreAverage = validScores.length
+      ? scoreTotal / validScores.length
+      : null;
+
+    const metadata = readSimperMeta(
       simper?.notes
     );
 
-    const simperRequirements = [
-      {
-        name: "KMKOP",
-        status:
-          "Belum dapat dipastikan dari struktur data",
-      },
-      {
-        name: "Praktik",
-        status:
-          simper?.practice_status === "passed"
-            ? "Lulus (data sistem)"
-            : "Belum terkonfirmasi",
-      },
-      {
-        name: "Orientasi Area",
-        status:
-          metadata?.orientation_status === "completed"
-            ? "Selesai (data sistem)"
-            : "Belum terkonfirmasi",
-      },
-    ];
+    const validation = {
+      kmkop: "Belum terkonfirmasi",
+      kmkopValidation: "—",
+
+      practice:
+        simper?.practice_status === "passed"
+          ? "Lulus (data sistem)"
+          : "Belum terkonfirmasi",
+
+      practiceValidation:
+        "Perlu konfirmasi",
+
+      orientation:
+        metadata?.orientation_status === "completed"
+          ? "Selesai (data sistem)"
+          : "Belum terkonfirmasi",
+    };
+
+    const unfinished = summary.filter(
+      item => !item.achieved
+    );
 
     return {
       weekly,
       summary,
-      theoryAverage: average(selectedTests),
-      practiceAverage: average(selectedPractices),
-      samaptaSessions: allSamaptaSessions,
-      simperRequirements,
+      allTests,
+      allPractices,
+      scoreTotal,
+      scoreAverage,
+      scoreCount: validScores.length,
+      grade: getPredikat(scoreAverage),
+      validation,
+      unfinished,
     };
   }, [data, selectedWeeks]);
 
   if (loading) {
     return (
-      <main className="rp-loading">
+      <main className="rapor-loading">
         Memuat Rapor OJT...
       </main>
     );
@@ -844,18 +709,22 @@ export default function RaporOJT() {
 
   if (!data || !report) {
     return (
-      <main className="rp-loading">
+      <main className="rapor-loading">
         <h2>Rapor Tidak Dapat Ditampilkan</h2>
-        <p>{error || "Data belum tersedia."}</p>
+        <p>
+          {error || "Data belum tersedia."}
+        </p>
 
-        <button onClick={() => router.back()}>
+        <button
+          onClick={() => router.back()}
+        >
           Kembali
         </button>
       </main>
     );
   }
 
-  const { program, profile } = data;
+  const { profile, program } = data;
 
   const participantName =
     program.peserta?.full_name ||
@@ -866,19 +735,29 @@ export default function RaporOJT() {
       ? `/peserta/${programId}`
       : "/dashboard-peserta";
 
-  const samaptaIndex = new Map(
-    report.samaptaSessions.map(
-      (session, index) => [
-        session.date,
-        index + 1,
-      ]
-    )
+  const selectedLabel = selectedWeeks
+    .map(week => `Week ${pad(week)}`)
+    .join(", ");
+
+  const fisikSummary = report.summary.find(
+    item => item.key === "Fisik"
+  );
+
+  const runningCount = report.weekly.reduce(
+    (sum, week) =>
+      sum +
+      (
+        week.activities.find(
+          item => item.key === "Fisik"
+        )?.recorded || 0
+      ),
+    0
   );
 
   function printReport() {
     if (!selectedWeeks.length) return;
 
-    setShowPreview(true);
+    setPreview(true);
 
     requestAnimationFrame(() => {
       window.print();
@@ -886,426 +765,486 @@ export default function RaporOJT() {
   }
 
   return (
-    <main className="rp-root">
+    <main className="rapor-root">
       <style>{`
-        .rp-root,
-        .rp-root * {
+        .rapor-root,
+        .rapor-root * {
           box-sizing: border-box;
         }
 
-        .rp-root {
+        .rapor-root {
           min-height: 100vh;
-          background: #eef3f3;
-          color: #183444;
+          background: #edf3f4;
+          color: #152d49;
           font-family: Arial, Helvetica, sans-serif;
-          font-size: 13px;
+          font-size: 12px;
         }
 
-        .rp-loading {
+        .rapor-loading {
           min-height: 100vh;
           padding: 25px;
-          background: #eef3f3;
+          background: #edf3f4;
+          color: #152d49;
           font-family: Arial, sans-serif;
-          color: #183444;
         }
 
-        .rp-topbar {
-          background: #092c38;
+        .rapor-topbar {
+          background: #092b37;
           color: white;
           padding: 14px 20px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 12px;
+          gap: 10px;
         }
 
-        .rp-brand {
+        .rapor-brand {
           font-size: 20px;
           font-weight: 900;
         }
 
-        .rp-brand span {
-          color: #38c997;
+        .rapor-brand span {
+          color: #35c995;
         }
 
-        .rp-page {
-          max-width: 1200px;
+        .rapor-container {
+          max-width: 1250px;
           margin: 0 auto;
-          padding: 18px;
+          padding: 15px;
         }
 
-        .rp-controls {
+        .rapor-controls {
           background: white;
-          border: 1px solid #dce6e7;
-          border-radius: 14px;
+          border: 1px solid #d7e3e7;
+          border-radius: 12px;
           padding: 18px;
-          margin-bottom: 15px;
+          margin-bottom: 16px;
         }
 
-        .rp-controls h2 {
-          margin: 0 0 5px;
+        .rapor-controls h2 {
           font-size: 21px;
-          color: #0c3343;
+          margin: 0 0 6px;
         }
 
-        .rp-hint {
-          color: #6c8190;
-          font-size: 12px;
-          line-height: 1.6;
-          margin: 8px 0;
+        .rapor-muted {
+          color: #677d89;
+          line-height: 1.5;
+          font-size: 11px;
         }
 
-        .rp-radio {
+        .rapor-modes {
           display: flex;
           flex-wrap: wrap;
-          gap: 16px;
-          margin: 18px 0;
+          gap: 20px;
+          margin: 17px 0;
         }
 
-        .rp-radio label {
+        .rapor-modes label {
           display: flex;
           align-items: center;
           gap: 7px;
-          cursor: pointer;
-          font-size: 13px;
           font-weight: 700;
+          cursor: pointer;
         }
 
-        .rp-fields {
+        .rapor-options {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns:
+            repeat(2, minmax(0, 1fr));
           gap: 12px;
-          max-width: 650px;
+          max-width: 680px;
         }
 
-        .rp-field label {
+        .rapor-options label {
           display: block;
-          margin-bottom: 6px;
-          font-size: 11px;
           font-weight: 800;
+          font-size: 11px;
+          margin-bottom: 6px;
         }
 
-        .rp-select {
+        .rapor-input {
           width: 100%;
           padding: 11px;
-          border: 1px solid #d2e0e2;
-          border-radius: 9px;
+          border: 1px solid #cbd9df;
+          border-radius: 8px;
           background: white;
-          color: #183b40;
+          color: #152d49;
           font-size: 14px;
         }
 
-        .rp-custom-grid {
+        .rapor-custom {
           display: grid;
-          grid-template-columns: repeat(13, 1fr);
+          grid-template-columns:
+            repeat(13, minmax(0, 1fr));
           gap: 5px;
-          margin-top: 10px;
         }
 
-        .rp-custom-week {
-          border: 1px solid #d4e3e0;
-          border-radius: 6px;
+        .rapor-custom button {
           padding: 9px 2px;
+          border-radius: 6px;
+          border: 1px solid #cadbdc;
           background: white;
-          color: #234;
+          color: #183846;
           cursor: pointer;
         }
 
-        .rp-custom-week.active {
-          background: #07805c;
+        .rapor-custom button.active {
+          background: #07835d;
           color: white;
-          border-color: #07805c;
         }
 
-        .rp-actions {
+        .rapor-actions {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
-          margin-top: 15px;
+          margin-top: 14px;
         }
 
-        .rp-button {
-          border: 0;
-          border-radius: 9px;
-          padding: 11px 15px;
-          background: #087e5b;
+        .rapor-button {
+          border: none;
+          background: #07805a;
           color: white;
           font-weight: 800;
+          padding: 11px 14px;
+          border-radius: 9px;
           font-size: 12px;
           cursor: pointer;
         }
 
-        .rp-button.secondary {
-          background: #10374a;
+        .rapor-button.secondary {
+          background: #173e68;
         }
 
-        .rp-button.outline {
-          background: #e6f0eb;
-          color: #086e53;
+        .rapor-button.light {
+          background: #e8f3ec;
+          color: #126d4d;
         }
 
-        .rp-button:disabled {
+        .rapor-button:disabled {
           opacity: .5;
           cursor: not-allowed;
         }
 
-        .rp-error {
-          color: #a72d2d;
-          background: #fff1f1;
+        .rapor-error {
+          background: #fff0f0;
+          color: #a62332;
           padding: 10px;
           border-radius: 8px;
-          margin-top: 10px;
+          margin-top: 9px;
         }
 
-        .rp-print {
+        .rapor-paper {
           background: white;
-          border: 1px solid #dae4e7;
-          box-shadow: 0 5px 25px #1232;
-          padding: 20px;
-          margin: 0 auto;
-          min-width: 0;
+          padding: 18px;
+          border: 1px solid #cbd9e0;
+          box-shadow: 0 5px 22px #163d6116;
         }
 
-        .rp-hero {
-          background: linear-gradient(
-            110deg,
-            #062944,
-            #143b69
-          );
-          border-top: 5px solid #20a267;
-          color: white;
-          padding: 17px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 14px;
-        }
-
-        .rp-hero h1 {
-          margin: 4px 0;
-          font-size: 29px;
-        }
-
-        .rp-hero-label {
-          font-size: 15px;
-          font-weight: 900;
-        }
-
-        .rp-hero small {
-          font-size: 10px;
-          letter-spacing: .7px;
-        }
-
-        .rp-meta {
+        .rapor-header {
           display: grid;
-          grid-template-columns: 1.5fr 1fr 1fr 1.4fr;
+          grid-template-columns: 1fr 2fr 1fr;
+          align-items: center;
+          text-align: center;
           gap: 12px;
-          border: 1px solid #dce5ee;
-          padding: 13px;
-          margin: 12px 0;
+          border-top: 5px solid #209448;
+          border-bottom: 5px solid #123c70;
+          padding: 14px 10px;
         }
 
-        .rp-meta small {
-          display: block;
-          color: #68818b;
-          margin-bottom: 4px;
-        }
-
-        .rp-meta strong {
-          overflow-wrap: anywhere;
-        }
-
-        .rp-section-title {
-          background: #11396b;
-          color: white;
-          padding: 8px 10px;
-          font-size: 12px;
+        .rapor-company {
+          font-size: 22px;
           font-weight: 900;
-          margin: 13px 0 6px;
-        }
-
-        .rp-table {
-          width: 100%;
-          border-collapse: collapse;
-          table-layout: fixed;
-        }
-
-        .rp-table th,
-        .rp-table td {
-          border: 1px solid #ced9e0;
-          padding: 7px 6px;
+          color: #152b43;
           text-align: left;
-          vertical-align: top;
-          overflow-wrap: anywhere;
         }
 
-        .rp-table th {
-          background: #edf3f7;
-          font-weight: 800;
+        .rapor-company span {
+          color: #188d45;
         }
 
-        .rp-table .num {
-          text-align: right;
+        .rapor-header h1 {
+          color: #0c2c62;
+          font-size: 34px;
+          margin: 0;
         }
 
-        .rp-table .center {
+        .rapor-header h2 {
+          color: #188c45;
+          margin: 2px 0 8px;
+          font-size: 15px;
+        }
+
+        .rapor-header small {
+          display: block;
+          background: #0b2b5c;
+          color: white;
+          padding: 5px;
+          font-size: 10px;
+        }
+
+        .rapor-emblem {
+          justify-self: center;
+          border: 3px solid #d6b255;
+          border-radius: 50%;
+          width: 75px;
+          height: 75px;
+          display: grid;
+          place-items: center;
+          color: #0d2d60;
+          font-weight: 900;
           text-align: center;
         }
 
-        .rp-empty-cell {
-          color: #84919b;
-          text-align: center !important;
-          font-style: italic;
-        }
-
-        .rp-status {
-          display: inline-block;
-          border-radius: 30px;
-          padding: 4px 7px;
-          font-size: 10px;
-          font-weight: 800;
-          white-space: nowrap;
-        }
-
-        .rp-success {
-          color: #096747;
-          background: #dff5e7;
-        }
-
-        .rp-warning {
-          color: #a42e35;
-          background: #ffe5e6;
-        }
-
-        .rp-neutral {
-          color: #596d7a;
-          background: #edf1f5;
-        }
-
-        .rp-note {
-          font-size: 11px;
-          color: #526e7b;
-          line-height: 1.55;
-          margin: 8px 0;
-        }
-
-        .rp-grid {
+        .rapor-intro {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 12px;
+          margin: 12px 0;
         }
 
-        .rp-mini-card {
-          border: 1px solid #dae5eb;
-          border-radius: 8px;
+        .rapor-box {
+          border: 1px solid #9fadc0;
+          border-radius: 5px;
           padding: 10px;
+          min-width: 0;
         }
 
-        .rp-mini-card strong {
-          display: block;
-          font-size: 20px;
-          color: #0b775b;
-          margin-top: 5px;
-        }
-
-        .rp-week-page {
-          margin-top: 20px;
-          padding-top: 10px;
-          border-top: 3px solid #147950;
-        }
-
-        .rp-footer {
-          display: grid;
-          grid-template-columns: 1.6fr 1fr;
-          gap: 20px;
-          margin-top: 16px;
-        }
-
-        .rp-signature {
-          text-align: center;
+        .rapor-section-title {
+          display: inline-block;
+          background: #0b2c61;
+          color: white;
           font-size: 11px;
+          font-weight: 900;
+          padding: 6px 13px;
+          margin-bottom: 7px;
+        }
+
+        .rapor-info {
+          display: grid;
+          grid-template-columns: 105px 1fr;
+          gap: 5px 7px;
           line-height: 1.5;
         }
 
-        .rp-sign-space {
-          height: 40px;
+        .rapor-description {
+          font-size: 11px;
+          line-height: 1.7;
+          margin: 3px 0 9px;
         }
 
-        @media screen and (max-width: 700px) {
-          .rp-topbar {
-            padding: 12px;
+        .rapor-section {
+          margin: 13px 0;
+          break-inside: avoid-page;
+        }
+
+        .rapor-scroll {
+          overflow-x: auto;
+        }
+
+        .rapor-table {
+          border-collapse: collapse;
+          table-layout: fixed;
+          width: 100%;
+          font-size: 10px;
+        }
+
+        .rapor-table th,
+        .rapor-table td {
+          border: 1px solid #bdc9d5;
+          padding: 6px 4px;
+          text-align: center;
+          overflow-wrap: anywhere;
+          vertical-align: middle;
+        }
+
+        .rapor-table th {
+          background: #eaf0f6;
+        }
+
+        .rapor-competence th {
+          font-size: 9px;
+        }
+
+        .rapor-competence .group {
+          color: white;
+          font-weight: 900;
+        }
+
+        .rapor-weektable td {
+          vertical-align: top;
+        }
+
+        .rapor-score-item {
+          padding: 3px 0;
+          border-bottom: 1px solid #edf0f2;
+          line-height: 1.45;
+        }
+
+        .rapor-score-item:last-child {
+          border-bottom: none;
+        }
+
+        .rapor-small {
+          color: #627588;
+          font-size: 10px;
+          line-height: 1.5;
+          margin: 6px 0;
+        }
+
+        .rapor-bottom {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          margin-top: 14px;
+        }
+
+        .rapor-notes {
+          font-size: 11px;
+          line-height: 1.65;
+          padding: 4px;
+        }
+
+        .rapor-numbers {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 9px;
+          margin: 8px 0;
+        }
+
+        .rapor-number {
+          border: 1px solid #dbe4eb;
+          background: #f8fafc;
+          padding: 12px;
+          text-align: center;
+        }
+
+        .rapor-number span {
+          display: block;
+          font-size: 10px;
+        }
+
+        .rapor-number strong {
+          display: block;
+          font-size: 25px;
+          margin-top: 6px;
+          color: #0a2d62;
+        }
+
+        .rapor-predikat {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+          margin-top: 10px;
+        }
+
+        .rapor-predikat-letter {
+          border: 3px solid #1b924d;
+          border-radius: 50%;
+          color: #0c7a3e;
+          font-size: 36px;
+          font-weight: 900;
+          width: 75px;
+          height: 75px;
+          display: grid;
+          place-items: center;
+          flex-shrink: 0;
+        }
+
+        .rapor-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          gap: 15px;
+          margin-top: 18px;
+          font-size: 10px;
+          color: #607185;
+        }
+
+        .rapor-signature {
+          text-align: center;
+          min-width: 190px;
+        }
+
+        .rapor-sign-space {
+          height: 42px;
+        }
+
+        @media (max-width: 700px) {
+          .rapor-container {
+            padding: 8px;
           }
 
-          .rp-brand {
-            font-size: 17px;
-          }
-
-          .rp-page {
-            padding: 9px;
-          }
-
-          .rp-controls {
+          .rapor-controls {
             padding: 13px;
           }
 
-          .rp-radio {
+          .rapor-controls h2 {
+            font-size: 18px;
+          }
+
+          .rapor-modes {
             flex-direction: column;
             gap: 12px;
           }
 
-          .rp-custom-grid {
-            grid-template-columns: repeat(5, 1fr);
+          .rapor-custom {
+            grid-template-columns:
+              repeat(5, minmax(0, 1fr));
           }
 
-          .rp-fields {
-            grid-template-columns: 1fr 1fr;
+          .rapor-paper {
+            padding: 9px;
           }
 
-          .rp-print {
-            padding: 10px;
+          .rapor-header {
+            grid-template-columns: 1fr 2fr;
+            gap: 6px;
           }
 
-          .rp-hero {
-            padding: 11px;
+          .rapor-company {
+            font-size: 12px;
           }
 
-          .rp-hero h1 {
+          .rapor-header h1 {
             font-size: 22px;
           }
 
-          .rp-hero-label {
+          .rapor-header h2 {
             font-size: 11px;
           }
 
-          .rp-meta {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
+          .rapor-emblem {
+            display: none;
           }
 
-          .rp-grid {
+          .rapor-intro {
             grid-template-columns: 1fr;
           }
 
-          .rp-scroll {
-            overflow-x: auto;
+          .rapor-info {
+            grid-template-columns: 90px 1fr;
           }
 
-          .rp-scroll .rp-table {
-            min-width: 610px;
+          .rapor-scroll .rapor-competence {
+            min-width: 780px;
           }
 
-          .rp-footer {
+          .rapor-scroll .rapor-weektable {
+            min-width: 520px;
+          }
+
+          .rapor-bottom {
             grid-template-columns: 1fr;
           }
 
-          .rp-actions .rp-button {
+          .rapor-actions .rapor-button {
             flex: 1;
           }
         }
 
         @page {
           size: A4 landscape;
-          margin: 9mm;
+          margin: 8mm;
         }
 
         @media print {
@@ -1316,143 +1255,152 @@ export default function RaporOJT() {
             background: white !important;
           }
 
-          .rp-topbar,
-          .rp-controls {
+          .rapor-topbar,
+          .rapor-controls {
             display: none !important;
           }
 
-          .rp-root {
-            min-height: 0 !important;
+          .rapor-root {
             background: white !important;
+            min-height: 0 !important;
             print-color-adjust: exact;
             -webkit-print-color-adjust: exact;
           }
 
-          .rp-page {
+          .rapor-container {
             max-width: none !important;
             padding: 0 !important;
             margin: 0 !important;
           }
 
-          .rp-print {
+          .rapor-paper {
+            padding: 0 !important;
             border: 0 !important;
             box-shadow: none !important;
-            padding: 0 !important;
           }
 
-          .rp-hero {
-            padding: 9px 12px !important;
-          }
-
-          .rp-hero h1 {
-            font-size: 23px !important;
-          }
-
-          .rp-hero-label {
-            font-size: 12px !important;
-          }
-
-          .rp-meta {
+          .rapor-header {
             grid-template-columns:
-              1.5fr 1fr 1fr 1.4fr !important;
-            padding: 7px !important;
-            margin: 7px 0 !important;
+              1fr 2fr 1fr !important;
+            padding: 8px !important;
           }
 
-          .rp-section-title {
+          .rapor-company {
+            font-size: 17px !important;
+          }
+
+          .rapor-header h1 {
+            font-size: 27px !important;
+          }
+
+          .rapor-header h2 {
+            font-size: 13px !important;
+          }
+
+          .rapor-emblem {
+            display: grid !important;
+            width: 57px !important;
+            height: 57px !important;
             font-size: 10px !important;
-            margin: 8px 0 4px !important;
-            padding: 5px 7px !important;
           }
 
-          .rp-table {
-            min-width: 0 !important;
-          }
-
-          .rp-table th,
-          .rp-table td {
-            font-size: 9px !important;
-            padding: 4px !important;
-          }
-
-          .rp-note {
-            font-size: 9px !important;
-            margin: 5px 0 !important;
-          }
-
-          .rp-grid {
+          .rapor-intro {
             grid-template-columns:
               1fr 1fr !important;
-            gap: 8px !important;
+            gap: 9px !important;
           }
 
-          .rp-mini-card {
+          .rapor-box {
             padding: 7px !important;
           }
 
-          .rp-mini-card strong {
-            font-size: 15px !important;
+          .rapor-section {
+            margin: 8px 0 !important;
           }
 
-          .rp-scroll {
+          .rapor-section-title {
+            font-size: 9px !important;
+            padding: 5px 10px !important;
+          }
+
+          .rapor-scroll {
             overflow: visible !important;
           }
 
-          .rp-status {
+          .rapor-table,
+          .rapor-scroll .rapor-competence,
+          .rapor-scroll .rapor-weektable {
+            min-width: 0 !important;
+            width: 100% !important;
             font-size: 8px !important;
-            padding: 2px 5px !important;
           }
 
-          .rp-week-page {
-            break-before: page;
-            page-break-before: always;
-            margin-top: 0 !important;
-            border-top: 0 !important;
-            padding-top: 0 !important;
+          .rapor-table th,
+          .rapor-table td {
+            padding: 4px 2px !important;
           }
 
-          .rp-footer {
+          .rapor-description,
+          .rapor-small,
+          .rapor-notes {
+            font-size: 9px !important;
+            line-height: 1.4 !important;
+          }
+
+          .rapor-bottom {
             grid-template-columns:
-              1.6fr 1fr !important;
-            gap: 15px !important;
+              1fr 1fr !important;
           }
 
-          .rp-sign-space {
-            height: 35px !important;
+          .rapor-number strong {
+            font-size: 19px !important;
+          }
+
+          .rapor-predikat-letter {
+            width: 47px !important;
+            height: 47px !important;
+            font-size: 26px !important;
+          }
+
+          .rapor-sign-space {
+            height: 28px !important;
           }
         }
       `}</style>
 
-      <header className="rp-topbar">
-        <div className="rp-brand">
+      <header className="rapor-topbar">
+        <div className="rapor-brand">
           OJT <span>MineTrack</span>
         </div>
 
         <button
           type="button"
-          className="rp-button outline"
+          className="rapor-button light"
           onClick={() => router.push(backPath)}
         >
           ← Kembali
         </button>
       </header>
 
-      <div className="rp-page">
-        <section className="rp-controls">
-          <h2>Cetak Rapor OJT Dinamis</h2>
+      <div className="rapor-container">
+        <section className="rapor-controls">
+          <h2>Pengaturan Cetak Rapor OJT</h2>
 
-          <p className="rp-hint">
-            Tentukan periode laporan sesuai kebutuhan
-            mentor. Pilihan awal adalah Week 03–07.
+          <p className="rapor-muted">
+            Pilih periode laporan. Hanya minggu
+            yang dipilih mentor yang dimasukkan
+            ke dalam rapor.
           </p>
 
-          <div className="rp-radio">
+          <div className="rapor-modes">
             <label>
               <input
                 type="radio"
-                name="rp-mode"
+                name="rapor-mode"
                 checked={mode === "single"}
-                onChange={() => setMode("single")}
+                onChange={() =>
+                  setMode("single")
+                }
               />
               Satu minggu
             </label>
@@ -1460,9 +1408,11 @@ export default function RaporOJT() {
             <label>
               <input
                 type="radio"
-                name="rp-mode"
+                name="rapor-mode"
                 checked={mode === "range"}
-                onChange={() => setMode("range")}
+                onChange={() =>
+                  setMode("range")
+                }
               />
               Rentang beberapa minggu
             </label>
@@ -1470,20 +1420,22 @@ export default function RaporOJT() {
             <label>
               <input
                 type="radio"
-                name="rp-mode"
+                name="rapor-mode"
                 checked={mode === "custom"}
-                onChange={() => setMode("custom")}
+                onChange={() =>
+                  setMode("custom")
+                }
               />
               Pilih minggu tertentu
             </label>
           </div>
 
           {mode === "single" && (
-            <div className="rp-fields">
-              <div className="rp-field">
+            <div className="rapor-options">
+              <div>
                 <label>Pilih Minggu</label>
 
-                <WeekSelect
+                <WeekSelector
                   value={singleWeek}
                   onChange={setSingleWeek}
                 />
@@ -1492,52 +1444,50 @@ export default function RaporOJT() {
           )}
 
           {mode === "range" && (
-            <div className="rp-fields">
-              <div className="rp-field">
+            <div className="rapor-options">
+              <div>
                 <label>Dari Minggu</label>
 
-                <WeekSelect
-                  value={startWeek}
+                <WeekSelector
+                  value={fromWeek}
                   onChange={week => {
-                    setStartWeek(week);
+                    setFromWeek(week);
 
-                    if (endWeek < week) {
-                      setEndWeek(week);
+                    if (toWeek < week) {
+                      setToWeek(week);
                     }
                   }}
                 />
               </div>
 
-              <div className="rp-field">
+              <div>
                 <label>Sampai Minggu</label>
 
-                <WeekSelect
-                  value={endWeek}
-                  minWeek={startWeek}
-                  onChange={setEndWeek}
+                <WeekSelector
+                  from={fromWeek}
+                  value={toWeek}
+                  onChange={setToWeek}
                 />
               </div>
             </div>
           )}
 
           {mode === "custom" && (
-            <div className="rp-custom-grid">
+            <div className="rapor-custom">
               {Array.from(
                 { length: TOTAL_WEEKS },
                 (_, index) => index + 1
               ).map(week => (
                 <button
-                  key={week}
                   type="button"
+                  key={week}
                   className={
-                    `rp-custom-week ${
-                      customWeeks.includes(week)
-                        ? "active"
-                        : ""
-                    }`
+                    customWeeks.includes(week)
+                      ? "active"
+                      : ""
                   }
                   onClick={() =>
-                    toggleCustomWeek(week)
+                    toggleWeek(week)
                   }
                 >
                   {pad(week)}
@@ -1546,28 +1496,25 @@ export default function RaporOJT() {
             </div>
           )}
 
-          <p className="rp-hint">
+          <p className="rapor-muted">
             <strong>
               {selectedWeeks.length} minggu dipilih:
             </strong>{" "}
-            {selectedWeeks.length
-              ? selectedWeeks
-                  .map(week => `Week ${pad(week)}`)
-                  .join(", ")
-              : "Belum ada minggu dipilih"}
+            {selectedLabel ||
+              "Belum ada minggu dipilih"}
           </p>
 
           {error && (
-            <div className="rp-error">
+            <div className="rapor-error">
               {error}
             </div>
           )}
 
-          <div className="rp-actions">
+          <div className="rapor-actions">
             <button
               type="button"
-              className="rp-button outline"
-              onClick={refreshData}
+              className="rapor-button light"
+              onClick={refresh}
               disabled={refreshing}
             >
               {refreshing
@@ -1577,744 +1524,557 @@ export default function RaporOJT() {
 
             <button
               type="button"
-              className="rp-button secondary"
+              className="rapor-button secondary"
               onClick={() =>
-                setShowPreview(old => !old)
+                setPreview(old => !old)
               }
             >
-              {showPreview
+              {preview
                 ? "Sembunyikan Pratinjau"
                 : "Tampilkan Pratinjau"}
             </button>
 
             <button
               type="button"
-              className="rp-button"
-              disabled={
-                !selectedWeeks.length ||
-                refreshing
-              }
+              className="rapor-button"
               onClick={printReport}
+              disabled={
+                refreshing ||
+                selectedWeeks.length === 0
+              }
             >
               Cetak / Simpan PDF
             </button>
           </div>
 
-          <p className="rp-hint">
-            Pada dialog cetak browser, pilih
-            Simpan sebagai PDF dengan orientasi A4
-            Landscape.
+          <p className="rapor-muted">
+            Format cetak A4 Landscape. Predikat A–D
+            menggunakan acuan rentang pada contoh
+            rapor, bukan keputusan kelulusan resmi.
           </p>
         </section>
 
-        {showPreview && selectedWeeks.length > 0 && (
-          <article className="rp-print">
-            <header className="rp-hero">
-              <div>
-                <div className="rp-hero-label">
-                  OJT MineTrack · PT BERAU COAL
-                </div>
+        {preview && selectedWeeks.length > 0 && (
+          <article className="rapor-paper">
+            <div className="rapor-header">
+              <div className="rapor-company">
+                BERAU <span>COAL</span>
 
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 400,
+                    marginTop: 5,
+                  }}
+                >
+                  EMERGENCY RESPONSE GROUP
+                </div>
+              </div>
+
+              <div>
                 <h1>RAPOR OJT</h1>
+                <h2>ON THE JOB TRAINING</h2>
 
                 <small>
-                  ON THE JOB TRAINING
+                  PT BERAU COAL ·{" "}
+                  {selectedWeeks.length} MINGGU
                 </small>
               </div>
 
-              <div style={{ textAlign: "right" }}>
-                EMERGENCY RESPONSE GROUP
+              <div className="rapor-emblem">
+                OJT
                 <br />
-                <strong>
-                  {selectedWeeks.length} MINGGU
-                </strong>
+                TRAINING
               </div>
-            </header>
-
-            <section className="rp-meta">
-              <div>
-                <small>Nama Peserta</small>
-                <strong>{participantName}</strong>
-              </div>
-
-              <div>
-                <small>Departemen</small>
-                <strong>
-                  {program.peserta?.department || "—"}
-                </strong>
-              </div>
-
-              <div>
-                <small>Site</small>
-                <strong>{program.site || "—"}</strong>
-              </div>
-
-              <div>
-                <small>Periode OJT</small>
-                <strong>
-                  {dateText(program.start_date)}
-                  {" – "}
-                  {dateText(program.end_date)}
-                </strong>
-              </div>
-            </section>
-
-            <p className="rp-note">
-              <strong>Periode cetak:</strong>{" "}
-              {selectedWeeks
-                .map(week => `Week ${pad(week)}`)
-                .join(", ")}
-              . Penilaian didasarkan pada data
-              yang tercatat di Supabase dalam periode
-              yang dipilih.
-            </p>
-
-            <SectionTitle>
-              1. PENILAIAN KOMPETENSI UTAMA
-            </SectionTitle>
-
-            <div className="rp-scroll">
-              <table className="rp-table">
-                <thead>
-                  <tr>
-                    <th>Komponen</th>
-                    <th className="num">Target</th>
-                    <th className="num">Realisasi</th>
-                    <th className="num">Pencapaian</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {report.summary.map(item => (
-                    <tr key={item.key}>
-                      <td>{item.label}</td>
-
-                      <td className="num">
-                        {fmt(item.targetTotal)}{" "}
-                        {item.unit}
-                      </td>
-
-                      <td className="num">
-                        {fmt(
-                          item.realized,
-                          item.key === "Fisik" ? 3 : 0
-                        )}{" "}
-                        {item.unit}
-                      </td>
-
-                      <td className="num">
-                        {fmt(item.percentage, 1)}%
-                      </td>
-
-                      <td>
-                        <Status
-                          achieved={item.achieved}
-                          hasData={item.hasData}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
 
-            <div className="rp-grid">
-              <section>
-                <SectionTitle>
-                  2. PENILAIAN PEMBELAJARAN / TEORI
-                </SectionTitle>
+            <div className="rapor-intro">
+              <section className="rapor-box">
+                <TableTitle>
+                  DATA PESERTA
+                </TableTitle>
 
-                <div className="rp-mini-card">
-                  <div>
-                    Rata-rata nilai periode terpilih
-                  </div>
+                <div className="rapor-info">
+                  <strong>Nama</strong>
+                  <span>: {participantName}</span>
 
-                  <strong>
-                    {fmt(report.theoryAverage, 2)}
-                  </strong>
+                  <strong>Site</strong>
+                  <span>: {program.site || "—"}</span>
 
-                  <p className="rp-note">
-                    Nilai diambil dari Post-Test.
-                    Kriteria kelulusan mengikuti
-                    standar resmi program OJT.
-                  </p>
+                  <strong>Jabatan</strong>
+                  <span>: —</span>
+
+                  <strong>Periode OJT</strong>
+                  <span>
+                    : {dateText(program.start_date)}
+                    {" – "}
+                    {dateText(program.end_date)}
+                  </span>
+
+                  <strong>Departemen</strong>
+                  <span>
+                    : {program.peserta?.department ||
+                      "—"}
+                  </span>
+
+                  <strong>Periode Cetak</strong>
+                  <span>: {selectedLabel}</span>
                 </div>
               </section>
 
-              <section>
-                <SectionTitle>
-                  3. PENILAIAN PRAKTIK
-                </SectionTitle>
+              <section className="rapor-box">
+                <TableTitle>
+                  KETERANGAN
+                </TableTitle>
 
-                <div className="rp-mini-card">
-                  <div>
-                    Rata-rata nilai periode terpilih
-                  </div>
+                <p className="rapor-description">
+                  On The Job Training (OJT)
+                  merupakan program pelatihan kerja
+                  yang bertujuan untuk meningkatkan
+                  kompetensi, pengetahuan, keterampilan
+                  serta sikap kerja peserta melalui
+                  pengalaman langsung di tempat kerja.
+                </p>
 
-                  <strong>
-                    {fmt(report.practiceAverage, 2)}
-                  </strong>
-
-                  <p className="rp-note">
-                    Nilai diambil dari hasil praktik
-                    yang tercatat pada minggu pilihan.
-                  </p>
-                </div>
-              </section>
-            </div>
-
-            <div className="rp-grid">
-              <section>
-                <SectionTitle>
-                  4. MONITORING SAMAPTA
-                </SectionTitle>
-
-                <div className="rp-scroll">
-                  <table className="rp-table">
-                    <thead>
-                      <tr>
-                        <th>Komponen</th>
-                        <th>Target Akhir</th>
-                        <th>P1</th>
-                        <th>P2</th>
-                        <th>P3</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {SAMAPTA_TARGETS.map(
-                        (target, index) => (
-                          <tr key={target.name}>
-                            <td>{target.name}</td>
-
-                            <td>
-                              {target.lowerBetter
-                                ? "≤ "
-                                : "≥ "}
-                              {fmt(
-                                target.target,
-                                target.lowerBetter ? 2 : 0
-                              )}{" "}
-                              {target.unit}
-                            </td>
-
-                            {[0, 1, 2].map(period => {
-                              const session =
-                                report.samaptaSessions[
-                                  period
-                                ];
-
-                              const actual =
-                                session?.metrics[index]
-                                  ?.actual;
-
-                              return (
-                                <td key={period}>
-                                  {actual === null ||
-                                  actual === undefined
-                                    ? "—"
-                                    : fmt(
-                                        actual,
-                                        target.lowerBetter
-                                          ? 2
-                                          : 0
-                                      )}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        )
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <p className="rp-note">
-                  P1–P3 mengikuti tiga tanggal
-                  evaluasi pertama yang tercatat.
-                  Data di luar minggu pilihan merupakan
-                  referensi historis, bukan hasil
-                  kegiatan mingguan pada periode cetak.
+                <p className="rapor-description">
+                  Penilaian ini dilakukan untuk
+                  mengetahui pencapaian peserta selama
+                  mengikuti program OJT sesuai
+                  standar yang ditetapkan perusahaan.
                 </p>
               </section>
+            </div>
 
-              <section>
-                <SectionTitle>
-                  5. VALIDASI & PERSYARATAN SIMPER
-                </SectionTitle>
+            <section className="rapor-section">
+              <TableTitle>
+                1. PENILAIAN KOMPETENSI UTAMA
+              </TableTitle>
 
-                <table className="rp-table">
+              <div className="rapor-scroll">
+                <table className="rapor-table rapor-competence">
                   <thead>
                     <tr>
-                      <th>Komponen</th>
-                      <th>Status Tercatat</th>
+                      <th rowSpan={2} style={{ width: 28 }}>
+                        NO
+                      </th>
+
+                      {TARGETS.map((target, index) => (
+                        <th
+                          key={target.key}
+                          colSpan={3}
+                          className="group"
+                          style={{
+                            background: COLORS[index],
+                          }}
+                        >
+                          {target.title}
+                        </th>
+                      ))}
+                    </tr>
+
+                    <tr>
+                      {TARGETS.map(target => (
+                        <React.Fragment key={target.key}>
+                          <th>TARGET</th>
+                          <th>PENCAPAIAN</th>
+                          <th>PERSENTASE</th>
+                        </React.Fragment>
+                      ))}
                     </tr>
                   </thead>
 
                   <tbody>
-                    {report.simperRequirements.map(
-                      item => (
-                        <tr key={item.name}>
-                          <td>{item.name}</td>
-                          <td>{item.status}</td>
-                        </tr>
-                      )
-                    )}
+                    <tr>
+                      <td>1</td>
+
+                      {report.summary.map(item => (
+                        <React.Fragment key={item.key}>
+                          <td>
+                            {fmt(item.totalTarget)}
+                          </td>
+
+                          <td>
+                            {fmt(
+                              item.realized,
+                              item.key === "Fisik"
+                                ? 3
+                                : 0
+                            )}
+                          </td>
+
+                          <td
+                            style={{
+                              color: item.achieved
+                                ? "#087b46"
+                                : "#c13940",
+                              fontWeight: 900,
+                            }}
+                          >
+                            {fmt(
+                              item.percentage,
+                              2
+                            )}%
+                          </td>
+                        </React.Fragment>
+                      ))}
+                    </tr>
                   </tbody>
                 </table>
+              </div>
 
-                <p className="rp-note">
-                  Status SIMPER merupakan data
-                  terbaru yang tersedia. Riwayat
-                  perubahan per minggu belum tersedia
-                  pada struktur tabel saat ini.
-                  KMKOP tidak otomatis disamakan
-                  dengan administrasi.
-                </p>
+              <p className="rapor-small">
+                Fisik menggunakan satuan kilometer.
+                Komponen lainnya dihitung berdasarkan
+                jumlah kegiatan terverifikasi. Target
+                disesuaikan dengan{" "}
+                {selectedWeeks.length} minggu pilihan.
+                Jumlah catatan Fisik:{" "}
+                {runningCount}.
+              </p>
+            </section>
+
+            <section className="rapor-section">
+              <TableTitle>
+                2. PENILAIAN PEMBELAJARAN MINGGUAN
+              </TableTitle>
+
+              {splitWeeks(report.weekly, 7).map(
+                (weeks, index) => (
+                  <div
+                    key={index}
+                    className="rapor-scroll"
+                    style={{ marginBottom: 7 }}
+                  >
+                    <table className="rapor-table rapor-weektable">
+                      <thead>
+                        <tr>
+                          <th style={{ width: 48 }}>
+                            SITE
+                          </th>
+
+                          {weeks.map(item => (
+                            <th key={item.week}>
+                              WEEK {pad(item.week)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        <tr>
+                          <td>
+                            {program.site || "—"}
+                          </td>
+
+                          {weeks.map(item => (
+                            <td key={item.week}>
+                              {item.tests.length ? (
+                                item.tests.map(test => (
+                                  <div
+                                    className="rapor-score-item"
+                                    key={test.id}
+                                  >
+                                    {test.notes?.trim() && (
+                                      <div>
+                                        {test.notes.trim()}
+                                      </div>
+                                    )}
+
+                                    <strong>
+                                      {fmt(
+                                        numberOrNull(
+                                          test.score
+                                        ),
+                                        2
+                                      )}
+                                    </strong>
+                                  </div>
+                                ))
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </section>
+
+            <section className="rapor-section">
+              <TableTitle>
+                3. PENILAIAN PRAKTEK MINGGUAN
+              </TableTitle>
+
+              {splitWeeks(report.weekly, 7).map(
+                (weeks, index) => (
+                  <div
+                    key={index}
+                    className="rapor-scroll"
+                    style={{ marginBottom: 7 }}
+                  >
+                    <table className="rapor-table rapor-weektable">
+                      <thead>
+                        <tr>
+                          <th style={{ width: 48 }}>
+                            SITE
+                          </th>
+
+                          {weeks.map(item => (
+                            <th key={item.week}>
+                              WEEK {pad(item.week)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        <tr>
+                          <td>
+                            {program.site || "—"}
+                          </td>
+
+                          {weeks.map(item => (
+                            <td key={item.week}>
+                              {item.practices.length ? (
+                                item.practices.map(
+                                  practice => (
+                                    <div
+                                      className="rapor-score-item"
+                                      key={practice.id}
+                                    >
+                                      <div>
+                                        {practice.practice_name ||
+                                          "Praktek"}
+                                      </div>
+
+                                      <strong>
+                                        {fmt(
+                                          numberOrNull(
+                                            practice.score
+                                          ),
+                                          2
+                                        )}
+                                      </strong>
+                                    </div>
+                                  )
+                                )
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </section>
+
+            <section className="rapor-section">
+              <TableTitle>
+                4. VALIDASI DAN KETERANGAN
+              </TableTitle>
+
+              <div className="rapor-scroll">
+                <table className="rapor-table">
+                  <thead>
+                    <tr>
+                      <th>NAMA PERSONIL</th>
+                      <th>KMKOP</th>
+                      <th>VALIDASI</th>
+                      <th>PRAKTEK</th>
+                      <th>VALIDASI</th>
+                      <th>ORIENTASI AREA</th>
+                      <th>KETERANGAN</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    <tr>
+                      <td>{participantName}</td>
+
+                      <td>
+                        {report.validation.kmkop}
+                      </td>
+
+                      <td>
+                        {
+                          report.validation
+                            .kmkopValidation
+                        }
+                      </td>
+
+                      <td>
+                        {report.validation.practice}
+                      </td>
+
+                      <td>
+                        {
+                          report.validation
+                            .practiceValidation
+                        }
+                      </td>
+
+                      <td>
+                        {report.validation.orientation}
+                      </td>
+
+                      <td>
+                        Perlu konfirmasi validasi
+                        persyaratan SIMPER.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="rapor-small">
+                Status SIMPER menggunakan data terbaru
+                yang tersedia. Riwayat tanggal validasi
+                per minggu belum tersedia dalam struktur
+                data ini. Status KMKOP tidak otomatis
+                disamakan dengan administrasi.
+              </p>
+            </section>
+
+            <div className="rapor-bottom">
+              <section className="rapor-box">
+                <TableTitle>
+                  CATATAN
+                </TableTitle>
+
+                <div className="rapor-notes">
+                  {report.unfinished.length > 0 ? (
+                    <p>
+                      Komponen yang belum memenuhi
+                      target periode terpilih:{" "}
+                      <strong>
+                        {report.unfinished
+                          .map(item =>
+                            item.key === "Training"
+                              ? "Internal Training"
+                              : item.title
+                          )
+                          .join(", ")}
+                      </strong>
+                      .
+                    </p>
+                  ) : (
+                    <p>
+                      Seluruh target enam kompetensi
+                      utama pada periode terpilih telah
+                      terpenuhi.
+                    </p>
+                  )}
+
+                  <p>
+                    Nilai teori tercatat:{" "}
+                    <strong>
+                      {report.allTests.length}
+                    </strong>
+                    . Nilai praktek tercatat:{" "}
+                    <strong>
+                      {report.allPractices.length}
+                    </strong>
+                    .
+                  </p>
+
+                  <p>
+                    Rapor hanya menampilkan data pada
+                    minggu pilihan mentor. Ketiadaan
+                    nilai atau catatan tidak otomatis
+                    berarti peserta gagal.
+                  </p>
+                </div>
+              </section>
+
+              <section className="rapor-box">
+                <TableTitle>
+                  RINGKASAN HASIL
+                </TableTitle>
+
+                <div className="rapor-numbers">
+                  <div className="rapor-number">
+                    <span>NILAI TOTAL</span>
+
+                    <strong>
+                      {report.scoreCount
+                        ? fmt(report.scoreTotal, 2)
+                        : "—"}
+                    </strong>
+                  </div>
+
+                  <div className="rapor-number">
+                    <span>NILAI RATA-RATA</span>
+
+                    <strong>
+                      {fmt(
+                        report.scoreAverage,
+                        2
+                      )}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="rapor-predikat">
+                  <div className="rapor-predikat-letter">
+                    {report.grade.letter}
+                  </div>
+
+                  <div>
+                    <strong>
+                      {report.grade.label}
+                    </strong>
+
+                    <p className="rapor-small">
+                      Keterangan predikat (acuan
+                      template):
+                    </p>
+
+                    <p className="rapor-small">
+                      A = 85–100 (Sangat Baik)
+                      <br />
+                      B = 75–84,99 (Baik)
+                      <br />
+                      C = 60–74,99 (Cukup)
+                      <br />
+                      D = di bawah 60 (Kurang)
+                    </p>
+                  </div>
+                </div>
               </section>
             </div>
 
-            <div className="rp-footer">
+            <footer className="rapor-footer">
               <div>
-                <SectionTitle>
-                  CATATAN & RINGKASAN
-                </SectionTitle>
-
-                <p className="rp-note">
-                  Rapor ini menampilkan pencapaian
-                  pada minggu yang dipilih mentor.
-                  Target kegiatan hanya dihitung dari
-                  catatan terverifikasi. Catatan
-                  pending tetap tampil pada rincian,
-                  tetapi tidak menambah realisasi.
-                  Belum adanya nilai tidak otomatis
-                  berarti peserta tidak lulus.
-                </p>
-              </div>
-
-              <div className="rp-signature">
-                Tanggal Cetak:{" "}
+                OJT MineTrack · PT Berau Coal
+                <br />
+                Tanggal cetak:{" "}
                 {new Date().toLocaleDateString(
                   "id-ID"
                 )}
-                <br />
-                <br />
+              </div>
+
+              <div className="rapor-signature">
                 Mengetahui,
                 <br />
                 Mentor / Penanggung Jawab
 
-                <div className="rp-sign-space" />
+                <div className="rapor-sign-space" />
 
-                ________________________
+                __________________________
                 <br />
+
                 {profile.role === "mentor"
                   ? profile.full_name ||
                     "Nama Mentor"
                   : "Nama Mentor"}
               </div>
-            </div>
-
-            {report.weekly.map(weekReport => (
-              <section
-                className="rp-week-page"
-                key={weekReport.week}
-              >
-                <header className="rp-hero">
-                  <div>
-                    <div className="rp-hero-label">
-                      RAPOR OJT · RINCIAN MINGGUAN
-                    </div>
-
-                    <h1>
-                      WEEK {pad(weekReport.week)}
-                    </h1>
-
-                    <small>
-                      {weekDateRange(
-                        program.start_date,
-                        weekReport.week
-                      )}
-                    </small>
-                  </div>
-
-                  <div
-                    style={{ textAlign: "right" }}
-                  >
-                    {participantName}
-                    <br />
-                    {program.site || "—"}
-                  </div>
-                </header>
-
-                <SectionTitle>
-                  A. TARGET & REALISASI KEGIATAN
-                </SectionTitle>
-
-                <div className="rp-scroll">
-                  <table className="rp-table">
-                    <thead>
-                      <tr>
-                        <th>Komponen</th>
-                        <th className="num">Target</th>
-                        <th className="num">Realisasi</th>
-                        <th className="center">
-                          Jumlah Catatan
-                        </th>
-                        <th className="center">
-                          Pending
-                        </th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {weekReport.activities.map(
-                        item => (
-                          <tr key={item.key}>
-                            <td>{item.label}</td>
-
-                            <td className="num">
-                              {fmt(item.target)}{" "}
-                              {item.unit}
-                            </td>
-
-                            <td className="num">
-                              {fmt(
-                                item.realized,
-                                item.key === "Fisik"
-                                  ? 3
-                                  : 0
-                              )}{" "}
-                              {item.unit}
-                            </td>
-
-                            <td className="center">
-                              {item.recorded}
-                            </td>
-
-                            <td className="center">
-                              {item.pendingCount}
-                            </td>
-
-                            <td>
-                              <Status
-                                achieved={
-                                  item.achieved
-                                }
-                                hasData={
-                                  item.recorded > 0
-                                }
-                              />
-                            </td>
-                          </tr>
-                        )
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="rp-grid">
-                  <section>
-                    <SectionTitle>
-                      B. NILAI TEORI / POST-TEST
-                    </SectionTitle>
-
-                    <table className="rp-table">
-                      <thead>
-                        <tr>
-                          <th>Tanggal</th>
-                          <th className="num">
-                            Nilai
-                          </th>
-                          <th>Catatan</th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {weekReport.tests.length ? (
-                          weekReport.tests.map(
-                            item => (
-                              <tr key={item.id}>
-                                <td>
-                                  {dateText(
-                                    item.test_date
-                                  )}
-                                </td>
-
-                                <td className="num">
-                                  {fmt(
-                                    item.score,
-                                    2
-                                  )}
-                                </td>
-
-                                <td>
-                                  {item.notes || "—"}
-                                </td>
-                              </tr>
-                            )
-                          )
-                        ) : (
-                          <EmptyRow
-                            colSpan={3}
-                            text="Belum ada nilai teori minggu ini"
-                          />
-                        )}
-                      </tbody>
-                    </table>
-                  </section>
-
-                  <section>
-                    <SectionTitle>
-                      C. NILAI PRAKTIK MINGGUAN
-                    </SectionTitle>
-
-                    <table className="rp-table">
-                      <thead>
-                        <tr>
-                          <th>Keterampilan</th>
-                          <th>Tanggal</th>
-                          <th className="num">
-                            Nilai
-                          </th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {weekReport.practices.length ? (
-                          weekReport.practices.map(
-                            item => (
-                              <tr key={item.id}>
-                                <td>
-                                  {item.practice_name ||
-                                    "Praktik"}
-                                </td>
-
-                                <td>
-                                  {dateText(
-                                    item.practice_date
-                                  )}
-                                </td>
-
-                                <td className="num">
-                                  {fmt(
-                                    item.score,
-                                    2
-                                  )}
-                                </td>
-                              </tr>
-                            )
-                          )
-                        ) : (
-                          <EmptyRow
-                            colSpan={3}
-                            text="Belum ada nilai praktik minggu ini"
-                          />
-                        )}
-                      </tbody>
-                    </table>
-                  </section>
-                </div>
-
-                <SectionTitle>
-                  D. RIWAYAT KEGIATAN MINGGUAN
-                </SectionTitle>
-
-                <div className="rp-scroll">
-                  <table className="rp-table">
-                    <thead>
-                      <tr>
-                        <th>Tanggal</th>
-                        <th>Jenis Kegiatan</th>
-                        <th>Keterangan</th>
-                        <th>Realisasi</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {weekReport.achievements.length ? (
-                        weekReport.achievements.map(
-                          item => {
-                            const type =
-                              data.types.find(
-                                entry =>
-                                  entry.code ===
-                                  item.type_code
-                              )?.name ||
-                              item.type_code;
-
-                            const isFisik =
-                              normalize(type) ===
-                              "fisik";
-
-                            return (
-                              <tr key={item.id}>
-                                <td>
-                                  {dateText(
-                                    item.activity_date
-                                  )}
-                                </td>
-
-                                <td>{type}</td>
-
-                                <td>
-                                  {item.description ||
-                                    "—"}
-                                </td>
-
-                                <td>
-                                  {isFisik
-                                    ? item.distance_km !=
-                                      null
-                                      ? `${fmt(
-                                          item.distance_km,
-                                          3
-                                        )} km`
-                                      : "Jarak belum diisi"
-                                    : "1 kegiatan"}
-                                </td>
-
-                                <td>
-                                  {item.status ===
-                                  "verified"
-                                    ? "Terverifikasi"
-                                    : item.status ===
-                                      "pending"
-                                    ? "Menunggu"
-                                    : item.status}
-                                </td>
-                              </tr>
-                            );
-                          }
-                        )
-                      ) : (
-                        <EmptyRow
-                          colSpan={5}
-                          text="Tidak ada kegiatan tercatat pada minggu ini"
-                        />
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <SectionTitle>
-                  E. SAMAPTA DAN SIMPER MINGGU INI
-                </SectionTitle>
-
-                <p className="rp-note">
-                  <strong>Samapta:</strong>{" "}
-                  {weekReport.samSessions.length
-                    ? `${
-                        weekReport.samSessions.length
-                      } sesi tercatat: ${weekReport.samSessions
-                        .map(session =>
-                          dateText(session.date)
-                        )
-                        .join(", ")}.`
-                    : "Tidak ada evaluasi Samapta pada minggu ini."}
-                </p>
-
-                {weekReport.samSessions.map(
-                  session => (
-                    <div key={session.date}>
-                      <table className="rp-table">
-                        <thead>
-                          <tr>
-                            <th colSpan={3}>
-                              {dateText(session.date)}
-                              {" · "}
-                              Periode tercatat{" "}
-                              {samaptaIndex.get(
-                                session.date
-                              ) || "—"}
-                            </th>
-                          </tr>
-
-                          <tr>
-                            <th>Komponen</th>
-                            <th className="num">
-                              Hasil Aktual
-                            </th>
-                            <th>
-                              Pencapaian Target Akhir
-                            </th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {session.metrics.map(
-                            metric => (
-                              <tr key={metric.name}>
-                                <td>
-                                  {metric.name}
-                                </td>
-
-                                <td className="num">
-                                  {metric.actual ===
-                                  null
-                                    ? "—"
-                                    : `${fmt(
-                                        metric.actual,
-                                        metric.lowerBetter
-                                          ? 2
-                                          : 0
-                                      )} ${
-                                        metric.unit
-                                      }`}
-                                </td>
-
-                                <td>
-                                  {metric.passed ===
-                                  null
-                                    ? "Belum ada data"
-                                    : metric.passed
-                                    ? "Memenuhi target"
-                                    : "Belum memenuhi target"}
-                                </td>
-                              </tr>
-                            )
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  )
-                )}
-
-                <p className="rp-note">
-                  <strong>SIMPER:</strong> Status
-                  validasi terbaru dapat dilihat pada
-                  halaman rekap. Tanggal perubahan
-                  tiap komponen SIMPER belum tersedia,
-                  sehingga tidak ditetapkan status
-                  kelulusan historis per minggu.
-                </p>
-
-                <div className="rp-footer">
-                  <div>
-                    <p className="rp-note">
-                      Target kegiatan dihitung dari
-                      catatan terverifikasi. Nilai
-                      teori dan praktik ditampilkan
-                      sesuai data aktual tanpa
-                      menetapkan batas kelulusan
-                      yang belum tersedia.
-                    </p>
-                  </div>
-
-                  <div className="rp-signature">
-                    Mengetahui,
-                    <br />
-                    Mentor / Penanggung Jawab
-
-                    <div className="rp-sign-space" />
-
-                    ________________________
-                  </div>
-                </div>
-              </section>
-            ))}
+            </footer>
           </article>
         )}
       </div>
