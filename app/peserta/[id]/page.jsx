@@ -6,40 +6,60 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
 const TOTAL_WEEKS = 25;
-const FISIK_TARGET_KM = 25;
+const TARGET_FISIK = 25;
 
-const CATEGORY_NAMES = [
-  "Fisik",
-  "Training",
-  "Sosialisasi",
-  "Coaching",
-  "Orientasi Area",
-  "Hazard",
+const CATEGORY_TARGETS = [
+  { name: "Fisik", target: 25, unit: "km" },
+  { name: "Training", target: 4, unit: "kegiatan" },
+  { name: "Sosialisasi", target: 3, unit: "kegiatan" },
+  { name: "Coaching", target: 1, unit: "kegiatan" },
+  { name: "Orientasi Area", target: 2, unit: "kegiatan" },
+  { name: "Hazard", target: 2, unit: "kegiatan" },
 ];
 
-const META_START = "[[SIMPER_V2]]";
-const META_END = "[[/SIMPER_V2]]";
-
 function today() {
-  const date = new Date();
-  const local = new Date(
-    date.getTime() - date.getTimezoneOffset() * 60000
-  );
-  return local.toISOString().slice(0, 10);
-}
-
-function dateText(value) {
-  if (!value) return "—";
-  const parts = String(value).slice(0, 10).split("-");
-  return parts.length === 3
-    ? `${parts[2]}/${parts[1]}/${parts[0]}`
-    : String(value);
+  const d = new Date();
+  return new Date(
+    d.getTime() - d.getTimezoneOffset() * 60000
+  ).toISOString().slice(0, 10);
 }
 
 function normalize(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
+
+function dateText(value) {
+  if (!value) return "—";
+  return String(value)
+    .slice(0, 10)
+    .split("-")
+    .reverse()
+    .join("/");
+}
+
+function fmtKm(value) {
+  return Number(value || 0).toLocaleString("id-ID", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
+}
+
+function fmtScore(value) {
+  return value === null || value === undefined
+    ? "—"
+    : Number(value).toFixed(2);
+}
+
+function initials(name) {
+  return String(name || "Peserta OJT")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
 }
 
 function parseDate(value) {
@@ -52,338 +72,75 @@ function parseDate(value) {
 
   if (
     parts.length !== 3 ||
-    parts.some(n => !Number.isInteger(n))
-  ) return null;
+    parts.some((n) => !Number.isInteger(n))
+  ) {
+    return null;
+  }
 
   const [year, month, day] = parts;
-  const date = new Date(
-    Date.UTC(year, month - 1, day)
-  );
+  const d = new Date(Date.UTC(year, month - 1, day));
 
   if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) return null;
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month - 1 ||
+    d.getUTCDate() !== day
+  ) {
+    return null;
+  }
 
-  return date;
+  return d;
 }
 
-function weekOf(value, startValue) {
-  const date = parseDate(value);
+function weekOf(dateValue, startValue) {
+  const date = parseDate(dateValue);
   const start = parseDate(startValue);
 
   if (!date || !start) return null;
 
-  const days = Math.round(
-    (date.getTime() - start.getTime()) / 86400000
-  );
-
-  const week = Math.floor(days / 7) + 1;
+  const week =
+    Math.floor(
+      (date.getTime() - start.getTime()) / 604800000
+    ) + 1;
 
   return week >= 1 && week <= TOTAL_WEEKS
     ? week
     : null;
 }
 
-function average(records) {
-  const numbers = records
-    .map(record => record.score)
-    .filter(value =>
-      value !== null &&
-      value !== undefined &&
-      value !== ""
-    )
+function average(rows) {
+  const values = rows
+    .map((row) => row.score)
+    .filter((value) => value !== null && value !== "")
     .map(Number)
     .filter(Number.isFinite);
 
-  if (!numbers.length) return null;
+  if (!values.length) return null;
 
   return (
-    numbers.reduce((a, b) => a + b, 0) /
-    numbers.length
-  );
-}
-
-function fmt(value) {
-  return value === null || value === undefined
-    ? "—"
-    : Number(value).toFixed(2);
-}
-
-function fmtKm(value) {
-  return Number(value || 0).toLocaleString(
-    "id-ID",
-    {
-      minimumFractionDigits: 3,
-      maximumFractionDigits: 3,
-    }
-  );
-}
-
-function initials(value) {
-  return String(value || "Peserta OJT")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map(part => part[0])
-    .join("")
-    .toUpperCase();
-}
-
-function simperMeta(notes) {
-  const text = String(notes || "");
-  const start = text.lastIndexOf(META_START);
-  const end = text.lastIndexOf(META_END);
-
-  if (start < 0 || end <= start) return null;
-
-  try {
-    const value = JSON.parse(
-      text.slice(start + META_START.length, end)
-    );
-    return value?.version === 2 ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function simperSummary(record) {
-  if (!record) {
-    return {
-      percentage: 0,
-      released: false,
-    };
-  }
-
-  const meta = simperMeta(record.notes);
-
-  const administration =
-    record.administration_status === "passed";
-
-  const theory =
-    record.theory_status === "passed";
-
-  const practice =
-    record.practice_status === "passed";
-
-  const released =
-    administration &&
-    theory &&
-    practice &&
-    meta?.application_status === "approved" &&
-    meta?.orientation_status === "completed" &&
-    meta?.issuance_status === "issued" &&
-    Boolean(record.graduation_date);
-
-  return {
-    percentage:
-      [administration, theory, practice, released]
-        .filter(Boolean).length * 25,
-    released,
-  };
-}
-
-function samaptaSessions(records) {
-  const dates = [
-    ...new Set(
-      records.map(row => row.test_date).filter(Boolean)
-    ),
-  ].sort();
-
-  const sessions = [];
-
-  for (const date of dates) {
-    const items = records.filter(
-      row => row.test_date === date
-    );
-
-    function findScore(name) {
-      const item = items.find(
-        row =>
-          normalize(row.test_type) === normalize(name)
-      );
-
-      if (
-        item?.score === null ||
-        item?.score === undefined ||
-        item?.score === ""
-      ) return null;
-
-      const value = Number(item.score);
-
-      return Number.isFinite(value)
-        ? value
-        : null;
-    }
-
-    const running = findScore("Lari 12 Menit");
-
-    const others = [
-      findScore("Pull-Up"),
-      findScore("Push-Up"),
-      findScore("Sit-Up"),
-      findScore("Shuttle Run"),
-    ];
-
-    if (
-      running === null ||
-      others.some(value => value === null)
-    ) continue;
-
-    const averageOthers =
-      others.reduce((sum, value) => sum + value, 0) /
-      others.length;
-
-    const runningRecord = items.find(
-      row =>
-        normalize(row.test_type) === "lari12menit"
-    );
-
-    const rawDistance = runningRecord?.result_value;
-
-    const distance =
-      rawDistance === null ||
-      rawDistance === undefined ||
-      rawDistance === ""
-        ? null
-        : Number(rawDistance);
-
-    sessions.push({
-      date,
-      final: (running + averageOthers) / 2,
-      distance:
-        distance !== null &&
-        Number.isFinite(distance)
-          ? distance
-          : null,
-      runPassed:
-        distance !== null &&
-        Number.isFinite(distance) &&
-        distance >= 2600,
-    });
-  }
-
-  return sessions;
-}
-
-function Icon({ name, size = 22 }) {
-  const paths = {
-    back: <path d="m15 18-6-6 6-6M9 12h12" />,
-    arrow: <path d="m9 5 7 7-7 7" />,
-    target: <>
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="5" />
-      <circle cx="12" cy="12" r="1" />
-    </>,
-    file: <>
-      <rect x="5" y="3" width="14" height="18" rx="2" />
-      <path d="M9 8h6M9 12h6M9 16h4" />
-    </>,
-    check: <path d="m4 12 5 5L20 6" />,
-    run: <>
-      <circle cx="15" cy="4" r="2" />
-      <path d="m13 8-4 4 4 3-2 6M13 8l4 3 4 1M9 12l-5 3M13 15l5 5" />
-    </>,
-    id: <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <circle cx="9" cy="10" r="2" />
-      <path d="M6 16c1-3 5-3 6 0M15 10h4M15 14h4" />
-    </>,
-    chart: <path d="M4 20V10M10 20V4M16 20v-8M22 20V7" />,
-    calendar: <>
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M7 3v4M17 3v4M3 10h18" />
-    </>,
-    book: <>
-      <path d="M12 7c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V6c-3-1-6-1-9 1zM12 7v14" />
-    </>,
-    refresh: <>
-      <path d="M20 11a8 8 0 0 0-14-5L3 9" />
-      <path d="M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />
-    </>,
-  };
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {paths[name] || paths.check}
-    </svg>
+    values.reduce((sum, value) => sum + value, 0) /
+    values.length
   );
 }
 
 function Progress({ value }) {
-  const safe = Math.max(
-    0,
-    Math.min(100, Number(value) || 0)
+  const percent = Math.min(
+    100,
+    Math.max(0, Number(value) || 0)
   );
 
   return (
-    <div
-      className="dp-progress"
-      role="progressbar"
-      aria-valuenow={safe}
-      aria-valuemin={0}
-      aria-valuemax={100}
-    >
-      <span style={{ width: `${safe}%` }} />
+    <div className="dp-progress">
+      <span style={{ width: `${percent}%` }} />
     </div>
   );
 }
 
-function MenuCard({
-  icon,
-  title,
-  detail,
-  color,
-  onClick,
-}) {
+function Stat({ label, value, detail }) {
   return (
-    <button
-      type="button"
-      className="dp-menu-card"
-      onClick={onClick}
-    >
-      <div
-        className="dp-menu-icon"
-        style={{
-          color,
-          background: `${color}15`,
-        }}
-      >
-        <Icon name={icon} size={23} />
-      </div>
-
-      <div className="dp-menu-name">
-        {title}
-      </div>
-
-      <div className="dp-menu-detail">
-        {detail}
-      </div>
-
-      <div className="dp-menu-arrow">
-        <Icon name="arrow" size={16} />
-      </div>
-    </button>
-  );
-}
-
-function MiniStat({ label, value, sub }) {
-  return (
-    <div className="dp-small-stat">
-      <span>{label}</span>
+    <div className="dp-stat">
+      <small>{label}</small>
       <strong>{value}</strong>
-      {sub && <small>{sub}</small>}
+      {detail && <small>{detail}</small>}
     </div>
   );
 }
@@ -406,58 +163,50 @@ export default function DetailPeserta() {
   const [simper, setSimper] = useState(null);
 
   const [panel, setPanel] = useState("menu");
-
   const [jenis, setJenis] = useState("");
-  const [tanggal, setTanggal] = useState(today);
+  const [tanggal, setTanggal] = useState(today());
   const [deskripsi, setDeskripsi] = useState("");
-
-  // INPUT FISIK: KILOMETER + METER
   const [fisikKm, setFisikKm] = useState("0");
   const [fisikMeter, setFisikMeter] = useState("0");
-
   const [editId, setEditId] = useState(null);
 
-  const [tanggalTes, setTanggalTes] = useState(today);
+  const [tanggalTes, setTanggalTes] = useState(today());
   const [nilaiTes, setNilaiTes] = useState("");
   const [catatanTes, setCatatanTes] = useState("");
   const [editTesId, setEditTesId] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [menyimpan, setMenyimpan] = useState(false);
-  const [menyimpanTes, setMenyimpanTes] = useState(false);
-  const [aksiId, setAksiId] = useState(null);
-  const [aksiTesId, setAksiTesId] = useState(null);
-
+  const [saving, setSaving] = useState(false);
+  const [savingTest, setSavingTest] = useState(false);
+  const [actionId, setActionId] = useState(null);
+  const [testActionId, setTestActionId] = useState(null);
   const [error, setError] = useState("");
-  const [pesan, setPesan] = useState("");
+  const [message, setMessage] = useState("");
 
-  const kategoriFisik = kategori.find(
-    item => normalize(item.name) === "fisik"
+  const fisikType = kategori.find(
+    (item) => normalize(item.name) === "fisik"
   );
 
   const isFisik =
-    Boolean(kategoriFisik) &&
-    jenis === kategoriFisik.code;
+    Boolean(fisikType) && jenis === fisikType.code;
 
-  const nilaiKm = Number(fisikKm);
-  const nilaiMeter = Number(fisikMeter);
+  const km = Number(fisikKm);
+  const meter = Number(fisikMeter);
 
-  const jarakValid =
+  const distanceValid =
     fisikKm !== "" &&
     fisikMeter !== "" &&
-    Number.isInteger(nilaiKm) &&
-    Number.isInteger(nilaiMeter) &&
-    nilaiKm >= 0 &&
-    nilaiKm <= 100 &&
-    nilaiMeter >= 0 &&
-    nilaiMeter <= 999 &&
-    (nilaiKm > 0 || nilaiMeter > 0);
+    Number.isInteger(km) &&
+    Number.isInteger(meter) &&
+    km >= 0 &&
+    km <= 100 &&
+    meter >= 0 &&
+    meter <= 999 &&
+    (km > 0 || meter > 0);
 
-  const totalJarak = jarakValid
-    ? Number(
-        (nilaiKm + nilaiMeter / 1000).toFixed(3)
-      )
+  const distance = distanceValid
+    ? Number((km + meter / 1000).toFixed(3))
     : null;
 
   async function fetchRecords() {
@@ -468,25 +217,17 @@ export default function DetailPeserta() {
           "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
         )
         .eq("program_id", programId)
-        .order("activity_date", {
-          ascending: false,
-        }),
+        .order("activity_date", { ascending: false }),
 
       supabase
         .from("post_test_scores")
-        .select(
-          "id,test_date,score,notes,created_at"
-        )
+        .select("id,test_date,score,notes,created_at")
         .eq("program_id", programId)
-        .order("test_date", {
-          ascending: false,
-        }),
+        .order("test_date", { ascending: false }),
 
       supabase
         .from("weekly_practice_scores")
-        .select(
-          "id,practice_date,practice_name,score"
-        )
+        .select("id,practice_date,practice_name,score")
         .eq("program_id", programId),
 
       supabase
@@ -539,57 +280,42 @@ export default function DetailPeserta() {
   }
 
   async function refresh() {
-    if (
-      refreshing ||
-      loading ||
-      !programId
-    ) return;
+    if (refreshing || loading || !programId) return;
 
     setRefreshing(true);
     setError("");
-    setPesan("");
+    setMessage("");
 
     try {
-      const records = await fetchRecords();
-      applyRecords(records);
+      applyRecords(await fetchRecords());
     } catch (err) {
-      setError(
-        err.message || "Gagal memperbarui data."
-      );
+      setError(err.message || "Gagal memperbarui data.");
     } finally {
       setRefreshing(false);
     }
   }
 
-  async function muatCatatan() {
+  async function reloadAchievements() {
     const { data, error: err } = await supabase
       .from("achievement_records")
       .select(
         "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
       )
       .eq("program_id", programId)
-      .order("activity_date", {
-        ascending: false,
-      });
+      .order("activity_date", { ascending: false });
 
     if (err) throw err;
-
     setCatatan(data || []);
   }
 
-  async function muatPostTests() {
+  async function reloadTests() {
     const { data, error: err } = await supabase
       .from("post_test_scores")
-      .select(
-        "id,test_date,score,notes,created_at"
-      )
+      .select("id,test_date,score,notes,created_at")
       .eq("program_id", programId)
-      .order("test_date", {
-        ascending: false,
-      });
+      .order("test_date", { ascending: false });
 
     if (err) throw err;
-
     setPostTests(data || []);
   }
 
@@ -600,12 +326,12 @@ export default function DetailPeserta() {
       return;
     }
 
-    let aktif = true;
+    let active = true;
 
-    async function mulai() {
+    async function load() {
       setLoading(true);
       setError("");
-      setPesan("");
+      setMessage("");
       setPanel("menu");
       setProgram(null);
 
@@ -620,99 +346,90 @@ export default function DetailPeserta() {
           return;
         }
 
-        const {
-          data: profil,
-          error: profilError,
-        } = await supabase
-          .from("profiles")
-          .select("id,full_name,role")
-          .eq("id", user.id)
-          .single();
+        const { data: profile, error: profileError } =
+          await supabase
+            .from("profiles")
+            .select("id,full_name,role")
+            .eq("id", user.id)
+            .single();
 
-        if (profilError) throw profilError;
+        if (profileError) throw profileError;
 
         if (
-          profil?.role === "participant" ||
-          profil?.role === "peserta"
+          profile?.role === "participant" ||
+          profile?.role === "peserta"
         ) {
           router.replace("/dashboard-peserta");
           return;
         }
 
-        if (profil?.role !== "mentor") {
+        if (profile?.role !== "mentor") {
           throw new Error(
             "Halaman ini hanya dapat diakses Mentor."
           );
         }
 
-        const [
-          programResult,
-          kategoriResult,
-          recordResult,
-        ] = await Promise.all([
-          supabase
-            .from("ojt_programs")
-            .select(`
-              id,
-              site,
-              start_date,
-              end_date,
-              status,
-              peserta:profiles!ojt_programs_participant_id_fkey(
-                full_name,
-                department
-              )
-            `)
-            .eq("id", programId)
-            .single(),
+        const [programResult, typesResult, records] =
+          await Promise.all([
+            supabase
+              .from("ojt_programs")
+              .select(`
+                id,
+                site,
+                start_date,
+                end_date,
+                status,
+                peserta:profiles!ojt_programs_participant_id_fkey(
+                  full_name,
+                  department
+                )
+              `)
+              .eq("id", programId)
+              .single(),
 
-          supabase
-            .from("achievement_types")
-            .select("code,name")
-            .order("name"),
+            supabase
+              .from("achievement_types")
+              .select("code,name")
+              .order("name"),
 
-          fetchRecords(),
-        ]);
+            fetchRecords(),
+          ]);
 
         if (programResult.error) {
           throw programResult.error;
         }
 
-        if (kategoriResult.error) {
-          throw kategoriResult.error;
+        if (typesResult.error) {
+          throw typesResult.error;
         }
 
-        if (!aktif) return;
+        if (!active) return;
 
-        setMentor(profil);
+        setMentor(profile);
         setProgram(programResult.data);
-        setKategori(kategoriResult.data || []);
-        setJenis(
-          kategoriResult.data?.[0]?.code || ""
-        );
-        applyRecords(recordResult);
+        setKategori(typesResult.data || []);
+        setJenis(typesResult.data?.[0]?.code || "");
+        applyRecords(records);
       } catch (err) {
-        if (aktif) {
-          setError(
-            err.message || "Gagal memuat data."
-          );
+        if (active) {
+          setError(err.message || "Gagal memuat data.");
         }
       } finally {
-        if (aktif) setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
-    mulai();
+    load();
 
     return () => {
-      aktif = false;
+      active = false;
     };
   }, [programId, router]);
 
-  function bukaPanel(nama) {
-    setPanel(nama);
+  function openPanel(name) {
+    setPanel(name);
     setError("");
-    setPesan("");
+    setMessage("");
 
     window.scrollTo({
       top: 0,
@@ -720,185 +437,135 @@ export default function DetailPeserta() {
     });
   }
 
-  function resetPencapaian() {
+  function resetAchievement() {
     setEditId(null);
     setJenis(kategori[0]?.code || "");
     setTanggal(today());
     setDeskripsi("");
-
     setFisikKm("0");
     setFisikMeter("0");
   }
 
-  function resetTes() {
+  function resetTest() {
     setEditTesId(null);
     setTanggalTes(today());
     setNilaiTes("");
     setCatatanTes("");
   }
 
-  async function simpanPencapaian(event) {
+  async function saveAchievement(event) {
     event.preventDefault();
 
-    if (
-      !mentor ||
-      !program ||
-      menyimpan ||
-      aksiId
-    ) return;
+    if (!mentor || !program || saving || actionId) return;
 
-    if (
-      !jenis ||
-      !tanggal ||
-      deskripsi.trim().length < 10
-    ) {
+    if (!jenis || !tanggal) {
+      setError("Pilih kategori dan tanggal kegiatan.");
+      return;
+    }
+
+    if (weekOf(tanggal, program.start_date) === null) {
       setError(
-        "Lengkapi data. Keterangan minimal 10 karakter."
+        "Tanggal harus berada dalam periode Week 01–25 OJT."
       );
       return;
     }
 
-    const week = weekOf(
-      tanggal,
-      program.start_date
-    );
-
-    if (week === null) {
+    if (isFisik && !distanceValid) {
       setError(
-        "Tanggal kegiatan harus berada dalam periode Week 1–25 OJT."
+        "Masukkan jarak kilometer dan meter yang valid."
       );
       return;
     }
 
-    if (isFisik && !jarakValid) {
-      setError(
-        "Masukkan kilometer 0–100 dan meter 0–999. Total jarak harus lebih dari 0."
-      );
-      return;
-    }
-
-    setMenyimpan(true);
+    setSaving(true);
     setError("");
-    setPesan("");
-
-    const kategoriSaatSimpan = isFisik;
+    setMessage("");
 
     try {
-      const dataInput = {
+      const payload = {
         type_code: jenis,
         activity_date: tanggal,
         description: deskripsi.trim(),
-        distance_km: kategoriSaatSimpan
-          ? totalJarak
-          : null,
+        distance_km: isFisik ? distance : null,
         status: "pending",
         verified_by: null,
       };
 
-      const hasil = editId
+      const result = editId
         ? await supabase
             .from("achievement_records")
-            .update(dataInput)
+            .update(payload)
             .eq("id", editId)
             .eq("program_id", programId)
             .select("id")
         : await supabase
             .from("achievement_records")
             .insert({
-              ...dataInput,
+              ...payload,
               program_id: programId,
             })
             .select("id");
 
-      if (hasil.error) throw hasil.error;
+      if (result.error) throw result.error;
 
-      if (!hasil.data?.length) {
-        throw new Error(
-          "Pencapaian tidak berhasil disimpan."
-        );
+      if (!result.data?.length) {
+        throw new Error("Pencapaian tidak berhasil disimpan.");
       }
 
-      await muatCatatan();
-      resetPencapaian();
+      await reloadAchievements();
+      resetAchievement();
 
-      setPesan(
-        kategoriSaatSimpan
-          ? "Jarak Fisik berhasil disimpan dan menunggu verifikasi Mentor."
-          : "Pencapaian berhasil disimpan dan menunggu verifikasi."
+      setMessage(
+        "Pencapaian berhasil disimpan dan menunggu verifikasi."
       );
     } catch (err) {
-      setError(
-        err.message || "Gagal menyimpan pencapaian."
-      );
+      setError(err.message || "Gagal menyimpan pencapaian.");
     } finally {
-      setMenyimpan(false);
+      setSaving(false);
     }
   }
 
-  function editPencapaian(item) {
+  function editAchievement(item) {
     setEditId(item.id);
     setJenis(item.type_code);
     setTanggal(item.activity_date);
     setDeskripsi(item.description || "");
 
-    // Konversi jarak desimal menjadi km + meter
     const totalMeter = Math.round(
       Number(item.distance_km || 0) * 1000
     );
 
-    setFisikKm(
-      String(Math.floor(totalMeter / 1000))
-    );
+    setFisikKm(String(Math.floor(totalMeter / 1000)));
+    setFisikMeter(String(totalMeter % 1000));
 
-    setFisikMeter(
-      String(totalMeter % 1000)
-    );
-
-    setError("");
-    setPesan("");
-    setPanel("pencapaian");
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    openPanel("pencapaian");
   }
 
-  async function verifikasi(item) {
-    if (
-      !mentor ||
-      aksiId ||
-      menyimpan
-    ) return;
+  async function verifyAchievement(item) {
+    if (!mentor || actionId || saving) return;
 
     const itemFisik =
-      Boolean(kategoriFisik) &&
-      item.type_code === kategoriFisik.code;
+      Boolean(fisikType) &&
+      item.type_code === fisikType.code;
 
     if (
       itemFisik &&
-      (
-        item.distance_km === null ||
-        item.distance_km === undefined ||
-        !Number.isFinite(Number(item.distance_km)) ||
-        Number(item.distance_km) <= 0
-      )
+      (!Number.isFinite(Number(item.distance_km)) ||
+        Number(item.distance_km) <= 0)
     ) {
       setError(
-        "Jarak Fisik belum valid. Edit catatan dan lengkapi kilometer serta meter sebelum verifikasi."
+        "Jarak Fisik harus diisi sebelum diverifikasi."
       );
       return;
     }
 
-    if (
-      !window.confirm(
-        "Verifikasi pencapaian ini sebagai Mentor?"
-      )
-    ) return;
+    if (!window.confirm("Verifikasi pencapaian ini?")) {
+      return;
+    }
 
-    setAksiId(item.id);
+    setActionId(item.id);
     setError("");
-    setPesan("");
+    setMessage("");
 
     try {
       const { data, error: err } = await supabase
@@ -915,43 +582,32 @@ export default function DetailPeserta() {
       if (err) throw err;
 
       if (!data?.length) {
-        throw new Error(
-          "Pencapaian tidak dapat diverifikasi."
-        );
+        throw new Error("Pencapaian tidak dapat diverifikasi.");
       }
 
-      await muatCatatan();
-
-      setPesan(
-        itemFisik
-          ? "Jarak Fisik berhasil diverifikasi dan masuk perhitungan monitoring."
-          : "Pencapaian berhasil diverifikasi."
-      );
+      await reloadAchievements();
+      setMessage("Pencapaian berhasil diverifikasi.");
     } catch (err) {
-      setError(
-        err.message || "Gagal verifikasi."
-      );
+      setError(err.message || "Gagal verifikasi.");
     } finally {
-      setAksiId(null);
+      setActionId(null);
     }
   }
 
-  async function hapusPencapaian(item) {
-    if (
-      !mentor ||
-      aksiId ||
-      menyimpan
-    ) return;
+  async function deleteAchievement(item) {
+    if (!mentor || actionId || saving) return;
 
     if (
       !window.confirm(
         "Hapus pencapaian ini secara permanen?"
       )
-    ) return;
+    ) {
+      return;
+    }
 
-    setAksiId(item.id);
+    setActionId(item.id);
     setError("");
-    setPesan("");
+    setMessage("");
 
     try {
       const { data, error: err } = await supabase
@@ -964,138 +620,101 @@ export default function DetailPeserta() {
       if (err) throw err;
 
       if (!data?.length) {
-        throw new Error(
-          "Pencapaian tidak terhapus."
-        );
+        throw new Error("Pencapaian tidak terhapus.");
       }
 
-      if (editId === item.id) {
-        resetPencapaian();
-      }
+      if (editId === item.id) resetAchievement();
 
-      await muatCatatan();
-      setPesan("Pencapaian berhasil dihapus.");
+      await reloadAchievements();
+      setMessage("Pencapaian berhasil dihapus.");
     } catch (err) {
-      setError(
-        err.message || "Gagal menghapus pencapaian."
-      );
+      setError(err.message || "Gagal menghapus pencapaian.");
     } finally {
-      setAksiId(null);
+      setActionId(null);
     }
   }
 
-  async function simpanPostTest(event) {
+  async function saveTest(event) {
     event.preventDefault();
 
-    if (
-      !mentor ||
-      !program ||
-      menyimpanTes ||
-      aksiTesId
-    ) return;
+    if (!mentor || savingTest || testActionId) return;
 
-    const nilai = Number(nilaiTes);
-
-    if (!tanggalTes) {
-      setError(
-        "Pilih tanggal pelaksanaan Post-Test."
-      );
-      return;
-    }
+    const score = Number(nilaiTes);
 
     if (
+      !tanggalTes ||
       nilaiTes.trim() === "" ||
-      !Number.isFinite(nilai) ||
-      nilai < 0 ||
-      nilai > 100
+      !Number.isFinite(score) ||
+      score < 0 ||
+      score > 100
     ) {
-      setError(
-        "Nilai Post-Test harus antara 0 dan 100."
-      );
+      setError("Nilai Post-Test harus antara 0–100.");
       return;
     }
 
-    setMenyimpanTes(true);
+    setSavingTest(true);
     setError("");
-    setPesan("");
+    setMessage("");
 
     try {
-      const dataInput = {
+      const payload = {
         test_date: tanggalTes,
-        score: nilai,
+        score,
         notes: catatanTes.trim() || null,
       };
 
-      const hasil = editTesId
+      const result = editTesId
         ? await supabase
             .from("post_test_scores")
-            .update(dataInput)
+            .update(payload)
             .eq("id", editTesId)
             .eq("program_id", programId)
             .select("id")
         : await supabase
             .from("post_test_scores")
             .insert({
-              ...dataInput,
+              ...payload,
               program_id: programId,
               created_by: mentor.id,
             })
             .select("id");
 
-      if (hasil.error) throw hasil.error;
+      if (result.error) throw result.error;
 
-      if (!hasil.data?.length) {
-        throw new Error(
-          "Nilai tidak berhasil disimpan."
-        );
+      if (!result.data?.length) {
+        throw new Error("Nilai tidak berhasil disimpan.");
       }
 
-      await muatPostTests();
-      resetTes();
-
-      setPesan(
-        "Nilai Post-Test berhasil disimpan."
-      );
+      await reloadTests();
+      resetTest();
+      setMessage("Nilai Post-Test berhasil disimpan.");
     } catch (err) {
-      setError(
-        err.message || "Gagal menyimpan Post-Test."
-      );
+      setError(err.message || "Gagal menyimpan Post-Test.");
     } finally {
-      setMenyimpanTes(false);
+      setSavingTest(false);
     }
   }
 
-  function editPostTest(item) {
+  function editTest(item) {
     setEditTesId(item.id);
     setTanggalTes(item.test_date);
     setNilaiTes(String(item.score));
     setCatatanTes(item.notes || "");
-    setError("");
-    setPesan("");
-    setPanel("posttest");
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    openPanel("posttest");
   }
 
-  async function hapusPostTest(item) {
-    if (
-      !mentor ||
-      aksiTesId ||
-      menyimpanTes
-    ) return;
+  async function deleteTest(item) {
+    if (!mentor || savingTest || testActionId) return;
 
     if (
-      !window.confirm(
-        "Hapus nilai Post-Test ini secara permanen?"
-      )
-    ) return;
+      !window.confirm("Hapus nilai Post-Test ini?")
+    ) {
+      return;
+    }
 
-    setAksiTesId(item.id);
+    setTestActionId(item.id);
     setError("");
-    setPesan("");
+    setMessage("");
 
     try {
       const { data, error: err } = await supabase
@@ -1108,197 +727,111 @@ export default function DetailPeserta() {
       if (err) throw err;
 
       if (!data?.length) {
-        throw new Error(
-          "Nilai tidak terhapus."
-        );
+        throw new Error("Nilai tidak terhapus.");
       }
 
-      if (editTesId === item.id) {
-        resetTes();
-      }
+      if (editTesId === item.id) resetTest();
 
-      await muatPostTests();
-
-      setPesan(
-        "Nilai Post-Test berhasil dihapus."
-      );
+      await reloadTests();
+      setMessage("Nilai Post-Test berhasil dihapus.");
     } catch (err) {
-      setError(
-        err.message || "Gagal menghapus Post-Test."
-      );
+      setError(err.message || "Gagal menghapus Post-Test.");
     } finally {
-      setAksiTesId(null);
+      setTestActionId(null);
     }
   }
 
-  const ringkasan = useMemo(() => {
-    const codeByName = new Map(
-      kategori.map(item => [
-        normalize(item.name),
-        item.code,
-      ])
+  const summary = useMemo(() => {
+    const verified = catatan.filter(
+      (item) => item.status === "verified"
     );
 
-    const verifiedCodes = new Set(
-      catatan
-        .filter(
-          item => item.status === "verified"
-        )
-        .map(item => item.type_code)
+    const pending = catatan.filter(
+      (item) => item.status === "pending"
     );
 
-    const doneCategories = CATEGORY_NAMES.filter(
-      name => {
-        const code = codeByName.get(
-          normalize(name)
-        );
+    const fisikCode = kategori.find(
+      (item) => normalize(item.name) === "fisik"
+    )?.code;
 
-        return code && verifiedCodes.has(code);
-      }
-    ).length;
-
-    const progress = Math.round(
-      (doneCategories / CATEGORY_NAMES.length) *
-        100
-    );
-
-    const sessions = samaptaSessions(samapta);
-
-    const latest = sessions.length
-      ? sessions[sessions.length - 1]
-      : null;
-
-    const activeWeeks = new Set();
-
-    function addWeek(date) {
-      const week = weekOf(
-        date,
-        program?.start_date
-      );
-
-      if (week !== null) {
-        activeWeeks.add(week);
-      }
-    }
-
-    catatan.forEach(
-      item => addWeek(item.activity_date)
-    );
-
-    postTests.forEach(
-      item => addWeek(item.test_date)
-    );
-
-    praktik.forEach(
-      item => addWeek(item.practice_date)
-    );
-
-    samapta.forEach(
-      item => addWeek(item.test_date)
-    );
-
-    const fisikCode = codeByName.get("fisik");
-
-    const fisikVerified = catatan.filter(
-      item =>
+    const validFisik = verified.filter(
+      (item) =>
         item.type_code === fisikCode &&
-        item.status === "verified" &&
-        item.distance_km !== null &&
-        item.distance_km !== undefined &&
+        item.distance_km != null &&
         Number.isFinite(Number(item.distance_km)) &&
-        Number(item.distance_km) >= 0 &&
         weekOf(
           item.activity_date,
           program?.start_date
         ) !== null
     );
 
-    const totalMeterVerified = fisikVerified.reduce(
+    const totalMeters = validFisik.reduce(
       (sum, item) =>
-        sum +
-        Math.round(
-          Number(item.distance_km) * 1000
-        ),
+        sum + Math.round(Number(item.distance_km) * 1000),
       0
     );
 
-    const totalKm = totalMeterVerified / 1000;
-
-    const fisikWeeks = Array.from(
+    const achievedWeeks = Array.from(
       { length: TOTAL_WEEKS },
-      (_, index) => {
-        const week = index + 1;
+      (_, index) => index + 1
+    ).filter((week) => {
+      const meters = validFisik
+        .filter(
+          (item) =>
+            weekOf(
+              item.activity_date,
+              program?.start_date
+            ) === week
+        )
+        .reduce(
+          (sum, item) =>
+            sum +
+            Math.round(Number(item.distance_km) * 1000),
+          0
+        );
 
-        const meter = fisikVerified
-          .filter(
-            item =>
-              weekOf(
-                item.activity_date,
-                program?.start_date
-              ) === week
+      return meters >= TARGET_FISIK * 1000;
+    }).length;
+
+    const categoryCount = CATEGORY_TARGETS.filter(
+      (target) => {
+        const type = kategori.find(
+          (item) =>
+            normalize(item.name) === normalize(target.name)
+        );
+
+        return (
+          type &&
+          verified.some(
+            (item) => item.type_code === type.code
           )
-          .reduce(
-            (sum, item) =>
-              sum +
-              Math.round(
-                Number(item.distance_km) * 1000
-              ),
-            0
-          );
-
-        const km = meter / 1000;
-
-        return {
-          week,
-          km,
-          percentage:
-            (km / FISIK_TARGET_KM) * 100,
-          achieved:
-            meter >= FISIK_TARGET_KM * 1000,
-        };
+        );
       }
-    );
-
-    const weeksAchieved = fisikWeeks.filter(
-      item => item.achieved
     ).length;
+
+    const activeWeeks = new Set();
+
+    const addWeek = (date) => {
+      const week = weekOf(date, program?.start_date);
+      if (week !== null) activeWeeks.add(week);
+    };
+
+    catatan.forEach((item) => addWeek(item.activity_date));
+    postTests.forEach((item) => addWeek(item.test_date));
+    praktik.forEach((item) => addWeek(item.practice_date));
+    samapta.forEach((item) => addWeek(item.test_date));
 
     return {
       total: catatan.length,
-
-      verified: catatan.filter(
-        item => item.status === "verified"
-      ).length,
-
-      pending: catatan.filter(
-        item => item.status === "pending"
-      ).length,
-
-      doneCategories,
-      progress,
-
+      verified: verified.length,
+      pending: pending.length,
+      categoryCount,
+      progress: Math.round((categoryCount / 6) * 100),
+      totalKm: totalMeters / 1000,
+      achievedWeeks,
+      activeWeeks: activeWeeks.size,
       postAverage: average(postTests),
       practiceAverage: average(praktik),
-
-      samaptaCount: sessions.length,
-      samaptaLatest: latest,
-
-      simper: simperSummary(simper),
-
-      activityWeeks: activeWeeks.size,
-
-      activityPct: Math.round(
-        (activeWeeks.size / TOTAL_WEEKS) * 100
-      ),
-
-      fisik: {
-        totalKm,
-        targetWeekly: FISIK_TARGET_KM,
-        targetTotal:
-          FISIK_TARGET_KM * TOTAL_WEEKS,
-        weeksAchieved,
-        weeks: fisikWeeks,
-      },
     };
   }, [
     catatan,
@@ -1306,109 +839,80 @@ export default function DetailPeserta() {
     postTests,
     praktik,
     samapta,
-    simper,
     program,
   ]);
 
   const nama =
-    program?.peserta?.full_name ||
-    "Peserta OJT";
+    program?.peserta?.full_name || "Peserta OJT";
 
-  const menu = [
+  const menus = [
     {
-      key: "pencapaian",
-      title: "Pencapaian OJT",
-      detail:
-        `${ringkasan.doneCategories} dari 6 kategori`,
-      icon: "target",
-      color: "#0c976b",
-      action: () => bukaPanel("pencapaian"),
+      title: "Monitoring Penilaian OJT",
+      desc: "Buka 10 poin penilaian dan riwayat per minggu",
+      icon: "📊",
+      route: `/monitoring/${programId}`,
+      featured: true,
     },
     {
-      key: "posttest",
+      title: "Input Pencapaian",
+      desc: "Input, edit, dan verifikasi kegiatan",
+      icon: "📝",
+      panel: "pencapaian",
+    },
+    {
       title: "Post-Test",
-      detail:
-        `${postTests.length} nilai tercatat`,
-      icon: "file",
-      color: "#317bd0",
-      action: () => bukaPanel("posttest"),
+      desc: `${postTests.length} nilai tercatat`,
+      icon: "📚",
+      panel: "posttest",
     },
     {
-      key: "praktik",
       title: "Praktik Mingguan",
-      detail:
-        `${praktik.length} penilaian · rata-rata ${fmt(ringkasan.practiceAverage)}`,
-      icon: "book",
-      color: "#d49b22",
-      action: () =>
-        router.push(`/praktik/${programId}`),
+      desc: `${praktik.length} penilaian`,
+      icon: "🛠️",
+      route: `/praktik/${programId}`,
     },
     {
-      key: "samapta",
       title: "Samapta",
-      detail:
-        `${ringkasan.samaptaCount} tes lengkap`,
-      icon: "run",
-      color: "#139a5b",
-      action: () =>
-        router.push(`/samapta/${programId}`),
+      desc: "Monitoring hasil tes kesamaptaan",
+      icon: "🏃",
+      route: `/samapta/${programId}`,
     },
     {
-      key: "simper",
       title: "SIMPER",
-      detail:
-        `${ringkasan.simper.percentage}% · 4 tahapan`,
-      icon: "id",
-      color: "#8055ce",
-      action: () =>
-        router.push(`/simper/${programId}`),
+      desc: "Monitoring tahapan SIMPER",
+      icon: "🪪",
+      route: `/simper/${programId}`,
     },
     {
-      key: "mingguan",
       title: "Evaluasi Mingguan",
-      detail:
-        `${ringkasan.activityWeeks} dari 25 minggu ada aktivitas`,
-      icon: "calendar",
-      color: "#0894b5",
-      action: () =>
-        router.push(`/mingguan/${programId}`),
+      desc: "Monitoring Week 01–25",
+      icon: "📅",
+      route: `/mingguan/${programId}`,
     },
     {
-      key: "analisis",
       title: "Grafik Perkembangan",
-      detail:
-        "Grafik nilai sepanjang Week 1–25",
-      icon: "chart",
-      color: "#356fc1",
-      action: () =>
-        router.push(`/analisis/${programId}`),
+      desc: "Analisis perkembangan peserta",
+      icon: "📈",
+      route: `/analisis/${programId}`,
     },
     {
-      key: "evaluasi",
       title: "Evaluasi Kesiapan",
-      detail:
-        "Kelengkapan enam indikator",
-      icon: "check",
-      color: "#13885b",
-      action: () =>
-        router.push(`/evaluasi/${programId}`),
+      desc: "Evaluasi kelengkapan indikator",
+      icon: "✅",
+      route: `/evaluasi/${programId}`,
     },
     {
-      key: "laporan",
       title: "Laporan OJT",
-      detail:
-        "Rekapitulasi dan cetak PDF",
-      icon: "file",
-      color: "#9b6acb",
-      action: () =>
-        router.push(`/laporan/${programId}`),
+      desc: "Rapor dan cetak PDF",
+      icon: "📄",
+      route: `/laporan/${programId}`,
     },
   ];
 
   if (loading) {
     return (
       <main className="dp-loading">
-        <strong>OJT MineTrack</strong>
+        <h2>OJT MineTrack</h2>
         <p>Memuat data peserta...</p>
       </main>
     );
@@ -1418,15 +922,8 @@ export default function DetailPeserta() {
     return (
       <main className="dp-loading">
         <h2>Data Tidak Dapat Ditampilkan</h2>
-
-        <p>
-          {error || "Akses tidak tersedia."}
-        </p>
-
-        <button
-          type="button"
-          onClick={() => router.push("/")}
-        >
+        <p>{error || "Akses tidak tersedia."}</p>
+        <button onClick={() => router.push("/")}>
           Kembali ke Dashboard
         </button>
       </main>
@@ -1457,7 +954,7 @@ export default function DetailPeserta() {
 
         .dp-topbar {
           background: #071e25;
-          color: #fff;
+          color: white;
           padding: 17px 24px;
           display: flex;
           justify-content: space-between;
@@ -1468,7 +965,6 @@ export default function DetailPeserta() {
         .dp-brand {
           font-size: 20px;
           font-weight: 900;
-          letter-spacing: -.5px;
         }
 
         .dp-brand span {
@@ -1476,16 +972,12 @@ export default function DetailPeserta() {
         }
 
         .dp-back {
-          display: flex;
-          align-items: center;
-          gap: 7px;
-          background: #ffffff13;
+          background: #ffffff18;
           border: 1px solid #ffffff30;
           border-radius: 9px;
           color: white;
+          padding: 11px 15px;
           font-weight: 700;
-          font-size: 12px;
-          padding: 10px 13px;
           cursor: pointer;
         }
 
@@ -1497,7 +989,6 @@ export default function DetailPeserta() {
 
         .dp-banner {
           border-radius: 18px;
-          overflow: hidden;
           background:
             linear-gradient(
               90deg,
@@ -1513,11 +1004,10 @@ export default function DetailPeserta() {
           margin-bottom: 18px;
         }
 
-        .dp-banner-label {
-          font-size: 10px;
-          letter-spacing: 2px;
-          font-weight: 800;
+        .dp-banner small {
           color: #e7bd69;
+          font-weight: 800;
+          letter-spacing: 1.5px;
         }
 
         .dp-banner h1 {
@@ -1527,7 +1017,6 @@ export default function DetailPeserta() {
 
         .dp-banner p {
           color: #d5e9e0;
-          margin: 0;
           font-size: 12px;
         }
 
@@ -1560,8 +1049,8 @@ export default function DetailPeserta() {
         }
 
         .dp-profile-main {
-          min-width: 0;
           flex: 1;
+          min-width: 0;
         }
 
         .dp-profile-name {
@@ -1578,14 +1067,12 @@ export default function DetailPeserta() {
         }
 
         .dp-badge {
-          display: inline-block;
           background: #dff6e9;
           color: #09784d;
           padding: 7px 11px;
           border-radius: 30px;
-          font-weight: 800;
           font-size: 11px;
-          white-space: nowrap;
+          font-weight: 800;
         }
 
         .dp-divider {
@@ -1613,29 +1100,25 @@ export default function DetailPeserta() {
           border-radius: inherit;
         }
 
-        .dp-progress-header {
+        .dp-progress-heading {
           display: flex;
           justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 10px;
-          font-size: 12px;
-          color: #637c70;
+          gap: 10px;
+          margin-bottom: 12px;
         }
 
-        .dp-progress-header strong {
+        .dp-progress-heading strong {
           color: #087d59;
-          font-size: 19px;
         }
 
         .dp-metrics {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 10px;
           margin-top: 16px;
         }
 
-        .dp-small-stat {
+        .dp-stat {
           background: #f7faf8;
           border: 1px solid #eaf0eb;
           border-radius: 11px;
@@ -1644,81 +1127,48 @@ export default function DetailPeserta() {
           min-width: 0;
         }
 
-        .dp-small-stat span {
+        .dp-stat small {
           display: block;
           color: #71877b;
-          font-size: 10px;
-        }
-
-        .dp-small-stat strong {
-          display: block;
-          font-size: 22px;
-          color: #193e30;
-          margin-top: 6px;
-          overflow-wrap: anywhere;
-        }
-
-        .dp-small-stat small {
-          display: block;
-          margin-top: 6px;
-          font-size: 10px;
-          color: #81988a;
-        }
-
-        .dp-summary-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
-        }
-
-        .dp-summary-box {
-          border: 1px solid #e5ede7;
-          background: #f8faf8;
-          padding: 14px;
-          border-radius: 12px;
-        }
-
-        .dp-summary-box span {
           font-size: 11px;
-          color: #748a7b;
-          display: block;
-        }
-
-        .dp-summary-box strong {
-          font-size: 21px;
-          display: block;
-          margin: 9px 0;
-          color: #0b8058;
-        }
-
-        .dp-summary-box small {
-          font-size: 10px;
-          color: #829487;
           line-height: 1.5;
         }
 
-        .dp-section-title {
+        .dp-stat strong {
+          display: block;
+          font-size: 21px;
+          color: #193e30;
+          margin: 7px 0;
+          overflow-wrap: anywhere;
+        }
+
+        .dp-summary {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .dp-title {
           font-size: 18px;
           color: #17352b;
-          margin: 0 0 6px;
+          margin: 0 0 12px;
           font-weight: 900;
         }
 
         .dp-muted {
-          margin: 0 0 16px;
           color: #819188;
-          line-height: 1.6;
           font-size: 12px;
+          line-height: 1.6;
+          margin: 0 0 16px;
         }
 
         .dp-menu-grid {
           display: grid;
-          grid-template-columns:
-            repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 13px;
         }
 
-        .dp-menu-card {
+        .dp-menu {
           text-align: left;
           position: relative;
           cursor: pointer;
@@ -1726,22 +1176,23 @@ export default function DetailPeserta() {
           border-radius: 14px;
           background: white;
           padding: 18px;
-          min-height: 144px;
-          box-shadow: 0 3px 12px #102c2209;
+          min-height: 145px;
+          font-family: inherit;
         }
 
-        .dp-menu-card:hover {
+        .dp-menu:hover {
           background: #f7fcf9;
           border-color: #9ed7bd;
         }
 
+        .dp-menu.featured {
+          background: #eaf8f0;
+          border: 2px solid #58bc8e;
+        }
+
         .dp-menu-icon {
-          width: 43px;
-          height: 43px;
-          border-radius: 11px;
-          display: grid;
-          place-items: center;
-          margin-bottom: 13px;
+          font-size: 25px;
+          margin-bottom: 12px;
         }
 
         .dp-menu-name {
@@ -1750,17 +1201,18 @@ export default function DetailPeserta() {
           color: #1d3831;
         }
 
-        .dp-menu-detail {
+        .dp-menu-desc {
           color: #809389;
           font-size: 11px;
-          margin-top: 6px;
+          margin-top: 7px;
           line-height: 1.5;
         }
 
         .dp-menu-arrow {
           position: absolute;
-          right: 13px;
-          top: 17px;
+          right: 14px;
+          top: 15px;
+          font-size: 24px;
           color: #738d80;
         }
 
@@ -1837,8 +1289,7 @@ export default function DetailPeserta() {
 
         .dp-distance-grid {
           display: grid;
-          grid-template-columns:
-            repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 10px;
         }
 
@@ -1846,10 +1297,30 @@ export default function DetailPeserta() {
           resize: vertical;
         }
 
-        .dp-history-item {
+        .dp-distance-total {
+          background: #e8f8ef;
+          border: 1px solid #bce7ce;
+          border-radius: 12px;
+          padding: 14px;
+          margin-top: 13px;
+        }
+
+        .dp-distance-total span {
+          display: block;
+          font-size: 11px;
+          color: #56796a;
+        }
+
+        .dp-distance-total strong {
+          display: block;
+          font-size: 26px;
+          color: #087e57;
+          margin: 7px 0;
+        }
+
+        .dp-history {
           border: 1px solid #e1eae5;
           border-radius: 12px;
-          background: white;
           padding: 15px;
           margin-bottom: 11px;
         }
@@ -1869,7 +1340,6 @@ export default function DetailPeserta() {
         .dp-history-desc {
           font-size: 12px;
           color: #395045;
-          margin: 11px 0;
           white-space: pre-wrap;
           overflow-wrap: anywhere;
           line-height: 1.6;
@@ -1877,45 +1347,14 @@ export default function DetailPeserta() {
 
         .dp-history-actions {
           display: flex;
-          gap: 7px;
           flex-wrap: wrap;
+          gap: 7px;
           margin-top: 13px;
         }
 
         .dp-history-actions .dp-button {
           padding: 9px 12px;
           font-size: 11px;
-        }
-
-        .dp-category-grid {
-          display: grid;
-          grid-template-columns:
-            repeat(3, minmax(0, 1fr));
-          gap: 10px;
-        }
-
-        .dp-category {
-          border: 1px solid #e3eae6;
-          border-radius: 10px;
-          padding: 13px;
-          background: #f9fbfa;
-        }
-
-        .dp-category strong {
-          display: block;
-          font-size: 12px;
-        }
-
-        .dp-category small {
-          display: block;
-          font-size: 11px;
-          color: #708779;
-          margin-top: 7px;
-        }
-
-        .dp-category.verified {
-          background: #ecfbf1;
-          border-color: #c3ead0;
         }
 
         .dp-alert {
@@ -1939,78 +1378,14 @@ export default function DetailPeserta() {
           color: #08784d;
         }
 
-        .dp-fisik-box {
-          border: 1px solid #c9ead8;
-          background: #f0faf4;
-          border-radius: 12px;
-          padding: 14px;
-          margin-bottom: 15px;
-        }
-
-        .dp-fisik-title {
-          font-size: 13px;
-          font-weight: 900;
-          color: #086a4b;
-          margin-bottom: 10px;
-        }
-
-        .dp-fisik-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 8px;
-        }
-
-        .dp-fisik-stat {
-          background: white;
-          border-radius: 9px;
-          padding: 10px 5px;
-          text-align: center;
-          min-width: 0;
-        }
-
-        .dp-fisik-stat small {
-          color: #718779;
-          font-size: 10px;
-          display: block;
-        }
-
-        .dp-fisik-stat strong {
-          color: #087f58;
-          font-size: 17px;
-          display: block;
-          margin-top: 5px;
-        }
-
-        .dp-distance-total {
-          background: #e8f8ef;
-          border: 1px solid #bce7ce;
-          border-radius: 12px;
-          padding: 14px;
-          margin-top: 13px;
-        }
-
-        .dp-distance-total span {
-          font-size: 11px;
-          display: block;
-          color: #56796a;
-        }
-
-        .dp-distance-total strong {
-          font-size: 26px;
-          color: #087e57;
-          display: block;
-          margin: 6px 0;
-        }
-
         .dp-footer {
           text-align: center;
           color: #8b9f93;
           padding: 20px 0;
           font-size: 11px;
-          line-height: 1.6;
         }
 
-        @media(max-width:760px) {
+        @media (max-width: 760px) {
           .dp-topbar {
             padding: 15px;
           }
@@ -2020,7 +1395,7 @@ export default function DetailPeserta() {
           }
 
           .dp-back {
-            font-size: 0;
+            font-size: 12px;
             padding: 9px;
           }
 
@@ -2030,8 +1405,6 @@ export default function DetailPeserta() {
 
           .dp-banner {
             padding: 23px 18px;
-            min-height: 137px;
-            border-radius: 14px;
           }
 
           .dp-banner h1 {
@@ -2041,14 +1414,12 @@ export default function DetailPeserta() {
           .dp-card {
             padding: 15px;
             margin-bottom: 12px;
-            border-radius: 14px;
           }
 
           .dp-avatar {
             width: 48px;
             height: 48px;
             font-size: 17px;
-            border-radius: 13px;
           }
 
           .dp-profile {
@@ -2063,81 +1434,38 @@ export default function DetailPeserta() {
             font-size: 11px;
           }
 
-          .dp-small-stat {
-            padding: 11px 5px;
+          .dp-summary {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
-          .dp-small-stat strong {
-            font-size: 19px;
+          .dp-stat {
+            padding: 11px 6px;
           }
 
-          .dp-small-stat span {
-            font-size: 9px;
-          }
-
-          .dp-summary-grid {
-            grid-template-columns:
-              repeat(2, minmax(0, 1fr));
-          }
-
-          .dp-summary-box {
-            padding: 12px;
-          }
-
-          .dp-summary-box strong {
-            font-size: 19px;
+          .dp-stat strong {
+            font-size: 18px;
           }
 
           .dp-menu-grid {
-            grid-template-columns:
-              repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 9px;
           }
 
-          .dp-menu-card {
+          .dp-menu {
             padding: 13px;
-            min-height: 130px;
-          }
-
-          .dp-menu-icon {
-            width: 36px;
-            height: 36px;
+            min-height: 132px;
           }
 
           .dp-menu-name {
             font-size: 12px;
           }
 
-          .dp-menu-detail {
+          .dp-menu-desc {
             font-size: 10px;
           }
 
-          .dp-menu-arrow {
-            right: 9px;
-            top: 15px;
-          }
-
-          .dp-category-grid {
-            grid-template-columns:
-              repeat(2, minmax(0, 1fr));
-          }
-
-          .dp-panel-header h2 {
+          .dp-title {
             font-size: 17px;
-          }
-
-          .dp-fisik-stat strong {
-            font-size: 15px;
-          }
-        }
-
-        @media(max-width:370px) {
-          .dp-profile {
-            flex-wrap: wrap;
-          }
-
-          .dp-menu-card {
-            min-height: 146px;
           }
 
           .dp-distance-total strong {
@@ -2152,32 +1480,25 @@ export default function DetailPeserta() {
         </div>
 
         <button
-          className="dp-back"
           type="button"
+          className="dp-back"
           onClick={() =>
             panel === "menu"
               ? router.push("/")
-              : bukaPanel("menu")
+              : openPanel("menu")
           }
         >
-          <Icon name="back" size={18} />
-          {panel === "menu"
-            ? "Dashboard Mentor"
-            : "Menu Peserta"}
+          ← {panel === "menu" ? "Dashboard" : "Menu Peserta"}
         </button>
       </header>
 
       <div className="dp-container">
         <section className="dp-banner">
-          <div className="dp-banner-label">
+          <small>
             EMERGENCY RESPONSE GROUP · PT BERAU COAL
-          </div>
-
+          </small>
           <h1>Detail Peserta OJT</h1>
-
-          <p>
-            Monitoring Kompetensi dan Evaluasi OJT
-          </p>
+          <p>Monitoring Kompetensi dan Evaluasi OJT</p>
         </section>
 
         <section className="dp-card">
@@ -2211,32 +1532,25 @@ export default function DetailPeserta() {
 
           <hr className="dp-divider" />
 
-          <div className="dp-progress-header">
-            <span>
-              Progres Pencapaian OJT
-            </span>
-
-            <strong>
-              {ringkasan.progress}%
-            </strong>
+          <div className="dp-progress-heading">
+            <span>Kategori yang Memiliki Verifikasi</span>
+            <strong>{summary.categoryCount}/6</strong>
           </div>
 
-          <Progress value={ringkasan.progress} />
+          <Progress value={summary.progress} />
 
           <div className="dp-metrics">
-            <MiniStat
+            <Stat
               label="Total Catatan"
-              value={ringkasan.total}
+              value={summary.total}
             />
-
-            <MiniStat
+            <Stat
               label="Terverifikasi"
-              value={ringkasan.verified}
+              value={summary.verified}
             />
-
-            <MiniStat
+            <Stat
               label="Menunggu"
-              value={ringkasan.pending}
+              value={summary.pending}
             />
           </div>
         </section>
@@ -2247,12 +1561,9 @@ export default function DetailPeserta() {
           </div>
         )}
 
-        {pesan && (
-          <div
-            className="dp-alert success"
-            role="status"
-          >
-            ✓ {pesan}
+        {message && (
+          <div className="dp-alert success" role="status">
+            ✓ {message}
           </div>
         )}
 
@@ -2260,149 +1571,115 @@ export default function DetailPeserta() {
           <>
             <section className="dp-card">
               <div className="dp-panel-header">
-                <h2 className="dp-section-title">
+                <h2 className="dp-title">
                   Ringkasan Monitoring Peserta
                 </h2>
 
                 <button
-                  className="dp-button outline"
                   type="button"
+                  className="dp-button outline"
                   onClick={refresh}
                   disabled={refreshing}
                 >
-                  <Icon name="refresh" size={16} />{" "}
-                  {refreshing
-                    ? "Memuat..."
-                    : "Refresh"}
+                  {refreshing ? "Memuat..." : "↻ Refresh"}
                 </button>
               </div>
 
               <p className="dp-muted">
-                Hasil diperoleh dari catatan peserta ini.
-                Kelengkapan monitoring bukan keputusan
-                kelulusan atau kesiapan operasional.
+                Ringkasan berdasarkan data peserta.
+                Kategori yang memiliki verifikasi belum
+                tentu telah mencapai target mingguannya.
               </p>
 
-              <div className="dp-summary-grid">
-                <div className="dp-summary-box">
-                  <span>Rata-rata Post-Test</span>
-                  <strong>
-                    {fmt(ringkasan.postAverage)}
-                  </strong>
-                  <small>
-                    {postTests.length} nilai tercatat
-                  </small>
-                </div>
+              <div className="dp-summary">
+                <Stat
+                  label="Rata-rata Post-Test"
+                  value={fmtScore(summary.postAverage)}
+                  detail={`${postTests.length} nilai`}
+                />
 
-                <div className="dp-summary-box">
-                  <span>Rata-rata Praktik</span>
-                  <strong>
-                    {fmt(ringkasan.practiceAverage)}
-                  </strong>
-                  <small>
-                    {praktik.length} penilaian
-                  </small>
-                </div>
+                <Stat
+                  label="Rata-rata Praktik"
+                  value={fmtScore(summary.practiceAverage)}
+                  detail={`${praktik.length} penilaian`}
+                />
 
-                <div className="dp-summary-box">
-                  <span>Samapta Terakhir</span>
-                  <strong>
-                    {fmt(
-                      ringkasan.samaptaLatest?.final
-                    )}
-                  </strong>
-                  <small>
-                    {ringkasan.samaptaLatest
-                      ? ringkasan.samaptaLatest.runPassed
-                        ? "Tes lengkap · lari lulus"
-                        : "Tes lengkap · lari belum lulus"
-                      : "Belum ada tes lengkap"}
-                  </small>
-                </div>
+                <Stat
+                  label="Catatan Samapta"
+                  value={samapta.length}
+                  detail="Hasil tes tercatat"
+                />
 
-                <div className="dp-summary-box">
-                  <span>Progres SIMPER</span>
-                  <strong>
-                    {ringkasan.simper.percentage}%
-                  </strong>
-                  <Progress
-                    value={ringkasan.simper.percentage}
-                  />
-                  <small>
-                    {ringkasan.simper.released
-                      ? "SIMPER telah terbit"
-                      : "Belum seluruh tahap selesai"}
-                  </small>
-                </div>
+                <Stat
+                  label="Data SIMPER"
+                  value={simper ? "Tersedia" : "Belum ada"}
+                />
 
-                <div className="dp-summary-box">
-                  <span>Aktivitas OJT</span>
-                  <strong>
-                    {ringkasan.activityWeeks}/25
-                  </strong>
-                  <Progress
-                    value={ringkasan.activityPct}
-                  />
-                  <small>
-                    Minggu memiliki aktivitas
-                  </small>
-                </div>
+                <Stat
+                  label="Minggu dengan Aktivitas"
+                  value={`${summary.activeWeeks}/25`}
+                />
 
-                <div className="dp-summary-box">
-                  <span>Kompetensi Terverifikasi</span>
-                  <strong>
-                    {ringkasan.doneCategories}/6
-                  </strong>
-                  <Progress
-                    value={ringkasan.progress}
-                  />
-                  <small>
-                    Enam kategori pencapaian
-                  </small>
-                </div>
+                <Stat
+                  label="Kategori Terverifikasi"
+                  value={`${summary.categoryCount}/6`}
+                />
 
-                <div className="dp-summary-box">
-                  <span>Fisik Terverifikasi</span>
-                  <strong>
-                    {fmtKm(ringkasan.fisik.totalKm)} km
-                  </strong>
-                  <small>
-                    Target keseluruhan: 625 km
-                  </small>
-                </div>
+                <Stat
+                  label="Total Fisik Terverifikasi"
+                  value={`${fmtKm(summary.totalKm)} km`}
+                  detail="Target keseluruhan 625 km"
+                />
 
-                <div className="dp-summary-box">
-                  <span>Target Fisik Mingguan</span>
-                  <strong>
-                    {ringkasan.fisik.weeksAchieved}/25
-                  </strong>
-                  <small>
-                    Minggu mencapai target 25 km
-                  </small>
-                </div>
+                <Stat
+                  label="Minggu Fisik Tercapai"
+                  value={`${summary.achievedWeeks}/25`}
+                  detail="Target 25 km per minggu"
+                />
               </div>
             </section>
 
             <section className="dp-card">
-              <h2 className="dp-section-title">
+              <h2 className="dp-title">
                 Menu Monitoring & Penilaian
               </h2>
 
               <p className="dp-muted">
-                Pilih kegiatan untuk peserta yang
-                sedang dibuka.
+                Klik Monitoring Penilaian OJT untuk
+                melihat kategori penilaian secara
+                terpisah dan memilih minggu monitoring.
               </p>
 
               <div className="dp-menu-grid">
-                {menu.map(item => (
-                  <MenuCard
-                    key={item.key}
-                    icon={item.icon}
-                    title={item.title}
-                    detail={item.detail}
-                    color={item.color}
-                    onClick={item.action}
-                  />
+                {menus.map((item) => (
+                  <button
+                    key={item.title}
+                    type="button"
+                    className={`dp-menu ${
+                      item.featured ? "featured" : ""
+                    }`}
+                    onClick={() =>
+                      item.route
+                        ? router.push(item.route)
+                        : openPanel(item.panel)
+                    }
+                  >
+                    <div className="dp-menu-icon">
+                      {item.icon}
+                    </div>
+
+                    <div className="dp-menu-name">
+                      {item.title}
+                    </div>
+
+                    <div className="dp-menu-desc">
+                      {item.desc}
+                    </div>
+
+                    <span className="dp-menu-arrow">
+                      ›
+                    </span>
+                  </button>
                 ))}
               </div>
             </section>
@@ -2413,7 +1690,7 @@ export default function DetailPeserta() {
           <>
             <section className="dp-card">
               <div className="dp-panel-header">
-                <h2 className="dp-section-title">
+                <h2 className="dp-title">
                   {editId
                     ? "Edit Pencapaian OJT"
                     : "Input Pencapaian OJT"}
@@ -2422,13 +1699,13 @@ export default function DetailPeserta() {
                 <button
                   type="button"
                   className="dp-button outline"
-                  onClick={() => bukaPanel("menu")}
+                  onClick={() => openPanel("menu")}
                 >
                   Kembali
                 </button>
               </div>
 
-              <form onSubmit={simpanPencapaian}>
+              <form onSubmit={saveAchievement}>
                 <div className="dp-field-group">
                   <label htmlFor="dp-jenis">
                     Kategori Pencapaian
@@ -2438,10 +1715,9 @@ export default function DetailPeserta() {
                     id="dp-jenis"
                     className="dp-field"
                     value={jenis}
-                    onChange={event => {
-                      setJenis(event.target.value);
-                      setError("");
-                    }}
+                    onChange={(event) =>
+                      setJenis(event.target.value)
+                    }
                     required
                   >
                     {!kategori.length && (
@@ -2450,7 +1726,7 @@ export default function DetailPeserta() {
                       </option>
                     )}
 
-                    {kategori.map(item => (
+                    {kategori.map((item) => (
                       <option
                         key={item.code}
                         value={item.code}
@@ -2471,7 +1747,7 @@ export default function DetailPeserta() {
                     type="date"
                     className="dp-field"
                     value={tanggal}
-                    onChange={event =>
+                    onChange={(event) =>
                       setTanggal(event.target.value)
                     }
                     required
@@ -2480,7 +1756,7 @@ export default function DetailPeserta() {
                   <p
                     className="dp-muted"
                     style={{
-                      marginTop: 6,
+                      marginTop: 7,
                       marginBottom: 0,
                     }}
                   >
@@ -2494,30 +1770,26 @@ export default function DetailPeserta() {
                             program.start_date
                           )
                         ).padStart(2, "0")}`
-                      : "Pilih tanggal dalam periode 25 minggu OJT."}
+                      : "Pilih tanggal dalam 25 minggu OJT."}
                   </p>
                 </div>
 
                 {isFisik && (
                   <div className="dp-field-group">
-                    <label>
-                      Jarak Tempuh Fisik
-                    </label>
+                    <label>Jarak Tempuh Fisik</label>
 
                     <div className="dp-distance-grid">
                       <div>
-                        <label htmlFor="dp-fisik-km">
+                        <label htmlFor="dp-km">
                           Kilometer (km)
                         </label>
 
                         <select
-                          id="dp-fisik-km"
+                          id="dp-km"
                           className="dp-field"
                           value={fisikKm}
-                          onChange={event =>
-                            setFisikKm(
-                              event.target.value
-                            )
+                          onChange={(event) =>
+                            setFisikKm(event.target.value)
                           }
                         >
                           {Array.from(
@@ -2535,24 +1807,21 @@ export default function DetailPeserta() {
                       </div>
 
                       <div>
-                        <label htmlFor="dp-fisik-meter">
+                        <label htmlFor="dp-meter">
                           Tambahan Meter (m)
                         </label>
 
                         <input
-                          id="dp-fisik-meter"
+                          id="dp-meter"
                           className="dp-field"
                           type="number"
                           inputMode="numeric"
                           min="0"
                           max="999"
                           step="1"
-                          placeholder="0–999"
                           value={fisikMeter}
-                          onChange={event =>
-                            setFisikMeter(
-                              event.target.value
-                            )
+                          onChange={(event) =>
+                            setFisikMeter(event.target.value)
                           }
                           required
                         />
@@ -2560,21 +1829,19 @@ export default function DetailPeserta() {
                     </div>
 
                     <div className="dp-distance-total">
-                      <span>
-                        Total Jarak Kegiatan
-                      </span>
+                      <span>Total Jarak Kegiatan</span>
 
                       <strong>
-                        {totalJarak === null
+                        {distance === null
                           ? "—"
-                          : fmtKm(totalJarak)}{" "}
+                          : fmtKm(distance)}{" "}
                         km
                       </strong>
 
                       <span>
-                        Target Fisik 25 km per minggu.
-                        Jarak akan diakumulasikan
-                        setelah diverifikasi Mentor.
+                        Target 25 km per minggu.
+                        Jarak dihitung setelah
+                        diverifikasi Mentor.
                       </span>
                     </div>
                   </div>
@@ -2582,25 +1849,22 @@ export default function DetailPeserta() {
 
                 <div className="dp-field-group">
                   <label htmlFor="dp-deskripsi">
-                    Keterangan Pencapaian
+                    Keterangan Pencapaian (Opsional)
                   </label>
 
                   <textarea
                     id="dp-deskripsi"
                     className="dp-field"
-                    value={deskripsi}
-                    onChange={event =>
-                      setDeskripsi(
-                        event.target.value
-                      )
-                    }
                     rows={4}
+                    value={deskripsi}
+                    onChange={(event) =>
+                      setDeskripsi(event.target.value)
+                    }
                     placeholder={
                       isFisik
-                        ? "Contoh: Latihan lari pagi di area kerja."
-                        : "Uraikan kegiatan atau pencapaian peserta..."
+                        ? "Contoh: Latihan lari pagi."
+                        : "Catatan kegiatan jika diperlukan..."
                     }
-                    required
                   />
                 </div>
 
@@ -2609,12 +1873,12 @@ export default function DetailPeserta() {
                     type="submit"
                     className="dp-button"
                     disabled={
-                      menyimpan ||
-                      Boolean(aksiId) ||
+                      saving ||
+                      Boolean(actionId) ||
                       !kategori.length
                     }
                   >
-                    {menyimpan
+                    {saving
                       ? "Menyimpan..."
                       : editId
                       ? "Simpan Perubahan"
@@ -2625,8 +1889,8 @@ export default function DetailPeserta() {
                     <button
                       type="button"
                       className="dp-button gray"
-                      onClick={resetPencapaian}
-                      disabled={menyimpan}
+                      onClick={resetAchievement}
+                      disabled={saving}
                     >
                       Batal Edit
                     </button>
@@ -2636,152 +1900,30 @@ export default function DetailPeserta() {
             </section>
 
             <section className="dp-card">
-              <h2 className="dp-section-title">
-                Monitoring Fisik
+              <h2 className="dp-title">
+                Lihat Hasil Monitoring
               </h2>
 
               <p className="dp-muted">
-                Jarak Fisik dihitung dari catatan
-                yang telah diverifikasi Mentor.
+                Monitoring 25 minggu sekarang dibuka
+                melalui halaman terpisah. Pilih kategori
+                Fisik atau kategori lainnya untuk
+                melihat hasil dan riwayat kegiatan.
               </p>
 
-              <div className="dp-fisik-box">
-                <div className="dp-fisik-title">
-                  Target Pencapaian Fisik
-                </div>
-
-                <div className="dp-fisik-grid">
-                  <div className="dp-fisik-stat">
-                    <small>Per Minggu</small>
-                    <strong>25 km</strong>
-                  </div>
-
-                  <div className="dp-fisik-stat">
-                    <small>25 Minggu</small>
-                    <strong>625 km</strong>
-                  </div>
-
-                  <div className="dp-fisik-stat">
-                    <small>Realisasi</small>
-                    <strong>
-                      {fmtKm(
-                        ringkasan.fisik.totalKm
-                      )} km
-                    </strong>
-                  </div>
-                </div>
-              </div>
-
-              <div className="dp-field-group">
-                <label>
-                  Monitoring Week 1–25
-                </label>
-
-                <div className="dp-category-grid">
-                  {ringkasan.fisik.weeks.map(
-                    item => (
-                      <div
-                        key={item.week}
-                        className={
-                          `dp-category ${
-                            item.achieved
-                              ? "verified"
-                              : ""
-                          }`
-                        }
-                      >
-                        <strong>
-                          Week{" "}
-                          {String(item.week).padStart(
-                            2,
-                            "0"
-                          )}
-                        </strong>
-
-                        <small>
-                          {fmtKm(item.km)} / 25 km
-                        </small>
-
-                        <div
-                          style={{
-                            marginTop: 9,
-                          }}
-                        >
-                          <Progress
-                            value={item.percentage}
-                          />
-                        </div>
-
-                        <small>
-                          {item.achieved
-                            ? "✓ Tercapai"
-                            : "Belum tercapai"}
-                        </small>
-                      </div>
-                    )
-                  )}
-                </div>
-              </div>
+              <button
+                type="button"
+                className="dp-button"
+                onClick={() =>
+                  router.push(`/monitoring/${programId}`)
+                }
+              >
+                Buka Monitoring Penilaian →
+              </button>
             </section>
 
             <section className="dp-card">
-              <h2 className="dp-section-title">
-                Enam Pencapaian OJT
-              </h2>
-
-              <p className="dp-muted">
-                Kategori dengan catatan terverifikasi
-                ditandai hijau. Ini menunjukkan adanya
-                kegiatan terverifikasi, bukan berarti
-                seluruh target kategori telah tercapai.
-              </p>
-
-              <div className="dp-category-grid">
-                {kategori.map(item => {
-                  const records = catatan.filter(
-                    record =>
-                      record.type_code === item.code
-                  );
-
-                  const verified = records.filter(
-                    record =>
-                      record.status === "verified"
-                  ).length;
-
-                  const pending = records.filter(
-                    record =>
-                      record.status === "pending"
-                  ).length;
-
-                  return (
-                    <div
-                      key={item.code}
-                      className={
-                        `dp-category ${
-                          verified
-                            ? "verified"
-                            : ""
-                        }`
-                      }
-                    >
-                      <strong>
-                        {verified ? "✓ " : "○ "}
-                        {item.name}
-                      </strong>
-
-                      <small>
-                        {verified} terverifikasi
-                        {" · "}
-                        {pending} menunggu
-                      </small>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="dp-card">
-              <h2 className="dp-section-title">
+              <h2 className="dp-title">
                 Riwayat Pencapaian
               </h2>
 
@@ -2795,7 +1937,7 @@ export default function DetailPeserta() {
                 </p>
               )}
 
-              {catatan.map(item => {
+              {catatan.map((item) => {
                 const minggu = weekOf(
                   item.activity_date,
                   program.start_date
@@ -2803,12 +1945,12 @@ export default function DetailPeserta() {
 
                 return (
                   <div
-                    className="dp-history-item"
+                    className="dp-history"
                     key={item.id}
                   >
                     <div className="dp-history-title">
                       {kategori.find(
-                        k =>
+                        (k) =>
                           k.code === item.type_code
                       )?.name || item.type_code}
                     </div>
@@ -2824,23 +1966,23 @@ export default function DetailPeserta() {
 
                       {minggu !== null && (
                         <>
-                          {" · "}
-                          Week {minggu}
+                          {" · Week "}
+                          {String(minggu).padStart(2, "0")}
                         </>
                       )}
                     </div>
 
-                    <p className="dp-history-desc">
-                      {item.description}
-                    </p>
+                    {item.description && (
+                      <p className="dp-history-desc">
+                        {item.description}
+                      </p>
+                    )}
 
                     {item.distance_km != null && (
                       <div className="dp-history-meta">
                         Jarak Fisik:{" "}
                         <strong>
-                          {fmtKm(
-                            item.distance_km
-                          )} km
+                          {fmtKm(item.distance_km)} km
                         </strong>
                       </div>
                     )}
@@ -2851,11 +1993,10 @@ export default function DetailPeserta() {
                           type="button"
                           className="dp-button"
                           disabled={
-                            Boolean(aksiId) ||
-                            menyimpan
+                            Boolean(actionId) || saving
                           }
                           onClick={() =>
-                            verifikasi(item)
+                            verifyAchievement(item)
                           }
                         >
                           ✓ Verifikasi
@@ -2866,11 +2007,10 @@ export default function DetailPeserta() {
                         type="button"
                         className="dp-button blue"
                         disabled={
-                          Boolean(aksiId) ||
-                          menyimpan
+                          Boolean(actionId) || saving
                         }
                         onClick={() =>
-                          editPencapaian(item)
+                          editAchievement(item)
                         }
                       >
                         Edit
@@ -2880,14 +2020,13 @@ export default function DetailPeserta() {
                         type="button"
                         className="dp-button red"
                         disabled={
-                          Boolean(aksiId) ||
-                          menyimpan
+                          Boolean(actionId) || saving
                         }
                         onClick={() =>
-                          hapusPencapaian(item)
+                          deleteAchievement(item)
                         }
                       >
-                        {aksiId === item.id
+                        {actionId === item.id
                           ? "Memproses..."
                           : "Hapus"}
                       </button>
@@ -2903,14 +2042,14 @@ export default function DetailPeserta() {
           <>
             <section className="dp-card">
               <div className="dp-panel-header">
-                <h2 className="dp-section-title">
+                <h2 className="dp-title">
                   Monitoring Post-Test
                 </h2>
 
                 <button
                   type="button"
                   className="dp-button outline"
-                  onClick={() => bukaPanel("menu")}
+                  onClick={() => openPanel("menu")}
                 >
                   Kembali
                 </button>
@@ -2920,86 +2059,77 @@ export default function DetailPeserta() {
                 className="dp-metrics"
                 style={{
                   gridTemplateColumns:
-                    "repeat(2, 1fr)",
+                    "repeat(2, minmax(0, 1fr))",
                   marginBottom: 22,
                 }}
               >
-                <MiniStat
+                <Stat
                   label="Total Post-Test"
                   value={postTests.length}
                 />
 
-                <MiniStat
+                <Stat
                   label="Rata-rata Nilai"
-                  value={fmt(
-                    ringkasan.postAverage
-                  )}
+                  value={fmtScore(summary.postAverage)}
                 />
               </div>
 
-              <h3 className="dp-section-title">
+              <h3 className="dp-title">
                 {editTesId
                   ? "Edit Nilai Post-Test"
                   : "Input Nilai Post-Test"}
               </h3>
 
-              <form onSubmit={simpanPostTest}>
+              <form onSubmit={saveTest}>
                 <div className="dp-field-group">
-                  <label htmlFor="dp-tanggal-tes">
+                  <label htmlFor="dp-test-date">
                     Tanggal Pelaksanaan
                   </label>
 
                   <input
-                    id="dp-tanggal-tes"
+                    id="dp-test-date"
                     className="dp-field"
                     type="date"
                     value={tanggalTes}
-                    onChange={event =>
-                      setTanggalTes(
-                        event.target.value
-                      )
+                    onChange={(event) =>
+                      setTanggalTes(event.target.value)
                     }
                     required
                   />
                 </div>
 
                 <div className="dp-field-group">
-                  <label htmlFor="dp-nilai-tes">
+                  <label htmlFor="dp-test-score">
                     Nilai Post-Test (0–100)
                   </label>
 
                   <input
-                    id="dp-nilai-tes"
+                    id="dp-test-score"
                     className="dp-field"
                     type="number"
                     min="0"
                     max="100"
                     step="0.01"
                     value={nilaiTes}
-                    onChange={event =>
-                      setNilaiTes(
-                        event.target.value
-                      )
+                    onChange={(event) =>
+                      setNilaiTes(event.target.value)
                     }
-                    placeholder="Contoh: 85"
                     required
                   />
                 </div>
 
                 <div className="dp-field-group">
-                  <label htmlFor="dp-catatan-tes">
+                  <label htmlFor="dp-test-notes">
                     Catatan Evaluasi
                   </label>
 
                   <textarea
-                    id="dp-catatan-tes"
+                    id="dp-test-notes"
                     className="dp-field"
                     rows={3}
                     value={catatanTes}
-                    onChange={event =>
-                      setCatatanTes(
-                        event.target.value
-                      )
+                    onChange={(event) =>
+                      setCatatanTes(event.target.value)
                     }
                     placeholder="Catatan evaluasi peserta..."
                   />
@@ -3010,11 +2140,11 @@ export default function DetailPeserta() {
                     type="submit"
                     className="dp-button"
                     disabled={
-                      menyimpanTes ||
-                      Boolean(aksiTesId)
+                      savingTest ||
+                      Boolean(testActionId)
                     }
                   >
-                    {menyimpanTes
+                    {savingTest
                       ? "Menyimpan..."
                       : editTesId
                       ? "Simpan Perubahan Nilai"
@@ -3025,8 +2155,8 @@ export default function DetailPeserta() {
                     <button
                       type="button"
                       className="dp-button gray"
-                      onClick={resetTes}
-                      disabled={menyimpanTes}
+                      onClick={resetTest}
+                      disabled={savingTest}
                     >
                       Batal Edit
                     </button>
@@ -3036,13 +2166,9 @@ export default function DetailPeserta() {
             </section>
 
             <section className="dp-card">
-              <h2 className="dp-section-title">
+              <h2 className="dp-title">
                 Riwayat Nilai Post-Test
               </h2>
-
-              <p className="dp-muted">
-                Riwayat khusus peserta ini.
-              </p>
 
               {!postTests.length && (
                 <p className="dp-muted">
@@ -3050,9 +2176,9 @@ export default function DetailPeserta() {
                 </p>
               )}
 
-              {postTests.map(item => (
+              {postTests.map((item) => (
                 <div
-                  className="dp-history-item"
+                  className="dp-history"
                   key={item.id}
                 >
                   <div className="dp-history-title">
@@ -3060,13 +2186,11 @@ export default function DetailPeserta() {
                   </div>
 
                   <div className="dp-history-meta">
-                    Tanggal:{" "}
-                    {dateText(item.test_date)}
+                    Tanggal: {dateText(item.test_date)}
                   </div>
 
                   <p className="dp-history-desc">
-                    {item.notes ||
-                      "Tidak ada catatan."}
+                    {item.notes || "Tidak ada catatan."}
                   </p>
 
                   <div className="dp-history-actions">
@@ -3074,12 +2198,10 @@ export default function DetailPeserta() {
                       type="button"
                       className="dp-button blue"
                       disabled={
-                        Boolean(aksiTesId) ||
-                        menyimpanTes
+                        Boolean(testActionId) ||
+                        savingTest
                       }
-                      onClick={() =>
-                        editPostTest(item)
-                      }
+                      onClick={() => editTest(item)}
                     >
                       Edit
                     </button>
@@ -3088,14 +2210,12 @@ export default function DetailPeserta() {
                       type="button"
                       className="dp-button red"
                       disabled={
-                        Boolean(aksiTesId) ||
-                        menyimpanTes
+                        Boolean(testActionId) ||
+                        savingTest
                       }
-                      onClick={() =>
-                        hapusPostTest(item)
-                      }
+                      onClick={() => deleteTest(item)}
                     >
-                      {aksiTesId === item.id
+                      {testActionId === item.id
                         ? "Menghapus..."
                         : "Hapus"}
                     </button>
