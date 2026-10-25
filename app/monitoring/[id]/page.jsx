@@ -11,7 +11,7 @@ const MENUS = [
   { name: "Internal Training", icon: "🎓", desc: "Pelatihan dan materi", path: "training", target: "4 kegiatan/minggu" },
   { name: "Coaching", icon: "👥", desc: "Pembinaan oleh mentor", path: "coaching", target: "1 kegiatan/minggu" },
   { name: "Sosialisasi", icon: "📣", desc: "Riwayat kegiatan sosialisasi", path: "sosialisasi", target: "3 kegiatan/minggu" },
-  { name: "Orientasi Area", icon: "🗺️", desc: "Pengenalan area kerja", path: "orientasi", target: "2 kegiatan/minggu" },
+  { name: "Orientasi-Area", icon: "🗺️", desc: "Pengenalan area kerja", path: "orientasi", target: "2 kegiatan/minggu" },
   { name: "Hazard", icon: "⚠️", desc: "Identifikasi bahaya", path: "hazard", target: "2 kegiatan/minggu" },
   { name: "Teori", icon: "📚", desc: "Nilai pembelajaran", path: "teori", target: "Sesuai jadwal" },
   { name: "Praktik", icon: "📝", desc: "Nilai praktik mingguan", path: "praktik", target: "Sesuai jadwal" },
