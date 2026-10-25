@@ -7,70 +7,37 @@ import { supabase } from "../../../../lib/supabase";
 
 // OJT MineTrack v2.0
 // Monitoring SIMPER — Read Only
-// Sesuai dengan SIMPER Premium Mentor.
-// Tidak memerlukan perubahan database Supabase.
+// Sinkron dengan Input SIMPER Mentor.
+// Tidak memerlukan perubahan database.
 
 const META_START = "[[SIMPER_V2]]";
 const META_END = "[[/SIMPER_V2]]";
 
-const STAGES = [
-  {
-    label: "Validasi Persyaratan",
-    key: "administration_status",
-    icon: "📋",
-    description: "Pemeriksaan kelengkapan persyaratan SIMPER.",
-  },
-  {
-    label: "Ujian Teori",
-    key: "theory_status",
-    icon: "📚",
-    description: "Pelaksanaan dan hasil ujian teori.",
-  },
-  {
-    label: "Ujian Praktik",
-    key: "practice_status",
-    icon: "📝",
-    description: "Pelaksanaan dan hasil ujian praktik.",
-  },
-  {
-    label: "Penerbitan SIMPER",
-    key: "issuance_status",
-    icon: "🪪",
-    description: "Pengajuan, orientasi, dan penerbitan SIMPER.",
-  },
-];
-
-const VALIDATION = {
-  pending: "Belum Proses",
+const KMKOP = {
+  pending: "Belum Mengikuti",
+  not_started: "Belum Mengikuti",
   in_progress: "Dalam Proses",
-  passed: "Valid",
-  failed: "Perlu Perbaikan",
-};
-
-const EXAM = {
-  pending: "Belum Ujian",
-  in_progress: "Dijadwalkan / Proses",
-  passed: "Lulus",
+  passed: "Lulus / Tervalidasi",
   failed: "Tidak Lulus",
 };
 
-const APPLICATION = {
-  not_started: "Belum Diajukan",
-  submitted: "Diajukan",
-  processing: "Diproses",
-  approved: "Disetujui",
-  returned: "Dikembalikan",
+const PRAKTIK = {
+  pending: "Belum Mengikuti",
+  not_started: "Belum Mengikuti",
+  in_progress: "Dalam Proses",
+  passed: "Lulus / Tervalidasi",
+  failed: "Tidak Lulus",
 };
 
-const ORIENTATION = {
+const ORIENTASI = {
   not_started: "Belum Dilaksanakan",
   scheduled: "Dijadwalkan",
-  completed: "Selesai",
+  completed: "Selesai / Tervalidasi",
 };
 
-const ISSUANCE = {
+const PENERBITAN = {
   not_issued: "Belum Terbit",
-  processing: "Dalam Proses",
+  processing: "Dalam Proses Penerbitan",
   issued: "SIMPER Terbit",
 };
 
@@ -91,13 +58,18 @@ function formatDate(value) {
 
   if (
     parts.length !== 3 ||
-    parts.some((number) => !Number.isInteger(number))
+    parts.some(
+      (number) => !Number.isInteger(number)
+    )
   ) {
     return "—";
   }
 
   const [year, month, day] = parts;
-  const date = new Date(Date.UTC(year, month - 1, day));
+
+  const date = new Date(
+    Date.UTC(year, month - 1, day)
+  );
 
   if (
     date.getUTCFullYear() !== year ||
@@ -117,15 +89,24 @@ function formatDate(value) {
 
 function parseNotes(value) {
   const raw = String(value || "");
+
   const start = raw.lastIndexOf(META_START);
   const end = raw.lastIndexOf(META_END);
 
   if (start < 0 || end <= start) {
     return {
-      notes: raw,
-      meta: null,
+      notes: raw.trim(),
+      meta: {},
+      hasMetadata: false,
     };
   }
+
+  // Catatan mentor dipisahkan dari metadata.
+  // Metadata tidak ditampilkan sebagai teks.
+  const humanNotes = (
+    raw.slice(0, start) +
+    raw.slice(end + META_END.length)
+  ).trim();
 
   const json = raw.slice(
     start + META_START.length,
@@ -133,130 +114,97 @@ function parseNotes(value) {
   );
 
   try {
-    const data = JSON.parse(json);
+    const parsed = JSON.parse(json);
 
-    if (data?.version !== 2) {
-      throw new Error("Versi metadata tidak sesuai.");
-    }
-
-    const humanNotes = (
-      raw.slice(0, start) +
-      raw.slice(end + META_END.length)
-    ).trim();
+    const meta =
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+        ? parsed
+        : {};
 
     return {
       notes: humanNotes,
-      meta: data,
+      meta,
+      hasMetadata: true,
     };
   } catch {
     return {
-      notes: raw,
-      meta: null,
+      notes: humanNotes,
+      meta: {},
+      hasMetadata: false,
     };
   }
 }
 
 function calculateProgress(record, meta) {
-  const validation =
-    record?.administration_status === "passed";
-
-  const theory =
+  const kmkop =
     record?.theory_status === "passed";
 
-  const practice =
+  const praktik =
     record?.practice_status === "passed";
 
-  const application =
-    meta?.application_status === "approved";
-
-  const orientation =
+  const orientasi =
     meta?.orientation_status === "completed";
 
-  const issued =
-    meta?.issuance_status === "issued" &&
-    Boolean(record?.graduation_date);
-
-  const release =
-    validation &&
-    theory &&
-    practice &&
-    application &&
-    orientation &&
-    issued;
-
   const completed = [
-    validation,
-    theory,
-    practice,
-    release,
+    kmkop,
+    praktik,
+    orientasi,
   ].filter(Boolean).length;
 
-  const percentage = completed * 25;
+  const percentage = Math.round(
+    (completed / 3) * 100
+  );
 
-  let status = "not_started";
+  const passed = completed === 3;
 
-  if (release) {
-    status = "passed";
-  } else if (
+  const failed =
     record?.theory_status === "failed" ||
-    record?.practice_status === "failed"
-  ) {
-    status = "failed";
-  } else if (
-    [
-      record?.administration_status,
-      record?.training_status,
-      record?.theory_status,
-      record?.practice_status,
-      meta?.application_status,
-      meta?.orientation_status,
-      meta?.issuance_status,
-    ].some((value) =>
-      [
-        "passed",
-        "in_progress",
-        "submitted",
-        "processing",
-        "approved",
-        "returned",
-        "scheduled",
-        "completed",
-        "issued",
-      ].includes(value)
-    ) ||
-    Boolean(record?.application_date)
-  ) {
-    status = "in_progress";
-  }
+    record?.practice_status === "failed";
+
+  const started =
+    completed > 0 ||
+    failed ||
+    record?.theory_status === "in_progress" ||
+    record?.practice_status === "in_progress" ||
+    meta?.orientation_status === "scheduled";
+
+  const status = passed
+    ? "passed"
+    : failed
+    ? "failed"
+    : started
+    ? "in_progress"
+    : "not_started";
+
+  const issuanceStatus =
+    meta?.issuance_status || "not_issued";
 
   return {
-    validation,
-    theory,
-    practice,
-    application,
-    orientation,
-    issued,
-    release,
+    kmkop,
+    praktik,
+    orientasi,
     completed,
     percentage,
+    passed,
     status,
+    issuanceStatus,
   };
 }
 
 function statusName(status) {
-  if (status === "passed") {
-    return "SIMPER TERBIT";
-  }
+  if (status === "passed") return "LULUS";
 
   if (status === "failed") {
-    return "PERLU TINDAK LANJUT";
+    return "BELUM LULUS";
   }
 
   if (status === "in_progress") {
-    return "DALAM PROSES";
+    return "BELUM LULUS";
   }
 
-  return "BELUM PROSES";
+  return "BELUM LULUS";
 }
 
 function InfoRow({ title, value }) {
@@ -324,9 +272,7 @@ export default function MonitoringSIMPER() {
         .eq("id", auth.user.id)
         .single();
 
-      if (profileError) {
-        throw profileError;
-      }
+      if (profileError) throw profileError;
 
       const role = String(
         profile?.role || ""
@@ -370,9 +316,7 @@ export default function MonitoringSIMPER() {
         error: programError,
       } = await query.single();
 
-      if (programError) {
-        throw programError;
-      }
+      if (programError) throw programError;
 
       const {
         data: simperData,
@@ -385,9 +329,7 @@ export default function MonitoringSIMPER() {
           ascending: false,
         });
 
-      if (simperError) {
-        throw simperError;
-      }
+      if (simperError) throw simperError;
 
       const result = simperData || [];
 
@@ -442,48 +384,68 @@ export default function MonitoringSIMPER() {
   );
 
   const stages = useMemo(() => {
-    const done = [
-      progress.validation,
-      progress.theory,
-      progress.practice,
-      progress.release,
-    ];
-
-    return STAGES.map((stage, index) => {
-      const value =
-        index === 3
-          ? simperMeta?.issuance_status || "not_issued"
-          : record?.[stage.key];
-
-      let displayStatus;
-
-      if (index === 0) {
-        displayStatus = label(
-          value,
-          VALIDATION,
-          "Belum Proses"
-        );
-      } else if (index === 1 || index === 2) {
-        displayStatus = label(
-          value,
-          EXAM,
-          "Belum Ujian"
-        );
-      } else {
-        displayStatus = label(
-          value,
-          ISSUANCE,
+    return [
+      {
+        key: "kmkop",
+        label: "KMKOP",
+        icon: "📋",
+        description:
+          "Pemenuhan persyaratan dan validasi kelulusan KMKOP.",
+        value: record?.theory_status || "pending",
+        displayStatus: label(
+          record?.theory_status,
+          KMKOP,
+          "Belum Mengikuti"
+        ),
+        complete: progress.kmkop,
+      },
+      {
+        key: "praktik",
+        label: "Praktik",
+        icon: "📝",
+        description:
+          "Pelaksanaan praktik dan validasi hasil penilaian.",
+        value: record?.practice_status || "pending",
+        displayStatus: label(
+          record?.practice_status,
+          PRAKTIK,
+          "Belum Mengikuti"
+        ),
+        complete: progress.praktik,
+      },
+      {
+        key: "orientasi",
+        label: "Orientasi Area",
+        icon: "🗺️",
+        description:
+          "Pelaksanaan Orientasi Area dan validasi penyelesaian.",
+        value:
+          simperMeta?.orientation_status ||
+          "not_started",
+        displayStatus: label(
+          simperMeta?.orientation_status,
+          ORIENTASI,
+          "Belum Dilaksanakan"
+        ),
+        complete: progress.orientasi,
+      },
+      {
+        key: "penerbitan",
+        label: "Penerbitan SIMPER",
+        icon: "🪪",
+        description:
+          "Status proses penerbitan kartu SIMPER.",
+        value: progress.issuanceStatus,
+        displayStatus: label(
+          progress.issuanceStatus,
+          PENERBITAN,
           "Belum Terbit"
-        );
-      }
-
-      return {
-        ...stage,
-        value,
-        displayStatus,
-        complete: done[index],
-      };
-    });
+        ),
+        complete:
+          progress.issuanceStatus === "issued",
+        isIssuance: true,
+      },
+    ];
   }, [record, simperMeta, progress]);
 
   const peserta = Array.isArray(program?.peserta)
@@ -492,7 +454,7 @@ export default function MonitoringSIMPER() {
 
   const legacyWarning =
     Boolean(record) &&
-    !simperMeta &&
+    !parsedNotes.hasMetadata &&
     record.status === "passed";
 
   if (loading) {
@@ -805,6 +767,41 @@ export default function MonitoringSIMPER() {
           padding: 20px;
         }
 
+        .sim-status-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 18px;
+          margin-top: 20px;
+        }
+
+        .sim-status-item {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: 130px;
+        }
+
+        .sim-status-label {
+          color: #b5c2c5;
+          font-size: 12px;
+        }
+
+        .sim-status-value {
+          display: inline-block;
+          width: fit-content;
+          border-radius: 8px;
+          padding: 9px 12px;
+          background: #fff3da;
+          color: #93620e;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .sim-status-value.complete {
+          background: #e6f8ed;
+          color: #008650;
+        }
+
         @media (max-width: 650px) {
           .sim-header {
             padding: 16px;
@@ -878,10 +875,10 @@ export default function MonitoringSIMPER() {
         </h1>
 
         <p className="sim-description">
-          Monitoring tahapan pengurusan SIMPER
-          peserta OJT, mulai dari validasi persyaratan,
-          ujian teori, ujian praktik, hingga penerbitan
-          SIMPER. Setiap tahap yang selesai bernilai 25%.
+          Monitoring KMKOP, Praktik, dan
+          Orientasi Area sebagai persyaratan
+          kelulusan SIMPER, serta pemantauan
+          status penerbitan kartu SIMPER.
         </p>
 
         {error && (
@@ -940,9 +937,9 @@ export default function MonitoringSIMPER() {
                   </strong>
 
                   <p>
-                    Data pengurusan SIMPER akan
-                    muncul setelah Mentor melakukan
-                    input melalui sistem.
+                    Data SIMPER akan muncul
+                    setelah Mentor melakukan input
+                    melalui sistem.
                   </p>
                 </div>
               </section>
@@ -961,40 +958,51 @@ export default function MonitoringSIMPER() {
                         )
                       }
                     >
-                      {records.map((item) => (
-                        <option
-                          key={item.id}
-                          value={item.id}
-                        >
-                          {item.simper_type || "SIMPER"}
-                          {" — "}
-                          {statusName(
-                            calculateProgress(
-                              item,
-                              parseNotes(item.notes).meta
-                            ).status
-                          )}
-                        </option>
-                      ))}
+                      {records.map((item) => {
+                        const itemNotes = parseNotes(
+                          item.notes
+                        );
+
+                        const itemProgress =
+                          calculateProgress(
+                            item,
+                            itemNotes.meta
+                          );
+
+                        return (
+                          <option
+                            key={item.id}
+                            value={item.id}
+                          >
+                            {item.simper_type || "SIMPER"}
+                            {" — "}
+                            {itemProgress.percentage}%
+                            {" — "}
+                            {statusName(
+                              itemProgress.status
+                            )}
+                          </option>
+                        );
+                      })}
                     </select>
                   </section>
                 )}
 
                 {legacyWarning && (
                   <div className="sim-warning">
-                    Data SIMPER lama memiliki status lulus,
-                    tetapi rincian pengajuan, orientasi,
-                    dan penerbitan belum tersedia.
-                    Mentor perlu melengkapi data tersebut
-                    agar progres penerbitan dapat
-                    dihitung secara akurat.
+                    Data SIMPER lama belum memiliki
+                    rincian Orientasi Area yang
+                    tervalidasi. Mentor perlu
+                    memeriksa kembali data tersebut
+                    agar progres sesuai dengan
+                    persyaratan terbaru.
                   </div>
                 )}
 
                 <section className="sim-card">
                   <div className="sim-dark">
                     <div className="sim-dark-label">
-                      Progres Pengurusan{" "}
+                      Progres Persyaratan{" "}
                       {record?.simper_type || "SIMPER"}
                     </div>
 
@@ -1020,33 +1028,59 @@ export default function MonitoringSIMPER() {
 
                     <div className="sim-dark-bottom">
                       <span>
-                        {progress.completed} dari 4
-                        tahap selesai
+                        {progress.completed} dari 3
+                        persyaratan terpenuhi
                       </span>
 
                       <span>
-                        {4 - progress.completed} tahap
-                        tersisa
+                        {3 - progress.completed}
+                        {" "}persyaratan tersisa
                       </span>
                     </div>
 
-                    <div
-                      style={{
-                        marginTop: 18,
-                        color: "#d1ded7",
-                        fontSize: 13,
-                      }}
-                    >
-                      Status:{" "}
-                      <strong>
-                        {statusName(progress.status)}
-                      </strong>
+                    <div className="sim-status-row">
+                      <div className="sim-status-item">
+                        <span className="sim-status-label">
+                          Status Kelulusan
+                        </span>
+
+                        <span
+                          className={`sim-status-value ${
+                            progress.passed
+                              ? "complete"
+                              : ""
+                          }`}
+                        >
+                          {statusName(progress.status)}
+                        </span>
+                      </div>
+
+                      <div className="sim-status-item">
+                        <span className="sim-status-label">
+                          Status Penerbitan
+                        </span>
+
+                        <span
+                          className={`sim-status-value ${
+                            progress.issuanceStatus ===
+                            "issued"
+                              ? "complete"
+                              : ""
+                          }`}
+                        >
+                          {label(
+                            progress.issuanceStatus,
+                            PENERBITAN,
+                            "Belum Terbit"
+                          )}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </section>
 
                 <section className="sim-card">
-                  <h2>Tahapan Pengurusan SIMPER</h2>
+                  <h2>Tahapan Monitoring SIMPER</h2>
 
                   <div className="sim-grid">
                     {stages.map((stage, index) => (
@@ -1083,13 +1117,33 @@ export default function MonitoringSIMPER() {
                           </span>
                         </div>
 
-                        <div className="sim-stage-weight">
-                          {stage.complete ? "25%" : "0%"}
-                        </div>
+                        {stage.isIssuance ? (
+                          <>
+                            <div className="sim-stage-weight">
+                              {stage.complete
+                                ? "TERBIT"
+                                : stage.value === "processing"
+                                ? "PROSES"
+                                : "BELUM"}
+                            </div>
 
-                        <div className="sim-muted">
-                          dari bobot 25%
-                        </div>
+                            <div className="sim-muted">
+                              Tidak dihitung dalam progres
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="sim-stage-weight">
+                              {stage.complete
+                                ? "Terpenuhi"
+                                : "Belum"}
+                            </div>
+
+                            <div className="sim-muted">
+                              Bobot 1 dari 3 persyaratan
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1104,58 +1158,33 @@ export default function MonitoringSIMPER() {
                   />
 
                   <InfoRow
-                    title="Status Keseluruhan"
+                    title="Status Kelulusan"
                     value={statusName(progress.status)}
                   />
 
                   <InfoRow
-                    title="Validasi Persyaratan"
-                    value={label(
-                      record?.administration_status,
-                      VALIDATION,
-                      "Belum Proses"
-                    )}
-                  />
-
-                  <InfoRow
-                    title="Ujian Teori"
+                    title="KMKOP"
                     value={label(
                       record?.theory_status,
-                      EXAM,
-                      "Belum Ujian"
+                      KMKOP,
+                      "Belum Mengikuti"
                     )}
                   />
 
                   <InfoRow
-                    title="Ujian Praktik"
+                    title="Praktik"
                     value={label(
                       record?.practice_status,
-                      EXAM,
-                      "Belum Ujian"
+                      PRAKTIK,
+                      "Belum Mengikuti"
                     )}
                   />
 
                   <InfoRow
-                    title="Status Pengajuan"
-                    value={label(
-                      simperMeta?.application_status,
-                      APPLICATION,
-                      "Belum Diajukan"
-                    )}
-                  />
-
-                  <InfoRow
-                    title="Tanggal Pengajuan"
-                    value={formatDate(
-                      record?.application_date
-                    )}
-                  />
-
-                  <InfoRow
-                    title="Status Orientasi"
+                    title="Orientasi Area"
                     value={label(
                       simperMeta?.orientation_status,
-                      ORIENTATION,
+                      ORIENTASI,
                       "Belum Dilaksanakan"
                     )}
                   />
@@ -1168,25 +1197,41 @@ export default function MonitoringSIMPER() {
                   />
 
                   <InfoRow
+                    title="Komponen Terpenuhi"
+                    value={`${progress.completed} dari 3`}
+                  />
+
+                  <InfoRow
+                    title="Total Progres"
+                    value={`${progress.percentage}%`}
+                  />
+
+                  <InfoRow
                     title="Status Penerbitan"
                     value={label(
-                      simperMeta?.issuance_status,
-                      ISSUANCE,
+                      progress.issuanceStatus,
+                      PENERBITAN,
                       "Belum Terbit"
                     )}
                   />
 
                   <InfoRow
                     title="Tanggal SIMPER Terbit"
-                    value={formatDate(
-                      record?.graduation_date
-                    )}
+                    value={
+                      progress.issuanceStatus === "issued"
+                        ? formatDate(
+                            record?.graduation_date
+                          )
+                        : "—"
+                    }
                   />
 
                   <InfoRow
                     title="Nomor SIMPER"
                     value={
-                      simperMeta?.issuance_number || "—"
+                      progress.issuanceStatus === "issued"
+                        ? simperMeta?.issuance_number || "—"
+                        : "—"
                     }
                   />
                 </section>
