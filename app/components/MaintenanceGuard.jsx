@@ -2,9 +2,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 export default function MaintenanceGuard({ children }) {
+  const pathname = usePathname();
+
   const [status, setStatus] = useState("checking");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -34,6 +37,7 @@ export default function MaintenanceGuard({ children }) {
 
       if (!user) {
         setStatus("maintenance");
+        setErrorMessage("");
         return;
       }
 
@@ -85,7 +89,9 @@ export default function MaintenanceGuard({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(() => {
-      checkMaintenance();
+      // Hindari permintaan Supabase langsung
+      // di dalam callback autentikasi.
+      setStatus("checking");
     });
 
     return () => {
@@ -97,6 +103,13 @@ export default function MaintenanceGuard({ children }) {
       subscription.unsubscribe();
     };
   }, [checkMaintenance]);
+
+  // Halaman login tetap dapat dibuka agar
+  // Admin bisa masuk selama maintenance.
+  // Dashboard tetap diperiksa berdasarkan role.
+  if (pathname === "/login") {
+    return children;
+  }
 
   if (status === "checking") {
     return (
