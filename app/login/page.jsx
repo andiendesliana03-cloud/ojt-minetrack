@@ -12,6 +12,23 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [maintenance, setMaintenance] = useState(false);
+
+  async function checkMaintenance() {
+    const { data, error: settingError } = await supabase
+      .from("app_settings")
+      .select("maintenance_mode")
+      .eq("id", 1)
+      .single();
+
+    if (settingError) {
+      throw new Error(
+        "Gagal memeriksa status website. Silakan coba kembali."
+      );
+    }
+
+    return data?.maintenance_mode === true;
+  }
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -20,6 +37,7 @@ export default function LoginPage() {
 
     setLoading(true);
     setError("");
+    setMaintenance(false);
 
     try {
       const normalizedEmail = email
@@ -56,6 +74,10 @@ export default function LoginPage() {
         );
       }
 
+      // Periksa maintenance sebelum membaca profil.
+      // app_settings tetap dapat dibaca saat maintenance ON.
+      const maintenanceOn = await checkMaintenance();
+
       const {
         data: profil,
         error: profilError,
@@ -65,53 +87,66 @@ export default function LoginPage() {
         .eq("id", data.user.id)
         .maybeSingle();
 
-      if (profilError) {
+      // Jika maintenance OFF, semua role diperiksa normal.
+      if (!maintenanceOn) {
+        if (profilError) {
+          throw new Error(
+            "Gagal memeriksa profil akun."
+          );
+        }
+
+        if (!profil) {
+          throw new Error(
+            "Profil akun belum tersedia. Hubungi administrator."
+          );
+        }
+
+        const role = String(profil.role || "")
+          .trim()
+          .toLowerCase();
+
+        if (role === "admin" || role === "mentor") {
+          router.replace("/");
+          router.refresh();
+          return;
+        }
+
+        if (
+          role === "participant" ||
+          role === "peserta"
+        ) {
+          router.replace("/dashboard-peserta");
+          router.refresh();
+          return;
+        }
+
         throw new Error(
-          "Gagal memeriksa profil akun."
+          "Role akun tidak dikenali. Hubungi administrator."
         );
       }
 
-      if (!profil) {
-        throw new Error(
-          "Profil akun belum tersedia. Hubungi administrator."
-        );
+      // Saat maintenance ON, hanya Admin yang dapat
+      // membaca profil melalui kebijakan RLS.
+      // Jika profil tidak terlihat, tampilkan pemberitahuan
+      // maintenance, bukan pesan "profil belum tersedia".
+      if (!profilError && profil) {
+        const role = String(profil.role || "")
+          .trim()
+          .toLowerCase();
+
+        if (role === "admin") {
+          router.replace("/");
+          router.refresh();
+          return;
+        }
       }
 
-      const role = String(profil.role || "")
-        .trim()
-        .toLowerCase();
+      setMaintenance(true);
+      setPassword("");
 
-      // ADMIN
-      // Tetap memiliki role admin.
-      // Masuk ke Dashboard Mentor.
-      if (role === "admin") {
-        router.replace("/");
-        router.refresh();
-        return;
-      }
-
-      // MENTOR
-      if (role === "mentor") {
-        router.replace("/");
-        router.refresh();
-        return;
-      }
-
-      // PESERTA
-      // Status pendaftaran dan akses program
-      // tetap diperiksa di Dashboard Peserta.
-      if (
-        role === "participant" ||
-        role === "peserta"
-      ) {
-        router.replace("/dashboard-peserta");
-        router.refresh();
-        return;
-      }
-
-      throw new Error(
-        "Role akun tidak dikenali. Hubungi administrator."
-      );
+      // Hapus sesi Mentor/Peserta setelah menampilkan
+      // pemberitahuan maintenance.
+      await supabase.auth.signOut();
     } catch (err) {
       setError(
         err?.message ||
@@ -125,6 +160,12 @@ export default function LoginPage() {
   function handleDaftarPeserta() {
     if (loading) return;
     router.push("/daftar");
+  }
+
+  function handleBackToLogin() {
+    setMaintenance(false);
+    setError("");
+    setPassword("");
   }
 
   const halaman = {
@@ -257,176 +298,291 @@ export default function LoginPage() {
           </p>
         </header>
 
-        <form onSubmit={handleLogin}>
-          <h2
+        {maintenance ? (
+          <section
+            role="status"
             style={{
               textAlign: "center",
-              fontSize: 22,
-              margin: "0 0 8px",
+              padding: "8px 3px 5px",
             }}
           >
-            Login
-          </h2>
-
-          <p
-            style={{
-              textAlign: "center",
-              fontSize: 13,
-              color: "#64748b",
-              margin: "0 0 26px",
-            }}
-          >
-            Admin, Mentor dan Peserta OJT
-          </p>
-
-          <label
-            htmlFor="email"
-            style={{
-              display: "block",
-              fontWeight: 600,
-              marginBottom: 9,
-            }}
-          >
-            Email
-          </label>
-
-          <input
-            id="email"
-            type="email"
-            placeholder="Masukkan email"
-            value={email}
-            onChange={(e) =>
-              setEmail(e.target.value)
-            }
-            required
-            disabled={loading}
-            autoComplete="email"
-            style={{
-              ...inputStyle,
-              marginBottom: 22,
-            }}
-          />
-
-          <label
-            htmlFor="password"
-            style={{
-              display: "block",
-              fontWeight: 600,
-              marginBottom: 9,
-            }}
-          >
-            Password
-          </label>
-
-          <input
-            id="password"
-            type="password"
-            placeholder="Masukkan password"
-            value={password}
-            onChange={(e) =>
-              setPassword(e.target.value)
-            }
-            required
-            disabled={loading}
-            autoComplete="current-password"
-            style={{
-              ...inputStyle,
-              marginBottom: 22,
-            }}
-          />
-
-          {error && (
             <div
-              role="alert"
               style={{
-                background: "#fef2f2",
-                color: "#b91c1c",
-                padding: 12,
-                borderRadius: 10,
-                fontSize: 13,
-                marginBottom: 18,
+                width: 68,
+                height: 68,
+                borderRadius: "50%",
+                background: "#fff3d6",
+                color: "#a16207",
+                margin: "0 auto 18px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 32,
               }}
             >
-              {error}
+              ⚙
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "15px 18px",
-              border: "none",
-              borderRadius: 11,
-              backgroundColor: "#0f172a",
-              color: "#ffffff",
-              fontSize: 16,
-              fontWeight: 600,
-              cursor: loading
-                ? "wait"
-                : "pointer",
-              opacity: loading ? 0.7 : 1,
-            }}
-          >
-            {loading
-              ? "Memproses Login..."
-              : "Masuk"}
-          </button>
-        </form>
+            <h2
+              style={{
+                fontSize: 21,
+                lineHeight: 1.4,
+                margin: "0 0 15px",
+                color: "#0f172a",
+              }}
+            >
+              Website Sedang Dalam Pemeliharaan
+            </h2>
 
-        <div
-          style={{
-            marginTop: 22,
-            textAlign: "center",
-          }}
-        >
-          <p
-            style={{
-              fontSize: 14,
-              color: "#475569",
-              marginBottom: 12,
-            }}
-          >
-            Ingin bergabung sebagai peserta OJT?
-          </p>
+            <p
+              style={{
+                color: "#475569",
+                fontSize: 14,
+                lineHeight: 1.8,
+                margin: "0 0 19px",
+              }}
+            >
+              OJT MineTrack v2.0 sedang menjalani
+              pemeliharaan sistem untuk meningkatkan
+              kualitas layanan.
+            </p>
 
-          <button
-            type="button"
-            onClick={handleDaftarPeserta}
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "15px 18px",
-              border: "2px solid #2563eb",
-              borderRadius: 11,
-              backgroundColor: "#eff6ff",
-              color: "#1d4ed8",
-              fontSize: 16,
-              fontWeight: 700,
-              cursor: loading
-                ? "not-allowed"
-                : "pointer",
-              opacity: loading ? 0.7 : 1,
-            }}
-          >
-            Daftar Peserta OJT
-          </button>
+            <div
+              style={{
+                padding: 15,
+                borderRadius: 12,
+                background: "#eff6ff",
+                border: "1px solid #bfdbfe",
+                marginBottom: 20,
+              }}
+            >
+              <strong
+                style={{
+                  color: "#1e40af",
+                  fontSize: 13,
+                }}
+              >
+                Data OJT tetap tersimpan
+              </strong>
 
-          <p
-            style={{
-              fontSize: 12,
-              color: "#64748b",
-              marginTop: 12,
-              lineHeight: 1.6,
-            }}
-          >
-            Cukup daftar satu kali.
-            Setelah mentor menyetujui,
-            peserta dapat mengakses
-            monitoring OJT.
-          </p>
-        </div>
+              <p
+                style={{
+                  color: "#475569",
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                  margin: "8px 0 0",
+                }}
+              >
+                Akses Mentor dan Peserta akan tersedia
+                kembali setelah Maintenance Mode
+                dinonaktifkan oleh Administrator.
+              </p>
+            </div>
+
+            <p
+              style={{
+                fontSize: 13,
+                color: "#64748b",
+                lineHeight: 1.7,
+                marginBottom: 22,
+              }}
+            >
+              Silakan mencoba kembali setelah proses
+              pemeliharaan selesai.
+            </p>
+
+            <button
+              type="button"
+              onClick={handleBackToLogin}
+              style={{
+                width: "100%",
+                padding: "14px 18px",
+                border: "none",
+                borderRadius: 11,
+                backgroundColor: "#0f172a",
+                color: "#ffffff",
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Kembali ke Halaman Login
+            </button>
+          </section>
+        ) : (
+          <>
+            <form onSubmit={handleLogin}>
+              <h2
+                style={{
+                  textAlign: "center",
+                  fontSize: 22,
+                  margin: "0 0 8px",
+                }}
+              >
+                Login
+              </h2>
+
+              <p
+                style={{
+                  textAlign: "center",
+                  fontSize: 13,
+                  color: "#64748b",
+                  margin: "0 0 26px",
+                }}
+              >
+                Admin, Mentor dan Peserta OJT
+              </p>
+
+              <label
+                htmlFor="email"
+                style={{
+                  display: "block",
+                  fontWeight: 600,
+                  marginBottom: 9,
+                }}
+              >
+                Email
+              </label>
+
+              <input
+                id="email"
+                type="email"
+                placeholder="Masukkan email"
+                value={email}
+                onChange={(e) =>
+                  setEmail(e.target.value)
+                }
+                required
+                disabled={loading}
+                autoComplete="email"
+                style={{
+                  ...inputStyle,
+                  marginBottom: 22,
+                }}
+              />
+
+              <label
+                htmlFor="password"
+                style={{
+                  display: "block",
+                  fontWeight: 600,
+                  marginBottom: 9,
+                }}
+              >
+                Password
+              </label>
+
+              <input
+                id="password"
+                type="password"
+                placeholder="Masukkan password"
+                value={password}
+                onChange={(e) =>
+                  setPassword(e.target.value)
+                }
+                required
+                disabled={loading}
+                autoComplete="current-password"
+                style={{
+                  ...inputStyle,
+                  marginBottom: 22,
+                }}
+              />
+
+              {error && (
+                <div
+                  role="alert"
+                  style={{
+                    background: "#fef2f2",
+                    color: "#b91c1c",
+                    padding: 12,
+                    borderRadius: 10,
+                    fontSize: 13,
+                    marginBottom: 18,
+                  }}
+                >
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  padding: "15px 18px",
+                  border: "none",
+                  borderRadius: 11,
+                  backgroundColor: "#0f172a",
+                  color: "#ffffff",
+                  fontSize: 16,
+                  fontWeight: 600,
+                  cursor: loading
+                    ? "wait"
+                    : "pointer",
+                  opacity: loading ? 0.7 : 1,
+                }}
+              >
+                {loading
+                  ? "Memproses Login..."
+                  : "Masuk"}
+              </button>
+            </form>
+
+            <div
+              style={{
+                marginTop: 22,
+                textAlign: "center",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: 14,
+                  color: "#475569",
+                  marginBottom: 12,
+                }}
+              >
+                Ingin bergabung sebagai peserta OJT?
+              </p>
+
+              <button
+                type="button"
+                onClick={handleDaftarPeserta}
+                disabled={loading}
+                style={{
+                  width: "100%",
+                  padding: "15px 18px",
+                  border: "2px solid #2563eb",
+                  borderRadius: 11,
+                  backgroundColor: "#eff6ff",
+                  color: "#1d4ed8",
+                  fontSize: 16,
+                  fontWeight: 700,
+                  cursor: loading
+                    ? "not-allowed"
+                    : "pointer",
+                  opacity: loading ? 0.7 : 1,
+                }}
+              >
+                Daftar Peserta OJT
+              </button>
+
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "#64748b",
+                  marginTop: 12,
+                  lineHeight: 1.6,
+                }}
+              >
+                Cukup daftar satu kali.
+                Setelah mentor menyetujui,
+                peserta dapat mengakses
+                monitoring OJT.
+              </p>
+            </div>
+          </>
+        )}
 
         <footer
           style={{
