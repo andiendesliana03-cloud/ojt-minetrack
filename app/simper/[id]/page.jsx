@@ -28,6 +28,12 @@ const ORIENTASI_OPTIONS = [
   ["completed", "Selesai / Tervalidasi"],
 ];
 
+const PENERBITAN_OPTIONS = [
+  ["not_issued", "Belum Terbit"],
+  ["processing", "Dalam Proses Penerbitan"],
+  ["issued", "SIMPER Terbit"],
+];
+
 function blank() {
   return {
     simper_type: "SIMPER",
@@ -68,9 +74,12 @@ function parseNotes(value) {
         raw.slice(0, start) +
         raw.slice(end + META_END.length)
       ).trim(),
-      meta: meta && typeof meta === "object"
-        ? meta
-        : {},
+      meta:
+        meta &&
+        typeof meta === "object" &&
+        !Array.isArray(meta)
+          ? meta
+          : {},
     };
   } catch {
     return { notes: raw, meta: {} };
@@ -79,7 +88,7 @@ function parseNotes(value) {
 
 function buildNotes(form) {
   const meta = {
-    version: 3,
+    version: 4,
     assessment_model: "KMKOP_PRAKTIK_ORIENTASI",
     application_status: form.application_status,
     orientation_status: form.orientation_status,
@@ -312,11 +321,35 @@ export default function InputSIMPER() {
     deleting ||
     program?.status !== "active";
 
+  const finalStatus = progress.passed
+    ? "LULUS"
+    : "BELUM LULUS";
+
+  const issuanceLabel = optionLabel(
+    PENERBITAN_OPTIONS,
+    form.issuance_status
+  );
+
   function change(name, value) {
-    setForm((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
+    setForm((previous) => {
+      const next = {
+        ...previous,
+        [name]: value,
+      };
+
+      // Jika status bukan Terbit, tanggal dan nomor
+      // dikosongkan agar tidak terbaca sebagai
+      // SIMPER yang sudah diterbitkan.
+      if (
+        name === "issuance_status" &&
+        value !== "issued"
+      ) {
+        next.graduation_date = "";
+        next.issuance_number = "";
+      }
+
+      return next;
+    });
 
     setError("");
     setSuccess("");
@@ -466,6 +499,29 @@ export default function InputSIMPER() {
       return;
     }
 
+    if (
+      form.issuance_status === "issued" &&
+      !progress.passed
+    ) {
+      setError(
+        "SIMPER hanya dapat dinyatakan terbit " +
+        "jika KMKOP, Praktik, dan Orientasi Area " +
+        "sudah terpenuhi."
+      );
+      return;
+    }
+
+    if (
+      form.issuance_status === "issued" &&
+      !form.graduation_date
+    ) {
+      setError(
+        "Tanggal terbit wajib diisi apabila " +
+        "status SIMPER Terbit."
+      );
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -482,39 +538,39 @@ export default function InputSIMPER() {
       if (activeError) throw activeError;
 
       if (!activeProgram) {
-        throw new Error(
-          "Program OJT tidak aktif."
-        );
+        throw new Error("Program OJT tidak aktif.");
       }
 
       const payload = {
         simper_type: form.simper_type.trim(),
 
-        // Data lama tetap dipertahankan.
+        // Kolom lama tetap dipertahankan.
         administration_status:
           form.administration_status,
         training_status:
           form.training_status,
 
-        // KMKOP menggunakan kolom theory_status.
-        theory_status:
-          form.theory_status,
+        // KMKOP dan Praktik.
+        theory_status: form.theory_status,
+        practice_status: form.practice_status,
 
-        // Praktik menggunakan kolom practice_status.
-        practice_status:
-          form.practice_status,
-
-        // Orientasi disimpan dalam metadata notes.
+        // Orientasi dan penerbitan tersimpan
+        // dalam metadata notes.
         notes: buildNotes(form),
 
-        // Status akhir dihitung otomatis.
+        // Status kelulusan otomatis.
         status: progress.status,
 
-        // Informasi lama tidak dihapus.
+        // Informasi lama dipertahankan.
         application_date:
           form.application_date || null,
+
+        // Tanggal terbit menggunakan kolom
+        // graduation_date yang sudah tersedia.
         graduation_date:
-          form.graduation_date || null,
+          form.issuance_status === "issued"
+            ? form.graduation_date
+            : null,
       };
 
       let result;
@@ -548,12 +604,12 @@ export default function InputSIMPER() {
       await reload();
 
       setSuccess(
-        "Penilaian SIMPER berhasil disimpan."
+        "Penilaian dan penerbitan SIMPER berhasil disimpan."
       );
     } catch (err) {
       setError(
         err?.message ||
-        "Gagal menyimpan penilaian SIMPER."
+        "Gagal menyimpan data SIMPER."
       );
     } finally {
       setSaving(false);
@@ -563,8 +619,7 @@ export default function InputSIMPER() {
   async function remove() {
     if (
       !recordId ||
-      saving ||
-      deleting ||
+      disabled ||
       !program ||
       program.id !== programId
     ) {
@@ -613,10 +668,6 @@ export default function InputSIMPER() {
       setDeleting(false);
     }
   }
-
-  const finalStatus = progress.passed
-    ? "LULUS"
-    : "BELUM LULUS";
 
   return (
     <main className="sp-root">
@@ -991,8 +1042,8 @@ export default function InputSIMPER() {
           </small>
           <h1>Monitoring SIMPER</h1>
           <p>
-            Penilaian KMKOP, Praktik, dan
-            Orientasi Area peserta OJT.
+            Penilaian KMKOP, Praktik, Orientasi Area,
+            dan status penerbitan SIMPER peserta OJT.
           </p>
         </section>
 
@@ -1076,21 +1127,43 @@ export default function InputSIMPER() {
                 />
               </div>
 
-              <span
-                className={
-                  progress.passed
-                    ? "sp-status passed"
-                    : "sp-status"
-                }
-              >
-                {finalStatus}
-              </span>
+              <div className="sp-progress-statuses">
+                <div>
+                  <span className="sp-mini-label">
+                    Status Kelulusan
+                  </span>
+                  <span
+                    className={
+                      progress.passed
+                        ? "sp-status passed"
+                        : "sp-status"
+                    }
+                  >
+                    {finalStatus}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="sp-mini-label">
+                    Status Penerbitan
+                  </span>
+                  <span
+                    className={
+                      form.issuance_status === "issued"
+                        ? "sp-status passed"
+                        : "sp-status"
+                    }
+                  >
+                    {issuanceLabel}
+                  </span>
+                </div>
+              </div>
 
               <p>
                 Progres dihitung dari KMKOP,
                 Praktik, dan Orientasi Area.
-                Ketiga komponen harus terpenuhi
-                untuk memperoleh status LULUS.
+                Status penerbitan tidak menambah
+                atau mengurangi persentase.
               </p>
             </section>
 
@@ -1168,6 +1241,75 @@ export default function InputSIMPER() {
                   }
                 />
               </AssessmentCard>
+
+              <section className="sp-card">
+                <div className="sp-stage-header">
+                  <div className="sp-number">04</div>
+                  <div className="sp-stage-text">
+                    <h2>Penerbitan SIMPER</h2>
+                    <p>
+                      Monitoring penerbitan kartu SIMPER
+                      setelah persyaratan peserta terpenuhi.
+                    </p>
+                  </div>
+
+                  <span
+                    className={
+                      form.issuance_status === "issued"
+                        ? "sp-badge complete"
+                        : "sp-badge"
+                    }
+                  >
+                    {form.issuance_status === "issued"
+                      ? "Terbit"
+                      : form.issuance_status === "processing"
+                      ? "Diproses"
+                      : "Belum Terbit"}
+                  </span>
+                </div>
+
+                <SelectField
+                  label="Status Penerbitan SIMPER"
+                  value={form.issuance_status}
+                  options={PENERBITAN_OPTIONS}
+                  disabled={disabled}
+                  onChange={(value) =>
+                    change("issuance_status", value)
+                  }
+                />
+
+                {form.issuance_status === "issued" && (
+                  <>
+                    <InputField
+                      label="Tanggal SIMPER Terbit"
+                      type="date"
+                      value={form.graduation_date}
+                      disabled={disabled}
+                      onChange={(value) =>
+                        change("graduation_date", value)
+                      }
+                    />
+
+                    <InputField
+                      label="Nomor SIMPER (Opsional)"
+                      value={form.issuance_number}
+                      disabled={disabled}
+                      onChange={(value) =>
+                        change("issuance_number", value)
+                      }
+                      placeholder="Masukkan nomor SIMPER"
+                    />
+                  </>
+                )}
+
+                <div className="sp-alert info">
+                  Status SIMPER Terbit hanya dapat
+                  disimpan jika KMKOP dan Praktik
+                  sudah lulus serta Orientasi Area
+                  selesai/tervalidasi. Status
+                  penerbitan tidak mengubah progres.
+                </div>
+              </section>
 
               <section className="sp-card">
                 <h2>Catatan Mentor</h2>
@@ -1261,6 +1403,19 @@ export default function InputSIMPER() {
                   `${progress.percentage}%`,
                 ],
                 ["Status Akhir", finalStatus],
+                ["Status Penerbitan", issuanceLabel],
+                [
+                  "Tanggal SIMPER Terbit",
+                  form.issuance_status === "issued"
+                    ? formatDate(form.graduation_date)
+                    : "—",
+                ],
+                [
+                  "Nomor SIMPER",
+                  form.issuance_status === "issued"
+                    ? form.issuance_number || "—"
+                    : "—",
+                ],
               ].map(([label, value]) => (
                 <div className="sp-info" key={label}>
                   <span>{label}</span>
@@ -1282,6 +1437,28 @@ export default function InputSIMPER() {
           {" · "}PT Berau Coal
         </footer>
       </div>
+
+      <style>{`
+        .sp-progress-statuses {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 14px;
+          margin: 15px 0;
+        }
+
+        .sp-progress-statuses > div {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 7px;
+        }
+
+        .sp-mini-label {
+          font-size: 11px;
+          font-weight: 800;
+          color: #71887b;
+        }
+      `}</style>
     </main>
   );
 }
