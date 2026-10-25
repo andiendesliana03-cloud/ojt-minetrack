@@ -162,7 +162,9 @@ function parseSimperMetadata(notes) {
       start + META_START.length,
       end
     );
+
     const meta = JSON.parse(raw);
+
     return meta?.version === 2 ? meta : null;
   } catch {
     return null;
@@ -183,8 +185,10 @@ function calculateSimper(record) {
 
   const validation =
     record.administration_status === "passed";
+
   const theory =
     record.theory_status === "passed";
+
   const practice =
     record.practice_status === "passed";
 
@@ -306,76 +310,91 @@ function getSamaptaSessions(records) {
 function Icon({ name, size = 21 }) {
   const icons = {
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+
     home: (
       <>
         <path d="m3 10 9-7 9 7" />
         <path d="M5 9v12h14V9M9 21v-7h6v7" />
       </>
     ),
+
     users: (
       <>
         <circle cx="9" cy="8" r="3" />
         <path d="M3 20v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5" />
       </>
     ),
+
     file: (
       <>
         <rect x="5" y="3" width="14" height="18" rx="2" />
         <path d="M9 8h6M9 12h6M9 16h4" />
       </>
     ),
+
     check: <path d="m4 12 5 5L20 6" />,
+
     chart: (
       <path d="M5 20v-7M11 20V5M17 20v-11M22 20V3" />
     ),
+
     search: (
       <>
         <circle cx="10.5" cy="10.5" r="6.5" />
         <path d="m16 16 5 5" />
       </>
     ),
+
     arrow: <path d="m9 5 7 7-7 7" />,
+
     shield: (
       <>
         <path d="m12 2 9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z" />
         <path d="m8 12 3 3 5-6" />
       </>
     ),
+
     gear: (
       <>
         <circle cx="12" cy="12" r="3" />
         <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" />
       </>
     ),
+
     leaf: (
       <>
         <path d="M20 4C10 4 4 8 4 15a5 5 0 0 0 5 5c7 0 11-7 11-16Z" />
         <path d="M4 20c3-5 7-8 12-11" />
       </>
     ),
+
     refresh: (
       <>
         <path d="M20 11a8 8 0 0 0-14-5L3 9" />
         <path d="M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />
       </>
     ),
+
     logout: (
       <>
         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
         <path d="m16 17 5-5-5-5M21 12H9" />
       </>
     ),
+
     clock: (
       <>
         <circle cx="12" cy="12" r="9" />
         <path d="M12 7v5l4 2" />
       </>
     ),
+
     flag: (
       <>
         <path d="M5 22V3M5 4c6-4 9 4 15 0v11c-6 4-9-4-15 0" />
       </>
     ),
+
     calendar: (
       <>
         <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -501,7 +520,31 @@ export default function MentorDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
+  // Status maintenance khusus tampilan Admin.
+  // Sumber status tetap Supabase app_settings.
+  const [maintenanceMode, setMaintenanceMode] =
+    useState(null);
+
   const isAdmin = normalize(mentor?.role) === "admin";
+
+  async function fetchMaintenanceStatus() {
+    const { data, error: statusError } = await supabase
+      .from("app_settings")
+      .select("maintenance_mode")
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (statusError) {
+      setMaintenanceMode(null);
+      return;
+    }
+
+    setMaintenanceMode(
+      typeof data?.maintenance_mode === "boolean"
+        ? data.maintenance_mode
+        : null
+    );
+  }
 
   async function fetchDashboardData() {
     const [programRes, typeRes] = await Promise.all([
@@ -699,11 +742,15 @@ export default function MentorDashboard() {
         });
 
         applyDashboard(next);
+
+        if (role === "admin") {
+          await fetchMaintenanceStatus();
+        }
       } catch (err) {
         if (mounted) {
           setError(
             err.message ||
-            "Gagal memuat Dashboard Mentor."
+              "Gagal memuat Dashboard Mentor."
           );
         }
       } finally {
@@ -718,6 +765,21 @@ export default function MentorDashboard() {
     };
   }, [router]);
 
+  // Memperbarui indikator maintenance untuk Admin.
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    fetchMaintenanceStatus();
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchMaintenanceStatus();
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [isAdmin]);
+
   async function refresh() {
     if (loading || refreshing || !mentor) return;
 
@@ -727,6 +789,10 @@ export default function MentorDashboard() {
     try {
       const next = await fetchDashboardData();
       applyDashboard(next);
+
+      if (isAdmin) {
+        await fetchMaintenanceStatus();
+      }
     } catch (err) {
       setError(
         err.message || "Gagal memperbarui data."
@@ -941,36 +1007,46 @@ export default function MentorDashboard() {
 
     return {
       active: filtered.length,
+
       progress: filtered.length
         ? Math.round(
             totalProgress / filtered.length
           )
         : 0,
+
       practiceAverage: average(relevantPractices),
+
       completed: filtered.filter(
         (program) =>
           dataByProgram[program.id]?.done === 6
       ).length,
+
       postTest: countWithRecords("pt"),
       practice: countWithRecords("pr"),
+
       samapta: filtered.filter(
         (program) =>
           dataByProgram[program.id]?.samaptaComplete
       ).length,
+
       samaptaPassed: filtered.filter(
         (program) =>
           dataByProgram[program.id]?.samaptaPassed
       ).length,
+
       simper: countWithRecords("sp"),
+
       simperIssued: filtered.filter(
         (program) =>
           dataByProgram[program.id]?.simperPassed
       ).length,
+
       simperAverage: filtered.length
         ? Math.round(
             totalSimperProgress / filtered.length
           )
         : 0,
+
       averageWeeks: filtered.length
         ? (totalWeeks / filtered.length).toFixed(1)
         : "0.0",
@@ -1042,7 +1118,9 @@ export default function MentorDashboard() {
           );
         }
 
-        .track-brand { padding: 11px 12px 29px; }
+        .track-brand {
+          padding: 11px 12px 29px;
+        }
 
         .track-brand-title {
           font-size: 25px;
@@ -1050,7 +1128,9 @@ export default function MentorDashboard() {
           font-weight: 900;
         }
 
-        .track-brand-title span { color: #2cca95; }
+        .track-brand-title span {
+          color: #2cca95;
+        }
 
         .track-brand-sub {
           margin-top: 9px;
@@ -1104,6 +1184,44 @@ export default function MentorDashboard() {
           border: 1px solid #36c79555;
         }
 
+        .track-admin-nav:hover {
+          background: #087854;
+        }
+
+        .track-maintenance-nav {
+          background: #243b32;
+          border: 1px solid #d8b45a70;
+          color: #f5d68c;
+        }
+
+        .track-maintenance-nav:hover {
+          background: #40513a;
+        }
+
+        .track-maintenance-indicator {
+          margin-left: auto;
+          padding: 4px 7px;
+          border-radius: 7px;
+          font-size: 9px;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+
+        .track-maintenance-indicator.off {
+          color: #b4f5d8;
+          background: #0b654a;
+        }
+
+        .track-maintenance-indicator.on {
+          color: #ffe6ab;
+          background: #95520d;
+        }
+
+        .track-maintenance-indicator.unknown {
+          color: #d6ded9;
+          background: #52615a;
+        }
+
         .track-sidebar-bottom {
           margin-top: auto;
           padding-top: 16px;
@@ -1115,7 +1233,9 @@ export default function MentorDashboard() {
           min-width: 0;
         }
 
-        .track-mobile-header { display: none; }
+        .track-mobile-header {
+          display: none;
+        }
 
         .track-hero {
           position: relative;
@@ -1148,7 +1268,9 @@ export default function MentorDashboard() {
           line-height: 1.15;
         }
 
-        .track-hero h1 span { color: #28c58b; }
+        .track-hero h1 span {
+          color: #28c58b;
+        }
 
         .track-hero p {
           color: #eff9f5;
@@ -1170,7 +1292,9 @@ export default function MentorDashboard() {
           gap: 7px;
         }
 
-        .track-value svg { color: #f2c96e; }
+        .track-value svg {
+          color: #f2c96e;
+        }
 
         .track-mentor {
           position: absolute;
@@ -1210,6 +1334,12 @@ export default function MentorDashboard() {
           line-height: 1.5;
         }
 
+        .track-admin-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 9px;
+        }
+
         .track-admin-button {
           border: 0;
           border-radius: 9px;
@@ -1219,6 +1349,14 @@ export default function MentorDashboard() {
           font-size: 12px;
           font-weight: 800;
           cursor: pointer;
+        }
+
+        .track-admin-button.maintenance {
+          background: #153c2e;
+        }
+
+        .track-admin-button:hover {
+          opacity: .9;
         }
 
         .track-content {
@@ -1371,7 +1509,9 @@ export default function MentorDashboard() {
           font-size: 12px;
         }
 
-        .track-site-row:last-child { border: 0; }
+        .track-site-row:last-child {
+          border: 0;
+        }
 
         .track-site-icon {
           width: 41px;
@@ -1414,7 +1554,9 @@ export default function MentorDashboard() {
           min-width: 0;
         }
 
-        .track-monitor-item:last-child { border: 0; }
+        .track-monitor-item:last-child {
+          border: 0;
+        }
 
         .track-monitor-circle {
           width: 39px;
@@ -1457,7 +1599,9 @@ export default function MentorDashboard() {
           text-align: right;
         }
 
-        .track-monitor-row:last-child { border: 0; }
+        .track-monitor-row:last-child {
+          border: 0;
+        }
 
         .track-filters {
           display: flex;
@@ -1497,7 +1641,9 @@ export default function MentorDashboard() {
           font-size: 12px;
         }
 
-        .track-table-wrap { overflow-x: auto; }
+        .track-table-wrap {
+          overflow-x: auto;
+        }
 
         .track-table {
           width: 100%;
@@ -1547,7 +1693,9 @@ export default function MentorDashboard() {
           font-weight: 800;
         }
 
-        .track-mobile-people { display: none; }
+        .track-mobile-people {
+          display: none;
+        }
 
         .track-person {
           display: grid;
@@ -1638,7 +1786,9 @@ export default function MentorDashboard() {
           text-align: center;
         }
 
-        .track-overlay { display: none; }
+        .track-overlay {
+          display: none;
+        }
 
         @media(max-width:1200px) {
           .track-metrics {
@@ -1670,7 +1820,9 @@ export default function MentorDashboard() {
             z-index: 45;
           }
 
-          .track-main { margin-left: 0; }
+          .track-main {
+            margin-left: 0;
+          }
 
           .track-mobile-header {
             height: 60px;
@@ -1715,7 +1867,9 @@ export default function MentorDashboard() {
             margin-top: 13px;
           }
 
-          .track-hero p { font-size: 12px; }
+          .track-hero p {
+            font-size: 12px;
+          }
 
           .track-values {
             gap: 9px;
@@ -1723,14 +1877,18 @@ export default function MentorDashboard() {
             font-size: 9px;
           }
 
-          .track-value { gap: 4px; }
+          .track-value {
+            gap: 4px;
+          }
 
           .track-value svg {
             width: 13px;
             height: 13px;
           }
 
-          .track-mentor { display: none; }
+          .track-mentor {
+            display: none;
+          }
 
           .track-content {
             padding: 0 12px 22px;
@@ -1741,6 +1899,11 @@ export default function MentorDashboard() {
 
           .track-admin-banner {
             align-items: stretch;
+          }
+
+          .track-admin-actions {
+            width: 100%;
+            flex-direction: column;
           }
 
           .track-admin-button {
@@ -1758,7 +1921,9 @@ export default function MentorDashboard() {
             border-radius: 14px;
           }
 
-          .track-metric-main { gap: 9px; }
+          .track-metric-main {
+            gap: 9px;
+          }
 
           .track-metric-icon {
             width: 35px;
@@ -1771,9 +1936,17 @@ export default function MentorDashboard() {
             height: 20px;
           }
 
-          .track-metric-label { font-size: 10px; }
-          .track-metric-value { font-size: 25px; }
-          .track-metric-description { font-size: 9px; }
+          .track-metric-label {
+            font-size: 10px;
+          }
+
+          .track-metric-value {
+            font-size: 25px;
+          }
+
+          .track-metric-description {
+            font-size: 9px;
+          }
 
           .track-icon-button {
             position: absolute;
@@ -1788,7 +1961,9 @@ export default function MentorDashboard() {
             bottom: 12px;
           }
 
-          .track-sparkline span { width: 4px; }
+          .track-sparkline span {
+            width: 4px;
+          }
 
           .track-card {
             padding: 15px 13px;
@@ -1796,8 +1971,13 @@ export default function MentorDashboard() {
             margin-bottom: 12px;
           }
 
-          .track-card h2 { font-size: 16px; }
-          .track-card-sub { font-size: 11px; }
+          .track-card h2 {
+            font-size: 16px;
+          }
+
+          .track-card-sub {
+            font-size: 11px;
+          }
 
           .track-site-row {
             grid-template-columns:
@@ -1811,7 +1991,9 @@ export default function MentorDashboard() {
             height: 32px;
           }
 
-          .track-monitor-grid { gap: 4px; }
+          .track-monitor-grid {
+            gap: 4px;
+          }
 
           .track-monitor-circle {
             width: 33px;
@@ -1826,8 +2008,13 @@ export default function MentorDashboard() {
             font-size: 9px;
           }
 
-          .track-card-heading { flex-wrap: wrap; }
-          .track-filters { width: 100%; }
+          .track-card-heading {
+            flex-wrap: wrap;
+          }
+
+          .track-filters {
+            width: 100%;
+          }
 
           .track-search {
             flex: 1.3;
@@ -1845,20 +2032,35 @@ export default function MentorDashboard() {
             font-size: 11px;
           }
 
-          .track-table-wrap { display: none; }
-          .track-mobile-people { display: block; }
-          .track-person { padding: 11px; }
+          .track-table-wrap {
+            display: none;
+          }
+
+          .track-mobile-people {
+            display: block;
+          }
+
+          .track-person {
+            padding: 11px;
+          }
         }
 
         @media(max-width:380px) {
-          .track-metric-main { display: block; }
+          .track-metric-main {
+            display: block;
+          }
 
           .track-metric-icon {
             margin-bottom: 8px;
           }
 
-          .track-metric { min-height: 150px; }
-          .track-filters { flex-direction: column; }
+          .track-metric {
+            min-height: 150px;
+          }
+
+          .track-filters {
+            flex-direction: column;
+          }
 
           .track-search,
           .track-field {
@@ -1921,6 +2123,36 @@ export default function MentorDashboard() {
               >
                 <Icon name="users" size={19} />
                 Preview Dashboard Peserta
+              </button>
+
+              <button
+                type="button"
+                className="track-nav track-maintenance-nav"
+                onClick={() =>
+                  navigate("/admin/maintenance")
+                }
+              >
+                <Icon name="gear" size={19} />
+
+                <span style={{ flex: 1 }}>
+                  Maintenance Mode
+                </span>
+
+                <span
+                  className={`track-maintenance-indicator ${
+                    maintenanceMode === true
+                      ? "on"
+                      : maintenanceMode === false
+                      ? "off"
+                      : "unknown"
+                  }`}
+                >
+                  {maintenanceMode === true
+                    ? "ON"
+                    : maintenanceMode === false
+                    ? "OFF"
+                    : "—"}
+                </span>
               </button>
             </>
           )}
@@ -2033,19 +2265,51 @@ export default function MentorDashboard() {
                     <p>
                       Kamu sedang melihat Dashboard Mentor
                       menggunakan akun Admin.
-                      Maintenance Mode belum aktif.
+                    </p>
+
+                    <p>
+                      Status Maintenance:{" "}
+                      <strong
+                        style={{
+                          display: "inline",
+                          color:
+                            maintenanceMode === true
+                              ? "#b45309"
+                              : maintenanceMode === false
+                              ? "#087c57"
+                              : "#64748b",
+                        }}
+                      >
+                        {maintenanceMode === true
+                          ? "ON — Pemeliharaan Aktif"
+                          : maintenanceMode === false
+                          ? "OFF — Website Normal"
+                          : "Belum dapat diperiksa"}
+                      </strong>
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    className="track-admin-button"
-                    onClick={() =>
-                      navigate("/dashboard-peserta")
-                    }
-                  >
-                    Preview Dashboard Peserta
-                  </button>
+                  <div className="track-admin-actions">
+                    <button
+                      type="button"
+                      className="track-admin-button"
+                      onClick={() =>
+                        navigate("/dashboard-peserta")
+                      }
+                    >
+                      Preview Dashboard Peserta
+                    </button>
+
+                    <button
+                      type="button"
+                      className="track-admin-button maintenance"
+                      onClick={() =>
+                        navigate("/admin/maintenance")
+                      }
+                    >
+                      ⚙ Maintenance Mode
+                    </button>
+                  </div>
                 </div>
               )}
 
