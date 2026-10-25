@@ -1,191 +1,153 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-export default function MaintenanceGuard({
-  children,
-}) {
-  const [checking, setChecking] = useState(true);
-  const [maintenance, setMaintenance] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+export default function MaintenanceGuard({ children }) {
+  const [status, setStatus] = useState("checking");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const checkMaintenance = useCallback(async () => {
+    try {
+      const { data: setting, error: settingError } =
+        await supabase
+          .from("app_settings")
+          .select("maintenance_mode")
+          .eq("id", 1)
+          .single();
+
+      if (settingError) throw settingError;
+
+      if (setting.maintenance_mode !== true) {
+        setStatus("allowed");
+        setErrorMessage("");
+        return;
+      }
+
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+
+      if (!user) {
+        setStatus("maintenance");
+        return;
+      }
+
+      const { data: profile, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      const role = String(profile?.role || "")
+        .trim()
+        .toLowerCase();
+
+      setStatus(
+        role === "admin" ? "allowed" : "maintenance"
+      );
+      setErrorMessage("");
+    } catch (error) {
+      console.error("MaintenanceGuard:", error);
+      setErrorMessage(
+        "Status layanan tidak dapat diperiksa. Silakan coba lagi."
+      );
+      setStatus("error");
+    }
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
+    checkMaintenance();
 
-    async function checkAccess() {
-      try {
-        const { data: setting, error: settingError } =
-          await supabase
-            .from("app_settings")
-            .select("maintenance_mode")
-            .eq("id", 1)
-            .single();
+    const interval = setInterval(
+      checkMaintenance,
+      15000
+    );
 
-        if (settingError) throw settingError;
-
-        const enabled =
-          setting?.maintenance_mode === true;
-
-        if (!enabled) {
-          if (mounted) {
-            setMaintenance(false);
-            setChecking(false);
-          }
-          return;
-        }
-
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        let admin = false;
-
-        if (user) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("role")
-            .eq("id", user.id)
-            .maybeSingle();
-
-          admin =
-            String(profile?.role || "")
-              .trim()
-              .toLowerCase() === "admin";
-        }
-
-        if (mounted) {
-          setIsAdmin(admin);
-          setMaintenance(true);
-          setChecking(false);
-        }
-      } catch (error) {
-        console.error(
-          "Maintenance check failed:",
-          error
-        );
-
-        if (mounted) {
-          setChecking(false);
-        }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        checkMaintenance();
       }
     }
 
-    checkAccess();
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      checkMaintenance();
+    });
 
     return () => {
-      mounted = false;
+      clearInterval(interval);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+      subscription.unsubscribe();
     };
-  }, []);
+  }, [checkMaintenance]);
 
-  if (checking) {
+  if (status === "checking") {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "grid",
-          placeItems: "center",
-          background: "#071b22",
-          color: "#ffffff",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
+      <div style={styles.center}>
         Memeriksa akses OJT MineTrack...
       </div>
     );
   }
 
-  if (maintenance && !isAdmin) {
+  if (status === "error") {
     return (
-      <main
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 24,
-          background:
-            "linear-gradient(145deg, #071b22, #124734)",
-          color: "#ffffff",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
-        <div
-          style={{
-            width: "100%",
-            maxWidth: 480,
-            textAlign: "center",
-            padding: "40px 24px",
-            borderRadius: 24,
-            background: "rgba(255,255,255,0.08)",
-            border:
-              "1px solid rgba(255,255,255,0.15)",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 55,
-              marginBottom: 20,
-            }}
+      <main style={styles.center}>
+        <div style={{ textAlign: "center" }}>
+          <h2>Gagal Memeriksa Akses</h2>
+          <p>{errorMessage}</p>
+          <button
+            onClick={checkMaintenance}
+            style={styles.button}
           >
-            🛠️
-          </div>
+            Coba Lagi
+          </button>
+        </div>
+      </main>
+    );
+  }
 
-          <div
-            style={{
-              color: "#d8b45a",
-              fontSize: 12,
-              fontWeight: 800,
-              letterSpacing: 2,
-              marginBottom: 14,
-            }}
-          >
+  if (status === "maintenance") {
+    return (
+      <main style={styles.maintenancePage}>
+        <div style={styles.card}>
+          <div style={{ fontSize: 54 }}>🛠️</div>
+
+          <p style={styles.brand}>
             OJT MINETRACK v2.0
-          </div>
+          </p>
 
-          <h1
-            style={{
-              fontSize: 28,
-              lineHeight: 1.3,
-              marginBottom: 16,
-            }}
-          >
+          <h1 style={styles.title}>
             Website Sedang Dalam Pemeliharaan
           </h1>
 
-          <p
-            style={{
-              color: "#d3e5dc",
-              fontSize: 14,
-              lineHeight: 1.9,
-            }}
-          >
+          <p style={styles.description}>
             Sistem Monitoring dan Evaluasi OJT
-            sedang menjalani proses pemeliharaan
-            dan peningkatan layanan.
+            sedang menjalani pemeliharaan dan
+            peningkatan layanan.
           </p>
 
-          <p
-            style={{
-              color: "#d8b45a",
-              fontWeight: 700,
-              marginTop: 24,
-            }}
-          >
+          <p style={styles.notice}>
             Silakan kembali beberapa saat lagi.
           </p>
 
-          <div
-            style={{
-              marginTop: 35,
-              paddingTop: 20,
-              borderTop:
-                "1px solid rgba(255,255,255,0.15)",
-              fontSize: 11,
-              color: "#b8ccc1",
-            }}
-          >
+          <div style={styles.footer}>
             Emergency Response Group
             <br />
             PT Berau Coal
@@ -197,3 +159,76 @@ export default function MaintenanceGuard({
 
   return children;
 }
+
+const styles = {
+  center: {
+    minHeight: "100vh",
+    display: "grid",
+    placeItems: "center",
+    padding: 24,
+    background: "#071b22",
+    color: "#ffffff",
+    fontFamily: "Arial, sans-serif",
+  },
+  maintenancePage: {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    boxSizing: "border-box",
+    background:
+      "linear-gradient(145deg, #071b22, #124734)",
+    color: "#ffffff",
+    fontFamily: "Arial, sans-serif",
+  },
+  card: {
+    width: "100%",
+    maxWidth: 480,
+    padding: "40px 24px",
+    borderRadius: 24,
+    textAlign: "center",
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.15)",
+  },
+  brand: {
+    color: "#d8b45a",
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: 2,
+    marginTop: 20,
+  },
+  title: {
+    fontSize: 28,
+    lineHeight: 1.3,
+    marginTop: 16,
+  },
+  description: {
+    color: "#d3e5dc",
+    fontSize: 14,
+    lineHeight: 1.9,
+    marginTop: 16,
+  },
+  notice: {
+    color: "#d8b45a",
+    fontWeight: 700,
+    marginTop: 24,
+  },
+  footer: {
+    borderTop: "1px solid rgba(255,255,255,0.15)",
+    paddingTop: 20,
+    marginTop: 35,
+    fontSize: 11,
+    lineHeight: 1.8,
+    color: "#b8ccc1",
+  },
+  button: {
+    padding: "12px 20px",
+    background: "#d8b45a",
+    color: "#071b22",
+    border: "none",
+    borderRadius: 10,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+};
