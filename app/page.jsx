@@ -8,8 +8,15 @@ import { supabase } from "../lib/supabase";
 const TOTAL_WEEKS = 25;
 
 const SITES = [
-  "LMO", "SMO", "GMO NORTH", "GMO SOUTH",
-  "BMO 1", "BMO 2", "BMO 3", "SRN", "HO",
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
 ];
 
 const ACHIEVEMENTS = [
@@ -44,9 +51,7 @@ const META_START = "[[SIMPER_V2]]";
 const META_END = "[[/SIMPER_V2]]";
 
 function normalize(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase();
+  return String(value || "").trim().toLowerCase();
 }
 
 function normalizeType(value) {
@@ -57,11 +62,7 @@ function normalizeType(value) {
 
 function formatDate(value) {
   if (!value) return "—";
-
-  const parts = String(value)
-    .slice(0, 10)
-    .split("-");
-
+  const parts = String(value).slice(0, 10).split("-");
   return parts.length === 3
     ? `${parts[2]}/${parts[1]}/${parts[0]}`
     : String(value);
@@ -82,9 +83,7 @@ function parseDate(value) {
     return null;
   }
 
-  const d = new Date(
-    Date.UTC(p[0], p[1] - 1, p[2])
-  );
+  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
 
   if (
     d.getUTCFullYear() !== p[0] ||
@@ -153,22 +152,17 @@ function initials(name) {
 
 function parseSimperMetadata(notes) {
   const text = String(notes || "");
-
   const start = text.lastIndexOf(META_START);
   const end = text.lastIndexOf(META_END);
 
-  if (start < 0 || end <= start) {
-    return null;
-  }
+  if (start < 0 || end <= start) return null;
 
   try {
     const raw = text.slice(
       start + META_START.length,
       end
     );
-
     const meta = JSON.parse(raw);
-
     return meta?.version === 2 ? meta : null;
   } catch {
     return null;
@@ -185,16 +179,12 @@ function calculateSimper(record) {
     };
   }
 
-  const meta = parseSimperMetadata(
-    record.notes
-  );
+  const meta = parseSimperMetadata(record.notes);
 
   const validation =
     record.administration_status === "passed";
-
   const theory =
     record.theory_status === "passed";
-
   const practice =
     record.practice_status === "passed";
 
@@ -215,8 +205,7 @@ function calculateSimper(record) {
   ];
 
   return {
-    progress:
-      steps.filter(Boolean).length * 25,
+    progress: steps.filter(Boolean).length * 25,
     released,
     steps,
     legacy:
@@ -259,7 +248,6 @@ function getSamaptaSessions(records) {
       }
 
       const n = Number(record.score);
-
       return Number.isFinite(n) ? n : null;
     };
 
@@ -337,7 +325,9 @@ function Icon({ name, size = 21 }) {
       </>
     ),
     check: <path d="m4 12 5 5L20 6" />,
-    chart: <path d="M5 20v-7M11 20V5M17 20v-11M22 20V3" />,
+    chart: (
+      <path d="M5 20v-7M11 20V5M17 20v-11M22 20V3" />
+    ),
     search: (
       <>
         <circle cx="10.5" cy="10.5" r="6.5" />
@@ -511,6 +501,8 @@ export default function MentorDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
+  const isAdmin = normalize(mentor?.role) === "admin";
+
   async function fetchDashboardData() {
     const [programRes, typeRes] = await Promise.all([
       supabase
@@ -678,16 +670,34 @@ export default function MentorDashboard() {
           throw profileError;
         }
 
-        if (profile?.role !== "mentor") {
+        const role = normalize(profile?.role);
+
+        if (
+          role === "participant" ||
+          role === "peserta"
+        ) {
           router.replace("/dashboard-peserta");
           return;
+        }
+
+        if (
+          role !== "mentor" &&
+          role !== "admin"
+        ) {
+          throw new Error(
+            "Akses ditolak. Akun ini tidak memiliki izin membuka Dashboard Mentor."
+          );
         }
 
         const next = await fetchDashboardData();
 
         if (!mounted) return;
 
-        setMentor(profile);
+        setMentor({
+          ...profile,
+          role,
+        });
+
         applyDashboard(next);
       } catch (err) {
         if (mounted) {
@@ -709,7 +719,7 @@ export default function MentorDashboard() {
   }, [router]);
 
   async function refresh() {
-    if (loading || refreshing) return;
+    if (loading || refreshing || !mentor) return;
 
     setRefreshing(true);
     setError("");
@@ -783,22 +793,15 @@ export default function MentorDashboard() {
           .map((r) => r.type_code)
       );
 
-      const done = ACHIEVEMENTS.filter(
-        (name) => {
-          const code = codes.get(
-            normalize(name)
-          );
-
-          return code && verifiedCodes.has(code);
-        }
-      ).length;
+      const done = ACHIEVEMENTS.filter((name) => {
+        const code = codes.get(normalize(name));
+        return code && verifiedCodes.has(code);
+      }).length;
 
       const achievementProgress = Math.round(
         (done / ACHIEVEMENTS.length) * 100
       );
 
-      // Gunakan record SIMPER yang tersedia
-      // tanpa mengubah status lama menjadi 100%.
       const chosenSimper =
         sp.find((record) =>
           parseSimperMetadata(record.notes)
@@ -832,47 +835,29 @@ export default function MentorDashboard() {
         }
       };
 
-      a.forEach((r) =>
-        markWeek(r.activity_date)
-      );
-
-      pt.forEach((r) =>
-        markWeek(r.test_date)
-      );
-
-      pr.forEach((r) =>
-        markWeek(r.practice_date)
-      );
-
-      sm.forEach((r) =>
-        markWeek(r.test_date)
-      );
+      a.forEach((r) => markWeek(r.activity_date));
+      pt.forEach((r) => markWeek(r.test_date));
+      pr.forEach((r) => markWeek(r.practice_date));
+      sm.forEach((r) => markWeek(r.test_date));
 
       output[id] = {
         done,
         progress: achievementProgress,
-
         pt,
         pr,
         sm,
         sp,
-
         postAverage: average(pt),
         practiceAverage: average(pr),
-
         samaptaSessions,
         latestSamapta,
         samaptaComplete:
           samaptaSessions.length > 0,
-
-        // Status lari dari tes lengkap terakhir.
         samaptaPassed:
           latestSamapta?.runPassed === true,
-
         simperProgress: simperInfo.progress,
         simperPassed: simperInfo.released,
         simperLegacy: simperInfo.legacy,
-
         activityWeeks: weeks.size,
         activityProgress: Math.round(
           (weeks.size / TOTAL_WEEKS) * 100
@@ -956,47 +941,36 @@ export default function MentorDashboard() {
 
     return {
       active: filtered.length,
-
       progress: filtered.length
         ? Math.round(
             totalProgress / filtered.length
           )
         : 0,
-
-      practiceAverage:
-        average(relevantPractices),
-
+      practiceAverage: average(relevantPractices),
       completed: filtered.filter(
         (program) =>
           dataByProgram[program.id]?.done === 6
       ).length,
-
       postTest: countWithRecords("pt"),
       practice: countWithRecords("pr"),
-
       samapta: filtered.filter(
         (program) =>
           dataByProgram[program.id]?.samaptaComplete
       ).length,
-
       samaptaPassed: filtered.filter(
         (program) =>
           dataByProgram[program.id]?.samaptaPassed
       ).length,
-
       simper: countWithRecords("sp"),
-
       simperIssued: filtered.filter(
         (program) =>
           dataByProgram[program.id]?.simperPassed
       ).length,
-
       simperAverage: filtered.length
         ? Math.round(
             totalSimperProgress / filtered.length
           )
         : 0,
-
       averageWeeks: filtered.length
         ? (totalWeeks / filtered.length).toFixed(1)
         : "0.0",
@@ -1041,9 +1015,7 @@ export default function MentorDashboard() {
   return (
     <div className="track-shell">
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         .track-shell {
           min-height: 100vh;
@@ -1070,9 +1042,7 @@ export default function MentorDashboard() {
           );
         }
 
-        .track-brand {
-          padding: 11px 12px 29px;
-        }
+        .track-brand { padding: 11px 12px 29px; }
 
         .track-brand-title {
           font-size: 25px;
@@ -1080,9 +1050,7 @@ export default function MentorDashboard() {
           font-weight: 900;
         }
 
-        .track-brand-title span {
-          color: #2cca95;
-        }
+        .track-brand-title span { color: #2cca95; }
 
         .track-brand-sub {
           margin-top: 9px;
@@ -1112,10 +1080,28 @@ export default function MentorDashboard() {
         .track-nav:hover {
           color: white;
           background: linear-gradient(
-            90deg,
-            #087854,
-            #145c48
+            90deg, #087854, #145c48
           );
+        }
+
+        .track-nav:disabled {
+          opacity: .5;
+          cursor: not-allowed;
+        }
+
+        .track-admin-label {
+          padding: 13px 14px 8px;
+          margin-top: 12px;
+          color: #8ee7c4;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 1px;
+          border-top: 1px solid #ffffff26;
+        }
+
+        .track-admin-nav {
+          background: #0c513f;
+          border: 1px solid #36c79555;
         }
 
         .track-sidebar-bottom {
@@ -1129,9 +1115,7 @@ export default function MentorDashboard() {
           min-width: 0;
         }
 
-        .track-mobile-header {
-          display: none;
-        }
+        .track-mobile-header { display: none; }
 
         .track-hero {
           position: relative;
@@ -1164,9 +1148,7 @@ export default function MentorDashboard() {
           line-height: 1.15;
         }
 
-        .track-hero h1 span {
-          color: #28c58b;
-        }
+        .track-hero h1 span { color: #28c58b; }
 
         .track-hero p {
           color: #eff9f5;
@@ -1188,9 +1170,7 @@ export default function MentorDashboard() {
           gap: 7px;
         }
 
-        .track-value svg {
-          color: #f2c96e;
-        }
+        .track-value svg { color: #f2c96e; }
 
         .track-mentor {
           position: absolute;
@@ -1202,6 +1182,43 @@ export default function MentorDashboard() {
           padding: 10px 16px;
           font-size: 12px;
           font-weight: 800;
+        }
+
+        .track-admin-banner {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 16px;
+          padding: 15px 17px;
+          background: #e0f6ec;
+          border: 1px solid #a8dfc8;
+          border-radius: 14px;
+        }
+
+        .track-admin-banner strong {
+          display: block;
+          font-size: 13px;
+          color: #075a40;
+        }
+
+        .track-admin-banner p {
+          margin: 5px 0 0;
+          font-size: 11px;
+          color: #477366;
+          line-height: 1.5;
+        }
+
+        .track-admin-button {
+          border: 0;
+          border-radius: 9px;
+          padding: 11px 14px;
+          color: white;
+          background: #087c57;
+          font-size: 12px;
+          font-weight: 800;
+          cursor: pointer;
         }
 
         .track-content {
@@ -1354,9 +1371,7 @@ export default function MentorDashboard() {
           font-size: 12px;
         }
 
-        .track-site-row:last-child {
-          border: 0;
-        }
+        .track-site-row:last-child { border: 0; }
 
         .track-site-icon {
           width: 41px;
@@ -1381,9 +1396,7 @@ export default function MentorDashboard() {
           height: 100%;
           border-radius: inherit;
           background: linear-gradient(
-            90deg,
-            #2bbd8a,
-            #109367
+            90deg, #2bbd8a, #109367
           );
         }
 
@@ -1401,9 +1414,7 @@ export default function MentorDashboard() {
           min-width: 0;
         }
 
-        .track-monitor-item:last-child {
-          border: 0;
-        }
+        .track-monitor-item:last-child { border: 0; }
 
         .track-monitor-circle {
           width: 39px;
@@ -1446,9 +1457,7 @@ export default function MentorDashboard() {
           text-align: right;
         }
 
-        .track-monitor-row:last-child {
-          border: 0;
-        }
+        .track-monitor-row:last-child { border: 0; }
 
         .track-filters {
           display: flex;
@@ -1488,9 +1497,7 @@ export default function MentorDashboard() {
           font-size: 12px;
         }
 
-        .track-table-wrap {
-          overflow-x: auto;
-        }
+        .track-table-wrap { overflow-x: auto; }
 
         .track-table {
           width: 100%;
@@ -1540,9 +1547,7 @@ export default function MentorDashboard() {
           font-weight: 800;
         }
 
-        .track-mobile-people {
-          display: none;
-        }
+        .track-mobile-people { display: none; }
 
         .track-person {
           display: grid;
@@ -1633,9 +1638,7 @@ export default function MentorDashboard() {
           text-align: center;
         }
 
-        .track-overlay {
-          display: none;
-        }
+        .track-overlay { display: none; }
 
         @media(max-width:1200px) {
           .track-metrics {
@@ -1667,9 +1670,7 @@ export default function MentorDashboard() {
             z-index: 45;
           }
 
-          .track-main {
-            margin-left: 0;
-          }
+          .track-main { margin-left: 0; }
 
           .track-mobile-header {
             height: 60px;
@@ -1714,9 +1715,7 @@ export default function MentorDashboard() {
             margin-top: 13px;
           }
 
-          .track-hero p {
-            font-size: 12px;
-          }
+          .track-hero p { font-size: 12px; }
 
           .track-values {
             gap: 9px;
@@ -1724,24 +1723,28 @@ export default function MentorDashboard() {
             font-size: 9px;
           }
 
-          .track-value {
-            gap: 4px;
-          }
+          .track-value { gap: 4px; }
 
           .track-value svg {
             width: 13px;
             height: 13px;
           }
 
-          .track-mentor {
-            display: none;
-          }
+          .track-mentor { display: none; }
 
           .track-content {
             padding: 0 12px 22px;
             margin-top: -10px;
             position: relative;
             z-index: 1;
+          }
+
+          .track-admin-banner {
+            align-items: stretch;
+          }
+
+          .track-admin-button {
+            width: 100%;
           }
 
           .track-metrics {
@@ -1755,9 +1758,7 @@ export default function MentorDashboard() {
             border-radius: 14px;
           }
 
-          .track-metric-main {
-            gap: 9px;
-          }
+          .track-metric-main { gap: 9px; }
 
           .track-metric-icon {
             width: 35px;
@@ -1770,17 +1771,9 @@ export default function MentorDashboard() {
             height: 20px;
           }
 
-          .track-metric-label {
-            font-size: 10px;
-          }
-
-          .track-metric-value {
-            font-size: 25px;
-          }
-
-          .track-metric-description {
-            font-size: 9px;
-          }
+          .track-metric-label { font-size: 10px; }
+          .track-metric-value { font-size: 25px; }
+          .track-metric-description { font-size: 9px; }
 
           .track-icon-button {
             position: absolute;
@@ -1795,9 +1788,7 @@ export default function MentorDashboard() {
             bottom: 12px;
           }
 
-          .track-sparkline span {
-            width: 4px;
-          }
+          .track-sparkline span { width: 4px; }
 
           .track-card {
             padding: 15px 13px;
@@ -1805,13 +1796,8 @@ export default function MentorDashboard() {
             margin-bottom: 12px;
           }
 
-          .track-card h2 {
-            font-size: 16px;
-          }
-
-          .track-card-sub {
-            font-size: 11px;
-          }
+          .track-card h2 { font-size: 16px; }
+          .track-card-sub { font-size: 11px; }
 
           .track-site-row {
             grid-template-columns:
@@ -1825,9 +1811,7 @@ export default function MentorDashboard() {
             height: 32px;
           }
 
-          .track-monitor-grid {
-            gap: 4px;
-          }
+          .track-monitor-grid { gap: 4px; }
 
           .track-monitor-circle {
             width: 33px;
@@ -1842,13 +1826,8 @@ export default function MentorDashboard() {
             font-size: 9px;
           }
 
-          .track-card-heading {
-            flex-wrap: wrap;
-          }
-
-          .track-filters {
-            width: 100%;
-          }
+          .track-card-heading { flex-wrap: wrap; }
+          .track-filters { width: 100%; }
 
           .track-search {
             flex: 1.3;
@@ -1866,35 +1845,20 @@ export default function MentorDashboard() {
             font-size: 11px;
           }
 
-          .track-table-wrap {
-            display: none;
-          }
-
-          .track-mobile-people {
-            display: block;
-          }
-
-          .track-person {
-            padding: 11px;
-          }
+          .track-table-wrap { display: none; }
+          .track-mobile-people { display: block; }
+          .track-person { padding: 11px; }
         }
 
         @media(max-width:380px) {
-          .track-metric-main {
-            display: block;
-          }
+          .track-metric-main { display: block; }
 
           .track-metric-icon {
             margin-bottom: 8px;
           }
 
-          .track-metric {
-            min-height: 150px;
-          }
-
-          .track-filters {
-            flex-direction: column;
-          }
+          .track-metric { min-height: 150px; }
+          .track-filters { flex-direction: column; }
 
           .track-search,
           .track-field {
@@ -1904,16 +1868,16 @@ export default function MentorDashboard() {
       `}</style>
 
       <div
-        className={
-          `track-overlay ${menuOpen ? "open" : ""}`
-        }
+        className={`track-overlay ${
+          menuOpen ? "open" : ""
+        }`}
         onClick={() => setMenuOpen(false)}
       />
 
       <aside
-        className={
-          `track-sidebar ${menuOpen ? "open" : ""}`
-        }
+        className={`track-sidebar ${
+          menuOpen ? "open" : ""
+        }`}
       >
         <div className="track-brand">
           <div className="track-brand-title">
@@ -1927,22 +1891,39 @@ export default function MentorDashboard() {
           </div>
         </div>
 
-        <nav aria-label="Menu Mentor">
+        <nav aria-label="Menu Dashboard">
           {NAV.map((item) => (
             <button
               type="button"
               key={item.url}
-              className={
-                `track-nav ${
-                  item.url === "/" ? "active" : ""
-                }`
-              }
+              className={`track-nav ${
+                item.url === "/" ? "active" : ""
+              }`}
               onClick={() => navigate(item.url)}
             >
               <Icon name={item.icon} size={19} />
               {item.label}
             </button>
           ))}
+
+          {isAdmin && (
+            <>
+              <div className="track-admin-label">
+                AKSES ADMINISTRATOR
+              </div>
+
+              <button
+                type="button"
+                className="track-nav track-admin-nav"
+                onClick={() =>
+                  navigate("/dashboard-peserta")
+                }
+              >
+                <Icon name="users" size={19} />
+                Preview Dashboard Peserta
+              </button>
+            </>
+          )}
         </nav>
 
         <div className="track-sidebar-bottom">
@@ -1950,7 +1931,9 @@ export default function MentorDashboard() {
             type="button"
             className="track-nav"
             onClick={refresh}
-            disabled={loading || refreshing}
+            disabled={
+              loading || refreshing || !mentor
+            }
           >
             <Icon name="refresh" size={19} />
             {refreshing
@@ -1986,7 +1969,11 @@ export default function MentorDashboard() {
 
         <header className="track-hero">
           <div className="track-mentor">
-            {mentor?.full_name || "Mentor OJT"}
+            {isAdmin
+              ? `Administrator · ${
+                  mentor?.full_name || "Admin"
+                }`
+              : mentor?.full_name || "Mentor OJT"}
           </div>
 
           <div className="track-hero-kicker">
@@ -2021,24 +2008,47 @@ export default function MentorDashboard() {
 
         <div className="track-content">
           {error && (
-            <div
-              role="alert"
-              className="track-alert"
-            >
+            <div role="alert" className="track-alert">
               {error}
             </div>
           )}
 
           {loading ? (
             <section className="track-card">
-              Memuat Dashboard Mentor...
+              Memuat Dashboard...
             </section>
           ) : !mentor ? (
             <section className="track-card">
-              Akses Dashboard Mentor tidak tersedia.
+              Akses Dashboard tidak tersedia.
             </section>
           ) : (
             <>
+              {isAdmin && (
+                <div className="track-admin-banner">
+                  <div>
+                    <strong>
+                      Mode Administrator — Dashboard Mentor
+                    </strong>
+
+                    <p>
+                      Kamu sedang melihat Dashboard Mentor
+                      menggunakan akun Admin.
+                      Maintenance Mode belum aktif.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="track-admin-button"
+                    onClick={() =>
+                      navigate("/dashboard-peserta")
+                    }
+                  >
+                    Preview Dashboard Peserta
+                  </button>
+                </div>
+              )}
+
               <section className="track-metrics">
                 <Metric
                   label="Peserta OJT Aktif"
@@ -2105,9 +2115,7 @@ export default function MentorDashboard() {
 
                         <Progress value={item.value} />
 
-                        <strong>
-                          {item.value}%
-                        </strong>
+                        <strong>{item.value}%</strong>
                       </div>
                     ))
                   ) : (
@@ -2156,10 +2164,7 @@ export default function MentorDashboard() {
                           />
                         </div>
 
-                        <strong>
-                          {item.value}
-                        </strong>
-
+                        <strong>{item.value}</strong>
                         <small>{item.label}</small>
                       </div>
                     ))}
@@ -2177,7 +2182,8 @@ export default function MentorDashboard() {
                       Samapta lari lulus (tes terakhir)
                     </span>
                     <strong>
-                      {summary.samaptaPassed} / {summary.active}
+                      {summary.samaptaPassed} /{" "}
+                      {summary.active}
                     </strong>
                   </div>
 
@@ -2193,7 +2199,8 @@ export default function MentorDashboard() {
                   <div className="track-monitor-row">
                     <span>SIMPER telah terbit</span>
                     <strong>
-                      {summary.simperIssued} / {summary.active}
+                      {summary.simperIssued} /{" "}
+                      {summary.active}
                     </strong>
                   </div>
 
@@ -2221,10 +2228,7 @@ export default function MentorDashboard() {
 
                   <div className="track-filters">
                     <div className="track-search">
-                      <Icon
-                        name="search"
-                        size={17}
-                      />
+                      <Icon name="search" size={17} />
 
                       <input
                         type="search"
@@ -2329,7 +2333,9 @@ export default function MentorDashboard() {
                                 }}
                               >
                                 <Progress
-                                  value={info?.progress || 0}
+                                  value={
+                                    info?.progress || 0
+                                  }
                                 />
 
                                 <strong>
@@ -2426,7 +2432,9 @@ export default function MentorDashboard() {
                             </span>
 
                             <Progress
-                              value={info?.progress || 0}
+                              value={
+                                info?.progress || 0
+                              }
                             />
 
                             <span>
