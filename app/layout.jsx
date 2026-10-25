@@ -1,9 +1,11 @@
 
 import PresenceTracker from "./components/PresenceTracker";
+import MaintenanceGuard from "./components/MaintenanceGuard";
 
 export const metadata = {
   title: "OJT MineTrack v2.0",
-  description: "Monitoring dan Evaluasi OJT",
+  description:
+    "Monitoring dan Evaluasi OJT - Emergency Response Group PT Berau Coal",
 };
 
 export default function RootLayout({ children }) {
@@ -16,9 +18,10 @@ export default function RootLayout({ children }) {
           background: "#f3f6fa",
         }}
       >
-        <PresenceTracker />
-
-        {children}
+        <MaintenanceGuard>
+          <PresenceTracker />
+          {children}
+        </MaintenanceGuard>
       </body>
     </html>
   );
