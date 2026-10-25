@@ -41,7 +41,7 @@ export default function LoginPage() {
             .includes("email not confirmed")
         ) {
           throw new Error(
-            "Akun lama masih memerlukan konfirmasi email. Hubungi administrator."
+            "Akun masih memerlukan konfirmasi email. Hubungi administrator."
           );
         }
 
@@ -77,25 +77,32 @@ export default function LoginPage() {
         );
       }
 
-      // Mentor langsung ke Dashboard Mentor.
-      if (profil.role === "mentor") {
+      const role = String(profil.role || "")
+        .trim()
+        .toLowerCase();
+
+      // ADMIN
+      // Tetap memiliki role admin.
+      // Masuk ke Dashboard Mentor.
+      if (role === "admin") {
         router.replace("/");
         router.refresh();
         return;
       }
 
-      // Semua peserta masuk ke Dashboard Peserta.
-      // Dashboard akan membaca:
-      // - Pengajuan pending
-      // - Pengajuan rejected
-      // - Pengajuan approved
-      // - Program OJT aktif
-      //
-      // Login tidak otomatis memberikan
-      // akses ke data monitoring.
+      // MENTOR
+      if (role === "mentor") {
+        router.replace("/");
+        router.refresh();
+        return;
+      }
+
+      // PESERTA
+      // Status pendaftaran dan akses program
+      // tetap diperiksa di Dashboard Peserta.
       if (
-        profil.role === "participant" ||
-        profil.role === "peserta"
+        role === "participant" ||
+        role === "peserta"
       ) {
         router.replace("/dashboard-peserta");
         router.refresh();
@@ -269,7 +276,7 @@ export default function LoginPage() {
               margin: "0 0 26px",
             }}
           >
-            Mentor dan Peserta OJT
+            Admin, Mentor dan Peserta OJT
           </p>
 
           <label
