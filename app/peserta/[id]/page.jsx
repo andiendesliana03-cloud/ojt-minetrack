@@ -6,50 +6,99 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
 const TOTAL_WEEKS = 25;
-const TARGET_FISIK = 25;
 
-const CATEGORY_TARGETS = [
-  { name: "Fisik", target: 25, unit: "km" },
-  { name: "Training", target: 4, unit: "kegiatan" },
-  { name: "Sosialisasi", target: 3, unit: "kegiatan" },
-  { name: "Coaching", target: 1, unit: "kegiatan" },
-  { name: "Orientasi Area", target: 2, unit: "kegiatan" },
-  { name: "Hazard", target: 2, unit: "kegiatan" },
+const TARGETS = [
+  { name: "Fisik", target: 25, unit: "km", icon: "🏃" },
+  { name: "Training", target: 4, unit: "kegiatan", icon: "🎓" },
+  { name: "Sosialisasi", target: 3, unit: "kegiatan", icon: "📣" },
+  { name: "Coaching", target: 1, unit: "kegiatan", icon: "👥" },
+  { name: "Orientasi Area", target: 2, unit: "kegiatan", icon: "🗺️" },
+  { name: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
 ];
 
+function normalize(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseDate(value) {
+  if (!value) return null;
+
+  const parts = String(value).slice(0, 10).split("-").map(Number);
+
+  if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n))) {
+    return null;
+  }
+
+  const [year, month, day] = parts;
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function weekOf(dateValue, startValue) {
+  const date = parseDate(dateValue);
+  const start = parseDate(startValue);
+
+  if (!date || !start) return null;
+
+  const days = Math.round(
+    (date.getTime() - start.getTime()) / 86400000
+  );
+
+  const week = Math.floor(days / 7) + 1;
+
+  return week >= 1 && week <= TOTAL_WEEKS ? week : null;
+}
+
+function addDays(value, days) {
+  const date = parseDate(value);
+  if (!date) return null;
+
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function today() {
-  const d = new Date();
+  const date = new Date();
+
   return new Date(
-    d.getTime() - d.getTimezoneOffset() * 60000
+    date.getTime() - date.getTimezoneOffset() * 60000
   ).toISOString().slice(0, 10);
 }
 
-function normalize(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+function formatDate(value) {
+  const date = parseDate(value);
+  if (!date) return "—";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
-function dateText(value) {
-  if (!value) return "—";
-  return String(value)
-    .slice(0, 10)
-    .split("-")
-    .reverse()
-    .join("/");
-}
-
-function fmtKm(value) {
+function formatNumber(value, digits = 1) {
   return Number(value || 0).toLocaleString("id-ID", {
-    minimumFractionDigits: 3,
-    maximumFractionDigits: 3,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
   });
 }
 
-function fmtScore(value) {
-  return value === null || value === undefined
-    ? "—"
-    : Number(value).toFixed(2);
+function formatScore(value) {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+
+  return formatNumber(value, 2);
 }
 
 function initials(name) {
@@ -62,92 +111,37 @@ function initials(name) {
     .toUpperCase();
 }
 
-function parseDate(value) {
-  if (!value) return null;
-
-  const parts = String(value)
-    .slice(0, 10)
-    .split("-")
-    .map(Number);
-
-  if (
-    parts.length !== 3 ||
-    parts.some((n) => !Number.isInteger(n))
-  ) {
-    return null;
-  }
-
-  const [year, month, day] = parts;
-  const d = new Date(Date.UTC(year, month - 1, day));
-
-  if (
-    d.getUTCFullYear() !== year ||
-    d.getUTCMonth() !== month - 1 ||
-    d.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  return d;
-}
-
-function weekOf(dateValue, startValue) {
-  const date = parseDate(dateValue);
-  const start = parseDate(startValue);
-
-  if (!date || !start) return null;
-
-  const week =
-    Math.floor(
-      (date.getTime() - start.getTime()) / 604800000
-    ) + 1;
-
-  return week >= 1 && week <= TOTAL_WEEKS
-    ? week
-    : null;
-}
-
 function average(rows) {
   const values = rows
     .map((row) => row.score)
-    .filter((value) => value !== null && value !== "")
+    .filter((value) => value !== null && value !== undefined && value !== "")
     .map(Number)
     .filter(Number.isFinite);
 
   if (!values.length) return null;
 
-  return (
-    values.reduce((sum, value) => sum + value, 0) /
-    values.length
-  );
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function Progress({ value }) {
-  const percent = Math.min(
-    100,
-    Math.max(0, Number(value) || 0)
-  );
+function ProgressBar({ value }) {
+  const percentage = Math.min(100, Math.max(0, Number(value) || 0));
 
   return (
-    <div className="dp-progress">
-      <span style={{ width: `${percent}%` }} />
-    </div>
-  );
-}
-
-function Stat({ label, value, detail }) {
-  return (
-    <div className="dp-stat">
-      <small>{label}</small>
-      <strong>{value}</strong>
-      {detail && <small>{detail}</small>}
+    <div
+      className="mt-progress"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percentage}
+    >
+      <span style={{ width: `${percentage}%` }} />
     </div>
   );
 }
 
 export default function DetailPeserta() {
-  const params = useParams();
   const router = useRouter();
+  const params = useParams();
 
   const programId = Array.isArray(params?.id)
     ? params.id[0]
@@ -155,67 +149,33 @@ export default function DetailPeserta() {
 
   const [mentor, setMentor] = useState(null);
   const [program, setProgram] = useState(null);
-  const [kategori, setKategori] = useState([]);
-  const [catatan, setCatatan] = useState([]);
+  const [types, setTypes] = useState([]);
+  const [achievements, setAchievements] = useState([]);
   const [postTests, setPostTests] = useState([]);
-  const [praktik, setPraktik] = useState([]);
+  const [practice, setPractice] = useState([]);
   const [samapta, setSamapta] = useState([]);
   const [simper, setSimper] = useState(null);
 
-  const [panel, setPanel] = useState("menu");
-  const [jenis, setJenis] = useState("");
-  const [tanggal, setTanggal] = useState(today());
-  const [deskripsi, setDeskripsi] = useState("");
-  const [fisikKm, setFisikKm] = useState("0");
-  const [fisikMeter, setFisikMeter] = useState("0");
-  const [editId, setEditId] = useState(null);
+  const [week, setWeek] = useState(1);
+  const [panel, setPanel] = useState("dashboard");
 
-  const [tanggalTes, setTanggalTes] = useState(today());
-  const [nilaiTes, setNilaiTes] = useState("");
-  const [catatanTes, setCatatanTes] = useState("");
-  const [editTesId, setEditTesId] = useState(null);
+  const [testDate, setTestDate] = useState(today());
+  const [testScore, setTestScore] = useState("");
+  const [testNotes, setTestNotes] = useState("");
+  const [editTestId, setEditTestId] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [savingTest, setSavingTest] = useState(false);
-  const [actionId, setActionId] = useState(null);
   const [testActionId, setTestActionId] = useState(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-
-  const fisikType = kategori.find(
-    (item) => normalize(item.name) === "fisik"
-  );
-
-  const isFisik =
-    Boolean(fisikType) && jenis === fisikType.code;
-
-  const km = Number(fisikKm);
-  const meter = Number(fisikMeter);
-
-  const distanceValid =
-    fisikKm !== "" &&
-    fisikMeter !== "" &&
-    Number.isInteger(km) &&
-    Number.isInteger(meter) &&
-    km >= 0 &&
-    km <= 100 &&
-    meter >= 0 &&
-    meter <= 999 &&
-    (km > 0 || meter > 0);
-
-  const distance = distanceValid
-    ? Number((km + meter / 1000).toFixed(3))
-    : null;
 
   async function fetchRecords() {
     const results = await Promise.all([
       supabase
         .from("achievement_records")
-        .select(
-          "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
-        )
+        .select("id,type_code,activity_date,distance_km,status")
         .eq("program_id", programId)
         .order("activity_date", { ascending: false }),
 
@@ -232,9 +192,7 @@ export default function DetailPeserta() {
 
       supabase
         .from("samapta_records")
-        .select(
-          "id,test_date,test_type,score,outcome,result_value"
-        )
+        .select("id,test_date,test_type,score,outcome,result_value")
         .eq("program_id", programId),
 
       supabase
@@ -247,7 +205,7 @@ export default function DetailPeserta() {
     ]);
 
     const labels = [
-      "Pencapaian",
+      "Achievement",
       "Post-Test",
       "Praktik",
       "Samapta",
@@ -256,67 +214,25 @@ export default function DetailPeserta() {
 
     results.forEach((result, index) => {
       if (result.error) {
-        throw new Error(
-          `${labels[index]}: ${result.error.message}`
-        );
+        throw new Error(`${labels[index]}: ${result.error.message}`);
       }
     });
 
     return {
-      catatan: results[0].data || [],
+      achievements: results[0].data || [],
       postTests: results[1].data || [],
-      praktik: results[2].data || [],
+      practice: results[2].data || [],
       samapta: results[3].data || [],
       simper: results[4].data || null,
     };
   }
 
   function applyRecords(records) {
-    setCatatan(records.catatan);
+    setAchievements(records.achievements);
     setPostTests(records.postTests);
-    setPraktik(records.praktik);
+    setPractice(records.practice);
     setSamapta(records.samapta);
     setSimper(records.simper);
-  }
-
-  async function refresh() {
-    if (refreshing || loading || !programId) return;
-
-    setRefreshing(true);
-    setError("");
-    setMessage("");
-
-    try {
-      applyRecords(await fetchRecords());
-    } catch (err) {
-      setError(err.message || "Gagal memperbarui data.");
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
-  async function reloadAchievements() {
-    const { data, error: err } = await supabase
-      .from("achievement_records")
-      .select(
-        "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
-      )
-      .eq("program_id", programId)
-      .order("activity_date", { ascending: false });
-
-    if (err) throw err;
-    setCatatan(data || []);
-  }
-
-  async function reloadTests() {
-    const { data, error: err } = await supabase
-      .from("post_test_scores")
-      .select("id,test_date,score,notes,created_at")
-      .eq("program_id", programId)
-      .order("test_date", { ascending: false });
-
-    if (err) throw err;
-    setPostTests(data || []);
   }
 
   useEffect(() => {
@@ -331,9 +247,6 @@ export default function DetailPeserta() {
     async function load() {
       setLoading(true);
       setError("");
-      setMessage("");
-      setPanel("menu");
-      setProgram(null);
 
       try {
         const {
@@ -346,73 +259,73 @@ export default function DetailPeserta() {
           return;
         }
 
-        const { data: profile, error: profileError } =
-          await supabase
-            .from("profiles")
-            .select("id,full_name,role")
-            .eq("id", user.id)
-            .single();
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("id,full_name,role")
+          .eq("id", user.id)
+          .single();
 
         if (profileError) throw profileError;
 
-        if (
-          profile?.role === "participant" ||
-          profile?.role === "peserta"
-        ) {
+        const role = String(profile?.role || "").toLowerCase();
+
+        if (role === "participant" || role === "peserta") {
           router.replace("/dashboard-peserta");
           return;
         }
 
-        if (profile?.role !== "mentor") {
-          throw new Error(
-            "Halaman ini hanya dapat diakses Mentor."
-          );
+        if (role !== "mentor") {
+          throw new Error("Halaman ini hanya dapat diakses Mentor.");
         }
 
-        const [programResult, typesResult, records] =
-          await Promise.all([
-            supabase
-              .from("ojt_programs")
-              .select(`
-                id,
-                site,
-                start_date,
-                end_date,
-                status,
-                peserta:profiles!ojt_programs_participant_id_fkey(
-                  full_name,
-                  department
-                )
-              `)
-              .eq("id", programId)
-              .single(),
+        const [programResult, typesResult, records] = await Promise.all([
+          supabase
+            .from("ojt_programs")
+            .select(`
+              id,
+              site,
+              start_date,
+              end_date,
+              status,
+              peserta:profiles!ojt_programs_participant_id_fkey(
+                full_name,
+                department
+              )
+            `)
+            .eq("id", programId)
+            .single(),
 
-            supabase
-              .from("achievement_types")
-              .select("code,name")
-              .order("name"),
+          supabase
+            .from("achievement_types")
+            .select("code,name")
+            .order("name"),
 
-            fetchRecords(),
-          ]);
+          fetchRecords(),
+        ]);
 
-        if (programResult.error) {
-          throw programResult.error;
-        }
-
-        if (typesResult.error) {
-          throw typesResult.error;
-        }
+        if (programResult.error) throw programResult.error;
+        if (typesResult.error) throw typesResult.error;
 
         if (!active) return;
 
         setMentor(profile);
         setProgram(programResult.data);
-        setKategori(typesResult.data || []);
-        setJenis(typesResult.data?.[0]?.code || "");
+        setTypes(typesResult.data || []);
         applyRecords(records);
+
+        const currentWeek = weekOf(today(), programResult.data.start_date);
+
+        const latestWeek = records.achievements
+          .map((item) =>
+            weekOf(item.activity_date, programResult.data.start_date)
+          )
+          .filter((value) => value !== null)
+          .sort((a, b) => b - a)[0];
+
+        setWeek(currentWeek || latestWeek || 1);
       } catch (err) {
         if (active) {
-          setError(err.message || "Gagal memuat data.");
+          setError(err?.message || "Gagal memuat data peserta.");
         }
       } finally {
         if (active) setLoading(false);
@@ -426,212 +339,47 @@ export default function DetailPeserta() {
     };
   }, [programId, router]);
 
+  async function refresh() {
+    if (refreshing || loading || !programId) return;
+
+    setRefreshing(true);
+    setError("");
+    setMessage("");
+
+    try {
+      applyRecords(await fetchRecords());
+    } catch (err) {
+      setError(err?.message || "Gagal memperbarui data.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   function openPanel(name) {
     setPanel(name);
     setError("");
     setMessage("");
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function resetAchievement() {
-    setEditId(null);
-    setJenis(kategori[0]?.code || "");
-    setTanggal(today());
-    setDeskripsi("");
-    setFisikKm("0");
-    setFisikMeter("0");
+  async function reloadTests() {
+    const { data, error: err } = await supabase
+      .from("post_test_scores")
+      .select("id,test_date,score,notes,created_at")
+      .eq("program_id", programId)
+      .order("test_date", { ascending: false });
+
+    if (err) throw err;
+
+    setPostTests(data || []);
   }
 
   function resetTest() {
-    setEditTesId(null);
-    setTanggalTes(today());
-    setNilaiTes("");
-    setCatatanTes("");
-  }
-
-  async function saveAchievement(event) {
-    event.preventDefault();
-
-    if (!mentor || !program || saving || actionId) return;
-
-    if (!jenis || !tanggal) {
-      setError("Pilih kategori dan tanggal kegiatan.");
-      return;
-    }
-
-    if (weekOf(tanggal, program.start_date) === null) {
-      setError(
-        "Tanggal harus berada dalam periode Week 01–25 OJT."
-      );
-      return;
-    }
-
-    if (isFisik && !distanceValid) {
-      setError(
-        "Masukkan jarak kilometer dan meter yang valid."
-      );
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const payload = {
-        type_code: jenis,
-        activity_date: tanggal,
-        description: deskripsi.trim(),
-        distance_km: isFisik ? distance : null,
-        status: "pending",
-        verified_by: null,
-      };
-
-      const result = editId
-        ? await supabase
-            .from("achievement_records")
-            .update(payload)
-            .eq("id", editId)
-            .eq("program_id", programId)
-            .select("id")
-        : await supabase
-            .from("achievement_records")
-            .insert({
-              ...payload,
-              program_id: programId,
-            })
-            .select("id");
-
-      if (result.error) throw result.error;
-
-      if (!result.data?.length) {
-        throw new Error("Pencapaian tidak berhasil disimpan.");
-      }
-
-      await reloadAchievements();
-      resetAchievement();
-
-      setMessage(
-        "Pencapaian berhasil disimpan dan menunggu verifikasi."
-      );
-    } catch (err) {
-      setError(err.message || "Gagal menyimpan pencapaian.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function editAchievement(item) {
-    setEditId(item.id);
-    setJenis(item.type_code);
-    setTanggal(item.activity_date);
-    setDeskripsi(item.description || "");
-
-    const totalMeter = Math.round(
-      Number(item.distance_km || 0) * 1000
-    );
-
-    setFisikKm(String(Math.floor(totalMeter / 1000)));
-    setFisikMeter(String(totalMeter % 1000));
-
-    openPanel("pencapaian");
-  }
-
-  async function verifyAchievement(item) {
-    if (!mentor || actionId || saving) return;
-
-    const itemFisik =
-      Boolean(fisikType) &&
-      item.type_code === fisikType.code;
-
-    if (
-      itemFisik &&
-      (!Number.isFinite(Number(item.distance_km)) ||
-        Number(item.distance_km) <= 0)
-    ) {
-      setError(
-        "Jarak Fisik harus diisi sebelum diverifikasi."
-      );
-      return;
-    }
-
-    if (!window.confirm("Verifikasi pencapaian ini?")) {
-      return;
-    }
-
-    setActionId(item.id);
-    setError("");
-    setMessage("");
-
-    try {
-      const { data, error: err } = await supabase
-        .from("achievement_records")
-        .update({
-          status: "verified",
-          verified_by: mentor.id,
-        })
-        .eq("id", item.id)
-        .eq("program_id", programId)
-        .eq("status", "pending")
-        .select("id");
-
-      if (err) throw err;
-
-      if (!data?.length) {
-        throw new Error("Pencapaian tidak dapat diverifikasi.");
-      }
-
-      await reloadAchievements();
-      setMessage("Pencapaian berhasil diverifikasi.");
-    } catch (err) {
-      setError(err.message || "Gagal verifikasi.");
-    } finally {
-      setActionId(null);
-    }
-  }
-
-  async function deleteAchievement(item) {
-    if (!mentor || actionId || saving) return;
-
-    if (
-      !window.confirm(
-        "Hapus pencapaian ini secara permanen?"
-      )
-    ) {
-      return;
-    }
-
-    setActionId(item.id);
-    setError("");
-    setMessage("");
-
-    try {
-      const { data, error: err } = await supabase
-        .from("achievement_records")
-        .delete()
-        .eq("id", item.id)
-        .eq("program_id", programId)
-        .select("id");
-
-      if (err) throw err;
-
-      if (!data?.length) {
-        throw new Error("Pencapaian tidak terhapus.");
-      }
-
-      if (editId === item.id) resetAchievement();
-
-      await reloadAchievements();
-      setMessage("Pencapaian berhasil dihapus.");
-    } catch (err) {
-      setError(err.message || "Gagal menghapus pencapaian.");
-    } finally {
-      setActionId(null);
-    }
+    setEditTestId(null);
+    setTestDate(today());
+    setTestScore("");
+    setTestNotes("");
   }
 
   async function saveTest(event) {
@@ -639,11 +387,11 @@ export default function DetailPeserta() {
 
     if (!mentor || savingTest || testActionId) return;
 
-    const score = Number(nilaiTes);
+    const score = Number(testScore);
 
     if (
-      !tanggalTes ||
-      nilaiTes.trim() === "" ||
+      !testDate ||
+      testScore.trim() === "" ||
       !Number.isFinite(score) ||
       score < 0 ||
       score > 100
@@ -658,16 +406,16 @@ export default function DetailPeserta() {
 
     try {
       const payload = {
-        test_date: tanggalTes,
+        test_date: testDate,
         score,
-        notes: catatanTes.trim() || null,
+        notes: testNotes.trim() || null,
       };
 
-      const result = editTesId
+      const result = editTestId
         ? await supabase
             .from("post_test_scores")
             .update(payload)
-            .eq("id", editTesId)
+            .eq("id", editTestId)
             .eq("program_id", programId)
             .select("id")
         : await supabase
@@ -689,28 +437,24 @@ export default function DetailPeserta() {
       resetTest();
       setMessage("Nilai Post-Test berhasil disimpan.");
     } catch (err) {
-      setError(err.message || "Gagal menyimpan Post-Test.");
+      setError(err?.message || "Gagal menyimpan Post-Test.");
     } finally {
       setSavingTest(false);
     }
   }
 
   function editTest(item) {
-    setEditTesId(item.id);
-    setTanggalTes(item.test_date);
-    setNilaiTes(String(item.score));
-    setCatatanTes(item.notes || "");
+    setEditTestId(item.id);
+    setTestDate(item.test_date);
+    setTestScore(String(item.score));
+    setTestNotes(item.notes || "");
     openPanel("posttest");
   }
 
   async function deleteTest(item) {
     if (!mentor || savingTest || testActionId) return;
 
-    if (
-      !window.confirm("Hapus nilai Post-Test ini?")
-    ) {
-      return;
-    }
+    if (!window.confirm("Hapus nilai Post-Test ini?")) return;
 
     setTestActionId(item.id);
     setError("");
@@ -730,188 +474,149 @@ export default function DetailPeserta() {
         throw new Error("Nilai tidak terhapus.");
       }
 
-      if (editTesId === item.id) resetTest();
+      if (editTestId === item.id) resetTest();
 
       await reloadTests();
       setMessage("Nilai Post-Test berhasil dihapus.");
     } catch (err) {
-      setError(err.message || "Gagal menghapus Post-Test.");
+      setError(err?.message || "Gagal menghapus Post-Test.");
     } finally {
       setTestActionId(null);
     }
   }
 
-  const summary = useMemo(() => {
-    const verified = catatan.filter(
+  const weekly = useMemo(() => {
+    const rows = achievements.filter(
+      (item) =>
+        weekOf(item.activity_date, program?.start_date) === week
+    );
+
+    const verified = rows.filter(
       (item) => item.status === "verified"
     );
 
-    const pending = catatan.filter(
-      (item) => item.status === "pending"
-    );
+    const categories = TARGETS.map((target) => {
+      const type = types.find(
+        (item) => normalize(item.name) === normalize(target.name)
+      );
 
-    const fisikCode = kategori.find(
-      (item) => normalize(item.name) === "fisik"
-    )?.code;
+      const matched = type
+        ? verified.filter((item) => item.type_code === type.code)
+        : [];
 
-    const validFisik = verified.filter(
-      (item) =>
-        item.type_code === fisikCode &&
-        item.distance_km != null &&
-        Number.isFinite(Number(item.distance_km)) &&
-        weekOf(
-          item.activity_date,
-          program?.start_date
-        ) !== null
-    );
+      let actual = 0;
 
-    const totalMeters = validFisik.reduce(
-      (sum, item) =>
-        sum + Math.round(Number(item.distance_km) * 1000),
-      0
-    );
+      if (target.name === "Fisik") {
+        const meters = matched.reduce((sum, item) => {
+          const distance = Number(item.distance_km);
 
-    const achievedWeeks = Array.from(
-      { length: TOTAL_WEEKS },
-      (_, index) => index + 1
-    ).filter((week) => {
-      const meters = validFisik
-        .filter(
-          (item) =>
-            weekOf(
-              item.activity_date,
-              program?.start_date
-            ) === week
-        )
-        .reduce(
-          (sum, item) =>
-            sum +
-            Math.round(Number(item.distance_km) * 1000),
-          0
-        );
+          if (!Number.isFinite(distance) || distance <= 0) {
+            return sum;
+          }
 
-      return meters >= TARGET_FISIK * 1000;
-    }).length;
+          return sum + Math.round(distance * 1000);
+        }, 0);
 
-    const categoryCount = CATEGORY_TARGETS.filter(
-      (target) => {
-        const type = kategori.find(
-          (item) =>
-            normalize(item.name) === normalize(target.name)
-        );
-
-        return (
-          type &&
-          verified.some(
-            (item) => item.type_code === type.code
-          )
-        );
+        actual = meters / 1000;
+      } else {
+        actual = matched.length;
       }
-    ).length;
 
-    const activeWeeks = new Set();
+      const percent = (actual / target.target) * 100;
 
-    const addWeek = (date) => {
-      const week = weekOf(date, program?.start_date);
-      if (week !== null) activeWeeks.add(week);
-    };
+      return {
+        ...target,
+        actual,
+        percent,
+        capped: Math.min(100, percent),
+      };
+    });
 
-    catatan.forEach((item) => addWeek(item.activity_date));
-    postTests.forEach((item) => addWeek(item.test_date));
-    praktik.forEach((item) => addWeek(item.practice_date));
-    samapta.forEach((item) => addWeek(item.test_date));
+    const overall =
+      categories.reduce((sum, item) => sum + item.capped, 0) /
+      TARGETS.length;
 
     return {
-      total: catatan.length,
+      categories,
+      overall,
+      achieved: categories.filter((item) => item.percent >= 100).length,
       verified: verified.length,
-      pending: pending.length,
-      categoryCount,
-      progress: Math.round((categoryCount / 6) * 100),
-      totalKm: totalMeters / 1000,
-      achievedWeeks,
-      activeWeeks: activeWeeks.size,
-      postAverage: average(postTests),
-      practiceAverage: average(praktik),
+      pending: rows.filter((item) => item.status === "pending").length,
     };
-  }, [
-    catatan,
-    kategori,
-    postTests,
-    praktik,
-    samapta,
-    program,
-  ]);
+  }, [achievements, types, program, week]);
 
-  const nama =
-    program?.peserta?.full_name || "Peserta OJT";
+  const participant = Array.isArray(program?.peserta)
+    ? program.peserta[0]
+    : program?.peserta;
+
+  const participantName = participant?.full_name || "Peserta OJT";
+
+  const weekStart = program?.start_date
+    ? addDays(program.start_date, (week - 1) * 7)
+    : null;
+
+  const weekEnd = weekStart ? addDays(weekStart, 6) : null;
 
   const menus = [
     {
-      title: "Monitoring Penilaian OJT",
-      desc: "Buka 10 poin penilaian dan riwayat per minggu",
+      title: "Monitoring OJT",
       icon: "📊",
+      desc: "Seluruh kategori penilaian",
       route: `/monitoring/${programId}`,
-      featured: true,
-    },
-    {
-      title: "Input Pencapaian",
-      desc: "Input, edit, dan verifikasi kegiatan",
-      icon: "📝",
-      panel: "pencapaian",
     },
     {
       title: "Post-Test",
-      desc: `${postTests.length} nilai tercatat`,
       icon: "📚",
+      desc: `${postTests.length} nilai tercatat`,
       panel: "posttest",
     },
     {
       title: "Praktik Mingguan",
-      desc: `${praktik.length} penilaian`,
       icon: "🛠️",
+      desc: `${practice.length} penilaian`,
       route: `/praktik/${programId}`,
     },
     {
       title: "Samapta",
-      desc: "Monitoring hasil tes kesamaptaan",
-      icon: "🏃",
+      icon: "🏋️",
+      desc: `${samapta.length} hasil tes`,
       route: `/samapta/${programId}`,
     },
     {
       title: "SIMPER",
-      desc: "Monitoring tahapan SIMPER",
       icon: "🪪",
+      desc: simper ? "Data tersedia" : "Belum ada data",
       route: `/simper/${programId}`,
     },
     {
       title: "Evaluasi Mingguan",
-      desc: "Monitoring Week 01–25",
       icon: "📅",
+      desc: "Week 01–25",
       route: `/mingguan/${programId}`,
     },
     {
       title: "Grafik Perkembangan",
-      desc: "Analisis perkembangan peserta",
       icon: "📈",
+      desc: "Analisis perkembangan",
       route: `/analisis/${programId}`,
     },
     {
       title: "Evaluasi Kesiapan",
-      desc: "Evaluasi kelengkapan indikator",
       icon: "✅",
+      desc: "Kelengkapan indikator",
       route: `/evaluasi/${programId}`,
     },
     {
-      title: "Laporan OJT",
-      desc: "Rapor dan cetak PDF",
+      title: "Rapor OJT",
       icon: "📄",
+      desc: "Laporan dan cetak PDF",
       route: `/laporan/${programId}`,
     },
   ];
 
   if (loading) {
     return (
-      <main className="dp-loading">
+      <main style={{ padding: 30, fontFamily: "Arial" }}>
         <h2>OJT MineTrack</h2>
         <p>Memuat data peserta...</p>
       </main>
@@ -920,7 +625,7 @@ export default function DetailPeserta() {
 
   if (!mentor || !program) {
     return (
-      <main className="dp-loading">
+      <main style={{ padding: 30, fontFamily: "Arial" }}>
         <h2>Data Tidak Dapat Ditampilkan</h2>
         <p>{error || "Akses tidak tersedia."}</p>
         <button onClick={() => router.push("/")}>
@@ -931,63 +636,55 @@ export default function DetailPeserta() {
   }
 
   return (
-    <main className="dp-root">
+    <main className="mt-root">
       <style>{`
-        * {
-          box-sizing: border-box;
-        }
-
-        .dp-root {
+        .mt-root {
           min-height: 100vh;
-          background: #f2f6f7;
+          background: #f1f6f5;
           color: #172e2a;
           font-family: Arial, Helvetica, sans-serif;
         }
 
-        .dp-loading {
-          min-height: 100vh;
-          padding: 30px;
-          background: #eff5f2;
-          color: #18372b;
-          font-family: Arial, sans-serif;
+        .mt-root * {
+          box-sizing: border-box;
         }
 
-        .dp-topbar {
+        .mt-header {
           background: #071e25;
           color: white;
           padding: 17px 24px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 15px;
+          gap: 12px;
         }
 
-        .dp-brand {
-          font-size: 20px;
+        .mt-brand {
+          font-size: 21px;
           font-weight: 900;
         }
 
-        .dp-brand span {
+        .mt-brand span {
           color: #27c991;
         }
 
-        .dp-back {
+        .mt-back {
           background: #ffffff18;
           border: 1px solid #ffffff30;
-          border-radius: 9px;
+          border-radius: 10px;
           color: white;
-          padding: 11px 15px;
-          font-weight: 700;
+          padding: 10px 14px;
+          font-weight: 800;
           cursor: pointer;
         }
 
-        .dp-container {
-          max-width: 1130px;
+        .mt-container {
+          max-width: 1100px;
           margin: auto;
           padding: 22px;
         }
 
-        .dp-banner {
+        .mt-banner {
           border-radius: 18px;
           background:
             linear-gradient(
@@ -999,283 +696,411 @@ export default function DetailPeserta() {
             url("/background-erg.png.PNG");
           background-size: cover;
           background-position: center;
-          padding: 30px;
+          padding: 28px;
           color: white;
-          margin-bottom: 18px;
+          margin-bottom: 16px;
         }
 
-        .dp-banner small {
+        .mt-banner small {
           color: #e7bd69;
+          font-size: 10px;
           font-weight: 800;
-          letter-spacing: 1.5px;
+          letter-spacing: 1.2px;
         }
 
-        .dp-banner h1 {
-          font-size: 29px;
-          margin: 12px 0 7px;
+        .mt-banner h1 {
+          font-size: 28px;
+          margin: 12px 0 8px;
         }
 
-        .dp-banner p {
+        .mt-banner p {
           color: #d5e9e0;
           font-size: 12px;
+          margin: 0;
         }
 
-        .dp-card {
+        .mt-card {
           background: white;
           border: 1px solid #e3ebea;
           border-radius: 16px;
           padding: 20px;
-          margin-bottom: 17px;
+          margin-bottom: 16px;
           box-shadow: 0 5px 18px #102e2710;
         }
 
-        .dp-profile {
+        .mt-profile {
           display: flex;
-          gap: 16px;
           align-items: center;
+          gap: 14px;
         }
 
-        .dp-avatar {
+        .mt-avatar {
+          width: 60px;
+          height: 60px;
+          flex-shrink: 0;
+          border-radius: 16px;
           background: #e1f7ea;
           color: #098861;
-          border-radius: 16px;
-          width: 65px;
-          height: 65px;
-          flex-shrink: 0;
           display: grid;
           place-items: center;
+          font-size: 20px;
           font-weight: 900;
-          font-size: 22px;
         }
 
-        .dp-profile-main {
+        .mt-profile-main {
           flex: 1;
           min-width: 0;
         }
 
-        .dp-profile-name {
-          font-size: 20px;
+        .mt-profile-name {
+          font-size: 19px;
           font-weight: 900;
           overflow-wrap: anywhere;
         }
 
-        .dp-profile-meta {
-          color: #71857b;
+        .mt-profile-meta {
           font-size: 12px;
+          color: #71857b;
           margin-top: 6px;
           line-height: 1.6;
         }
 
-        .dp-badge {
+        .mt-status {
           background: #dff6e9;
           color: #09784d;
-          padding: 7px 11px;
+          padding: 7px 10px;
           border-radius: 30px;
           font-size: 11px;
           font-weight: 800;
+          white-space: nowrap;
         }
 
-        .dp-divider {
+        .mt-divider {
           border: 0;
           border-top: 1px solid #e9efeb;
-          margin: 18px 0;
+          margin: 17px 0;
         }
 
-        .dp-progress {
-          height: 10px;
+        .mt-profile-details {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .mt-info-label {
+          display: block;
+          color: #819188;
+          font-size: 11px;
+          margin-bottom: 6px;
+        }
+
+        .mt-info-value {
+          font-size: 12px;
+          font-weight: 800;
+          line-height: 1.5;
+        }
+
+        .mt-section-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+
+        .mt-title {
+          font-size: 18px;
+          font-weight: 900;
+          color: #17352b;
+          margin: 0;
+        }
+
+        .mt-subtitle {
+          font-size: 12px;
+          color: #819188;
+          line-height: 1.6;
+          margin: 0 0 15px;
+        }
+
+        .mt-refresh {
+          border: 0;
+          border-radius: 9px;
+          background: #e8f6ed;
+          color: #08784d;
+          padding: 10px 12px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .mt-refresh:disabled {
+          opacity: .6;
+        }
+
+        .mt-overall {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .mt-overall-label {
+          font-size: 14px;
+          font-weight: 900;
+        }
+
+        .mt-overall-note {
+          color: #819188;
+          font-size: 11px;
+          margin-top: 7px;
+          line-height: 1.5;
+        }
+
+        .mt-overall-value {
+          font-size: 34px;
+          color: #087d59;
+          font-weight: 900;
+        }
+
+        .mt-progress {
           width: 100%;
+          height: 9px;
           background: #e5eeea;
           border-radius: 30px;
           overflow: hidden;
         }
 
-        .dp-progress span {
+        .mt-progress span {
           display: block;
           height: 100%;
-          background: linear-gradient(
-            90deg,
-            #25bc87,
-            #0c815c
-          );
           border-radius: inherit;
+          background: linear-gradient(90deg, #25bc87, #0c815c);
+          transition: width .2s;
         }
 
-        .dp-progress-heading {
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-          margin-bottom: 12px;
-        }
-
-        .dp-progress-heading strong {
-          color: #087d59;
-        }
-
-        .dp-metrics {
+        .mt-stats {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 10px;
-          margin-top: 16px;
+          margin-top: 17px;
         }
 
-        .dp-stat {
+        .mt-stat {
           background: #f7faf8;
           border: 1px solid #eaf0eb;
           border-radius: 11px;
-          padding: 13px;
+          padding: 12px 7px;
           text-align: center;
           min-width: 0;
         }
 
-        .dp-stat small {
+        .mt-stat small {
           display: block;
           color: #71877b;
           font-size: 11px;
           line-height: 1.5;
         }
 
-        .dp-stat strong {
+        .mt-stat strong {
           display: block;
-          font-size: 21px;
           color: #193e30;
-          margin: 7px 0;
-          overflow-wrap: anywhere;
-        }
-
-        .dp-summary {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 10px;
-        }
-
-        .dp-title {
-          font-size: 18px;
-          color: #17352b;
-          margin: 0 0 12px;
+          font-size: 21px;
           font-weight: 900;
+          margin-top: 7px;
         }
 
-        .dp-muted {
+        .mt-week-select {
+          border: 1px solid #c8e7d6;
+          border-radius: 10px;
+          background: #eaf8f0;
+          color: #08784f;
+          padding: 11px;
+          font-size: 14px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .mt-week-period {
           color: #819188;
           font-size: 12px;
-          line-height: 1.6;
-          margin: 0 0 16px;
+          margin-bottom: 15px;
         }
 
-        .dp-menu-grid {
+        .mt-achievement-grid {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 13px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 11px;
         }
 
-        .dp-menu {
-          text-align: left;
-          position: relative;
-          cursor: pointer;
+        .mt-achievement {
           border: 1px solid #e3ebe7;
           border-radius: 14px;
           background: white;
-          padding: 18px;
-          min-height: 145px;
-          font-family: inherit;
+          padding: 14px;
+          text-align: left;
+          min-width: 0;
         }
 
-        .dp-menu:hover {
+        .mt-achievement-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
+        .mt-achievement-icon {
+          width: 43px;
+          height: 43px;
+          border-radius: 12px;
+          background: #e5f7ec;
+          display: grid;
+          place-items: center;
+          font-size: 23px;
+        }
+
+        .mt-achievement-percent {
+          font-size: 16px;
+          font-weight: 900;
+          color: #e58c23;
+        }
+
+        .mt-achievement-percent.done {
+          color: #07885a;
+        }
+
+        .mt-achievement-name {
+          font-size: 13px;
+          font-weight: 900;
+          margin-bottom: 11px;
+        }
+
+        .mt-achievement-target {
+          color: #7d9186;
+          font-size: 11px;
+          margin-top: 10px;
+        }
+
+        .mt-input-button {
+          display: block;
+          width: 100%;
+          border: 0;
+          border-radius: 12px;
+          background: linear-gradient(90deg, #099d6c, #087e59);
+          color: white;
+          padding: 16px;
+          font-size: 15px;
+          font-weight: 900;
+          margin-top: 17px;
+          cursor: pointer;
+        }
+
+        .mt-menu-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .mt-menu {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-height: 76px;
+          border: 1px solid #e3ebe7;
+          border-radius: 12px;
+          background: white;
+          padding: 12px;
+          text-align: left;
+          color: inherit;
+          font-family: inherit;
+          cursor: pointer;
+        }
+
+        .mt-menu:hover {
           background: #f7fcf9;
           border-color: #9ed7bd;
         }
 
-        .dp-menu.featured {
-          background: #eaf8f0;
-          border: 2px solid #58bc8e;
+        .mt-menu-icon {
+          font-size: 23px;
+          flex-shrink: 0;
         }
 
-        .dp-menu-icon {
-          font-size: 25px;
-          margin-bottom: 12px;
+        .mt-menu-content {
+          flex: 1;
+          min-width: 0;
         }
 
-        .dp-menu-name {
-          font-size: 14px;
+        .mt-menu-name {
+          font-size: 12px;
           font-weight: 900;
-          color: #1d3831;
+          line-height: 1.4;
         }
 
-        .dp-menu-desc {
+        .mt-menu-desc {
           color: #809389;
-          font-size: 11px;
-          margin-top: 7px;
-          line-height: 1.5;
+          font-size: 10px;
+          margin-top: 5px;
+          line-height: 1.4;
         }
 
-        .dp-menu-arrow {
-          position: absolute;
-          right: 14px;
-          top: 15px;
-          font-size: 24px;
-          color: #738d80;
+        .mt-menu-arrow {
+          color: #82968a;
+          font-size: 20px;
         }
 
-        .dp-panel-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 20px;
-        }
-
-        .dp-button {
+        .mt-button {
           border: 0;
           background: #118660;
           color: white;
           border-radius: 10px;
-          padding: 12px 17px;
-          font-weight: 800;
+          padding: 12px 16px;
           font-size: 13px;
+          font-weight: 800;
           cursor: pointer;
         }
 
-        .dp-button:disabled {
+        .mt-button:disabled {
           opacity: .55;
-          cursor: not-allowed;
         }
 
-        .dp-button.gray {
-          background: #64748b;
-        }
-
-        .dp-button.red {
-          background: #d03939;
-        }
-
-        .dp-button.blue {
-          background: #317bd0;
-        }
-
-        .dp-button.outline {
+        .mt-button.outline {
           background: #ecf5f0;
           color: #167251;
         }
 
-        .dp-actions {
+        .mt-button.gray {
+          background: #64748b;
+        }
+
+        .mt-button.blue {
+          background: #317bd0;
+        }
+
+        .mt-button.red {
+          background: #d03939;
+        }
+
+        .mt-actions {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
         }
 
-        .dp-field-group {
+        .mt-field-group {
           margin-bottom: 17px;
         }
 
-        .dp-field-group label {
+        .mt-field-group label {
           display: block;
-          font-size: 12px;
           color: #344a40;
+          font-size: 12px;
           font-weight: 800;
           margin-bottom: 7px;
         }
 
-        .dp-field {
+        .mt-field {
           width: 100%;
           background: white;
           border: 1px solid #d8e3dd;
@@ -1284,300 +1109,288 @@ export default function DetailPeserta() {
           padding: 12px;
           font-size: 16px;
           font-family: inherit;
-          min-width: 0;
         }
 
-        .dp-distance-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
-        }
-
-        textarea.dp-field {
+        textarea.mt-field {
           resize: vertical;
         }
 
-        .dp-distance-total {
-          background: #e8f8ef;
-          border: 1px solid #bce7ce;
-          border-radius: 12px;
-          padding: 14px;
-          margin-top: 13px;
-        }
-
-        .dp-distance-total span {
-          display: block;
-          font-size: 11px;
-          color: #56796a;
-        }
-
-        .dp-distance-total strong {
-          display: block;
-          font-size: 26px;
-          color: #087e57;
-          margin: 7px 0;
-        }
-
-        .dp-history {
+        .mt-history {
           border: 1px solid #e1eae5;
           border-radius: 12px;
           padding: 15px;
           margin-bottom: 11px;
         }
 
-        .dp-history-title {
+        .mt-history-title {
           font-size: 14px;
           font-weight: 900;
         }
 
-        .dp-history-meta {
+        .mt-history-meta {
           color: #788980;
           font-size: 11px;
           margin-top: 6px;
           line-height: 1.6;
         }
 
-        .dp-history-desc {
-          font-size: 12px;
+        .mt-history-desc {
           color: #395045;
+          font-size: 12px;
+          line-height: 1.6;
           white-space: pre-wrap;
           overflow-wrap: anywhere;
-          line-height: 1.6;
         }
 
-        .dp-history-actions {
+        .mt-history-actions {
           display: flex;
-          flex-wrap: wrap;
           gap: 7px;
-          margin-top: 13px;
+          margin-top: 12px;
         }
 
-        .dp-history-actions .dp-button {
-          padding: 9px 12px;
-          font-size: 11px;
-        }
-
-        .dp-alert {
-          border-radius: 11px;
+        .mt-alert {
           padding: 14px;
-          margin-bottom: 15px;
+          border-radius: 11px;
           font-size: 13px;
           line-height: 1.6;
-          overflow-wrap: anywhere;
+          margin-bottom: 15px;
         }
 
-        .dp-alert.error {
+        .mt-alert.error {
           background: #fff0f1;
           border: 1px solid #fecdd3;
           color: #b91c1c;
         }
 
-        .dp-alert.success {
+        .mt-alert.success {
           background: #edfbf2;
           border: 1px solid #bde7ca;
           color: #08784d;
         }
 
-        .dp-footer {
+        .mt-bottom-back {
+          width: 100%;
+          border: 1px solid #cfe2d9;
+          background: #eaf2ef;
+          color: #234139;
+          border-radius: 12px;
+          padding: 15px;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+          margin-top: 15px;
+        }
+
+        .mt-footer {
           text-align: center;
           color: #8b9f93;
-          padding: 20px 0;
           font-size: 11px;
+          padding: 22px 0;
+        }
+
+        @media (min-width: 900px) {
+          .mt-achievement-grid,
+          .mt-menu-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
         }
 
         @media (max-width: 760px) {
-          .dp-topbar {
+          .mt-header {
             padding: 15px;
           }
 
-          .dp-brand {
+          .mt-brand {
             font-size: 18px;
           }
 
-          .dp-back {
+          .mt-back {
             font-size: 12px;
             padding: 9px;
           }
 
-          .dp-container {
+          .mt-container {
             padding: 12px;
           }
 
-          .dp-banner {
+          .mt-banner {
             padding: 23px 18px;
           }
 
-          .dp-banner h1 {
+          .mt-banner h1 {
             font-size: 24px;
           }
 
-          .dp-card {
+          .mt-card {
             padding: 15px;
             margin-bottom: 12px;
           }
 
-          .dp-avatar {
+          .mt-avatar {
             width: 48px;
             height: 48px;
             font-size: 17px;
           }
 
-          .dp-profile {
-            gap: 11px;
+          .mt-profile {
+            gap: 10px;
           }
 
-          .dp-profile-name {
+          .mt-profile-name {
             font-size: 16px;
           }
 
-          .dp-profile-meta {
+          .mt-profile-meta {
             font-size: 11px;
           }
 
-          .dp-summary {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+          .mt-overall-value {
+            font-size: 29px;
           }
 
-          .dp-stat {
-            padding: 11px 6px;
-          }
-
-          .dp-stat strong {
-            font-size: 18px;
-          }
-
-          .dp-menu-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+          .mt-achievement-grid,
+          .mt-menu-grid {
             gap: 9px;
           }
 
-          .dp-menu {
-            padding: 13px;
-            min-height: 132px;
+          .mt-achievement {
+            padding: 12px;
           }
 
-          .dp-menu-name {
+          .mt-achievement-name {
             font-size: 12px;
           }
 
-          .dp-menu-desc {
-            font-size: 10px;
+          .mt-achievement-icon {
+            width: 38px;
+            height: 38px;
+            font-size: 20px;
           }
 
-          .dp-title {
-            font-size: 17px;
+          .mt-achievement-percent {
+            font-size: 15px;
           }
 
-          .dp-distance-total strong {
-            font-size: 23px;
+          .mt-menu {
+            padding: 10px;
+            gap: 8px;
+          }
+
+          .mt-menu-icon {
+            font-size: 20px;
+          }
+
+          .mt-menu-name {
+            font-size: 11px;
+          }
+
+          .mt-stat strong {
+            font-size: 18px;
+          }
+        }
+
+        @media (max-width: 370px) {
+          .mt-profile {
+            flex-wrap: wrap;
+          }
+
+          .mt-achievement,
+          .mt-menu {
+            padding: 9px;
           }
         }
       `}</style>
 
-      <header className="dp-topbar">
-        <div className="dp-brand">
+      <header className="mt-header">
+        <div className="mt-brand">
           OJT <span>MineTrack</span>
         </div>
 
         <button
           type="button"
-          className="dp-back"
+          className="mt-back"
           onClick={() =>
-            panel === "menu"
+            panel === "dashboard"
               ? router.push("/")
-              : openPanel("menu")
+              : openPanel("dashboard")
           }
         >
-          ← {panel === "menu" ? "Dashboard" : "Menu Peserta"}
+          ← {panel === "dashboard" ? "Dashboard" : "Menu Peserta"}
         </button>
       </header>
 
-      <div className="dp-container">
-        <section className="dp-banner">
-          <small>
-            EMERGENCY RESPONSE GROUP · PT BERAU COAL
-          </small>
+      <div className="mt-container">
+        <section className="mt-banner">
+          <small>EMERGENCY RESPONSE GROUP · PT BERAU COAL</small>
           <h1>Detail Peserta OJT</h1>
           <p>Monitoring Kompetensi dan Evaluasi OJT</p>
         </section>
 
-        <section className="dp-card">
-          <div className="dp-profile">
-            <div className="dp-avatar">
-              {initials(nama)}
+        <section className="mt-card">
+          <div className="mt-profile">
+            <div className="mt-avatar">
+              {initials(participantName)}
             </div>
 
-            <div className="dp-profile-main">
-              <div className="dp-profile-name">
-                {nama}
+            <div className="mt-profile-main">
+              <div className="mt-profile-name">
+                {participantName}
               </div>
 
-              <div className="dp-profile-meta">
-                {program.peserta?.department || "—"}
-                {" · "}
+              <div className="mt-profile-meta">
+                {participant?.department || "—"} ·{" "}
                 {program.site || "Site belum diisi"}
-                <br />
-                {dateText(program.start_date)}
-                {" – "}
-                {dateText(program.end_date)}
               </div>
             </div>
 
-            <span className="dp-badge">
+            <span className="mt-status">
               {program.status === "active"
                 ? "Aktif"
-                : program.status}
+                : program.status || "—"}
             </span>
           </div>
 
-          <hr className="dp-divider" />
+          <hr className="mt-divider" />
 
-          <div className="dp-progress-heading">
-            <span>Kategori yang Memiliki Verifikasi</span>
-            <strong>{summary.categoryCount}/6</strong>
-          </div>
+          <div className="mt-profile-details">
+            <div>
+              <span className="mt-info-label">Periode OJT</span>
+              <div className="mt-info-value">
+                {formatDate(program.start_date)} –{" "}
+                {formatDate(program.end_date)}
+              </div>
+            </div>
 
-          <Progress value={summary.progress} />
-
-          <div className="dp-metrics">
-            <Stat
-              label="Total Catatan"
-              value={summary.total}
-            />
-            <Stat
-              label="Terverifikasi"
-              value={summary.verified}
-            />
-            <Stat
-              label="Menunggu"
-              value={summary.pending}
-            />
+            <div>
+              <span className="mt-info-label">Mentor</span>
+              <div className="mt-info-value">
+                {mentor.full_name || "—"}
+              </div>
+            </div>
           </div>
         </section>
 
         {error && (
-          <div className="dp-alert error" role="alert">
+          <div className="mt-alert error" role="alert">
             {error}
           </div>
         )}
 
         {message && (
-          <div className="dp-alert success" role="status">
+          <div className="mt-alert success" role="status">
             ✓ {message}
           </div>
         )}
 
-        {panel === "menu" && (
+        {panel === "dashboard" && (
           <>
-            <section className="dp-card">
-              <div className="dp-panel-header">
-                <h2 className="dp-title">
-                  Ringkasan Monitoring Peserta
-                </h2>
+            <section className="mt-card">
+              <div className="mt-section-head">
+                <h2 className="mt-title">Progress Achievement OJT</h2>
 
                 <button
                   type="button"
-                  className="dp-button outline"
+                  className="mt-refresh"
                   onClick={refresh}
                   disabled={refreshing}
                 >
@@ -1585,576 +1398,285 @@ export default function DetailPeserta() {
                 </button>
               </div>
 
-              <p className="dp-muted">
-                Ringkasan berdasarkan data peserta.
-                Kategori yang memiliki verifikasi belum
-                tentu telah mencapai target mingguannya.
-              </p>
+              <div className="mt-overall">
+                <div>
+                  <div className="mt-overall-label">
+                    Progress Week {String(week).padStart(2, "0")}
+                  </div>
 
-              <div className="dp-summary">
-                <Stat
-                  label="Rata-rata Post-Test"
-                  value={fmtScore(summary.postAverage)}
-                  detail={`${postTests.length} nilai`}
-                />
+                  <div className="mt-overall-note">
+                    Rata-rata pencapaian 6 kategori terverifikasi
+                  </div>
+                </div>
 
-                <Stat
-                  label="Rata-rata Praktik"
-                  value={fmtScore(summary.practiceAverage)}
-                  detail={`${praktik.length} penilaian`}
-                />
-
-                <Stat
-                  label="Catatan Samapta"
-                  value={samapta.length}
-                  detail="Hasil tes tercatat"
-                />
-
-                <Stat
-                  label="Data SIMPER"
-                  value={simper ? "Tersedia" : "Belum ada"}
-                />
-
-                <Stat
-                  label="Minggu dengan Aktivitas"
-                  value={`${summary.activeWeeks}/25`}
-                />
-
-                <Stat
-                  label="Kategori Terverifikasi"
-                  value={`${summary.categoryCount}/6`}
-                />
-
-                <Stat
-                  label="Total Fisik Terverifikasi"
-                  value={`${fmtKm(summary.totalKm)} km`}
-                  detail="Target keseluruhan 625 km"
-                />
-
-                <Stat
-                  label="Minggu Fisik Tercapai"
-                  value={`${summary.achievedWeeks}/25`}
-                  detail="Target 25 km per minggu"
-                />
+                <div className="mt-overall-value">
+                  {formatNumber(weekly.overall)}%
+                </div>
               </div>
+
+              <ProgressBar value={weekly.overall} />
+
+              <div className="mt-stats">
+                <div className="mt-stat">
+                  <small>Kategori Tercapai</small>
+                  <strong>{weekly.achieved}/6</strong>
+                </div>
+
+                <div className="mt-stat">
+                  <small>Terverifikasi</small>
+                  <strong>{weekly.verified}</strong>
+                </div>
+
+                <div className="mt-stat">
+                  <small>Menunggu</small>
+                  <strong>{weekly.pending}</strong>
+                </div>
+              </div>
+
+              <p
+                className="mt-subtitle"
+                style={{ marginTop: 14, marginBottom: 0 }}
+              >
+                Progress dihitung per minggu. Setiap kategori
+                memiliki bobot sama dan kontribusinya dibatasi
+                maksimal 100% untuk progress keseluruhan.
+              </p>
             </section>
 
-            <section className="dp-card">
-              <h2 className="dp-title">
-                Menu Monitoring & Penilaian
-              </h2>
+            <section className="mt-card">
+              <div className="mt-section-head">
+                <h2 className="mt-title">Achievement Mingguan</h2>
 
-              <p className="dp-muted">
-                Klik Monitoring Penilaian OJT untuk
-                melihat kategori penilaian secara
-                terpisah dan memilih minggu monitoring.
-              </p>
+                <select
+                  className="mt-week-select"
+                  aria-label="Pilih minggu Achievement"
+                  value={week}
+                  onChange={(event) =>
+                    setWeek(Number(event.target.value))
+                  }
+                >
+                  {Array.from(
+                    { length: TOTAL_WEEKS },
+                    (_, index) => index + 1
+                  ).map((item) => (
+                    <option key={item} value={item}>
+                      Week {String(item).padStart(2, "0")}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-              <div className="dp-menu-grid">
+              <div className="mt-week-period">
+                {weekStart && weekEnd
+                  ? `${formatDate(weekStart)} – ${formatDate(weekEnd)}`
+                  : "Periode minggu belum tersedia"}
+              </div>
+
+              <div className="mt-achievement-grid">
+                {weekly.categories.map((item) => (
+                  <div
+                    key={item.name}
+                    className="mt-achievement"
+                  >
+                    <div className="mt-achievement-top">
+                      <div className="mt-achievement-icon">
+                        {item.icon}
+                      </div>
+
+                      <div
+                        className={`mt-achievement-percent ${
+                          item.percent >= 100 ? "done" : ""
+                        }`}
+                      >
+                        {formatNumber(item.percent)}%
+                      </div>
+                    </div>
+
+                    <div className="mt-achievement-name">
+                      {item.name}
+                    </div>
+
+                    <ProgressBar value={item.percent} />
+
+                    <div className="mt-achievement-target">
+                      {item.name === "Fisik"
+                        ? formatNumber(item.actual, 3)
+                        : item.actual}
+                      {" / "}
+                      {item.target} {item.unit}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="mt-input-button"
+                onClick={() =>
+                  router.push(`/achievement/${programId}`)
+                }
+              >
+                📝 Input Achievement →
+              </button>
+            </section>
+
+            <section className="mt-card">
+              <div className="mt-section-head">
+                <h2 className="mt-title">Monitoring & Penilaian</h2>
+              </div>
+
+              <div className="mt-menu-grid">
                 {menus.map((item) => (
                   <button
                     key={item.title}
                     type="button"
-                    className={`dp-menu ${
-                      item.featured ? "featured" : ""
-                    }`}
+                    className="mt-menu"
                     onClick={() =>
                       item.route
                         ? router.push(item.route)
                         : openPanel(item.panel)
                     }
                   >
-                    <div className="dp-menu-icon">
+                    <span className="mt-menu-icon">
                       {item.icon}
-                    </div>
-
-                    <div className="dp-menu-name">
-                      {item.title}
-                    </div>
-
-                    <div className="dp-menu-desc">
-                      {item.desc}
-                    </div>
-
-                    <span className="dp-menu-arrow">
-                      ›
                     </span>
+
+                    <div className="mt-menu-content">
+                      <div className="mt-menu-name">
+                        {item.title}
+                      </div>
+
+                      <div className="mt-menu-desc">
+                        {item.desc}
+                      </div>
+                    </div>
+
+                    <span className="mt-menu-arrow">›</span>
                   </button>
                 ))}
               </div>
             </section>
-          </>
-        )}
 
-        {panel === "pencapaian" && (
-          <>
-            <section className="dp-card">
-              <div className="dp-panel-header">
-                <h2 className="dp-title">
-                  {editId
-                    ? "Edit Pencapaian OJT"
-                    : "Input Pencapaian OJT"}
-                </h2>
-
-                <button
-                  type="button"
-                  className="dp-button outline"
-                  onClick={() => openPanel("menu")}
-                >
-                  Kembali
-                </button>
-              </div>
-
-              <form onSubmit={saveAchievement}>
-                <div className="dp-field-group">
-                  <label htmlFor="dp-jenis">
-                    Kategori Pencapaian
-                  </label>
-
-                  <select
-                    id="dp-jenis"
-                    className="dp-field"
-                    value={jenis}
-                    onChange={(event) =>
-                      setJenis(event.target.value)
-                    }
-                    required
-                  >
-                    {!kategori.length && (
-                      <option value="">
-                        Belum ada kategori
-                      </option>
-                    )}
-
-                    {kategori.map((item) => (
-                      <option
-                        key={item.code}
-                        value={item.code}
-                      >
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="dp-field-group">
-                  <label htmlFor="dp-tanggal">
-                    Tanggal Kegiatan
-                  </label>
-
-                  <input
-                    id="dp-tanggal"
-                    type="date"
-                    className="dp-field"
-                    value={tanggal}
-                    onChange={(event) =>
-                      setTanggal(event.target.value)
-                    }
-                    required
-                  />
-
-                  <p
-                    className="dp-muted"
-                    style={{
-                      marginTop: 7,
-                      marginBottom: 0,
-                    }}
-                  >
-                    {weekOf(
-                      tanggal,
-                      program.start_date
-                    ) !== null
-                      ? `Week ${String(
-                          weekOf(
-                            tanggal,
-                            program.start_date
-                          )
-                        ).padStart(2, "0")}`
-                      : "Pilih tanggal dalam 25 minggu OJT."}
-                  </p>
-                </div>
-
-                {isFisik && (
-                  <div className="dp-field-group">
-                    <label>Jarak Tempuh Fisik</label>
-
-                    <div className="dp-distance-grid">
-                      <div>
-                        <label htmlFor="dp-km">
-                          Kilometer (km)
-                        </label>
-
-                        <select
-                          id="dp-km"
-                          className="dp-field"
-                          value={fisikKm}
-                          onChange={(event) =>
-                            setFisikKm(event.target.value)
-                          }
-                        >
-                          {Array.from(
-                            { length: 101 },
-                            (_, index) => (
-                              <option
-                                key={index}
-                                value={index}
-                              >
-                                {index} km
-                              </option>
-                            )
-                          )}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label htmlFor="dp-meter">
-                          Tambahan Meter (m)
-                        </label>
-
-                        <input
-                          id="dp-meter"
-                          className="dp-field"
-                          type="number"
-                          inputMode="numeric"
-                          min="0"
-                          max="999"
-                          step="1"
-                          value={fisikMeter}
-                          onChange={(event) =>
-                            setFisikMeter(event.target.value)
-                          }
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    <div className="dp-distance-total">
-                      <span>Total Jarak Kegiatan</span>
-
-                      <strong>
-                        {distance === null
-                          ? "—"
-                          : fmtKm(distance)}{" "}
-                        km
-                      </strong>
-
-                      <span>
-                        Target 25 km per minggu.
-                        Jarak dihitung setelah
-                        diverifikasi Mentor.
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="dp-field-group">
-                  <label htmlFor="dp-deskripsi">
-                    Keterangan Pencapaian (Opsional)
-                  </label>
-
-                  <textarea
-                    id="dp-deskripsi"
-                    className="dp-field"
-                    rows={4}
-                    value={deskripsi}
-                    onChange={(event) =>
-                      setDeskripsi(event.target.value)
-                    }
-                    placeholder={
-                      isFisik
-                        ? "Contoh: Latihan lari pagi."
-                        : "Catatan kegiatan jika diperlukan..."
-                    }
-                  />
-                </div>
-
-                <div className="dp-actions">
-                  <button
-                    type="submit"
-                    className="dp-button"
-                    disabled={
-                      saving ||
-                      Boolean(actionId) ||
-                      !kategori.length
-                    }
-                  >
-                    {saving
-                      ? "Menyimpan..."
-                      : editId
-                      ? "Simpan Perubahan"
-                      : "Simpan Pencapaian"}
-                  </button>
-
-                  {editId && (
-                    <button
-                      type="button"
-                      className="dp-button gray"
-                      onClick={resetAchievement}
-                      disabled={saving}
-                    >
-                      Batal Edit
-                    </button>
-                  )}
-                </div>
-              </form>
-            </section>
-
-            <section className="dp-card">
-              <h2 className="dp-title">
-                Lihat Hasil Monitoring
-              </h2>
-
-              <p className="dp-muted">
-                Monitoring 25 minggu sekarang dibuka
-                melalui halaman terpisah. Pilih kategori
-                Fisik atau kategori lainnya untuk
-                melihat hasil dan riwayat kegiatan.
-              </p>
-
-              <button
-                type="button"
-                className="dp-button"
-                onClick={() =>
-                  router.push(`/monitoring/${programId}`)
-                }
-              >
-                Buka Monitoring Penilaian →
-              </button>
-            </section>
-
-            <section className="dp-card">
-              <h2 className="dp-title">
-                Riwayat Pencapaian
-              </h2>
-
-              <p className="dp-muted">
-                {catatan.length} catatan pencapaian
-              </p>
-
-              {!catatan.length && (
-                <p className="dp-muted">
-                  Belum ada pencapaian yang diinput.
-                </p>
-              )}
-
-              {catatan.map((item) => {
-                const minggu = weekOf(
-                  item.activity_date,
-                  program.start_date
-                );
-
-                return (
-                  <div
-                    className="dp-history"
-                    key={item.id}
-                  >
-                    <div className="dp-history-title">
-                      {kategori.find(
-                        (k) =>
-                          k.code === item.type_code
-                      )?.name || item.type_code}
-                    </div>
-
-                    <div className="dp-history-meta">
-                      {dateText(item.activity_date)}
-                      {" · "}
-                      {item.status === "verified"
-                        ? "Terverifikasi"
-                        : item.status === "pending"
-                        ? "Menunggu Verifikasi"
-                        : item.status}
-
-                      {minggu !== null && (
-                        <>
-                          {" · Week "}
-                          {String(minggu).padStart(2, "0")}
-                        </>
-                      )}
-                    </div>
-
-                    {item.description && (
-                      <p className="dp-history-desc">
-                        {item.description}
-                      </p>
-                    )}
-
-                    {item.distance_km != null && (
-                      <div className="dp-history-meta">
-                        Jarak Fisik:{" "}
-                        <strong>
-                          {fmtKm(item.distance_km)} km
-                        </strong>
-                      </div>
-                    )}
-
-                    <div className="dp-history-actions">
-                      {item.status === "pending" && (
-                        <button
-                          type="button"
-                          className="dp-button"
-                          disabled={
-                            Boolean(actionId) || saving
-                          }
-                          onClick={() =>
-                            verifyAchievement(item)
-                          }
-                        >
-                          ✓ Verifikasi
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        className="dp-button blue"
-                        disabled={
-                          Boolean(actionId) || saving
-                        }
-                        onClick={() =>
-                          editAchievement(item)
-                        }
-                      >
-                        Edit
-                      </button>
-
-                      <button
-                        type="button"
-                        className="dp-button red"
-                        disabled={
-                          Boolean(actionId) || saving
-                        }
-                        onClick={() =>
-                          deleteAchievement(item)
-                        }
-                      >
-                        {actionId === item.id
-                          ? "Memproses..."
-                          : "Hapus"}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </section>
+            <button
+              type="button"
+              className="mt-bottom-back"
+              onClick={() => router.push("/")}
+            >
+              ← Kembali ke Dashboard
+            </button>
           </>
         )}
 
         {panel === "posttest" && (
           <>
-            <section className="dp-card">
-              <div className="dp-panel-header">
-                <h2 className="dp-title">
-                  Monitoring Post-Test
-                </h2>
+            <section className="mt-card">
+              <div className="mt-section-head">
+                <h2 className="mt-title">Monitoring Post-Test</h2>
 
                 <button
                   type="button"
-                  className="dp-button outline"
-                  onClick={() => openPanel("menu")}
+                  className="mt-button outline"
+                  onClick={() => openPanel("dashboard")}
                 >
                   Kembali
                 </button>
               </div>
 
-              <div
-                className="dp-metrics"
-                style={{
-                  gridTemplateColumns:
-                    "repeat(2, minmax(0, 1fr))",
-                  marginBottom: 22,
-                }}
-              >
-                <Stat
-                  label="Total Post-Test"
-                  value={postTests.length}
-                />
+              <div className="mt-stats">
+                <div className="mt-stat">
+                  <small>Total Post-Test</small>
+                  <strong>{postTests.length}</strong>
+                </div>
 
-                <Stat
-                  label="Rata-rata Nilai"
-                  value={fmtScore(summary.postAverage)}
-                />
+                <div className="mt-stat">
+                  <small>Rata-rata Nilai</small>
+                  <strong>{formatScore(average(postTests))}</strong>
+                </div>
               </div>
 
-              <h3 className="dp-title">
-                {editTesId
+              <h3
+                className="mt-title"
+                style={{ margin: "24px 0 17px" }}
+              >
+                {editTestId
                   ? "Edit Nilai Post-Test"
                   : "Input Nilai Post-Test"}
               </h3>
 
               <form onSubmit={saveTest}>
-                <div className="dp-field-group">
-                  <label htmlFor="dp-test-date">
+                <div className="mt-field-group">
+                  <label htmlFor="mt-test-date">
                     Tanggal Pelaksanaan
                   </label>
 
                   <input
-                    id="dp-test-date"
-                    className="dp-field"
+                    id="mt-test-date"
+                    className="mt-field"
                     type="date"
-                    value={tanggalTes}
+                    value={testDate}
                     onChange={(event) =>
-                      setTanggalTes(event.target.value)
+                      setTestDate(event.target.value)
                     }
                     required
                   />
                 </div>
 
-                <div className="dp-field-group">
-                  <label htmlFor="dp-test-score">
+                <div className="mt-field-group">
+                  <label htmlFor="mt-test-score">
                     Nilai Post-Test (0–100)
                   </label>
 
                   <input
-                    id="dp-test-score"
-                    className="dp-field"
+                    id="mt-test-score"
+                    className="mt-field"
                     type="number"
                     min="0"
                     max="100"
                     step="0.01"
-                    value={nilaiTes}
+                    value={testScore}
                     onChange={(event) =>
-                      setNilaiTes(event.target.value)
+                      setTestScore(event.target.value)
                     }
                     required
                   />
                 </div>
 
-                <div className="dp-field-group">
-                  <label htmlFor="dp-test-notes">
+                <div className="mt-field-group">
+                  <label htmlFor="mt-test-notes">
                     Catatan Evaluasi
                   </label>
 
                   <textarea
-                    id="dp-test-notes"
-                    className="dp-field"
+                    id="mt-test-notes"
+                    className="mt-field"
                     rows={3}
-                    value={catatanTes}
+                    value={testNotes}
                     onChange={(event) =>
-                      setCatatanTes(event.target.value)
+                      setTestNotes(event.target.value)
                     }
                     placeholder="Catatan evaluasi peserta..."
                   />
                 </div>
 
-                <div className="dp-actions">
+                <div className="mt-actions">
                   <button
                     type="submit"
-                    className="dp-button"
+                    className="mt-button"
                     disabled={
-                      savingTest ||
-                      Boolean(testActionId)
+                      savingTest || Boolean(testActionId)
                     }
                   >
                     {savingTest
                       ? "Menyimpan..."
-                      : editTesId
+                      : editTestId
                       ? "Simpan Perubahan Nilai"
                       : "Simpan Nilai Post-Test"}
                   </button>
 
-                  {editTesId && (
+                  {editTestId && (
                     <button
                       type="button"
-                      className="dp-button gray"
+                      className="mt-button gray"
                       onClick={resetTest}
                       disabled={savingTest}
                     >
@@ -2165,41 +1687,40 @@ export default function DetailPeserta() {
               </form>
             </section>
 
-            <section className="dp-card">
-              <h2 className="dp-title">
+            <section className="mt-card">
+              <h2
+                className="mt-title"
+                style={{ marginBottom: 16 }}
+              >
                 Riwayat Nilai Post-Test
               </h2>
 
               {!postTests.length && (
-                <p className="dp-muted">
+                <p className="mt-subtitle">
                   Belum ada nilai Post-Test.
                 </p>
               )}
 
               {postTests.map((item) => (
-                <div
-                  className="dp-history"
-                  key={item.id}
-                >
-                  <div className="dp-history-title">
-                    Nilai: {item.score}
+                <div className="mt-history" key={item.id}>
+                  <div className="mt-history-title">
+                    Nilai: {formatScore(item.score)}
                   </div>
 
-                  <div className="dp-history-meta">
-                    Tanggal: {dateText(item.test_date)}
+                  <div className="mt-history-meta">
+                    Tanggal: {formatDate(item.test_date)}
                   </div>
 
-                  <p className="dp-history-desc">
+                  <p className="mt-history-desc">
                     {item.notes || "Tidak ada catatan."}
                   </p>
 
-                  <div className="dp-history-actions">
+                  <div className="mt-history-actions">
                     <button
                       type="button"
-                      className="dp-button blue"
+                      className="mt-button blue"
                       disabled={
-                        Boolean(testActionId) ||
-                        savingTest
+                        Boolean(testActionId) || savingTest
                       }
                       onClick={() => editTest(item)}
                     >
@@ -2208,10 +1729,9 @@ export default function DetailPeserta() {
 
                     <button
                       type="button"
-                      className="dp-button red"
+                      className="mt-button red"
                       disabled={
-                        Boolean(testActionId) ||
-                        savingTest
+                        Boolean(testActionId) || savingTest
                       }
                       onClick={() => deleteTest(item)}
                     >
@@ -2226,7 +1746,7 @@ export default function DetailPeserta() {
           </>
         )}
 
-        <footer className="dp-footer">
+        <footer className="mt-footer">
           OJT MineTrack v2.0 · Emergency Response Group ·
           PT Berau Coal
         </footer>
