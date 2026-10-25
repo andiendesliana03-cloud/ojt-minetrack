@@ -51,6 +51,10 @@ const secondaryButton = {
   border: `1px solid ${C.border}`,
 };
 
+function normalize(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function formatDate(value) {
   if (!value) return "-";
 
@@ -178,10 +182,14 @@ function MenuCard({
 export default function DashboardPeserta() {
   const router = useRouter();
 
+  const [account, setAccount] = useState(null);
   const [profile, setProfile] = useState(null);
   const [program, setProgram] = useState(null);
-  const [registration, setRegistration] =
-    useState(null);
+  const [registration, setRegistration] = useState(null);
+
+  const [participants, setParticipants] = useState([]);
+  const [selectedParticipantId, setSelectedParticipantId] =
+    useState("");
 
   const [access, setAccess] = useState("loading");
   const [loading, setLoading] = useState(true);
@@ -189,7 +197,222 @@ export default function DashboardPeserta() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadDashboard(isRefresh = false) {
+  const isAdmin = normalize(account?.role) === "admin";
+
+  async function fetchParticipantList() {
+    const { data, error: listError } = await supabase
+      .from("ojt_programs")
+      .select(`
+        participant_id,
+        site,
+        peserta:profiles!ojt_programs_participant_id_fkey(
+          id,
+          full_name,
+          department
+        )
+      `)
+      .eq("status", "active");
+
+    if (listError) throw listError;
+
+    const unique = new Map();
+
+    (data || []).forEach((item) => {
+      if (!item.participant_id) return;
+
+      if (!unique.has(item.participant_id)) {
+        unique.set(item.participant_id, {
+          id: item.participant_id,
+          full_name:
+            item.peserta?.full_name || "Peserta OJT",
+          department:
+            item.peserta?.department || "",
+          site: item.site || "",
+        });
+      }
+    });
+
+    return [...unique.values()].sort((a, b) =>
+      a.full_name.localeCompare(b.full_name)
+    );
+  }
+
+  async function fetchParticipantDashboard(
+    participantId,
+    adminPreview = false,
+    previewParticipants = []
+  ) {
+    let currentProfile = null;
+
+    if (adminPreview) {
+      // ID preview harus berasal dari daftar
+      // program aktif yang dibaca dari Supabase.
+      const selected = previewParticipants.find(
+        (item) => item.id === participantId
+      );
+
+      if (!selected) {
+        throw new Error(
+          "Peserta tidak tersedia dalam daftar preview."
+        );
+      }
+
+      currentProfile = {
+        id: selected.id,
+        full_name: selected.full_name,
+        department: selected.department,
+        role: "participant",
+      };
+    } else {
+      const {
+        data,
+        error: profileError,
+      } = await supabase
+        .from("profiles")
+        .select("id,full_name,department,role")
+        .eq("id", participantId)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      if (!data) {
+        throw new Error(
+          "Profil peserta tidak tersedia."
+        );
+      }
+
+      currentProfile = data;
+    }
+
+    const {
+      data: newRequests,
+      error: newError,
+    } = await supabase
+      .from("ojt_registration_requests")
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        start_date,
+        end_date,
+        created_at
+      `)
+      .eq("participant_id", participantId)
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (newError) throw newError;
+
+    const {
+      data: oldRequests,
+      error: oldError,
+    } = await supabase
+      .from("participant_registrations")
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        created_at
+      `)
+      .eq("user_id", participantId)
+      .order("created_at", {
+        ascending: false,
+      })
+      .limit(1);
+
+    if (oldError) throw oldError;
+
+    const {
+      data: activePrograms,
+      error: programError,
+    } = await supabase
+      .from("ojt_programs")
+      .select(`
+        id,
+        participant_id,
+        start_date,
+        end_date,
+        status,
+        site,
+        legacy_access
+      `)
+      .eq("participant_id", participantId)
+      .eq("status", "active")
+      .order("start_date", {
+        ascending: false,
+      })
+      .limit(1);
+
+    if (programError) throw programError;
+
+    const newList = newRequests || [];
+    const oldRegistration = oldRequests?.[0] || null;
+    const activeProgram = activePrograms?.[0] || null;
+
+    const latestRegistration =
+      newList[0] || oldRegistration;
+
+    const hasPendingNew = newList.some(
+      (item) => item.status === "pending"
+    );
+
+    const hasApprovedNew = newList.some(
+      (item) => item.status === "approved"
+    );
+
+    const hasApprovedOld =
+      oldRegistration?.status === "approved";
+
+    const hasPendingOld =
+      oldRegistration?.status === "pending";
+
+    const approvedProgram =
+      !!activeProgram &&
+      (
+        hasApprovedNew ||
+        hasApprovedOld ||
+        activeProgram.legacy_access === true
+      ) &&
+      !hasPendingNew &&
+      !hasPendingOld;
+
+    let nextAccess = "no_program";
+
+    if (hasPendingNew || hasPendingOld) {
+      nextAccess = "pending";
+    } else if (approvedProgram) {
+      nextAccess = "approved";
+    } else if (
+      latestRegistration?.status === "rejected"
+    ) {
+      nextAccess = "rejected";
+    }
+
+    return {
+      profile: currentProfile,
+      registration: latestRegistration || null,
+      program:
+        nextAccess === "approved"
+          ? activeProgram
+          : null,
+      access: nextAccess,
+    };
+  }
+
+  function applyDashboard(data) {
+    setProfile(data.profile);
+    setRegistration(data.registration);
+    setProgram(data.program);
+    setAccess(data.access);
+  }
+
+  async function loadDashboard(
+    isRefresh = false,
+    requestedParticipantId = null
+  ) {
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -210,173 +433,94 @@ export default function DashboardPeserta() {
       }
 
       const {
-        data: currentProfile,
-        error: profileError,
+        data: currentAccount,
+        error: accountError,
       } = await supabase
         .from("profiles")
         .select("id,full_name,department,role")
         .eq("id", user.id)
         .maybeSingle();
 
-      if (profileError) throw profileError;
+      if (accountError) throw accountError;
 
-      if (!currentProfile) {
+      if (!currentAccount) {
         throw new Error(
-          "Profil peserta tidak tersedia."
+          "Profil akun tidak tersedia."
         );
       }
 
-      if (currentProfile.role === "mentor") {
+      const role = normalize(currentAccount.role);
+
+      if (role === "mentor") {
         router.replace("/");
         return;
       }
 
       if (
-        currentProfile.role !== "participant" &&
-        currentProfile.role !== "peserta"
+        role !== "admin" &&
+        role !== "participant" &&
+        role !== "peserta"
       ) {
         throw new Error(
-          "Akun tidak memiliki akses peserta."
+          "Akun tidak memiliki akses Dashboard Peserta."
         );
       }
 
-      // 1. Baca seluruh pengajuan sistem baru.
-      // Ini adalah jalur utama pendaftaran
-      // otomatis OJT MineTrack v2.0.
-      const {
-        data: newRequests,
-        error: newError,
-      } = await supabase
-        .from("ojt_registration_requests")
-        .select(`
-          id,
-          status,
-          rejection_reason,
-          site,
-          start_date,
-          end_date,
-          created_at
-        `)
-        .eq("participant_id", user.id)
-        .order("created_at", {
-          ascending: false,
-        });
+      setAccount({
+        ...currentAccount,
+        role,
+      });
 
-      if (newError) throw newError;
+      if (role === "admin") {
+        const list = await fetchParticipantList();
 
-      // 2. Baca pendaftaran sistem lama.
-      // Dipertahankan agar peserta lama
-      // tidak kehilangan akses.
-      const {
-        data: oldRequests,
-        error: oldError,
-      } = await supabase
-        .from("participant_registrations")
-        .select(`
-          id,
-          status,
-          rejection_reason,
-          site,
-          created_at
-        `)
-        .eq("user_id", user.id)
-        .order("created_at", {
-          ascending: false,
-        })
-        .limit(1);
+        setParticipants(list);
 
-      if (oldError) throw oldError;
+        if (!list.length) {
+          setSelectedParticipantId("");
+          setProfile(null);
+          setRegistration(null);
+          setProgram(null);
+          setAccess("no_program");
+          return;
+        }
 
-      // 3. Baca program aktif peserta.
-      // RLS can_view_ojt_program tetap
-      // membatasi akses dari database.
-      const {
-        data: activePrograms,
-        error: programError,
-      } = await supabase
-        .from("ojt_programs")
-        .select(`
-          id,
-          participant_id,
-          start_date,
-          end_date,
-          status,
-          site,
-          legacy_access
-        `)
-        .eq("participant_id", user.id)
-        .eq("status", "active")
-        .order("start_date", {
-          ascending: false,
-        })
-        .limit(1);
+        const requestedId =
+          requestedParticipantId ||
+          selectedParticipantId;
 
-      if (programError) throw programError;
+        const validSelection = list.some(
+          (item) => item.id === requestedId
+        );
 
-      const newList = newRequests || [];
-      const oldRegistration = oldRequests?.[0] || null;
-      const activeProgram = activePrograms?.[0] || null;
+        const targetId = validSelection
+          ? requestedId
+          : list[0].id;
 
-      // Pengajuan baru harus diprioritaskan.
-      // Jika tidak ada, gunakan riwayat lama.
-      const latestRegistration =
-        newList[0] || oldRegistration;
+        setSelectedParticipantId(targetId);
 
-      const hasPendingNew = newList.some(
-        (item) => item.status === "pending"
-      );
+        const next = await fetchParticipantDashboard(
+          targetId,
+          true,
+          list
+        );
 
-      const hasApprovedNew = newList.some(
-        (item) => item.status === "approved"
-      );
+        applyDashboard(next);
+      } else {
+        setParticipants([]);
+        setSelectedParticipantId("");
 
-      const hasApprovedOld =
-        oldRegistration?.status === "approved";
+        const next = await fetchParticipantDashboard(
+          user.id,
+          false
+        );
 
-      const hasPendingOld =
-        oldRegistration?.status === "pending";
-
-      // Akses monitoring membutuhkan
-      // program aktif + persetujuan sah.
-      // Untuk data lama, legacy_access
-      // tetap didukung.
-      const approvedProgram =
-        !!activeProgram &&
-        (
-          hasApprovedNew ||
-          hasApprovedOld ||
-          activeProgram.legacy_access === true
-        ) &&
-        !hasPendingNew &&
-        !hasPendingOld;
-
-      let nextAccess = "no_program";
-
-      if (hasPendingNew || hasPendingOld) {
-        nextAccess = "pending";
-      } else if (approvedProgram) {
-        nextAccess = "approved";
-      } else if (
-        latestRegistration?.status === "rejected"
-      ) {
-        nextAccess = "rejected";
+        applyDashboard(next);
       }
-
-      // Jangan menyimpan program untuk
-      // ditampilkan jika belum diizinkan.
-      setProgram(
-        nextAccess === "approved"
-          ? activeProgram
-          : null
-      );
-
-      setProfile(currentProfile);
-      setRegistration(latestRegistration || null);
-      setAccess(nextAccess);
     } catch (err) {
       setError(
         err.message ||
-          "Gagal memuat dashboard peserta."
+          "Gagal memuat Dashboard Peserta."
       );
 
       setAccess("error");
@@ -389,9 +533,45 @@ export default function DashboardPeserta() {
 
   useEffect(() => {
     loadDashboard();
-    // Pemeriksaan dijalankan saat halaman dibuka.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function changePreviewParticipant(id) {
+    if (!isAdmin || !id || loading || refreshing) return;
+
+    setSelectedParticipantId(id);
+    setRefreshing(true);
+    setError("");
+
+    try {
+      const selected = participants.find(
+        (item) => item.id === id
+      );
+
+      if (!selected) {
+        throw new Error(
+          "Peserta tidak ditemukan."
+        );
+      }
+
+      const next = await fetchParticipantDashboard(
+        id,
+        true,
+        participants
+      );
+
+      applyDashboard(next);
+    } catch (err) {
+      setError(
+        err.message ||
+          "Gagal mengganti peserta preview."
+      );
+      setAccess("error");
+      setProgram(null);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function logout() {
     if (loggingOut) return;
@@ -402,9 +582,7 @@ export default function DashboardPeserta() {
       const { error: logoutError } =
         await supabase.auth.signOut();
 
-      if (logoutError) {
-        throw logoutError;
-      }
+      if (logoutError) throw logoutError;
 
       router.replace("/login");
       router.refresh();
@@ -412,9 +590,15 @@ export default function DashboardPeserta() {
       setError(
         "Gagal keluar. Silakan coba kembali."
       );
-
       setLoggingOut(false);
     }
+  }
+
+  function openParticipantFeature(path) {
+    // Admin hanya membuka fitur untuk preview.
+    // Halaman tujuan tetap wajib memeriksa
+    // role dan izin database sendiri.
+    router.push(path);
   }
 
   const status = getStatusInfo(access);
@@ -510,7 +694,7 @@ export default function DashboardPeserta() {
                 fontWeight: 700,
               }}
             >
-              PESERTA
+              {isAdmin ? "ADMIN" : "PESERTA"}
             </div>
           </div>
 
@@ -534,7 +718,9 @@ export default function DashboardPeserta() {
               fontWeight: 850,
             }}
           >
-            Pantau Perjalanan OJT Anda
+            {isAdmin
+              ? "Preview Dashboard Peserta"
+              : "Pantau Perjalanan OJT Anda"}
           </h1>
 
           <p
@@ -559,11 +745,154 @@ export default function DashboardPeserta() {
           position: "relative",
         }}
       >
+        {isAdmin && (
+          <section
+            style={{
+              ...card,
+              background: "#e8f5eb",
+              border: "1px solid #b8dfc4",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 10,
+              }}
+            >
+              <span style={{ fontSize: 23 }}>🛡</span>
+
+              <div>
+                <strong
+                  style={{
+                    color: C.green,
+                    fontSize: 15,
+                  }}
+                >
+                  Mode Administrator
+                </strong>
+
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: C.muted,
+                    marginTop: 4,
+                  }}
+                >
+                  Preview Dashboard Peserta
+                </div>
+              </div>
+            </div>
+
+            <p
+              style={{
+                fontSize: 12,
+                lineHeight: 1.7,
+                color: C.green2,
+              }}
+            >
+              Kamu sedang masuk sebagai Admin.
+              Pilih peserta untuk memeriksa tampilan
+              dashboard tanpa mengganti akun.
+            </p>
+
+            <label
+              htmlFor="admin-participant"
+              style={{
+                display: "block",
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 8,
+              }}
+            >
+              Pilih Peserta OJT
+            </label>
+
+            <select
+              id="admin-participant"
+              value={selectedParticipantId}
+              onChange={(event) =>
+                changePreviewParticipant(
+                  event.target.value
+                )
+              }
+              disabled={
+                loading ||
+                refreshing ||
+                !participants.length
+              }
+              style={{
+                width: "100%",
+                padding: "13px 12px",
+                borderRadius: 11,
+                border: `1px solid ${C.border}`,
+                background: C.white,
+                color: C.text,
+                fontSize: 13,
+                marginBottom: 12,
+              }}
+            >
+              {!participants.length && (
+                <option value="">
+                  Belum ada peserta aktif
+                </option>
+              )}
+
+              {participants.map((item) => (
+                <option
+                  key={item.id}
+                  value={item.id}
+                >
+                  {item.full_name}
+                  {item.site
+                    ? ` — ${item.site}`
+                    : ""}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              style={secondaryButton}
+              onClick={() => router.push("/")}
+            >
+              ← Kembali ke Dashboard Mentor
+            </button>
+
+            <p
+              style={{
+                fontSize: 11,
+                color: C.muted,
+                lineHeight: 1.7,
+                marginBottom: 0,
+              }}
+            >
+              Preview menggunakan data asli.
+              Hindari mengubah data produksi
+              ketika melakukan pengujian.
+            </p>
+          </section>
+        )}
+
         {loading && (
           <section style={card}>
             <strong>
               Memeriksa akun dan status OJT...
             </strong>
+          </section>
+        )}
+
+        {refreshing && (
+          <section
+            style={{
+              ...card,
+              padding: 12,
+              color: C.green3,
+              fontSize: 12,
+            }}
+          >
+            Memperbarui data peserta...
           </section>
         )}
 
@@ -579,6 +908,34 @@ export default function DashboardPeserta() {
             {error}
           </section>
         )}
+
+        {!loading &&
+          isAdmin &&
+          !participants.length &&
+          !error && (
+            <section style={card}>
+              <h2
+                style={{
+                  fontSize: 18,
+                  color: C.green,
+                }}
+              >
+                Belum Ada Peserta untuk Preview
+              </h2>
+
+              <p
+                style={{
+                  fontSize: 13,
+                  lineHeight: 1.7,
+                }}
+              >
+                Daftar preview diambil dari program
+                OJT aktif yang dapat dibaca akun
+                Admin. Periksa data program dan
+                kebijakan RLS jika daftar kosong.
+              </p>
+            </section>
+          )}
 
         {!loading && profile && (
           <>
@@ -619,7 +976,9 @@ export default function DashboardPeserta() {
                       fontSize: 12,
                     }}
                   >
-                    SELAMAT DATANG
+                    {isAdmin
+                      ? "PREVIEW DATA PESERTA"
+                      : "SELAMAT DATANG"}
                   </div>
 
                   <h2
@@ -657,11 +1016,7 @@ export default function DashboardPeserta() {
                   fontWeight: 800,
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 20,
-                  }}
-                >
+                <span style={{ fontSize: 20 }}>
                   {status.icon}
                 </span>
 
@@ -743,7 +1098,9 @@ export default function DashboardPeserta() {
                     marginBottom: 16,
                   }}
                 >
-                  <strong>Alasan Penolakan:</strong>
+                  <strong>
+                    Alasan Penolakan:
+                  </strong>
 
                   <p style={{ lineHeight: 1.7 }}>
                     {registration?.rejection_reason ||
@@ -751,17 +1108,19 @@ export default function DashboardPeserta() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  style={primaryButton}
-                  onClick={() =>
-                    router.push(
-                      "/pengajuan-peserta"
-                    )
-                  }
-                >
-                  Lihat dan Perbaiki Pengajuan
-                </button>
+                {!isAdmin && (
+                  <button
+                    type="button"
+                    style={primaryButton}
+                    onClick={() =>
+                      router.push(
+                        "/pengajuan-peserta"
+                      )
+                    }
+                  >
+                    Lihat dan Perbaiki Pengajuan
+                  </button>
+                )}
               </section>
             )}
 
@@ -852,9 +1211,7 @@ export default function DashboardPeserta() {
                       </div>
 
                       <strong
-                        style={{
-                          color: C.green3,
-                        }}
+                        style={{ color: C.green3 }}
                       >
                         Aktif
                       </strong>
@@ -865,8 +1222,7 @@ export default function DashboardPeserta() {
                     style={{
                       marginTop: 12,
                       padding: 14,
-                      border:
-                        `1px solid ${C.border}`,
+                      border: `1px solid ${C.border}`,
                       borderRadius: 12,
                     }}
                   >
@@ -922,7 +1278,7 @@ export default function DashboardPeserta() {
                       title="Grafik Perkembangan"
                       description="Lihat grafik perkembangan OJT."
                       onClick={() =>
-                        router.push(
+                        openParticipantFeature(
                           `/analisis/${program.id}`
                         )
                       }
@@ -933,7 +1289,7 @@ export default function DashboardPeserta() {
                       title="Evaluasi Kesiapan"
                       description="Buka evaluasi kesiapan OJT."
                       onClick={() =>
-                        router.push(
+                        openParticipantFeature(
                           `/evaluasi/${program.id}`
                         )
                       }
@@ -944,12 +1300,28 @@ export default function DashboardPeserta() {
                       title="Laporan OJT"
                       description="Lihat laporan OJT Anda."
                       onClick={() =>
-                        router.push(
+                        openParticipantFeature(
                           `/laporan/${program.id}`
                         )
                       }
                     />
                   </div>
+
+                  {isAdmin && (
+                    <p
+                      style={{
+                        marginTop: 15,
+                        color: C.muted,
+                        fontSize: 11,
+                        lineHeight: 1.7,
+                      }}
+                    >
+                      Catatan Admin: akses ke menu
+                      lanjutan bergantung pada
+                      pemeriksaan role dan kebijakan
+                      RLS masing-masing halaman.
+                    </p>
+                  )}
                 </section>
               </>
             )}
@@ -1004,10 +1376,13 @@ export default function DashboardPeserta() {
               </strong>
 
               <div>
-                Emergency Response Group · PT Berau Coal 2026
+                Emergency Response Group ·
+                PT Berau Coal 2026
               </div>
 
-              <div>Monitoring dan Evaluasi OJT</div>
+              <div>
+                Monitoring dan Evaluasi OJT
+              </div>
             </footer>
           </>
         )}
