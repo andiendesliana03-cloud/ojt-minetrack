@@ -58,11 +58,30 @@ function weekLabel(week) {
   return `Week ${String(week).padStart(2, "0")}`;
 }
 
+// Format kilometer tanpa desimal yang tidak diperlukan.
+// Contoh: 8,000 menjadi 8; 12,500 menjadi 12,5.
 function formatKm(value) {
-  return Number(value || 0).toLocaleString("id-ID", {
-    minimumFractionDigits: 3,
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) return "0";
+
+  return number.toLocaleString("id-ID", {
+    minimumFractionDigits: 0,
     maximumFractionDigits: 3,
   });
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) return "0%";
+
+  return (
+    number.toLocaleString("id-ID", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }) + "%"
+  );
 }
 
 function formatDate(value) {
@@ -102,6 +121,12 @@ function validDistance(value) {
   return Number.isFinite(number) && number > 0;
 }
 
+function distanceMeters(value) {
+  if (!validDistance(value)) return 0;
+
+  return Math.round(Number(value) * 1000);
+}
+
 function ProgressBar({ percentage }) {
   const width = Math.min(
     100,
@@ -112,7 +137,7 @@ function ProgressBar({ percentage }) {
     <div
       className="mf-progress"
       role="progressbar"
-      aria-label="Persentase pencapaian Fisik"
+      aria-label="Pencapaian target Fisik mingguan"
       aria-valuenow={width}
       aria-valuemin={0}
       aria-valuemax={100}
@@ -132,9 +157,9 @@ export default function MonitoringFisikPage() {
 
   const [program, setProgram] = useState(null);
   const [records, setRecords] = useState([]);
-  const [fisikCode, setFisikCode] = useState(null);
 
   const [selectedWeek, setSelectedWeek] = useState(1);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -161,13 +186,16 @@ export default function MonitoringFisikPage() {
 
     const role = String(profile?.role || "").toLowerCase();
 
-    if (
-      role !== "mentor" &&
-      role !== "participant" &&
-      role !== "peserta"
-    ) {
+    const isMentor = role === "mentor";
+
+    const isParticipant = [
+      "participant",
+      "peserta",
+    ].includes(role);
+
+    if (!isMentor && !isParticipant) {
       throw new Error(
-        "Akun tidak memiliki akses monitoring Fisik."
+        "Akun tidak memiliki akses Monitoring Fisik."
       );
     }
 
@@ -186,14 +214,15 @@ export default function MonitoringFisikPage() {
       `)
       .eq("id", programId);
 
-    if (role === "participant" || role === "peserta") {
+    if (isParticipant) {
       programQuery = programQuery.eq(
         "participant_id",
         user.id
       );
     }
 
-    const programResult = await programQuery.maybeSingle();
+    const programResult =
+      await programQuery.maybeSingle();
 
     if (programResult.error) {
       throw programResult.error;
@@ -209,7 +238,9 @@ export default function MonitoringFisikPage() {
       .from("achievement_types")
       .select("code,name");
 
-    if (typeResult.error) throw typeResult.error;
+    if (typeResult.error) {
+      throw typeResult.error;
+    }
 
     const fisikType = (typeResult.data || []).find(
       (item) =>
@@ -220,7 +251,7 @@ export default function MonitoringFisikPage() {
 
     if (!fisikType) {
       throw new Error(
-        "Kategori Fisik tidak ditemukan di achievement_types."
+        "Kategori Fisik tidak ditemukan."
       );
     }
 
@@ -238,7 +269,12 @@ export default function MonitoringFisikPage() {
       `)
       .eq("program_id", programId)
       .eq("type_code", fisikType.code)
-      .order("activity_date", { ascending: false });
+      .order("activity_date", {
+        ascending: false,
+      })
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (recordResult.error) {
       throw recordResult.error;
@@ -246,7 +282,6 @@ export default function MonitoringFisikPage() {
 
     return {
       program: programResult.data,
-      fisikCode: fisikType.code,
       records: recordResult.data || [],
     };
   }
@@ -260,7 +295,9 @@ export default function MonitoringFisikPage() {
 
       try {
         if (!programId) {
-          throw new Error("ID program OJT tidak tersedia.");
+          throw new Error(
+            "ID program OJT tidak tersedia."
+          );
         }
 
         const result = await fetchData();
@@ -268,13 +305,13 @@ export default function MonitoringFisikPage() {
         if (!active || !result) return;
 
         setProgram(result.program);
-        setFisikCode(result.fisikCode);
         setRecords(result.records);
 
-        const today = new Date();
+        const now = new Date();
+
         const localToday = new Date(
-          today.getTime() -
-            today.getTimezoneOffset() * 60000
+          now.getTime() -
+            now.getTimezoneOffset() * 60000
         )
           .toISOString()
           .slice(0, 10);
@@ -300,11 +337,14 @@ export default function MonitoringFisikPage() {
       } catch (err) {
         if (active) {
           setError(
-            err?.message || "Gagal memuat monitoring Fisik."
+            err?.message ||
+              "Gagal memuat Monitoring Fisik."
           );
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
@@ -327,11 +367,11 @@ export default function MonitoringFisikPage() {
       if (!result) return;
 
       setProgram(result.program);
-      setFisikCode(result.fisikCode);
       setRecords(result.records);
     } catch (err) {
       setError(
-        err?.message || "Gagal memperbarui data Fisik."
+        err?.message ||
+          "Gagal memperbarui data Fisik."
       );
     } finally {
       setRefreshing(false);
@@ -339,27 +379,7 @@ export default function MonitoringFisikPage() {
   }
 
   const summary = useMemo(() => {
-    const allRecords = records.filter(
-      (item) =>
-        weekOf(
-          item.activity_date,
-          program?.start_date
-        ) !== null
-    );
-
-    const verifiedRecords = allRecords.filter(
-      (item) =>
-        item.status === "verified" &&
-        validDistance(item.distance_km)
-    );
-
-    const totalMeters = verifiedRecords.reduce(
-      (sum, item) =>
-        sum + Math.round(Number(item.distance_km) * 1000),
-      0
-    );
-
-    const weeklyRecords = allRecords.filter(
+    const weeklyRecords = records.filter(
       (item) =>
         weekOf(
           item.activity_date,
@@ -367,43 +387,44 @@ export default function MonitoringFisikPage() {
         ) === selectedWeek
     );
 
-    const weeklyVerified = weeklyRecords.filter(
+    const verifiedRecords = weeklyRecords.filter(
       (item) =>
         item.status === "verified" &&
         validDistance(item.distance_km)
     );
 
-    const weeklyMeters = weeklyVerified.reduce(
+    const pendingRecords = weeklyRecords.filter(
+      (item) => item.status === "pending"
+    );
+
+    const totalMeters = verifiedRecords.reduce(
       (sum, item) =>
-        sum + Math.round(Number(item.distance_km) * 1000),
+        sum + distanceMeters(item.distance_km),
       0
     );
 
-    const weeklyKm = weeklyMeters / 1000;
+    const weeklyKm = totalMeters / 1000;
 
-    const percentage = (weeklyKm / TARGET_KM) * 100;
+    const percentage =
+      (weeklyKm / TARGET_KM) * 100;
 
-    const pendingCount = weeklyRecords.filter(
-      (item) => item.status === "pending"
-    ).length;
-
-    const achieved = weeklyMeters >= TARGET_KM * 1000;
-
-    const remainingKm = Math.max(
+    const remainingMeters = Math.max(
       0,
-      (TARGET_KM * 1000 - weeklyMeters) / 1000
+      TARGET_KM * 1000 - totalMeters
     );
 
+    const achieved =
+      totalMeters >= TARGET_KM * 1000;
+
     return {
-      totalKm: totalMeters / 1000,
       weeklyKm,
       percentage,
       achieved,
-      remainingKm,
-      pendingCount,
+      remainingKm: remainingMeters / 1000,
       weeklyRecords,
-      weeklyVerifiedCount: weeklyVerified.length,
-      weeklyActivityCount: weeklyRecords.length,
+      verifiedCount: verifiedRecords.length,
+      pendingCount: pendingRecords.length,
+      activityCount: weeklyRecords.length,
     };
   }, [records, program, selectedWeek]);
 
@@ -601,7 +622,8 @@ export default function MonitoringFisikPage() {
 
         .mf-target-stats {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns:
+            repeat(2, minmax(0, 1fr));
           gap: 20px;
           margin-top: 24px;
         }
@@ -621,7 +643,8 @@ export default function MonitoringFisikPage() {
 
         .mf-stats-grid {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns:
+            repeat(3, minmax(0, 1fr));
           gap: 12px;
         }
 
@@ -646,6 +669,17 @@ export default function MonitoringFisikPage() {
           overflow-wrap: anywhere;
         }
 
+        .mf-status-text {
+          margin-top: 12px;
+          font-size: 12px;
+          font-weight: 800;
+          color: #8bdbad;
+        }
+
+        .mf-status-text.pending {
+          color: #ffc68a;
+        }
+
         .mf-history {
           display: flex;
           flex-direction: column;
@@ -653,7 +687,8 @@ export default function MonitoringFisikPage() {
 
         .mf-history-item {
           display: grid;
-          grid-template-columns: 52px minmax(0, 1fr) auto;
+          grid-template-columns:
+            52px minmax(0, 1fr) auto;
           gap: 13px;
           align-items: start;
           padding: 17px 0;
@@ -788,11 +823,13 @@ export default function MonitoringFisikPage() {
           }
 
           .mf-stats-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns:
+              repeat(2, minmax(0, 1fr));
           }
 
           .mf-history-item {
-            grid-template-columns: 40px minmax(0, 1fr);
+            grid-template-columns:
+              40px minmax(0, 1fr);
             gap: 10px;
           }
 
@@ -842,21 +879,25 @@ export default function MonitoringFisikPage() {
         </h1>
 
         <p className="mf-subtitle">
-          Monitoring jarak lari berdasarkan minggu OJT.
-          Hanya kegiatan yang sudah diverifikasi Mentor
-          yang masuk perhitungan pencapaian.
+          Monitoring jarak dan frekuensi lari setiap
+          minggu OJT. Hanya kegiatan terverifikasi
+          yang dihitung dalam pencapaian target.
         </p>
 
         {loading ? (
           <section className="mf-card">
-            Memuat data monitoring Fisik...
+            Memuat data Monitoring Fisik...
           </section>
         ) : error && !program ? (
-          <div className="mf-alert">{error}</div>
+          <div className="mf-alert">
+            {error}
+          </div>
         ) : (
           <>
             {error && (
-              <div className="mf-alert">{error}</div>
+              <div className="mf-alert">
+                {error}
+              </div>
             )}
 
             <section className="mf-card">
@@ -884,7 +925,9 @@ export default function MonitoringFisikPage() {
                 className="mf-select"
                 value={selectedWeek}
                 onChange={(event) =>
-                  setSelectedWeek(Number(event.target.value))
+                  setSelectedWeek(
+                    Number(event.target.value)
+                  )
                 }
               >
                 {Array.from(
@@ -919,19 +962,11 @@ export default function MonitoringFisikPage() {
                   </div>
 
                   <div
-                    className={
-                      `mf-percent ${
-                        summary.achieved ? "done" : ""
-                      }`
-                    }
+                    className={`mf-percent ${
+                      summary.achieved ? "done" : ""
+                    }`}
                   >
-                    {summary.percentage.toLocaleString(
-                      "id-ID",
-                      {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      }
-                    )}%
+                    {formatPercent(summary.percentage)}
                   </div>
                 </div>
 
@@ -942,47 +977,66 @@ export default function MonitoringFisikPage() {
                 <div className="mf-target-stats">
                   <div>
                     <span>
-                      Jumlah kegiatan lari terverifikasi
+                      Kegiatan lari terverifikasi
                     </span>
 
                     <strong>
-                      {summary.weeklyVerifiedCount} kali
+                      {summary.verifiedCount} kali
                     </strong>
                   </div>
 
                   <div>
-                    <span>Sisa target</span>
+                    <span>Sisa target minggu ini</span>
 
                     <strong>
                       {formatKm(summary.remainingKm)} km
                     </strong>
                   </div>
                 </div>
+
+                <div
+                  className={`mf-status-text ${
+                    summary.achieved
+                      ? ""
+                      : "pending"
+                  }`}
+                >
+                  {summary.achieved
+                    ? "✓ Target mingguan tercapai"
+                    : "Target mingguan belum tercapai"}
+                </div>
               </div>
             </section>
 
             <section className="mf-card">
               <h2 className="mf-section-title">
-                Ringkasan Fisik
+                Aktivitas Fisik Minggu Ini
               </h2>
+
+              <p className="mf-muted">
+                Ringkasan seluruh catatan lari pada{" "}
+                {weekLabel(selectedWeek)}.
+              </p>
 
               <div className="mf-stats-grid">
                 <div className="mf-stat">
-                  <span>Total 25 Minggu</span>
+                  <span>Total Kegiatan Lari</span>
                   <strong>
-                    {formatKm(summary.totalKm)} km
+                    {summary.activityCount} kali
                   </strong>
                 </div>
 
                 <div className="mf-stat">
-                  <span>Target 25 Minggu</span>
-                  <strong>625 km</strong>
+                  <span>Terverifikasi</span>
+                  <strong>
+                    {summary.verifiedCount} kali
+                  </strong>
                 </div>
 
                 <div className="mf-stat">
                   <span>Menunggu Verifikasi</span>
                   <strong>
-                    {summary.pendingCount}
+                    {summary.pendingCount} kali
                   </strong>
                 </div>
               </div>
@@ -1007,8 +1061,10 @@ export default function MonitoringFisikPage() {
               </h2>
 
               <p className="mf-muted">
-                {summary.weeklyActivityCount} catatan
+                {summary.activityCount} catatan
                 kegiatan pada minggu ini.
+                Setiap kegiatan ditampilkan
+                berdasarkan tanggal dan statusnya.
               </p>
 
               {!summary.weeklyRecords.length ? (
@@ -1018,56 +1074,65 @@ export default function MonitoringFisikPage() {
                 </p>
               ) : (
                 <div className="mf-history">
-                  {summary.weeklyRecords.map((item) => {
-                    const verified =
-                      item.status === "verified";
+                  {summary.weeklyRecords.map(
+                    (item, index) => {
+                      const verified =
+                        item.status === "verified";
 
-                    return (
-                      <div
-                        className="mf-history-item"
-                        key={item.id}
-                      >
-                        <div className="mf-history-icon">
-                          🏃
-                        </div>
-
-                        <div>
-                          <div className="mf-history-date">
-                            {formatDate(item.activity_date)}
+                      return (
+                        <div
+                          className="mf-history-item"
+                          key={item.id}
+                        >
+                          <div className="mf-history-icon">
+                            🏃
                           </div>
 
-                          <div
-                            className={
-                              `mf-history-status ${
+                          <div>
+                            <div className="mf-history-date">
+                              Lari ke-
+                              {summary.activityCount -
+                                index}
+                              {" · "}
+                              {formatDate(
+                                item.activity_date
+                              )}
+                            </div>
+
+                            <div
+                              className={`mf-history-status ${
                                 verified
                                   ? "mf-verified"
                                   : "mf-pending"
-                              }`
-                            }
-                          >
-                            {verified
-                              ? "✓ Terverifikasi"
-                              : item.status === "pending"
-                              ? "Menunggu Verifikasi"
-                              : item.status || "Status belum tersedia"}
+                              }`}
+                            >
+                              {verified
+                                ? "✓ Terverifikasi Mentor"
+                                : item.status === "pending"
+                                ? "Menunggu Verifikasi"
+                                : item.status ||
+                                  "Status belum tersedia"}
+                            </div>
+
+                            {item.description && (
+                              <div className="mf-history-desc">
+                                {item.description}
+                              </div>
+                            )}
                           </div>
 
-                          {item.description && (
-                            <div className="mf-history-desc">
-                              {item.description}
-                            </div>
-                          )}
+                          <div className="mf-history-distance">
+                            {validDistance(item.distance_km)
+                              ? formatKm(
+                                  item.distance_km
+                                )
+                              : "—"}{" "}
+                            km
+                          </div>
                         </div>
-
-                        <div className="mf-history-distance">
-                          {validDistance(item.distance_km)
-                            ? formatKm(item.distance_km)
-                            : "—"}{" "}
-                          km
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    }
+                  )}
                 </div>
               )}
             </section>
