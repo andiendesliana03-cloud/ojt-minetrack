@@ -67,7 +67,9 @@ function normalizeType(value) {
 
 function formatDate(value) {
   if (!value) return "—";
+
   const parts = String(value).slice(0, 10).split("-");
+
   return parts.length === 3
     ? `${parts[2]}/${parts[1]}/${parts[0]}`
     : String(value);
@@ -157,12 +159,22 @@ function initials(name) {
     .toUpperCase();
 }
 
+// ====================================================
+// METADATA SIMPER V2
+// Sama dengan format Monitoring SIMPER.
+//
+// Metadata dibaca dari kolom notes.
+// ====================================================
+
 function parseSimperMetadata(notes) {
   const text = String(notes || "");
+
   const start = text.lastIndexOf(META_START);
   const end = text.lastIndexOf(META_END);
 
-  if (start < 0 || end <= start) return null;
+  if (start < 0 || end <= start) {
+    return null;
+  }
 
   try {
     const raw = text.slice(
@@ -170,59 +182,113 @@ function parseSimperMetadata(notes) {
       end
     );
 
-    const meta = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
 
-    return meta?.version === 2 ? meta : null;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+
+    return parsed;
   } catch {
     return null;
   }
 }
 
+// ====================================================
+// PERHITUNGAN SIMPER TERBARU
+//
+// Sama dengan Monitoring SIMPER.
+//
+// Persyaratan:
+// 1. KMKOP Lulus
+// 2. Praktik Lulus
+// 3. Orientasi Area Selesai
+//
+// Progres = jumlah terpenuhi / 3 x 100
+//
+// Hasil:
+// 0%, 33%, 67%, atau 100%
+//
+// Penerbitan SIMPER tidak dihitung
+// sebagai persentase progres.
+// ====================================================
+
 function calculateSimper(record) {
   if (!record) {
     return {
       progress: 0,
+      completed: 0,
+      passed: false,
       released: false,
-      steps: [false, false, false, false],
+      issuanceStatus: "not_issued",
+      steps: [false, false, false],
       legacy: false,
     };
   }
 
-  const meta = parseSimperMetadata(record.notes);
+  const meta = parseSimperMetadata(
+    record.notes
+  );
 
-  const validation =
-    record.administration_status === "passed";
-
-  const theory =
+  // Tahap 1: KMKOP
+  const kmkop =
     record.theory_status === "passed";
 
-  const practice =
+  // Tahap 2: Praktik
+  const praktik =
     record.practice_status === "passed";
 
-  const released =
-    validation &&
-    theory &&
-    practice &&
-    meta?.application_status === "approved" &&
-    meta?.orientation_status === "completed" &&
-    meta?.issuance_status === "issued" &&
-    Boolean(record.graduation_date);
+  // Tahap 3: Orientasi Area
+  const orientasi =
+    meta?.orientation_status === "completed";
 
   const steps = [
-    validation,
-    theory,
-    practice,
-    released,
+    kmkop,
+    praktik,
+    orientasi,
   ];
 
+  const completed =
+    steps.filter(Boolean).length;
+
+  const progress = Math.round(
+    (completed / 3) * 100
+  );
+
+  // Kelulusan persyaratan SIMPER.
+  const passed = completed === 3;
+
+  // Status penerbitan terpisah dari progres.
+  const issuanceStatus =
+    meta?.issuance_status || "not_issued";
+
+  const released =
+    issuanceStatus === "issued";
+
+  // Penanda data lama yang belum memiliki
+  // metadata SIMPER V2.
+  const legacy =
+    !meta && record.status === "passed";
+
   return {
-    progress: steps.filter(Boolean).length * 25,
+    progress,
+    completed,
+    passed,
     released,
+    issuanceStatus,
     steps,
-    legacy:
-      !meta && record.status === "passed",
+    legacy,
   };
 }
+
+// ====================================================
+// SAMAPTA
+// Perhitungan asli tetap dipertahankan.
+// ====================================================
 
 function getSamaptaSessions(records) {
   const sessions = new Map();
@@ -259,6 +325,7 @@ function getSamaptaSessions(records) {
       }
 
       const n = Number(record.score);
+
       return Number.isFinite(n) ? n : null;
     };
 
@@ -313,6 +380,10 @@ function getSamaptaSessions(records) {
     (a, b) => a.date.localeCompare(b.date)
   );
 }
+
+// ====================================================
+// ICON
+// ====================================================
 
 function Icon({ name, size = 21 }) {
   const icons = {
@@ -518,25 +589,47 @@ function Metric({
   );
 }
 
+// ====================================================
+// DASHBOARD MENTOR / ADMIN
+// ====================================================
+
 export default function MentorDashboard() {
   const router = useRouter();
 
   const [mentor, setMentor] = useState(null);
   const [programs, setPrograms] = useState([]);
+
   const [achievementTypes, setAchievementTypes] =
     useState([]);
-  const [achievements, setAchievements] = useState([]);
-  const [postTests, setPostTests] = useState([]);
-  const [practices, setPractices] = useState([]);
-  const [samapta, setSamapta] = useState([]);
-  const [simper, setSimper] = useState([]);
+
+  const [achievements, setAchievements] =
+    useState([]);
+
+  const [postTests, setPostTests] =
+    useState([]);
+
+  const [practices, setPractices] =
+    useState([]);
+
+  const [samapta, setSamapta] =
+    useState([]);
+
+  const [simper, setSimper] =
+    useState([]);
 
   const [search, setSearch] = useState("");
-  const [siteFilter, setSiteFilter] = useState("ALL");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [siteFilter, setSiteFilter] =
+    useState("ALL");
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [menuOpen, setMenuOpen] =
+    useState(false);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
   const [error, setError] = useState("");
 
   const [maintenanceMode, setMaintenanceMode] =
@@ -564,7 +657,10 @@ export default function MentorDashboard() {
       );
     }
 
-    if (typeof data?.maintenance_mode !== "boolean") {
+    if (
+      typeof data?.maintenance_mode !==
+      "boolean"
+    ) {
       throw new Error(
         "Pengaturan Maintenance Mode belum tersedia."
       );
@@ -576,30 +672,31 @@ export default function MentorDashboard() {
   }
 
   async function fetchDashboardData() {
-    const [programRes, typeRes] = await Promise.all([
-      supabase
-        .from("ojt_programs")
-        .select(`
-          id,
-          participant_id,
-          start_date,
-          end_date,
-          status,
-          site,
-          peserta:profiles!ojt_programs_participant_id_fkey(
-            full_name,
-            department
-          )
-        `)
-        .eq("status", "active")
-        .order("start_date", {
-          ascending: false,
-        }),
+    const [programRes, typeRes] =
+      await Promise.all([
+        supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            participant_id,
+            start_date,
+            end_date,
+            status,
+            site,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
+            )
+          `)
+          .eq("status", "active")
+          .order("start_date", {
+            ascending: false,
+          }),
 
-      supabase
-        .from("achievement_types")
-        .select("code,name"),
-    ]);
+        supabase
+          .from("achievement_types")
+          .select("code,name"),
+      ]);
 
     if (programRes.error) {
       throw new Error(
@@ -614,7 +711,10 @@ export default function MentorDashboard() {
     }
 
     const list = programRes.data || [];
-    const ids = list.map((item) => item.id);
+
+    const ids = list.map(
+      (item) => item.id
+    );
 
     if (!ids.length) {
       return {
@@ -720,7 +820,6 @@ export default function MentorDashboard() {
       setAccessStatus("checking");
 
       try {
-        // 1. Periksa sesi login terlebih dahulu.
         const {
           data: { user },
           error: authError,
@@ -735,7 +834,6 @@ export default function MentorDashboard() {
           return;
         }
 
-        // 2. Baca role pengguna.
         const {
           data: profile,
           error: profileError,
@@ -757,10 +855,15 @@ export default function MentorDashboard() {
           );
         }
 
-        const role = normalize(profile.role);
+        const role = normalize(
+          profile.role
+        );
 
-        const admin = role === "admin";
-        const mentorRole = role === "mentor";
+        const admin =
+          role === "admin";
+
+        const mentorRole =
+          role === "mentor";
 
         const participant = [
           "participant",
@@ -777,32 +880,27 @@ export default function MentorDashboard() {
           );
         }
 
-        // 3. Periksa status Maintenance Mode.
-        // Status harus benar-benar diketahui sebelum
-        // melakukan pengalihan atau memuat data OJT.
         const maintenance =
           await fetchMaintenanceStatus();
 
         if (!mounted) return;
 
-        // 4. Saat maintenance ON, hanya Admin
-        // yang boleh melanjutkan.
         if (maintenance && !admin) {
           setMentor(null);
           setAccessStatus("maintenance");
           return;
         }
 
-        // 5. Peserta diarahkan ke Dashboard Peserta.
         if (participant) {
           setAccessStatus("redirecting");
           router.replace("/dashboard-peserta");
           return;
         }
 
-        // 6. Admin dan Mentor memuat Dashboard.
-        // Mentor tidak menggunakan filter mentor_id.
-        const next = await fetchDashboardData();
+        // Admin dan Mentor membaca
+        // seluruh peserta OJT tanpa filter mentor_id.
+        const next =
+          await fetchDashboardData();
 
         if (!mounted) return;
 
@@ -817,6 +915,7 @@ export default function MentorDashboard() {
         if (mounted) {
           setMentor(null);
           setAccessStatus("error");
+
           setError(
             err?.message ||
               "Gagal memuat Dashboard OJT MineTrack."
@@ -843,7 +942,8 @@ export default function MentorDashboard() {
 
     async function checkStatus() {
       try {
-        const mode = await fetchMaintenanceStatus();
+        const mode =
+          await fetchMaintenanceStatus();
 
         if (!active) return;
 
@@ -858,7 +958,9 @@ export default function MentorDashboard() {
     checkStatus();
 
     const interval = setInterval(() => {
-      if (document.visibilityState === "visible") {
+      if (
+        document.visibilityState === "visible"
+      ) {
         checkStatus();
       }
     }, 15000);
@@ -883,9 +985,8 @@ export default function MentorDashboard() {
     setError("");
 
     try {
-      // Status Maintenance diperiksa ulang sebelum
-      // memperbarui data Dashboard.
-      const mode = await fetchMaintenanceStatus();
+      const mode =
+        await fetchMaintenanceStatus();
 
       if (mode && !isAdmin) {
         setMentor(null);
@@ -894,7 +995,8 @@ export default function MentorDashboard() {
         return;
       }
 
-      const next = await fetchDashboardData();
+      const next =
+        await fetchDashboardData();
 
       applyDashboard(next);
     } catch (err) {
@@ -924,6 +1026,10 @@ export default function MentorDashboard() {
     setMenuOpen(false);
     router.push(path);
   }
+
+  // ====================================================
+  // DATA PER PROGRAM
+  // ====================================================
 
   const dataByProgram = useMemo(() => {
     const codes = new Map(
@@ -960,18 +1066,36 @@ export default function MentorDashboard() {
 
       const verifiedCodes = new Set(
         a
-          .filter((r) => r.status === "verified")
+          .filter(
+            (r) => r.status === "verified"
+          )
           .map((r) => r.type_code)
       );
 
-      const done = ACHIEVEMENTS.filter((name) => {
-        const code = codes.get(normalize(name));
-        return code && verifiedCodes.has(code);
-      }).length;
+      const done = ACHIEVEMENTS.filter(
+        (name) => {
+          const code = codes.get(
+            normalize(name)
+          );
+
+          return (
+            code &&
+            verifiedCodes.has(code)
+          );
+        }
+      ).length;
 
       const achievementProgress = Math.round(
         (done / ACHIEVEMENTS.length) * 100
       );
+
+      // =================================================
+      // SIMPER
+      //
+      // Pilih data SIMPER sebagaimana sebelumnya,
+      // tetapi persentasenya menggunakan 3 persyaratan
+      // yang sama dengan Monitoring SIMPER.
+      // =================================================
 
       const chosenSimper =
         sp.find((record) =>
@@ -983,6 +1107,10 @@ export default function MentorDashboard() {
       const simperInfo =
         calculateSimper(chosenSimper);
 
+      // =================================================
+      // SAMAPTA
+      // =================================================
+
       const samaptaSessions =
         getSamaptaSessions(sm);
 
@@ -992,6 +1120,10 @@ export default function MentorDashboard() {
               samaptaSessions.length - 1
             ]
           : null;
+
+      // =================================================
+      // AKTIVITAS 25 MINGGU
+      // =================================================
 
       const weeks = new Set();
 
@@ -1025,22 +1157,41 @@ export default function MentorDashboard() {
       output[id] = {
         done,
         progress: achievementProgress,
+
         pt,
         pr,
         sm,
         sp,
+
         postAverage: average(pt),
         practiceAverage: average(pr),
+
         samaptaSessions,
         latestSamapta,
+
         samaptaComplete:
           samaptaSessions.length > 0,
+
         samaptaPassed:
           latestSamapta?.runPassed === true,
-        simperProgress: simperInfo.progress,
-        simperPassed: simperInfo.released,
-        simperLegacy: simperInfo.legacy,
-        activityWeeks: weeks.size,
+
+        // SIMPER terbaru: 3 persyaratan.
+        simperProgress:
+          simperInfo.progress,
+
+        simperPassed:
+          simperInfo.passed,
+
+        // Penerbitan kartu terpisah.
+        simperIssued:
+          simperInfo.released,
+
+        simperLegacy:
+          simperInfo.legacy,
+
+        activityWeeks:
+          weeks.size,
+
         activityProgress: Math.round(
           (weeks.size / TOTAL_WEEKS) * 100
         ),
@@ -1058,8 +1209,13 @@ export default function MentorDashboard() {
     simper,
   ]);
 
+  // ====================================================
+  // FILTER PESERTA
+  // ====================================================
+
   const filtered = useMemo(() => {
-    const keyword = normalize(search);
+    const keyword =
+      normalize(search);
 
     return programs.filter((program) => {
       const matchSite =
@@ -1079,45 +1235,72 @@ export default function MentorDashboard() {
         name.includes(keyword) ||
         department.includes(keyword);
 
-      return matchSite && matchKeyword;
+      return (
+        matchSite &&
+        matchKeyword
+      );
     });
-  }, [programs, search, siteFilter]);
+  }, [
+    programs,
+    search,
+    siteFilter,
+  ]);
+
+  // ====================================================
+  // RINGKASAN DASHBOARD
+  // ====================================================
 
   const summary = useMemo(() => {
     const ids = new Set(
-      filtered.map((program) => program.id)
+      filtered.map(
+        (program) => program.id
+      )
     );
 
-    const relevantPractices = practices.filter(
-      (row) => ids.has(row.program_id)
-    );
+    const relevantPractices =
+      practices.filter(
+        (row) =>
+          ids.has(row.program_id)
+      );
 
     const totalProgress = filtered.reduce(
       (sum, program) =>
         sum +
-        (dataByProgram[program.id]?.progress || 0),
+        (
+          dataByProgram[program.id]?.progress ||
+          0
+        ),
       0
     );
 
-    const totalSimperProgress = filtered.reduce(
-      (sum, program) =>
-        sum +
-        (dataByProgram[program.id]?.simperProgress || 0),
-      0
-    );
+    const totalSimperProgress =
+      filtered.reduce(
+        (sum, program) =>
+          sum +
+          (
+            dataByProgram[program.id]
+              ?.simperProgress || 0
+          ),
+        0
+      );
 
     const totalWeeks = filtered.reduce(
       (sum, program) =>
         sum +
-        (dataByProgram[program.id]?.activityWeeks || 0),
+        (
+          dataByProgram[program.id]
+            ?.activityWeeks || 0
+        ),
       0
     );
 
     function countWithRecords(key) {
       return filtered.filter(
         (program) =>
-          (dataByProgram[program.id]?.[key]?.length ||
-            0) > 0
+          (
+            dataByProgram[program.id]?.[key]
+              ?.length || 0
+          ) > 0
       ).length;
     }
 
@@ -1126,7 +1309,8 @@ export default function MentorDashboard() {
 
       progress: filtered.length
         ? Math.round(
-            totalProgress / filtered.length
+            totalProgress /
+            filtered.length
           )
         : 0,
 
@@ -1138,37 +1322,61 @@ export default function MentorDashboard() {
           dataByProgram[program.id]?.done === 6
       ).length,
 
-      postTest: countWithRecords("pt"),
-      practice: countWithRecords("pr"),
+      postTest:
+        countWithRecords("pt"),
+
+      practice:
+        countWithRecords("pr"),
 
       samapta: filtered.filter(
         (program) =>
-          dataByProgram[program.id]?.samaptaComplete
+          dataByProgram[program.id]
+            ?.samaptaComplete
       ).length,
 
       samaptaPassed: filtered.filter(
         (program) =>
-          dataByProgram[program.id]?.samaptaPassed
+          dataByProgram[program.id]
+            ?.samaptaPassed
       ).length,
 
-      simper: countWithRecords("sp"),
+      simper:
+        countWithRecords("sp"),
 
+      // Jumlah kartu SIMPER yang telah terbit.
+      // Tidak bergantung pada persentase
+      // kelulusan 3 persyaratan.
       simperIssued: filtered.filter(
         (program) =>
-          dataByProgram[program.id]?.simperPassed
+          dataByProgram[program.id]
+            ?.simperIssued
       ).length,
 
+      // Rata-rata progres SIMPER
+      // menggunakan 3 persyaratan.
       simperAverage: filtered.length
         ? Math.round(
-            totalSimperProgress / filtered.length
+            totalSimperProgress /
+            filtered.length
           )
         : 0,
 
       averageWeeks: filtered.length
-        ? (totalWeeks / filtered.length).toFixed(1)
+        ? (
+            totalWeeks /
+            filtered.length
+          ).toFixed(1)
         : "0.0",
     };
-  }, [filtered, practices, dataByProgram]);
+  }, [
+    filtered,
+    practices,
+    dataByProgram,
+  ]);
+
+  // ====================================================
+  // PROGRES PER SITE
+  // ====================================================
 
   const siteProgress = useMemo(() => {
     const unique = [
@@ -1183,7 +1391,10 @@ export default function MentorDashboard() {
     return unique.map((site) => {
       const entries = filtered.filter(
         (program) =>
-          (program.site || "Belum diisi") === site
+          (
+            program.site ||
+            "Belum diisi"
+          ) === site
       );
 
       const value = entries.length
@@ -1191,8 +1402,10 @@ export default function MentorDashboard() {
             entries.reduce(
               (sum, program) =>
                 sum +
-                (dataByProgram[program.id]?.progress ||
-                  0),
+                (
+                  dataByProgram[program.id]
+                    ?.progress || 0
+                ),
               0
             ) / entries.length
           )
@@ -1204,10 +1417,15 @@ export default function MentorDashboard() {
         count: entries.length,
       };
     });
-  }, [filtered, dataByProgram]);
+  }, [
+    filtered,
+    dataByProgram,
+  ]);
 
-  // Tampilan khusus saat maintenance ON
-  // untuk pengguna selain Admin.
+  // ====================================================
+  // HALAMAN MAINTENANCE
+  // ====================================================
+
   if (accessStatus === "maintenance") {
     return (
       <main
@@ -1251,7 +1469,9 @@ export default function MentorDashboard() {
 
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={() =>
+              window.location.reload()
+            }
             style={{
               background: "#d8b45a",
               color: "#061e24",
@@ -1287,8 +1507,10 @@ export default function MentorDashboard() {
     );
   }
 
-  // Jangan tampilkan data ketika status
-  // akses belum dapat dipastikan.
+  // ====================================================
+  // PEMERIKSAAN AKSES
+  // ====================================================
+
   if (
     accessStatus === "checking" ||
     accessStatus === "redirecting"
@@ -1308,7 +1530,12 @@ export default function MentorDashboard() {
       >
         <div style={{ textAlign: "center" }}>
           <h2>OJT MineTrack</h2>
-          <p style={{ color: "#cbd5d1" }}>
+
+          <p
+            style={{
+              color: "#cbd5d1",
+            }}
+          >
             Memeriksa akses pengguna...
           </p>
         </div>
@@ -1316,8 +1543,10 @@ export default function MentorDashboard() {
     );
   }
 
-  // Error pemeriksaan akses tidak boleh
-  // dianggap sebagai Maintenance OFF.
+  // ====================================================
+  // ERROR AKSES
+  // ====================================================
+
   if (accessStatus === "error") {
     return (
       <main
@@ -1353,13 +1582,16 @@ export default function MentorDashboard() {
               lineHeight: 1.7,
             }}
           >
-            Sistem tidak akan menampilkan data OJT
-            sebelum akses berhasil diverifikasi.
+            Sistem tidak akan menampilkan
+            data OJT sebelum akses berhasil
+            diverifikasi.
           </p>
 
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={() =>
+              window.location.reload()
+            }
             style={{
               background: "#d8b45a",
               color: "#061e24",
@@ -1377,7 +1609,9 @@ export default function MentorDashboard() {
           <div style={{ marginTop: 20 }}>
             <button
               type="button"
-              onClick={() => router.replace("/login")}
+              onClick={() =>
+                router.replace("/login")
+              }
               style={{
                 background: "transparent",
                 color: "#d8e8e2",
@@ -1394,6 +1628,10 @@ export default function MentorDashboard() {
       </main>
     );
   }
+
+  // ====================================================
+  // TAMPILAN DASHBOARD
+  // ====================================================
 
   return (
     <div className="track-shell">
@@ -2380,7 +2618,9 @@ export default function MentorDashboard() {
         className={`track-overlay ${
           menuOpen ? "open" : ""
         }`}
-        onClick={() => setMenuOpen(false)}
+        onClick={() =>
+          setMenuOpen(false)
+        }
       />
 
       <aside
@@ -2406,11 +2646,19 @@ export default function MentorDashboard() {
               type="button"
               key={item.url}
               className={`track-nav ${
-                item.url === "/" ? "active" : ""
+                item.url === "/"
+                  ? "active"
+                  : ""
               }`}
-              onClick={() => navigate(item.url)}
+              onClick={() =>
+                navigate(item.url)
+              }
             >
-              <Icon name={item.icon} size={19} />
+              <Icon
+                name={item.icon}
+                size={19}
+              />
+
               {item.label}
             </button>
           ))}
@@ -2425,7 +2673,9 @@ export default function MentorDashboard() {
                 type="button"
                 className="track-nav track-admin-nav"
                 onClick={() =>
-                  navigate("/dashboard-peserta")
+                  navigate(
+                    "/dashboard-peserta"
+                  )
                 }
               >
                 <Icon name="users" size={19} />
@@ -2436,7 +2686,9 @@ export default function MentorDashboard() {
                 type="button"
                 className="track-nav track-maintenance-nav"
                 onClick={() =>
-                  navigate("/admin/maintenance")
+                  navigate(
+                    "/admin/maintenance"
+                  )
                 }
               >
                 <Icon name="gear" size={19} />
@@ -2477,7 +2729,11 @@ export default function MentorDashboard() {
               accessStatus !== "allowed"
             }
           >
-            <Icon name="refresh" size={19} />
+            <Icon
+              name="refresh"
+              size={19}
+            />
+
             {refreshing
               ? "Memperbarui..."
               : "Refresh Data"}
@@ -2488,7 +2744,10 @@ export default function MentorDashboard() {
             className="track-nav"
             onClick={logout}
           >
-            <Icon name="logout" size={19} />
+            <Icon
+              name="logout"
+              size={19}
+            />
             Keluar Akun
           </button>
         </div>
@@ -2503,9 +2762,14 @@ export default function MentorDashboard() {
           <button
             type="button"
             aria-label="Buka menu"
-            onClick={() => setMenuOpen(true)}
+            onClick={() =>
+              setMenuOpen(true)
+            }
           >
-            <Icon name="menu" size={28} />
+            <Icon
+              name="menu"
+              size={28}
+            />
           </button>
         </div>
 
@@ -2513,13 +2777,16 @@ export default function MentorDashboard() {
           <div className="track-mentor">
             {isAdmin
               ? `Administrator · ${
-                  mentor?.full_name || "Admin"
+                  mentor?.full_name ||
+                  "Admin"
                 }`
-              : mentor?.full_name || "Mentor OJT"}
+              : mentor?.full_name ||
+                "Mentor OJT"}
           </div>
 
           <div className="track-hero-kicker">
-            EMERGENCY RESPONSE GROUP · PT BERAU COAL
+            EMERGENCY RESPONSE GROUP ·
+            PT BERAU COAL
           </div>
 
           <h1>
@@ -2527,22 +2794,32 @@ export default function MentorDashboard() {
           </h1>
 
           <p>
-            Monitoring dan Evaluasi On Job Training
+            Monitoring dan Evaluasi
+            On Job Training
           </p>
 
           <div className="track-values">
             <div className="track-value">
-              <Icon name="shield" size={17} />
+              <Icon
+                name="shield"
+                size={17}
+              />
               Safe People
             </div>
 
             <div className="track-value">
-              <Icon name="gear" size={17} />
+              <Icon
+                name="gear"
+                size={17}
+              />
               Safe Operation
             </div>
 
             <div className="track-value">
-              <Icon name="leaf" size={17} />
+              <Icon
+                name="leaf"
+                size={17}
+              />
               Sustainable Mining
             </div>
           </div>
@@ -2550,7 +2827,10 @@ export default function MentorDashboard() {
 
         <div className="track-content">
           {error && (
-            <div role="alert" className="track-alert">
+            <div
+              role="alert"
+              className="track-alert"
+            >
               {error}
             </div>
           )}
@@ -2569,12 +2849,14 @@ export default function MentorDashboard() {
                 <div className="track-admin-banner">
                   <div>
                     <strong>
-                      Mode Administrator — Dashboard Mentor
+                      Mode Administrator —
+                      Dashboard Mentor
                     </strong>
 
                     <p>
-                      Kamu sedang melihat Dashboard Mentor
-                      menggunakan akun Admin.
+                      Kamu sedang melihat
+                      Dashboard Mentor menggunakan
+                      akun Admin.
                     </p>
 
                     <p>
@@ -2604,7 +2886,9 @@ export default function MentorDashboard() {
                       type="button"
                       className="track-admin-button"
                       onClick={() =>
-                        navigate("/dashboard-peserta")
+                        navigate(
+                          "/dashboard-peserta"
+                        )
                       }
                     >
                       Preview Dashboard Peserta
@@ -2614,7 +2898,9 @@ export default function MentorDashboard() {
                       type="button"
                       className="track-admin-button maintenance"
                       onClick={() =>
-                        navigate("/admin/maintenance")
+                        navigate(
+                          "/admin/maintenance"
+                        )
                       }
                     >
                       ⚙ Maintenance Mode
@@ -2671,8 +2957,9 @@ export default function MentorDashboard() {
                   </div>
 
                   <p className="track-card-sub">
-                    Persentase rata-rata enam kategori
-                    pencapaian terverifikasi per site.
+                    Persentase rata-rata
+                    enam kategori pencapaian
+                    terverifikasi per site.
                   </p>
 
                   {siteProgress.length ? (
@@ -2682,14 +2969,23 @@ export default function MentorDashboard() {
                         key={item.site}
                       >
                         <div className="track-site-icon">
-                          <Icon name="chart" size={19} />
+                          <Icon
+                            name="chart"
+                            size={19}
+                          />
                         </div>
 
-                        <strong>{item.site}</strong>
+                        <strong>
+                          {item.site}
+                        </strong>
 
-                        <Progress value={item.value} />
+                        <Progress
+                          value={item.value}
+                        />
 
-                        <strong>{item.value}%</strong>
+                        <strong>
+                          {item.value}%
+                        </strong>
                       </div>
                     ))
                   ) : (
@@ -2738,48 +3034,72 @@ export default function MentorDashboard() {
                           />
                         </div>
 
-                        <strong>{item.value}</strong>
-                        <small>{item.label}</small>
+                        <strong>
+                          {item.value}
+                        </strong>
+
+                        <small>
+                          {item.label}
+                        </small>
                       </div>
                     ))}
                   </div>
 
                   <div className="track-monitor-row">
-                    <span>Samapta tes lengkap</span>
-                    <strong>
-                      {summary.samapta} / {summary.active}
-                    </strong>
-                  </div>
-
-                  <div className="track-monitor-row">
                     <span>
-                      Samapta lari lulus (tes terakhir)
+                      Samapta tes lengkap
                     </span>
+
                     <strong>
-                      {summary.samaptaPassed} /{" "}
+                      {summary.samapta}
+                      {" / "}
                       {summary.active}
                     </strong>
                   </div>
 
                   <div className="track-monitor-row">
                     <span>
-                      Peserta memiliki catatan SIMPER
+                      Samapta lari lulus
+                      (tes terakhir)
                     </span>
-                    <strong>
-                      {summary.simper} / {summary.active}
-                    </strong>
-                  </div>
 
-                  <div className="track-monitor-row">
-                    <span>SIMPER telah terbit</span>
                     <strong>
-                      {summary.simperIssued} /{" "}
+                      {summary.samaptaPassed}
+                      {" / "}
                       {summary.active}
                     </strong>
                   </div>
 
                   <div className="track-monitor-row">
-                    <span>Rata-rata progres SIMPER</span>
+                    <span>
+                      Peserta memiliki
+                      catatan SIMPER
+                    </span>
+
+                    <strong>
+                      {summary.simper}
+                      {" / "}
+                      {summary.active}
+                    </strong>
+                  </div>
+
+                  <div className="track-monitor-row">
+                    <span>
+                      SIMPER telah terbit
+                    </span>
+
+                    <strong>
+                      {summary.simperIssued}
+                      {" / "}
+                      {summary.active}
+                    </strong>
+                  </div>
+
+                  <div className="track-monitor-row">
+                    <span>
+                      Rata-rata progres SIMPER
+                    </span>
+
                     <strong>
                       {summary.simperAverage}%
                     </strong>
@@ -2787,10 +3107,13 @@ export default function MentorDashboard() {
 
                   <div className="track-monitor-row">
                     <span>
-                      Rata-rata minggu dengan aktivitas
+                      Rata-rata minggu
+                      dengan aktivitas
                     </span>
+
                     <strong>
-                      {summary.averageWeeks} / 25
+                      {summary.averageWeeks}
+                      {" / 25"}
                     </strong>
                   </div>
                 </section>
@@ -2798,17 +3121,24 @@ export default function MentorDashboard() {
 
               <section className="track-card">
                 <div className="track-card-heading">
-                  <h2>Daftar Peserta OJT Aktif</h2>
+                  <h2>
+                    Daftar Peserta OJT Aktif
+                  </h2>
 
                   <div className="track-filters">
                     <div className="track-search">
-                      <Icon name="search" size={17} />
+                      <Icon
+                        name="search"
+                        size={17}
+                      />
 
                       <input
                         type="search"
                         value={search}
                         onChange={(event) =>
-                          setSearch(event.target.value)
+                          setSearch(
+                            event.target.value
+                          )
                         }
                         placeholder="Cari nama / departemen..."
                         aria-label="Cari peserta OJT"
@@ -2819,7 +3149,9 @@ export default function MentorDashboard() {
                       className="track-field"
                       value={siteFilter}
                       onChange={(event) =>
-                        setSiteFilter(event.target.value)
+                        setSiteFilter(
+                          event.target.value
+                        )
                       }
                       aria-label="Filter berdasarkan site"
                     >
@@ -2840,8 +3172,9 @@ export default function MentorDashboard() {
                 </div>
 
                 <p className="track-card-sub">
-                  Progres OJT = enam kategori pencapaian.
-                  Progres SIMPER dan aktivitas 25 minggu
+                  Progres OJT = enam kategori
+                  pencapaian. Progres SIMPER
+                  dan aktivitas 25 minggu
                   ditampilkan terpisah.
                 </p>
 
@@ -2863,93 +3196,112 @@ export default function MentorDashboard() {
                     </thead>
 
                     <tbody>
-                      {filtered.map((program, index) => {
-                        const info =
-                          dataByProgram[program.id];
+                      {filtered.map(
+                        (program, index) => {
+                          const info =
+                            dataByProgram[
+                              program.id
+                            ];
 
-                        return (
-                          <tr key={program.id}>
-                            <td>{index + 1}</td>
+                          return (
+                            <tr
+                              key={program.id}
+                            >
+                              <td>
+                                {index + 1}
+                              </td>
 
-                            <td>
-                              <span className="track-table-name">
-                                {program.peserta?.full_name ||
-                                  "Peserta OJT"}
-                              </span>
-                            </td>
+                              <td>
+                                <span className="track-table-name">
+                                  {program.peserta
+                                    ?.full_name ||
+                                    "Peserta OJT"}
+                                </span>
+                              </td>
 
-                            <td>
-                              {program.peserta?.department ||
-                                "—"}
-                            </td>
+                              <td>
+                                {program.peserta
+                                  ?.department ||
+                                  "—"}
+                              </td>
 
-                            <td>
-                              {program.site || "—"}
-                            </td>
+                              <td>
+                                {program.site ||
+                                  "—"}
+                              </td>
 
-                            <td>
-                              {formatDate(
-                                program.start_date
-                              )}
-                              {" – "}
-                              {formatDate(
-                                program.end_date
-                              )}
-                            </td>
+                              <td>
+                                {formatDate(
+                                  program.start_date
+                                )}
+                                {" – "}
+                                {formatDate(
+                                  program.end_date
+                                )}
+                              </td>
 
-                            <td>
-                              <div
-                                style={{
-                                  minWidth: 100,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                }}
-                              >
-                                <Progress
-                                  value={
-                                    info?.progress || 0
-                                  }
-                                />
+                              <td>
+                                <div
+                                  style={{
+                                    minWidth: 100,
+                                    display: "flex",
+                                    alignItems:
+                                      "center",
+                                    gap: 8,
+                                  }}
+                                >
+                                  <Progress
+                                    value={
+                                      info
+                                        ?.progress || 0
+                                    }
+                                  />
 
+                                  <strong>
+                                    {info
+                                      ?.progress || 0}
+                                    %
+                                  </strong>
+                                </div>
+                              </td>
+
+                              <td>
                                 <strong>
-                                  {info?.progress || 0}%
+                                  {info
+                                    ?.simperProgress || 0}
+                                  %
                                 </strong>
-                              </div>
-                            </td>
+                              </td>
 
-                            <td>
-                              <strong>
-                                {info?.simperProgress || 0}%
-                              </strong>
-                            </td>
+                              <td>
+                                {info
+                                  ?.activityWeeks || 0}
+                                /25
+                              </td>
 
-                            <td>
-                              {info?.activityWeeks || 0}/25
-                            </td>
+                              <td>
+                                <span className="track-badge">
+                                  Aktif
+                                </span>
+                              </td>
 
-                            <td>
-                              <span className="track-badge">
-                                Aktif
-                              </span>
-                            </td>
-
-                            <td>
-                              <button
-                                className="track-view"
-                                type="button"
-                                onClick={() =>
-                                  navigate(
-                                    `/peserta/${program.id}`
-                                  )
-                                }
-                              >
-                                Lihat Detail
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                              <td>
+                                <button
+                                  className="track-view"
+                                  type="button"
+                                  onClick={() =>
+                                    navigate(
+                                      `/peserta/${program.id}`
+                                    )
+                                  }
+                                >
+                                  Lihat Detail
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        }
+                      )}
                     </tbody>
                   </table>
 
@@ -2963,7 +3315,8 @@ export default function MentorDashboard() {
                 <div className="track-mobile-people">
                   {!filtered.length && (
                     <div className="track-empty">
-                      Tidak ada peserta yang sesuai filter.
+                      Tidak ada peserta
+                      yang sesuai filter.
                     </div>
                   )}
 
@@ -2986,22 +3339,32 @@ export default function MentorDashboard() {
                               {initials(name)}
                             </div>
 
-                            <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                minWidth: 0,
+                              }}
+                            >
                               <div className="track-person-name">
                                 {name}
                               </div>
 
                               <div className="track-person-detail">
-                                {program.peserta?.department ||
+                                {program.peserta
+                                  ?.department ||
                                   "—"}
                                 {" · "}
-                                {program.site || "—"}
+                                {program.site ||
+                                  "—"}
                               </div>
                             </div>
                           </div>
 
                           <div className="track-person-score">
-                            <span style={{ minWidth: 67 }}>
+                            <span
+                              style={{
+                                minWidth: 67,
+                              }}
+                            >
                               OJT
                             </span>
 
@@ -3012,23 +3375,31 @@ export default function MentorDashboard() {
                             />
 
                             <span>
-                              {info?.progress || 0}%
+                              {info?.progress || 0}
+                              %
                             </span>
                           </div>
 
                           <div className="track-person-score">
-                            <span style={{ minWidth: 67 }}>
+                            <span
+                              style={{
+                                minWidth: 67,
+                              }}
+                            >
                               SIMPER
                             </span>
 
                             <Progress
                               value={
-                                info?.simperProgress || 0
+                                info
+                                  ?.simperProgress || 0
                               }
                             />
 
                             <span>
-                              {info?.simperProgress || 0}%
+                              {info
+                                ?.simperProgress || 0}
+                              %
                             </span>
                           </div>
 
@@ -3071,7 +3442,8 @@ export default function MentorDashboard() {
           )}
 
           <footer className="track-footer">
-            OJT MineTrack v2.0 · Emergency Response Group ·
+            OJT MineTrack v2.0 ·
+            Emergency Response Group ·
             PT Berau Coal
           </footer>
         </div>
