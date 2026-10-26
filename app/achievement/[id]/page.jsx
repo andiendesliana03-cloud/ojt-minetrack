@@ -165,7 +165,13 @@ export default function AchievementPage() {
         if (profileResult.error) throw profileResult.error;
 
         const profile = profileResult.data;
-        const currentRole = String(profile?.role || "").toLowerCase();
+        const currentRole = String(profile?.role || "")
+          .trim()
+          .toLowerCase();
+
+        // Admin dan Mentor memiliki akses pengelolaan.
+        // Admin tetap mendapat akses saat maintenance ON
+        // melalui kebijakan RLS Supabase.
 
         if (!["admin", "mentor"].includes(currentRole)) {
           throw new Error(
@@ -173,7 +179,13 @@ export default function AchievementPage() {
           );
         }
 
-        let programQuery = supabase
+        // Admin dan Mentor dapat mengelola seluruh
+        // peserta OJT tanpa pembatasan mentor_id.
+        //
+        // Pembatasan maintenance tetap ditangani
+        // oleh maintenance_access_guard di Supabase.
+
+        const programResult = await supabase
           .from("ojt_programs")
           .select(`
             id,
@@ -187,13 +199,8 @@ export default function AchievementPage() {
               department
             )
           `)
-          .eq("id", programId);
-
-        if (currentRole === "mentor") {
-          programQuery = programQuery.eq("mentor_id", userId);
-        }
-
-        const programResult = await programQuery.maybeSingle();
+          .eq("id", programId)
+          .maybeSingle();
 
         if (programResult.error) throw programResult.error;
 
@@ -236,7 +243,10 @@ export default function AchievementPage() {
 
         setTypeCode(first?.code || "");
 
-        const todayWeek = weekOf(today(), programResult.data.start_date);
+        const todayWeek = weekOf(
+          today(),
+          programResult.data.start_date
+        );
 
         const latestWeek = (recordResult.data || [])
           .map((item) =>
