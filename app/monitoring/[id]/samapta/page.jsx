@@ -219,6 +219,21 @@ export default function MonitoringSamaptaPage() {
         );
       }
 
+      // Hak akses OJT MineTrack:
+      //
+      // Admin:
+      // - Dapat melihat seluruh program.
+      // - Tetap dapat mengakses ketika maintenance ON.
+      //
+      // Mentor:
+      // - Dapat melihat seluruh program.
+      // - Tidak dibatasi oleh mentor_id.
+      // - Dibatasi RLS ketika maintenance ON.
+      //
+      // Peserta:
+      // - Hanya dapat melihat program miliknya.
+      // - Dibatasi RLS ketika maintenance ON.
+
       let programQuery = supabase
         .from("ojt_programs")
         .select(`
@@ -233,16 +248,11 @@ export default function MonitoringSamaptaPage() {
         `)
         .eq("id", id);
 
-      // Admin: seluruh program OJT
-      // Mentor: hanya program peserta binaannya
-      // Peserta: hanya program OJT miliknya
-
-      if (isMentor) {
-        programQuery = programQuery.eq(
-          "mentor_id",
-          user.id
-        );
-      }
+      // Pembatasan participant_id hanya
+      // diterapkan untuk akun Peserta.
+      //
+      // Admin dan Mentor dapat mengakses
+      // seluruh program tanpa filter mentor_id.
 
       if (isParticipant) {
         programQuery = programQuery.eq(
@@ -279,6 +289,8 @@ export default function MonitoringSamaptaPage() {
       setProgram(programResult.data);
       setRecords(recordsResult.data || []);
     } catch (err) {
+      setProgram(null);
+      setRecords([]);
       setError(
         err?.message || "Gagal memuat data Samapta."
       );
@@ -598,6 +610,7 @@ export default function MonitoringSamaptaPage() {
         </div>
 
         <button
+          type="button"
           className="sm-button light"
           onClick={() => router.push(`/monitoring/${id}`)}
         >
@@ -749,6 +762,7 @@ export default function MonitoringSamaptaPage() {
             <section className="sm-card">
               <div className="sm-actions">
                 <button
+                  type="button"
                   className="sm-button light"
                   disabled={refreshing}
                   onClick={() => loadData(true)}
