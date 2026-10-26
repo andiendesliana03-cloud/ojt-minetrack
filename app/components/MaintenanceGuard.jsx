@@ -1,19 +1,118 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
 import { usePathname } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
-export default function MaintenanceGuard({ children }) {
+// OJT MineTrack v2.0
+// MaintenanceGuard
+//
+// Maintenance OFF:
+// - Pengunjung dapat menuju halaman Login.
+// - Admin, Mentor, dan Peserta mengikuti
+//   hak akses masing-masing halaman.
+//
+// Maintenance ON:
+// - Admin tetap dapat mengakses sistem.
+// - Mentor dan Peserta melihat maintenance.
+// - Pengunjung belum login tetap dapat
+//   menuju halaman Login.
+//
+// Jika pemeriksaan gagal:
+// - Akses data tidak diberikan.
+// - Pengguna dapat mencoba kembali.
+//
+// Keamanan data tetap dilindungi RLS Supabase.
+
+export default function MaintenanceGuard({
+  children,
+}) {
   const pathname = usePathname();
 
   const [status, setStatus] = useState("checking");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [errorMessage, setErrorMessage] =
+    useState("");
+
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(false);
+
+  const isLoginPage =
+    pathname === "/login" ||
+    pathname?.startsWith("/login/");
 
   const checkMaintenance = useCallback(async () => {
+    // Nomor pemeriksaan untuk mencegah
+    // hasil permintaan lama menimpa hasil baru.
+    const requestId = ++requestIdRef.current;
+
+    const isCurrent = () =>
+      mountedRef.current &&
+      requestId === requestIdRef.current;
+
+    if (!mountedRef.current) return;
+
+    // Jangan terus menampilkan data lama ketika
+    // status akses sedang diperiksa kembali.
+    setStatus("checking");
+    setErrorMessage("");
+
     try {
-      // 1. Periksa status Maintenance Mode
+      // 1. Periksa sesi terlebih dahulu.
+      // Pengunjung yang belum login tidak perlu
+      // membaca pengaturan Maintenance Mode.
+      const {
+        data: sessionData,
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (!isCurrent()) return;
+
+      if (sessionError) {
+        throw new Error(
+          `Gagal membaca sesi: ${sessionError.message}`
+        );
+      }
+
+      const session = sessionData?.session;
+
+      // 2. Pengunjung belum login.
+      // Izinkan routing berjalan agar halaman
+      // utama dapat mengarahkan ke /login.
+      //
+      // Ini bukan izin membaca data OJT.
+      // Halaman yang dilindungi tetap wajib
+      // memeriksa login dan role.
+      if (!session?.user) {
+        setStatus("allowed");
+        setErrorMessage("");
+        return;
+      }
+
+      // 3. Verifikasi pengguna yang login.
+      const {
+        data: userData,
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (!isCurrent()) return;
+
+      if (authError || !userData?.user) {
+        throw new Error(
+          authError?.message ||
+            "Sesi pengguna tidak dapat diverifikasi."
+        );
+      }
+
+      const user = userData.user;
+
+      // 4. Ambil status Maintenance Mode.
       const {
         data: setting,
         error: settingError,
@@ -21,39 +120,46 @@ export default function MaintenanceGuard({ children }) {
         .from("app_settings")
         .select("maintenance_mode")
         .eq("id", 1)
-        .single();
+        .maybeSingle();
+
+      if (!isCurrent()) return;
 
       if (settingError) {
-        throw settingError;
+        throw new Error(
+          `Gagal membaca Maintenance Mode: ${settingError.message}`
+        );
       }
 
-      // 2. Jika maintenance OFF,
-      // seluruh website berjalan normal
-      if (setting.maintenance_mode !== true) {
+      if (
+        typeof setting?.maintenance_mode !==
+        "boolean"
+      ) {
+        throw new Error(
+          "Pengaturan Maintenance Mode tidak ditemukan atau tidak valid."
+        );
+      }
+
+      const maintenanceOn =
+        setting.maintenance_mode === true;
+
+      // 5. Maintenance OFF.
+      // Biarkan pemeriksaan role pada
+      // masing-masing halaman berjalan.
+      if (!maintenanceOn) {
         setStatus("allowed");
         setErrorMessage("");
         return;
       }
 
-      // 3. Jika maintenance ON,
-      // periksa pengguna yang login
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError) {
-        throw authError;
-      }
-
-      // Pengguna yang belum login
-      if (!user) {
-        setStatus("maintenance");
-        setErrorMessage("");
-        return;
-      }
-
-      // 4. Periksa role pengguna
+      // 6. Maintenance ON.
+      // Hanya Admin yang boleh melewati Guard.
+      //
+      // Perlu diperhatikan bahwa RLS dapat
+      // menyembunyikan profil Mentor/Peserta
+      // ketika maintenance sedang aktif.
+      //
+      // Jika profil tidak terlihat, akses
+      // tetap diblokir, bukan dianggap Admin.
       const {
         data: profile,
         error: profileError,
@@ -63,16 +169,20 @@ export default function MaintenanceGuard({ children }) {
         .eq("id", user.id)
         .maybeSingle();
 
+      if (!isCurrent()) return;
+
       if (profileError) {
-        throw profileError;
+        throw new Error(
+          `Gagal memverifikasi role: ${profileError.message}`
+        );
       }
 
-      const role = String(profile?.role || "")
+      const role = String(
+        profile?.role || ""
+      )
         .trim()
         .toLowerCase();
 
-      // 5. Admin tetap bisa masuk
-      // Mentor dan Peserta dibatasi
       if (role === "admin") {
         setStatus("allowed");
       } else {
@@ -81,13 +191,19 @@ export default function MaintenanceGuard({ children }) {
 
       setErrorMessage("");
     } catch (error) {
+      if (!isCurrent()) return;
+
       console.error(
         "MaintenanceGuard error:",
         error
       );
 
+      // Fail closed:
+      // Jangan izinkan halaman data tampil
+      // ketika status akses belum pasti.
       setErrorMessage(
-        "Status layanan tidak dapat diperiksa. Silakan coba lagi."
+        error?.message ||
+          "Status layanan tidak dapat diperiksa. Silakan coba lagi."
       );
 
       setStatus("error");
@@ -95,25 +211,38 @@ export default function MaintenanceGuard({ children }) {
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
+
     let active = true;
     const timers = new Set();
 
-    async function refreshAccess() {
+    function refreshAccess() {
       if (!active) return;
-      await checkMaintenance();
+
+      checkMaintenance();
     }
 
-    // Pemeriksaan saat halaman dibuka
+    // Pemeriksaan saat Guard dipasang
+    // atau ketika lokasi halaman berubah.
     refreshAccess();
 
-    // Pemeriksaan otomatis setiap 15 detik
+    // Pemeriksaan otomatis setiap 15 detik.
     const interval = setInterval(() => {
-      refreshAccess();
+      if (
+        active &&
+        document.visibilityState === "visible"
+      ) {
+        refreshAccess();
+      }
     }, 15000);
 
-    // Pemeriksaan saat tab kembali aktif
+    // Periksa saat pengguna kembali
+    // membuka tab browser.
     function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
+      if (
+        active &&
+        document.visibilityState === "visible"
+      ) {
         refreshAccess();
       }
     }
@@ -123,25 +252,41 @@ export default function MaintenanceGuard({ children }) {
       handleVisibilityChange
     );
 
-    // Pemeriksaan setelah login atau logout
+    // Pemeriksaan setelah login, logout,
+    // atau sesi autentikasi diperbarui.
+    //
+    // Supabase query tidak dijalankan
+    // secara langsung di callback Auth.
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      // Hindari query Supabase secara langsung
-      // di dalam callback auth.
-      const timer = setTimeout(() => {
-        timers.delete(timer);
+    } = supabase.auth.onAuthStateChange(
+      (event) => {
+        if (!active) return;
 
-        if (active) {
-          refreshAccess();
+        // INITIAL_SESSION sudah ditangani
+        // oleh pemeriksaan saat pemasangan.
+        if (event === "INITIAL_SESSION") {
+          return;
         }
-      }, 0);
 
-      timers.add(timer);
-    });
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+
+          if (active) {
+            refreshAccess();
+          }
+        }, 0);
+
+        timers.add(timer);
+      }
+    );
 
     return () => {
       active = false;
+
+      // Batalkan hasil permintaan lama.
+      requestIdRef.current += 1;
+      mountedRef.current = false;
 
       clearInterval(interval);
 
@@ -156,52 +301,119 @@ export default function MaintenanceGuard({ children }) {
 
       subscription.unsubscribe();
     };
-  }, [checkMaintenance]);
+  }, [checkMaintenance, pathname]);
 
-  // Halaman login tetap tersedia
-  // agar Admin dapat masuk saat maintenance
-  if (pathname === "/login") {
+  // Login harus selalu bisa ditampilkan.
+  // Pemeriksaan ini hanya melewati Guard,
+  // bukan mengizinkan akses ke data OJT.
+  if (isLoginPage) {
     return children;
   }
 
-  // Tampilan ketika sedang memeriksa akses
+  // Sedang memeriksa akses.
   if (status === "checking") {
-    return (
-      <div style={styles.center}>
-        Memeriksa akses OJT MineTrack...
-      </div>
-    );
-  }
-
-  // Tampilan jika pemeriksaan gagal
-  if (status === "error") {
     return (
       <main style={styles.center}>
         <div style={{ textAlign: "center" }}>
-          <h2>Gagal Memeriksa Akses</h2>
+          <div
+            style={{
+              fontSize: 31,
+              fontWeight: 900,
+              marginBottom: 14,
+            }}
+          >
+            OJT{" "}
+            <span style={{ color: "#28c58b" }}>
+              MineTrack
+            </span>
+          </div>
 
           <p
             style={{
+              color: "#cbd5d1",
               fontSize: 14,
-              lineHeight: 1.8,
-              maxWidth: 350,
+              lineHeight: 1.7,
             }}
           >
-            {errorMessage}
+            Memeriksa akses OJT MineTrack...
           </p>
-
-          <button
-            onClick={checkMaintenance}
-            style={styles.button}
-          >
-            Coba Lagi
-          </button>
         </div>
       </main>
     );
   }
 
-  // Tampilan Maintenance Mode
+  // Pemeriksaan gagal.
+  if (status === "error") {
+    return (
+      <main style={styles.center}>
+        <div
+          style={{
+            textAlign: "center",
+            maxWidth: 460,
+            width: "100%",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 27,
+              lineHeight: 1.3,
+            }}
+          >
+            Gagal Memeriksa Akses
+          </h2>
+
+          <p
+            style={{
+              fontSize: 14,
+              lineHeight: 1.8,
+              color: "#d3e5dc",
+              marginTop: 18,
+              overflowWrap: "anywhere",
+            }}
+          >
+            {errorMessage}
+          </p>
+
+          <p
+            style={{
+              color: "#9db4ae",
+              fontSize: 12,
+              lineHeight: 1.7,
+              marginTop: 14,
+            }}
+          >
+            Data OJT tidak ditampilkan
+            sampai akses dapat diverifikasi.
+          </p>
+
+          <button
+            type="button"
+            onClick={checkMaintenance}
+            style={styles.button}
+          >
+            Coba Lagi
+          </button>
+
+          <div style={{ marginTop: 18 }}>
+            <a
+              href="/login"
+              style={{
+                color: "#d8b45a",
+                fontSize: 13,
+                fontWeight: 700,
+                textDecoration: "underline",
+              }}
+            >
+              Buka Halaman Login
+            </a>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // Maintenance Mode ON.
+  // Mentor dan Peserta diblokir.
   if (status === "maintenance") {
     return (
       <main style={styles.maintenancePage}>
@@ -228,6 +440,28 @@ export default function MaintenanceGuard({ children }) {
             Silakan kembali beberapa saat lagi.
           </p>
 
+          <button
+            type="button"
+            onClick={checkMaintenance}
+            style={styles.button}
+          >
+            Coba Lagi
+          </button>
+
+          <div style={{ marginTop: 18 }}>
+            <a
+              href="/login"
+              style={{
+                color: "#d8b45a",
+                fontSize: 12,
+                fontWeight: 700,
+                textDecoration: "underline",
+              }}
+            >
+              Buka Halaman Login
+            </a>
+          </div>
+
           <div style={styles.footer}>
             Emergency Response Group
             <br />
@@ -238,7 +472,13 @@ export default function MaintenanceGuard({ children }) {
     );
   }
 
-  // Maintenance OFF atau Admin
+  // Status allowed:
+  // - Pengunjung belum login, untuk routing Login.
+  // - Maintenance OFF, halaman memeriksa role.
+  // - Maintenance ON, Admin terverifikasi.
+  //
+  // RLS Supabase tetap menjadi perlindungan
+  // utama untuk pembacaan dan perubahan data.
   return children;
 }
 
