@@ -7,10 +7,11 @@ import { supabase } from "../../../../lib/supabase";
 
 // OJT MineTrack v2.0
 // Monitoring SIMPER — Read Only
-// Admin: seluruh peserta
-// Mentor: peserta binaannya
-// Peserta: program miliknya
+// Admin: seluruh peserta, termasuk saat maintenance ON
+// Mentor: seluruh peserta saat maintenance OFF
+// Peserta: hanya program miliknya
 // Sinkron dengan Input SIMPER Mentor.
+// Maintenance Mode dilindungi oleh RLS Supabase.
 
 const META_START = "[[SIMPER_V2]]";
 const META_END = "[[/SIMPER_V2]]";
@@ -301,9 +302,14 @@ export default function MonitoringSIMPER() {
         );
       }
 
-      // Admin dapat melihat seluruh program.
-      // Mentor hanya peserta binaannya.
-      // Peserta hanya program sendiri.
+      // Hak akses:
+      // Admin: semua program.
+      // Mentor: semua program.
+      // Peserta: hanya program sendiri.
+      //
+      // Tidak menggunakan filter mentor_id.
+      // RLS Supabase tetap mengendalikan
+      // akses data selama maintenance.
 
       let query = supabase
         .from("ojt_programs")
@@ -319,12 +325,8 @@ export default function MonitoringSIMPER() {
         `)
         .eq("id", programId);
 
-      if (isMentor) {
-        query = query.eq(
-          "mentor_id",
-          userId
-        );
-      }
+      // Hanya akun Peserta yang dibatasi
+      // berdasarkan participant_id.
 
       if (isParticipant) {
         query = query.eq(
@@ -346,8 +348,8 @@ export default function MonitoringSIMPER() {
         );
       }
 
-      // Data SIMPER diambil setelah akses program
-      // berhasil diverifikasi.
+      // Data SIMPER hanya diambil setelah
+      // akses program berhasil diverifikasi.
 
       const {
         data: simperData,
