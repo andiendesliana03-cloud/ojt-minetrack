@@ -88,7 +88,9 @@ function parseDate(value) {
     return null;
   }
 
-  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  const d = new Date(
+    Date.UTC(p[0], p[1] - 1, p[2])
+  );
 
   if (
     d.getUTCFullYear() !== p[0] ||
@@ -332,7 +334,13 @@ function Icon({ name, size = 21 }) {
 
     file: (
       <>
-        <rect x="5" y="3" width="14" height="18" rx="2" />
+        <rect
+          x="5"
+          y="3"
+          width="14"
+          height="18"
+          rx="2"
+        />
         <path d="M9 8h6M9 12h6M9 16h4" />
       </>
     ),
@@ -402,7 +410,13 @@ function Icon({ name, size = 21 }) {
 
     calendar: (
       <>
-        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <rect
+          x="3"
+          y="5"
+          width="18"
+          height="16"
+          rx="2"
+        />
         <path d="M7 3v4M17 3v4M3 10h18" />
       </>
     ),
@@ -528,25 +542,37 @@ export default function MentorDashboard() {
   const [maintenanceMode, setMaintenanceMode] =
     useState(null);
 
-  const isAdmin = normalize(mentor?.role) === "admin";
+  const [accessStatus, setAccessStatus] =
+    useState("checking");
+
+  const isAdmin =
+    normalize(mentor?.role) === "admin";
 
   async function fetchMaintenanceStatus() {
-    const { data, error: statusError } = await supabase
+    const {
+      data,
+      error: statusError,
+    } = await supabase
       .from("app_settings")
       .select("maintenance_mode")
       .eq("id", 1)
       .maybeSingle();
 
     if (statusError) {
-      setMaintenanceMode(null);
-      return;
+      throw new Error(
+        `Gagal membaca status maintenance: ${statusError.message}`
+      );
     }
 
-    setMaintenanceMode(
-      typeof data?.maintenance_mode === "boolean"
-        ? data.maintenance_mode
-        : null
-    );
+    if (typeof data?.maintenance_mode !== "boolean") {
+      throw new Error(
+        "Pengaturan Maintenance Mode belum tersedia."
+      );
+    }
+
+    setMaintenanceMode(data.maintenance_mode);
+
+    return data.maintenance_mode;
   }
 
   async function fetchDashboardData() {
@@ -691,18 +717,25 @@ export default function MentorDashboard() {
     async function initialize() {
       setLoading(true);
       setError("");
+      setAccessStatus("checking");
 
       try {
+        // 1. Periksa sesi login terlebih dahulu.
         const {
           data: { user },
           error: authError,
         } = await supabase.auth.getUser();
 
         if (authError || !user) {
+          if (mounted) {
+            setAccessStatus("redirecting");
+          }
+
           router.replace("/login");
           return;
         }
 
+        // 2. Baca role pengguna.
         const {
           data: profile,
           error: profileError,
@@ -710,31 +743,65 @@ export default function MentorDashboard() {
           .from("profiles")
           .select("id,full_name,role")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
 
         if (profileError) {
-          throw profileError;
+          throw new Error(
+            `Gagal membaca profil: ${profileError.message}`
+          );
         }
 
-        const role = normalize(profile?.role);
+        if (!profile) {
+          throw new Error(
+            "Profil akun tidak ditemukan."
+          );
+        }
+
+        const role = normalize(profile.role);
+
+        const admin = role === "admin";
+        const mentorRole = role === "mentor";
+
+        const participant = [
+          "participant",
+          "peserta",
+        ].includes(role);
 
         if (
-          role === "participant" ||
-          role === "peserta"
+          !admin &&
+          !mentorRole &&
+          !participant
         ) {
+          throw new Error(
+            "Akun tidak memiliki izin mengakses OJT MineTrack."
+          );
+        }
+
+        // 3. Periksa status Maintenance Mode.
+        // Status harus benar-benar diketahui sebelum
+        // melakukan pengalihan atau memuat data OJT.
+        const maintenance =
+          await fetchMaintenanceStatus();
+
+        if (!mounted) return;
+
+        // 4. Saat maintenance ON, hanya Admin
+        // yang boleh melanjutkan.
+        if (maintenance && !admin) {
+          setMentor(null);
+          setAccessStatus("maintenance");
+          return;
+        }
+
+        // 5. Peserta diarahkan ke Dashboard Peserta.
+        if (participant) {
+          setAccessStatus("redirecting");
           router.replace("/dashboard-peserta");
           return;
         }
 
-        if (
-          role !== "mentor" &&
-          role !== "admin"
-        ) {
-          throw new Error(
-            "Akses ditolak. Akun ini tidak memiliki izin membuka Dashboard Mentor."
-          );
-        }
-
+        // 6. Admin dan Mentor memuat Dashboard.
+        // Mentor tidak menggunakan filter mentor_id.
         const next = await fetchDashboardData();
 
         if (!mounted) return;
@@ -745,19 +812,20 @@ export default function MentorDashboard() {
         });
 
         applyDashboard(next);
-
-        if (role === "admin") {
-          await fetchMaintenanceStatus();
-        }
+        setAccessStatus("allowed");
       } catch (err) {
         if (mounted) {
+          setMentor(null);
+          setAccessStatus("error");
           setError(
-            err.message ||
-              "Gagal memuat Dashboard Mentor."
+            err?.message ||
+              "Gagal memuat Dashboard OJT MineTrack."
           );
         }
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     }
 
@@ -771,33 +839,68 @@ export default function MentorDashboard() {
   useEffect(() => {
     if (!isAdmin) return;
 
-    fetchMaintenanceStatus();
+    let active = true;
+
+    async function checkStatus() {
+      try {
+        const mode = await fetchMaintenanceStatus();
+
+        if (!active) return;
+
+        setMaintenanceMode(mode);
+      } catch {
+        if (active) {
+          setMaintenanceMode(null);
+        }
+      }
+    }
+
+    checkStatus();
 
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") {
-        fetchMaintenanceStatus();
+        checkStatus();
       }
     }, 15000);
 
-    return () => clearInterval(interval);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [isAdmin]);
 
   async function refresh() {
-    if (loading || refreshing || !mentor) return;
+    if (
+      loading ||
+      refreshing ||
+      !mentor ||
+      accessStatus !== "allowed"
+    ) {
+      return;
+    }
 
     setRefreshing(true);
     setError("");
 
     try {
-      const next = await fetchDashboardData();
-      applyDashboard(next);
+      // Status Maintenance diperiksa ulang sebelum
+      // memperbarui data Dashboard.
+      const mode = await fetchMaintenanceStatus();
 
-      if (isAdmin) {
-        await fetchMaintenanceStatus();
+      if (mode && !isAdmin) {
+        setMentor(null);
+        setPrograms([]);
+        setAccessStatus("maintenance");
+        return;
       }
+
+      const next = await fetchDashboardData();
+
+      applyDashboard(next);
     } catch (err) {
       setError(
-        err.message || "Gagal memperbarui data."
+        err?.message ||
+          "Gagal memperbarui data."
       );
     } finally {
       setRefreshing(false);
@@ -903,10 +1006,21 @@ export default function MentorDashboard() {
         }
       };
 
-      a.forEach((r) => markWeek(r.activity_date));
-      pt.forEach((r) => markWeek(r.test_date));
-      pr.forEach((r) => markWeek(r.practice_date));
-      sm.forEach((r) => markWeek(r.test_date));
+      a.forEach((r) =>
+        markWeek(r.activity_date)
+      );
+
+      pt.forEach((r) =>
+        markWeek(r.test_date)
+      );
+
+      pr.forEach((r) =>
+        markWeek(r.practice_date)
+      );
+
+      sm.forEach((r) =>
+        markWeek(r.test_date)
+      );
 
       output[id] = {
         done,
@@ -1016,7 +1130,8 @@ export default function MentorDashboard() {
           )
         : 0,
 
-      practiceAverage: average(relevantPractices),
+      practiceAverage:
+        average(relevantPractices),
 
       completed: filtered.filter(
         (program) =>
@@ -1059,7 +1174,8 @@ export default function MentorDashboard() {
     const unique = [
       ...new Set(
         filtered.map(
-          (program) => program.site || "Belum diisi"
+          (program) =>
+            program.site || "Belum diisi"
         )
       ),
     ];
@@ -1089,6 +1205,195 @@ export default function MentorDashboard() {
       };
     });
   }, [filtered, dataByProgram]);
+
+  // Tampilan khusus saat maintenance ON
+  // untuk pengguna selain Admin.
+  if (accessStatus === "maintenance") {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          background: "#061e24",
+          color: "white",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 24,
+          fontFamily: "Arial, sans-serif",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ maxWidth: 520 }}>
+          <div style={{ fontSize: 49 }}>
+            🛠️
+          </div>
+
+          <h1
+            style={{
+              fontSize: 30,
+              marginBottom: 16,
+            }}
+          >
+            OJT MineTrack Sedang Maintenance
+          </h1>
+
+          <p
+            style={{
+              color: "#cbd5d1",
+              lineHeight: 1.8,
+            }}
+          >
+            Sistem sedang dalam proses
+            pemeliharaan. Akses Mentor dan
+            Peserta untuk sementara tidak
+            tersedia.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{
+              background: "#d8b45a",
+              color: "#061e24",
+              border: 0,
+              borderRadius: 12,
+              padding: "14px 22px",
+              fontWeight: 800,
+              cursor: "pointer",
+              marginTop: 17,
+            }}
+          >
+            Coba Lagi
+          </button>
+
+          <div style={{ marginTop: 23 }}>
+            <button
+              type="button"
+              onClick={logout}
+              style={{
+                background: "transparent",
+                color: "#d8e8e2",
+                border: "1px solid #526e67",
+                padding: "12px 18px",
+                borderRadius: 10,
+                cursor: "pointer",
+              }}
+            >
+              Keluar Akun
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // Jangan tampilkan data ketika status
+  // akses belum dapat dipastikan.
+  if (
+    accessStatus === "checking" ||
+    accessStatus === "redirecting"
+  ) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          background: "#061e24",
+          color: "white",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 24,
+          fontFamily: "Arial, sans-serif",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <h2>OJT MineTrack</h2>
+          <p style={{ color: "#cbd5d1" }}>
+            Memeriksa akses pengguna...
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  // Error pemeriksaan akses tidak boleh
+  // dianggap sebagai Maintenance OFF.
+  if (accessStatus === "error") {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          background: "#061e24",
+          color: "white",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 24,
+          fontFamily: "Arial, sans-serif",
+          textAlign: "center",
+        }}
+      >
+        <div style={{ maxWidth: 560 }}>
+          <h1>Gagal Memuat Dashboard</h1>
+
+          <p
+            style={{
+              color: "#cbd5d1",
+              lineHeight: 1.8,
+            }}
+          >
+            {error ||
+              "Pemeriksaan akses belum berhasil."}
+          </p>
+
+          <p
+            style={{
+              color: "#9db4ae",
+              fontSize: 13,
+              lineHeight: 1.7,
+            }}
+          >
+            Sistem tidak akan menampilkan data OJT
+            sebelum akses berhasil diverifikasi.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{
+              background: "#d8b45a",
+              color: "#061e24",
+              border: 0,
+              borderRadius: 12,
+              padding: "14px 22px",
+              fontWeight: 800,
+              cursor: "pointer",
+              marginTop: 16,
+            }}
+          >
+            Coba Lagi
+          </button>
+
+          <div style={{ marginTop: 20 }}>
+            <button
+              type="button"
+              onClick={() => router.replace("/login")}
+              style={{
+                background: "transparent",
+                color: "#d8e8e2",
+                border: "1px solid #526e67",
+                padding: "12px 18px",
+                borderRadius: 10,
+                cursor: "pointer",
+              }}
+            >
+              Buka Halaman Login
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <div className="track-shell">
@@ -2166,7 +2471,10 @@ export default function MentorDashboard() {
             className="track-nav"
             onClick={refresh}
             disabled={
-              loading || refreshing || !mentor
+              loading ||
+              refreshing ||
+              !mentor ||
+              accessStatus !== "allowed"
             }
           >
             <Icon name="refresh" size={19} />
