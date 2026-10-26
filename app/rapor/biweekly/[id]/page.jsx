@@ -1,83 +1,38 @@
 
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
 
 const TARGETS = [
-  {
-    key: "Fisik",
-    title: "FISIK",
-    target: 25,
-    unit: "km",
-    color: "#dc4843",
-  },
-  {
-    key: "Training",
-    title: "INTERNAL TRAINING",
-    target: 4,
-    unit: "kegiatan",
-    color: "#eca72f",
-  },
-  {
-    key: "Sosialisasi",
-    title: "SOSIALISASI",
-    target: 3,
-    unit: "kegiatan",
-    color: "#d6b918",
-  },
-  {
-    key: "Orientasi Area",
-    title: "ORIENTASI",
-    target: 2,
-    unit: "kegiatan",
-    color: "#258c50",
-  },
-  {
-    key: "Coaching",
-    title: "COACHING",
-    target: 1,
-    unit: "kegiatan",
-    color: "#249fc0",
-  },
-  {
-    key: "Hazard",
-    title: "HAZARD",
-    target: 2,
-    unit: "kegiatan",
-    color: "#3070d5",
-  },
+  { key: "Fisik", title: "FISIK", target: 25, unit: "km", color: "#dc4843" },
+  { key: "Training", title: "INTERNAL TRAINING", target: 4, unit: "kegiatan", color: "#eca72f" },
+  { key: "Sosialisasi", title: "SOSIALISASI", target: 3, unit: "kegiatan", color: "#d6b918" },
+  { key: "Orientasi Area", title: "ORIENTASI", target: 2, unit: "kegiatan", color: "#258c50" },
+  { key: "Coaching", title: "COACHING", target: 1, unit: "kegiatan", color: "#249fc0" },
+  { key: "Hazard", title: "HAZARD", target: 2, unit: "kegiatan", color: "#3070d5" },
 ];
 
-function normalize(value) {
-  return String(value ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
+const normalize = (value) =>
+  String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-function formatDate(value) {
+function dateText(value) {
   if (!value) return "—";
-
-  const parts = String(value).slice(0, 10).split("-");
-
-  if (parts.length !== 3) return "—";
-
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  const [y, m, d] = String(value).slice(0, 10).split("-");
+  return y && m && d ? `${d}/${m}/${y}` : "—";
 }
 
-function formatNumber(value, digits = 0) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) return "—";
-
-  return number.toLocaleString("id-ID", {
+function numberText(value, digits = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString("id-ID", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
 }
 
-function todayISO() {
+function localToday() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Makassar",
     year: "numeric",
@@ -85,141 +40,128 @@ function todayISO() {
     day: "2-digit",
   }).formatToParts(new Date());
 
-  const get = (type) =>
-    parts.find((part) => part.type === type)?.value;
-
+  const get = (type) => parts.find((p) => p.type === type)?.value;
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function getParticipant(program) {
-  if (!program) return null;
-
-  return Array.isArray(program.peserta)
+function getPerson(program) {
+  return Array.isArray(program?.peserta)
     ? program.peserta[0]
-    : program.peserta;
+    : program?.peserta;
+}
+
+function statusLabel(status) {
+  if (status === "final") return "FINAL";
+  if (status === "draft") return "DRAFT";
+  return "BELUM DIBUAT";
 }
 
 export default function BiweeklyReportPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
 
-  const programId = Array.isArray(params?.id)
-    ? params.id[0]
-    : params?.id;
+  const programId = Array.isArray(params?.id) ? params.id[0] : params?.id;
+  const requestedPeriod = searchParams.get("period");
 
   const [profile, setProfile] = useState(null);
   const [program, setProgram] = useState(null);
   const [periods, setPeriods] = useState([]);
   const [periodId, setPeriodId] = useState("");
-
   const [types, setTypes] = useState([]);
   const [achievements, setAchievements] = useState([]);
 
   const [savedReport, setSavedReport] = useState(null);
   const [savedScores, setSavedScores] = useState([]);
+  const [mentorNotes, setMentorNotes] = useState("");
+  const [recommendation, setRecommendation] = useState("");
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [reportError, setReportError] = useState("");
 
-  useEffect(() => {
+  const role = String(profile?.role || "").toLowerCase();
+  const isMentor = role === "mentor";
+  const isParticipant = ["participant", "peserta"].includes(role);
+  const isFinal = savedReport?.status === "final";
+
+  const canEdit =
+    isMentor &&
+    program?.mentor_id === profile?.id &&
+    !isFinal;
+
+  const loadInitial = useCallback(async () => {
     if (!programId) {
+      setError("ID program tidak ditemukan.");
       setLoading(false);
-      setError("ID program OJT tidak ditemukan.");
       return;
     }
 
-    let active = true;
+    setLoading(true);
+    setError("");
 
-    async function load() {
-      setLoading(true);
-      setError("");
+    try {
+      const auth = await supabase.auth.getUser();
 
-      try {
-        const auth = await supabase.auth.getUser();
+      if (auth.error || !auth.data?.user) {
+        router.replace("/login");
+        return;
+      }
 
-        if (auth.error || !auth.data?.user) {
-          router.replace("/login");
-          return;
-        }
+      const userId = auth.data.user.id;
 
-        const userId = auth.data.user.id;
+      const profileRes = await supabase
+        .from("profiles")
+        .select("id,full_name,role")
+        .eq("id", userId)
+        .single();
 
-        const profileResult = await supabase
-          .from("profiles")
-          .select("id,full_name,role")
-          .eq("id", userId)
-          .single();
+      if (profileRes.error) throw profileRes.error;
 
-        if (profileResult.error) {
-          throw profileResult.error;
-        }
+      const currentProfile = profileRes.data;
+      const currentRole = String(currentProfile.role || "").toLowerCase();
 
-        const currentProfile = profileResult.data;
-        const role = String(
-          currentProfile.role || ""
-        ).toLowerCase();
+      if (!["admin", "mentor", "participant", "peserta"].includes(currentRole)) {
+        throw new Error("Akun tidak memiliki akses ke rapor.");
+      }
 
-        if (
-          ![
-            "admin",
-            "mentor",
-            "participant",
-            "peserta",
-          ].includes(role)
-        ) {
-          throw new Error(
-            "Akun tidak memiliki akses ke rapor."
-          );
-        }
+      let programQuery = supabase
+        .from("ojt_programs")
+        .select(`
+          id,
+          participant_id,
+          mentor_id,
+          start_date,
+          end_date,
+          status,
+          site,
+          peserta:profiles!ojt_programs_participant_id_fkey(
+            full_name,
+            department
+          )
+        `)
+        .eq("id", programId);
 
-        let programQuery = supabase
-          .from("ojt_programs")
-          .select(`
-            id,
-            participant_id,
-            mentor_id,
-            start_date,
-            end_date,
-            site,
-            status,
-            peserta:profiles!ojt_programs_participant_id_fkey(
-              full_name,
-              department
-            )
-          `)
-          .eq("id", programId);
+      if (currentRole === "mentor") {
+        programQuery = programQuery.eq("mentor_id", userId);
+      }
 
-        if (
-          role === "participant" ||
-          role === "peserta"
-        ) {
-          programQuery = programQuery.eq(
-            "participant_id",
-            userId
-          );
-        }
+      if (["participant", "peserta"].includes(currentRole)) {
+        programQuery = programQuery.eq("participant_id", userId);
+      }
 
-        if (role === "mentor") {
-          programQuery = programQuery.eq(
-            "mentor_id",
-            userId
-          );
-        }
-
-        const results = await Promise.all([
+      const [programRes, periodsRes, typesRes, achievementsRes] =
+        await Promise.all([
           programQuery.single(),
 
           supabase
             .from("ojt_report_periods")
-            .select(
-              "id,report_type,period_label,start_date,end_date"
-            )
+            .select("id,report_type,period_label,start_date,end_date")
             .eq("report_type", "biweekly")
-            .order("start_date", {
-              ascending: false,
-            }),
+            .order("start_date", { ascending: false }),
 
           supabase
             .from("achievement_types")
@@ -227,1124 +169,700 @@ export default function BiweeklyReportPage() {
 
           supabase
             .from("achievement_records")
-            .select(
-              "id,program_id,type_code,activity_date,status,distance_km"
-            )
+            .select("id,type_code,activity_date,status,distance_km")
             .eq("program_id", programId),
         ]);
 
-        const labels = [
-          "Program OJT",
-          "Periode rapor",
-          "Kategori pencapaian",
-          "Data pencapaian",
-        ];
-
-        results.forEach((result, index) => {
-          if (result.error) {
-            throw new Error(
-              `${labels[index]}: ${result.error.message}`
-            );
-          }
-        });
-
-        const currentProgram = results[0].data;
-
-        const availablePeriods = (
-          results[1].data || []
-        ).filter((period) => {
-          const startsBeforeEnd =
-            !currentProgram.end_date ||
-            period.start_date <=
-              currentProgram.end_date;
-
-          const endsAfterStart =
-            !currentProgram.start_date ||
-            period.end_date >=
-              currentProgram.start_date;
-
-          return startsBeforeEnd && endsAfterStart;
-        });
-
-        if (!active) return;
-
-        setProfile(currentProfile);
-        setProgram(currentProgram);
-        setPeriods(availablePeriods);
-        setTypes(results[2].data || []);
-        setAchievements(results[3].data || []);
-
-        const today = todayISO();
-
-        const currentPeriod =
-          availablePeriods.find(
-            (period) =>
-              period.start_date <= today &&
-              period.end_date >= today
-          );
-
-        setPeriodId(
-          currentPeriod?.id ||
-            availablePeriods[0]?.id ||
-            ""
-        );
-      } catch (err) {
-        if (active) {
-          setError(
-            err?.message ||
-              "Gagal memuat Rapor 2 Mingguan."
-          );
-        }
-      } finally {
-        if (active) setLoading(false);
+      for (const [name, result] of [
+        ["Program", programRes],
+        ["Periode", periodsRes],
+        ["Kategori", typesRes],
+        ["Pencapaian", achievementsRes],
+      ]) {
+        if (result.error) throw new Error(`${name}: ${result.error.message}`);
       }
+
+      const p = programRes.data;
+
+      const available = (periodsRes.data || []).filter(
+        (period) =>
+          period.end_date >= p.start_date &&
+          period.start_date <= p.end_date
+      );
+
+      setProfile(currentProfile);
+      setProgram(p);
+      setPeriods(available);
+      setTypes(typesRes.data || []);
+      setAchievements(achievementsRes.data || []);
+
+      setPeriodId((old) => {
+        if (available.some((p) => p.id === old)) return old;
+
+        if (requestedPeriod && available.some((p) => p.id === requestedPeriod)) {
+          return requestedPeriod;
+        }
+
+        const today = localToday();
+        const current = available.find(
+          (p) => p.start_date <= today && p.end_date >= today
+        );
+
+        return current?.id || available[0]?.id || "";
+      });
+    } catch (err) {
+      setError(err?.message || "Gagal memuat rapor.");
+    } finally {
+      setLoading(false);
     }
-
-    load();
-
-    return () => {
-      active = false;
-    };
-  }, [programId, router]);
+  }, [programId, requestedPeriod, router]);
 
   useEffect(() => {
-    if (!programId || !periodId) {
-      setSavedReport(null);
-      setSavedScores([]);
-      return;
-    }
+    loadInitial();
+  }, [loadInitial]);
 
-    let active = true;
+  const loadSaved = useCallback(async () => {
+    if (!programId || !periodId) return;
 
-    async function loadSaved() {
-      setLoadingSaved(true);
-      setSavedReport(null);
-      setSavedScores([]);
-
-      try {
-        const reportResult = await supabase
-          .from("ojt_reports")
-          .select(`
-            id,
-            period_id,
-            program_id,
-            status,
-            mentor_notes,
-            recommendation,
-            finalized_at,
-            finalized_by
-          `)
-          .eq("program_id", programId)
-          .eq("period_id", periodId)
-          .maybeSingle();
-
-        if (reportResult.error) {
-          throw reportResult.error;
-        }
-
-        if (!active) return;
-
-        const report = reportResult.data;
-
-        setSavedReport(report);
-
-        if (!report) return;
-
-        const scoresResult = await supabase
-          .from("ojt_report_scores")
-          .select(
-            "indicator_code,indicator_label,score,score_unit,details"
-          )
-          .eq("report_id", report.id);
-
-        if (scoresResult.error) {
-          throw scoresResult.error;
-        }
-
-        if (active) {
-          setSavedScores(scoresResult.data || []);
-        }
-      } catch (err) {
-        if (active) {
-          setError(
-            err?.message ||
-              "Gagal memuat rapor tersimpan."
-          );
-        }
-      } finally {
-        if (active) setLoadingSaved(false);
-      }
-    }
-
-    loadSaved();
-
-    return () => {
-      active = false;
-    };
-  }, [programId, periodId]);
-
-  async function refreshData() {
-    if (!programId || refreshing) return;
-
-    setRefreshing(true);
-    setError("");
+    setLoadingReport(true);
+    setReportError("");
+    setSavedReport(null);
+    setSavedScores([]);
+    setMentorNotes("");
+    setRecommendation("");
 
     try {
-      const [typeResult, achievementResult] =
-        await Promise.all([
-          supabase
-            .from("achievement_types")
-            .select("code,name"),
+      const result = await supabase
+        .from("ojt_reports")
+        .select(
+          "id,period_id,program_id,status,mentor_notes,recommendation,finalized_at,finalized_by"
+        )
+        .eq("program_id", programId)
+        .eq("period_id", periodId)
+        .maybeSingle();
 
-          supabase
-            .from("achievement_records")
-            .select(
-              "id,program_id,type_code,activity_date,status,distance_km"
-            )
-            .eq("program_id", programId),
-        ]);
+      if (result.error) throw result.error;
 
-      if (typeResult.error) {
-        throw typeResult.error;
+      const report = result.data;
+
+      if (report) {
+        const scoresRes = await supabase
+          .from("ojt_report_scores")
+          .select("indicator_code,indicator_label,score,score_unit,details")
+          .eq("report_id", report.id);
+
+        if (scoresRes.error) throw scoresRes.error;
+
+        setSavedScores(scoresRes.data || []);
+        setMentorNotes(report.mentor_notes || "");
+        setRecommendation(report.recommendation || "");
       }
 
-      if (achievementResult.error) {
-        throw achievementResult.error;
-      }
-
-      setTypes(typeResult.data || []);
-      setAchievements(achievementResult.data || []);
+      setSavedReport(report);
     } catch (err) {
-      setError(
-        err?.message || "Gagal memperbarui data."
-      );
+      setReportError(err?.message || "Gagal membaca rapor tersimpan.");
     } finally {
-      setRefreshing(false);
+      setLoadingReport(false);
     }
-  }
+  }, [programId, periodId]);
 
-  const selectedPeriod = useMemo(() => {
-    return (
-      periods.find(
-        (period) => period.id === periodId
-      ) || null
-    );
-  }, [periods, periodId]);
+  useEffect(() => {
+    loadSaved();
+  }, [loadSaved]);
 
-  const summary = useMemo(() => {
-    if (!program || !selectedPeriod) return [];
+  const selectedPeriod = useMemo(
+    () => periods.find((p) => p.id === periodId) || null,
+    [periods, periodId]
+  );
+
+  const calculated = useMemo(() => {
+    if (!selectedPeriod || !program) return [];
 
     const typeMap = new Map();
 
     types.forEach((type) => {
-      typeMap.set(
-        normalize(type.code),
-        type.code
-      );
-
-      typeMap.set(
-        normalize(type.name),
-        type.code
-      );
+      typeMap.set(normalize(type.code), type.code);
+      typeMap.set(normalize(type.name), type.code);
     });
 
-    const periodRecords = achievements.filter(
-      (record) => {
-        const date = record.activity_date;
-
-        return (
-          date &&
-          date >= selectedPeriod.start_date &&
-          date <= selectedPeriod.end_date &&
-          (!program.start_date ||
-            date >= program.start_date) &&
-          (!program.end_date ||
-            date <= program.end_date)
-        );
-      }
+    const records = achievements.filter(
+      (r) =>
+        r.activity_date >= selectedPeriod.start_date &&
+        r.activity_date <= selectedPeriod.end_date &&
+        r.activity_date >= program.start_date &&
+        r.activity_date <= program.end_date
     );
 
     return TARGETS.map((target) => {
       const code =
         target.key === "Training"
-          ? typeMap.get("training") ||
-            typeMap.get("internaltraining")
+          ? typeMap.get("training") || typeMap.get("internaltraining")
           : typeMap.get(normalize(target.key));
 
-      const matching = periodRecords.filter(
-        (record) =>
-          code && record.type_code === code
+      const verified = records.filter(
+        (r) => r.type_code === code && normalize(r.status) === "verified"
       );
 
-      const verified = matching.filter(
-        (record) =>
-          normalize(record.status) === "verified"
-      );
-
-      let realized = 0;
-
-      if (target.key === "Fisik") {
-        realized = verified.reduce(
-          (total, record) => {
-            const distance = Number(
-              record.distance_km
-            );
-
-            return (
-              total +
-              (Number.isFinite(distance)
-                ? distance
-                : 0)
-            );
-          },
-          0
-        );
-      } else {
-        realized = verified.length;
-      }
-
-      const percentage =
-        target.target > 0
-          ? (realized / target.target) * 100
-          : 0;
+      const realized =
+        target.key === "Fisik"
+          ? verified.reduce((sum, r) => {
+              const distance = Number(r.distance_km);
+              return sum + (Number.isFinite(distance) ? distance : 0);
+            }, 0)
+          : verified.length;
 
       return {
         ...target,
         realized,
-        percentage,
-        recorded: matching.length,
-        verified: verified.length,
-        achieved: realized >= target.target,
+        percentage: target.target
+          ? (realized / target.target) * 100
+          : 0,
       };
     });
-  }, [
-    program,
-    selectedPeriod,
-    types,
-    achievements,
-  ]);
+  }, [selectedPeriod, program, types, achievements]);
 
-  const participant = getParticipant(program);
+  const displayed = useMemo(() => {
+    if (!isFinal) return calculated;
 
-  const isFinal =
-    savedReport?.status === "final";
+    const scoreMap = new Map(
+      savedScores.map((s) => [s.indicator_code, s])
+    );
 
-  const role = String(
-    profile?.role || ""
-  ).toLowerCase();
+    return TARGETS.map((target) => {
+      const saved = scoreMap.get(target.key);
+      const details = saved?.details || {};
+      const realized = saved ? Number(saved.score) : null;
 
-  const isParticipant =
-    role === "participant" ||
-    role === "peserta";
+      return {
+        ...target,
+        target:
+          Number.isFinite(Number(details.target))
+            ? Number(details.target)
+            : target.target,
+        realized,
+        percentage:
+          realized === null
+            ? null
+            : Number.isFinite(Number(details.percentage))
+            ? Number(details.percentage)
+            : (realized / target.target) * 100,
+      };
+    });
+  }, [calculated, isFinal, savedScores]);
 
-  const showReport =
-    !isParticipant || isFinal;
-
-  const completed = summary.filter(
-    (item) => item.achieved
+  const completed = displayed.filter(
+    (item) =>
+      item.realized !== null &&
+      item.realized >= item.target
   ).length;
 
-  const pending = summary.length - completed;
+  const participant = getPerson(program);
+  const canView = !isParticipant || isFinal;
+  const isBusy = loading || loadingReport || saving;
 
-  const backPath = isParticipant
-    ? "/dashboard-peserta"
-    : "/rapor";
+  async function saveDraft() {
+    if (!canEdit || !selectedPeriod || isBusy) return;
 
-  function printReport() {
-    if (!selectedPeriod || !showReport) return;
-    window.print();
+    setSaving(true);
+    setError("");
+    setMessage("");
+
+    try {
+      if (calculated.length !== 6) {
+        throw new Error("Enam indikator belum tersedia.");
+      }
+
+      const scores = calculated.map((item) => ({
+        indicator_code: item.key,
+        indicator_label: item.title,
+        score: Number(item.realized),
+        score_unit: item.unit,
+        details: {
+          target: item.target,
+          percentage: item.percentage,
+          period_start: selectedPeriod.start_date,
+          period_end: selectedPeriod.end_date,
+        },
+      }));
+
+      const result = await supabase.rpc("save_ojt_report_draft", {
+        p_program_id: programId,
+        p_period_id: selectedPeriod.id,
+        p_mentor_notes: mentorNotes,
+        p_recommendation: recommendation,
+        p_scores: scores,
+      });
+
+      if (result.error) throw result.error;
+
+      await loadSaved();
+      setMessage("Draft rapor berhasil disimpan.");
+    } catch (err) {
+      setError(err?.message || "Gagal menyimpan Draft.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function finalizeReport() {
+    if (!canEdit || !savedReport?.id || isBusy) return;
+
+    const confirmed = window.confirm(
+      "Finalisasi Rapor OJT?\n\n" +
+      "Pastikan nilai, catatan, dan rekomendasi sudah benar. " +
+      "Setelah Final, rapor tidak dapat diedit."
+    );
+
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const result = await supabase.rpc("finalize_ojt_report", {
+        p_report_id: savedReport.id,
+      });
+
+      if (result.error) throw result.error;
+
+      await loadSaved();
+      setMessage("Rapor berhasil difinalisasi dan dikunci.");
+    } catch (err) {
+      setError(err?.message || "Gagal finalisasi rapor.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function changePeriod(value) {
+    setMessage("");
+    setError("");
+    setPeriodId(value);
   }
 
   return (
     <main className="bw-root">
       <style>{`
-        .bw-root,
-        .bw-root * {
-          box-sizing: border-box;
+        .bw-root,.bw-root *{box-sizing:border-box}
+        .bw-root{min-height:100vh;background:#eef3f6;color:#193047;font:13px Arial,Helvetica,sans-serif;padding-bottom:32px}
+        .bw-top{background:#092c37;color:#fff;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+        .bw-brand{font-size:21px;font-weight:900}
+        .bw-brand span{color:#2ec994}
+        .bw-container{max-width:1150px;margin:auto;padding:18px}
+        .bw-panel{background:#fff;border:1px solid #dce5ec;border-radius:13px;padding:20px;margin-bottom:16px}
+        .bw-panel h2{font-size:20px;margin:0 0 9px}
+        .bw-muted{font-size:12px;color:#667b89;line-height:1.6}
+        .bw-label{display:block;font-size:12px;font-weight:800;margin:13px 0 7px}
+        .bw-select,.bw-textarea{width:100%;border:1px solid #cbd8df;border-radius:9px;padding:12px;font:13px Arial;background:#fff;color:#193047}
+        .bw-select{max-width:510px}
+        .bw-textarea{resize:vertical;min-height:95px;line-height:1.6}
+        .bw-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
+        .bw-btn{border:0;border-radius:9px;background:#0b8059;color:#fff;padding:11px 15px;font-size:12px;font-weight:800;cursor:pointer}
+        .bw-btn.blue{background:#163d6a}
+        .bw-btn.gold{background:#ab7510}
+        .bw-btn.light{background:#def0e8;color:#096448}
+        .bw-btn:disabled{opacity:.5;cursor:not-allowed}
+        .bw-alert{padding:13px;border-radius:9px;margin-bottom:14px;line-height:1.5}
+        .bw-alert.error{background:#fff0f0;color:#a52232;border:1px solid #ffd0d0}
+        .bw-alert.success{background:#e5f7ed;color:#08734b;border:1px solid #b5e6ca}
+        .bw-alert.info{background:#e9f2fa;color:#20527a;border:1px solid #c7ddec}
+        .bw-paper{background:#fff;border:1px solid #d7e0e7;padding:24px;box-shadow:0 5px 24px #19304712}
+        .bw-paper-header{text-align:center;border-top:5px solid #168f4d;border-bottom:4px solid #0b2c61;padding:15px 8px}
+        .bw-paper-header h1{font-size:29px;color:#0b2c61;margin:0}
+        .bw-paper-header h2{font-size:14px;color:#168f4d;margin:7px 0}
+        .bw-paper-header small{display:block;color:#667b89;font-weight:700}
+        .bw-info{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+        .bw-box{border:1px solid #b9c7d2;border-radius:7px;padding:13px;min-width:0}
+        .bw-title{display:inline-block;background:#0b2c61;color:#fff;font-size:11px;font-weight:900;padding:6px 11px;margin-bottom:10px}
+        .bw-row{display:grid;grid-template-columns:118px 1fr;gap:8px;padding:4px 0;font-size:12px}
+        .bw-scroll{overflow-x:auto}
+        .bw-table{width:100%;border-collapse:collapse;font-size:12px}
+        .bw-table th,.bw-table td{border:1px solid #c9d5df;padding:10px 8px;text-align:center}
+        .bw-table th{background:#eaf0f6;font-size:11px}
+        .bw-table .bw-category{text-align:left;color:#fff;font-weight:900}
+        .bw-tag{display:inline-block;border-radius:20px;padding:6px 10px;background:#edf1f4;color:#6b7b84;font-size:11px;font-weight:800}
+        .bw-tag.ok{background:#ddf5e8;color:#087e53}
+        .bw-tag.final{background:#dff6e9;color:#087e53}
+        .bw-tag.draft{background:#fff1d8;color:#986408}
+        .bw-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:15px}
+        .bw-stat{background:#f4f8fa;border:1px solid #dbe5ec;padding:17px;text-align:center;font-size:12px}
+        .bw-stat strong{display:block;color:#0b2c61;font-size:27px;margin-top:7px}
+        .bw-note{border:1px solid #cbd8e1;border-radius:7px;padding:14px;margin-top:17px;font-size:12px;line-height:1.7}
+        .bw-note p{white-space:pre-wrap;overflow-wrap:anywhere}
+        .bw-editor{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:14px}
+        .bw-footer{display:flex;justify-content:space-between;gap:20px;margin-top:30px;color:#6b7c88;font-size:11px}
+        @media(max-width:700px){
+          .bw-container{padding:9px}
+          .bw-paper{padding:12px}
+          .bw-info,.bw-editor{grid-template-columns:1fr}
+          .bw-stats{grid-template-columns:repeat(2,1fr)}
+          .bw-paper-header h1{font-size:22px}
+          .bw-table{min-width:650px}
+          .bw-footer{flex-direction:column}
         }
-
-        .bw-root {
-          min-height: 100vh;
-          background: #eef3f6;
-          color: #193047;
-          font-family: Arial, Helvetica, sans-serif;
-          font-size: 12px;
-          padding-bottom: 35px;
-        }
-
-        .bw-topbar {
-          background: #092c37;
-          color: white;
-          padding: 15px 22px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .bw-brand {
-          font-size: 20px;
-          font-weight: 900;
-        }
-
-        .bw-brand span {
-          color: #2ec994;
-        }
-
-        .bw-container {
-          max-width: 1150px;
-          margin: auto;
-          padding: 18px;
-        }
-
-        .bw-panel {
-          background: white;
-          border: 1px solid #dce5ec;
-          border-radius: 13px;
-          padding: 19px;
-          margin-bottom: 17px;
-        }
-
-        .bw-panel h2 {
-          margin: 0 0 9px;
-          font-size: 19px;
-        }
-
-        .bw-muted {
-          font-size: 12px;
-          color: #657786;
-          line-height: 1.6;
-        }
-
-        .bw-actions {
-          display: flex;
-          gap: 9px;
-          flex-wrap: wrap;
-          margin-top: 14px;
-        }
-
-        .bw-btn {
-          border: 0;
-          border-radius: 8px;
-          background: #0a805a;
-          color: white;
-          padding: 11px 15px;
-          font-weight: 800;
-          font-size: 12px;
-          cursor: pointer;
-        }
-
-        .bw-btn.secondary {
-          background: #dff0e9;
-          color: #0a6349;
-        }
-
-        .bw-btn.blue {
-          background: #153b69;
-        }
-
-        .bw-btn:disabled {
-          opacity: 0.55;
-          cursor: not-allowed;
-        }
-
-        .bw-select {
-          width: 100%;
-          max-width: 470px;
-          border: 1px solid #c9d6e0;
-          border-radius: 8px;
-          padding: 11px;
-          color: #193047;
-          background: white;
-          font-size: 13px;
-        }
-
-        .bw-label {
-          display: block;
-          font-size: 12px;
-          font-weight: 800;
-          margin: 13px 0 7px;
-        }
-
-        .bw-error {
-          background: #fff0f0;
-          color: #aa2333;
-          border: 1px solid #ffd0d0;
-          padding: 13px;
-          border-radius: 9px;
-          margin-bottom: 15px;
-        }
-
-        .bw-paper {
-          background: white;
-          padding: 23px;
-          border: 1px solid #d7e0e7;
-          box-shadow: 0 5px 25px #19304710;
-        }
-
-        .bw-paper-header {
-          border-top: 5px solid #168f4d;
-          border-bottom: 4px solid #0b2c61;
-          padding: 15px 8px;
-          text-align: center;
-        }
-
-        .bw-paper-header h1 {
-          font-size: 29px;
-          color: #0b2c61;
-          margin: 0;
-        }
-
-        .bw-paper-header p {
-          margin: 7px 0 0;
-          color: #168f4d;
-          font-weight: 900;
-          letter-spacing: 1px;
-        }
-
-        .bw-company {
-          font-size: 12px;
-          color: #617181;
-          margin-top: 7px;
-        }
-
-        .bw-info {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 14px;
-          margin: 17px 0;
-        }
-
-        .bw-info-card {
-          border: 1px solid #b9c7d2;
-          padding: 13px;
-          border-radius: 7px;
-        }
-
-        .bw-section-title {
-          display: inline-block;
-          background: #0b2c61;
-          color: white;
-          padding: 6px 11px;
-          font-size: 11px;
-          font-weight: 900;
-          margin-bottom: 11px;
-        }
-
-        .bw-info-row {
-          display: grid;
-          grid-template-columns: 115px 1fr;
-          gap: 8px;
-          padding: 4px 0;
-          font-size: 12px;
-        }
-
-        .bw-scroll {
-          overflow-x: auto;
-        }
-
-        .bw-table {
-          border-collapse: collapse;
-          width: 100%;
-          font-size: 12px;
-        }
-
-        .bw-table th,
-        .bw-table td {
-          border: 1px solid #c9d5df;
-          padding: 10px 8px;
-          text-align: center;
-        }
-
-        .bw-table th {
-          background: #eaf0f6;
-          font-size: 11px;
-        }
-
-        .bw-table td:first-child {
-          text-align: left;
-        }
-
-        .bw-table .bw-category {
-          color: white;
-          font-weight: 900;
-          text-align: left;
-        }
-
-        .bw-status {
-          display: inline-block;
-          padding: 5px 9px;
-          border-radius: 20px;
-          background: #e5f0f6;
-          color: #34556b;
-          font-size: 11px;
-          font-weight: 800;
-        }
-
-        .bw-status.success {
-          background: #def5e9;
-          color: #0b8252;
-        }
-
-        .bw-note {
-          border: 1px solid #cbd8e1;
-          border-radius: 7px;
-          padding: 14px;
-          margin-top: 17px;
-          line-height: 1.6;
-          font-size: 12px;
-        }
-
-        .bw-summary {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 11px;
-          margin-top: 15px;
-        }
-
-        .bw-summary-card {
-          padding: 16px;
-          text-align: center;
-          background: #f4f8fa;
-          border: 1px solid #dbe5ec;
-        }
-
-        .bw-summary-card strong {
-          display: block;
-          font-size: 26px;
-          margin-top: 6px;
-          color: #0b2c61;
-        }
-
-        .bw-footer {
-          display: flex;
-          justify-content: space-between;
-          gap: 20px;
-          margin-top: 30px;
-          font-size: 11px;
-          color: #6b7c88;
-        }
-
-        @media (max-width: 700px) {
-          .bw-container {
-            padding: 9px;
-          }
-
-          .bw-paper {
-            padding: 12px;
-          }
-
-          .bw-info {
-            grid-template-columns: 1fr;
-          }
-
-          .bw-summary {
-            grid-template-columns: 1fr 1fr;
-          }
-
-          .bw-paper-header h1 {
-            font-size: 22px;
-          }
-
-          .bw-table {
-            min-width: 650px;
-          }
-
-          .bw-footer {
-            flex-direction: column;
-          }
-        }
-
-        @page {
-          size: A4 landscape;
-          margin: 10mm;
-        }
-
-        @media print {
-          html,
-          body {
-            margin: 0 !important;
-            background: white !important;
-          }
-
-          .bw-topbar,
-          .bw-panel,
-          .bw-error {
-            display: none !important;
-          }
-
-          .bw-root {
-            background: white !important;
-            min-height: 0 !important;
-            padding: 0 !important;
-            print-color-adjust: exact;
-            -webkit-print-color-adjust: exact;
-          }
-
-          .bw-container {
-            max-width: none !important;
-            padding: 0 !important;
-          }
-
-          .bw-paper {
-            padding: 0 !important;
-            border: 0 !important;
-            box-shadow: none !important;
-          }
-
-          .bw-info {
-            grid-template-columns: 1fr 1fr !important;
-          }
-
-          .bw-scroll {
-            overflow: visible !important;
-          }
-
-          .bw-table {
-            min-width: 0 !important;
-          }
-
-          .bw-summary {
-            grid-template-columns: repeat(3, 1fr) !important;
-          }
-
-          .bw-paper-header,
-          .bw-info-card,
-          .bw-note,
-          .bw-summary,
-          .bw-footer {
-            break-inside: avoid;
-          }
+        @page{size:A4 landscape;margin:10mm}
+        @media print{
+          html,body{margin:0!important;background:#fff!important}
+          .bw-top,.bw-panel,.bw-alert{display:none!important}
+          .bw-root{background:#fff!important;padding:0!important;min-height:0!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+          .bw-container{max-width:none!important;padding:0!important}
+          .bw-paper{padding:0!important;border:0!important;box-shadow:none!important}
+          .bw-info{grid-template-columns:1fr 1fr!important}
+          .bw-scroll{overflow:visible!important}
+          .bw-table{min-width:0!important}
+          .bw-stats{grid-template-columns:repeat(3,1fr)!important}
+          .bw-paper-header,.bw-box,.bw-note,.bw-footer{break-inside:avoid}
         }
       `}</style>
 
-      <header className="bw-topbar">
+      <header className="bw-top">
         <div className="bw-brand">
           OJT <span>MineTrack</span>
         </div>
-
         <button
           type="button"
-          className="bw-btn secondary"
-          onClick={() => router.push(backPath)}
+          className="bw-btn light"
+          onClick={() => router.push(isParticipant ? "/dashboard-peserta" : "/rapor")}
         >
           ← Kembali
         </button>
       </header>
 
       <div className="bw-container">
-        {error && (
-          <div className="bw-error">
-            {error}
-          </div>
-        )}
+        {error && <div className="bw-alert error">{error}</div>}
+        {message && <div className="bw-alert success">{message}</div>}
 
         {loading ? (
-          <section className="bw-panel">
-            Memuat Rapor 2 Mingguan...
-          </section>
+          <section className="bw-panel">Memuat Rapor OJT...</section>
         ) : !program ? (
-          <section className="bw-panel">
-            Data program OJT tidak tersedia.
-          </section>
+          <section className="bw-panel">Data program OJT tidak tersedia.</section>
         ) : (
           <>
             <section className="bw-panel">
-              <h2>
-                Rapor Pencapaian 2 Mingguan
-              </h2>
-
+              <h2>Rapor Pencapaian 2 Mingguan</h2>
               <p className="bw-muted">
-                Periode mengikuti kalender
-                bersama seluruh peserta OJT:
-                tanggal 1–14 dan tanggal 15
-                sampai akhir bulan.
+                Penilaian mengikuti periode kalender tanggal 1–14 dan 15–akhir bulan.
+                Data pencapaian dihitung dari kegiatan berstatus verified.
               </p>
 
-              <label
-                className="bw-label"
-                htmlFor="bw-period"
-              >
-                Pilih Periode Rapor
+              <label className="bw-label" htmlFor="bw-period">
+                Pilih Periode Penilaian
               </label>
 
               <select
                 id="bw-period"
                 className="bw-select"
                 value={periodId}
-                onChange={(event) =>
-                  setPeriodId(event.target.value)
-                }
+                onChange={(event) => changePeriod(event.target.value)}
+                disabled={isBusy}
               >
                 {periods.length === 0 && (
-                  <option value="">
-                    Tidak ada periode tersedia
-                  </option>
+                  <option value="">Tidak ada periode tersedia</option>
                 )}
-
                 {periods.map((period) => (
-                  <option
-                    value={period.id}
-                    key={period.id}
-                  >
-                    {period.period_label}
-                    {" · "}
-                    {formatDate(period.start_date)}
+                  <option value={period.id} key={period.id}>
+                    {period.period_label} · {dateText(period.start_date)}
                     {" – "}
-                    {formatDate(period.end_date)}
+                    {dateText(period.end_date)}
                   </option>
                 ))}
               </select>
 
+              <p className="bw-muted">
+                Status:{" "}
+                <span className={`bw-tag ${savedReport?.status || ""}`}>
+                  {loadingReport ? "MEMUAT..." : statusLabel(savedReport?.status)}
+                </span>
+              </p>
+
               <div className="bw-actions">
                 <button
                   type="button"
-                  className="bw-btn secondary"
-                  onClick={refreshData}
-                  disabled={refreshing}
+                  className="bw-btn light"
+                  onClick={loadInitial}
+                  disabled={isBusy}
                 >
-                  {refreshing
-                    ? "Memperbarui..."
-                    : "Refresh Data"}
+                  Refresh Data
                 </button>
-
                 <button
                   type="button"
                   className="bw-btn blue"
-                  onClick={printReport}
-                  disabled={
-                    !selectedPeriod ||
-                    !showReport ||
-                    loadingSaved
-                  }
+                  onClick={() => window.print()}
+                  disabled={isBusy || !selectedPeriod || !canView || !!reportError}
                 >
                   Cetak / Simpan PDF
                 </button>
               </div>
-
-              <p className="bw-muted">
-                Status dokumen:{" "}
-                <strong>
-                  {loadingSaved
-                    ? "MEMUAT..."
-                    : isFinal
-                    ? "FINAL"
-                    : savedReport?.status === "draft"
-                    ? "DRAFT"
-                    : "BELUM DIFINALISASI"}
-                </strong>
-              </p>
-
-              <p className="bw-muted">
-                Perhitungan pencapaian masih
-                berupa pratinjau otomatis.
-                Penyimpanan draft dan finalisasi
-                oleh Mentor akan ditambahkan
-                pada tahap berikutnya.
-              </p>
             </section>
 
-            {!selectedPeriod ? (
+            {reportError && (
+              <div className="bw-alert error">
+                {reportError}
+              </div>
+            )}
+
+            {loadingReport ? (
+              <section className="bw-panel">Memuat status rapor...</section>
+            ) : !selectedPeriod ? (
               <section className="bw-panel">
-                Tidak ada periode rapor yang
-                sesuai dengan masa OJT peserta.
+                Tidak ada periode yang sesuai dengan masa OJT peserta.
               </section>
-            ) : loadingSaved ? (
-              <section className="bw-panel">
-                Memeriksa status rapor...
-              </section>
-            ) : !showReport ? (
+            ) : !canView ? (
               <section className="bw-panel">
                 <h2>Rapor Belum Tersedia</h2>
-
                 <p className="bw-muted">
-                  Rapor periode ini belum
-                  difinalisasi oleh Mentor.
-                  Peserta hanya dapat melihat
-                  rapor yang sudah final.
+                  Peserta hanya dapat melihat rapor yang telah difinalisasi.
                 </p>
               </section>
             ) : (
-              <article className="bw-paper">
-                <div className="bw-paper-header">
-                  <h1>
-                    RAPOR PENCAPAIAN OJT
-                  </h1>
+              <>
+                {canEdit && !reportError && (
+                  <section className="bw-panel">
+                    <h2>Evaluasi Mentor</h2>
+                    <p className="bw-muted">
+                      Periksa pencapaian sebelum menyimpan Draft.
+                      Simpan Draft kembali jika data kegiatan berubah.
+                      Finalisasi mengunci nilai terakhir yang tersimpan.
+                    </p>
 
-                  <p>PERIODE 2 MINGGUAN</p>
+                    <div className="bw-editor">
+                      <div>
+                        <label className="bw-label" htmlFor="mentor-notes">
+                          Catatan Evaluasi Mentor
+                        </label>
+                        <textarea
+                          id="mentor-notes"
+                          className="bw-textarea"
+                          value={mentorNotes}
+                          onChange={(event) => setMentorNotes(event.target.value)}
+                          placeholder="Tuliskan hasil evaluasi pencapaian peserta..."
+                          disabled={saving}
+                        />
+                      </div>
 
-                  <div className="bw-company">
-                    PT BERAU COAL
-                  </div>
-                </div>
-
-                <div className="bw-info">
-                  <section className="bw-info-card">
-                    <div className="bw-section-title">
-                      DATA PESERTA
+                      <div>
+                        <label className="bw-label" htmlFor="recommendation">
+                          Rekomendasi Tindak Lanjut
+                        </label>
+                        <textarea
+                          id="recommendation"
+                          className="bw-textarea"
+                          value={recommendation}
+                          onChange={(event) => setRecommendation(event.target.value)}
+                          placeholder="Tuliskan rekomendasi untuk periode berikutnya..."
+                          disabled={saving}
+                        />
+                      </div>
                     </div>
 
-                    {[
-                      [
-                        "Nama",
-                        participant?.full_name ||
-                          "Peserta OJT",
-                      ],
-                      [
-                        "Departemen",
-                        participant?.department || "—",
-                      ],
-                      [
-                        "Site",
-                        program.site || "—",
-                      ],
-                      [
-                        "Periode OJT",
-                        `${formatDate(
-                          program.start_date
-                        )} – ${formatDate(
-                          program.end_date
-                        )}`,
-                      ],
-                    ].map(([label, value]) => (
-                      <div
-                        className="bw-info-row"
-                        key={label}
+                    <div className="bw-actions">
+                      <button
+                        type="button"
+                        className="bw-btn"
+                        onClick={saveDraft}
+                        disabled={isBusy || calculated.length !== 6}
                       >
-                        <strong>{label}</strong>
-                        <span>: {value}</span>
-                      </div>
-                    ))}
-                  </section>
+                        {saving ? "Memproses..." : "Simpan Draft"}
+                      </button>
 
-                  <section className="bw-info-card">
-                    <div className="bw-section-title">
-                      PERIODE PENILAIAN
+                      <button
+                        type="button"
+                        className="bw-btn gold"
+                        onClick={finalizeReport}
+                        disabled={
+                          isBusy ||
+                          savedReport?.status !== "draft"
+                        }
+                      >
+                        Finalisasi Rapor
+                      </button>
                     </div>
 
-                    {[
-                      [
-                        "Nama Periode",
-                        selectedPeriod.period_label,
-                      ],
-                      [
-                        "Tanggal Mulai",
-                        formatDate(
-                          selectedPeriod.start_date
-                        ),
-                      ],
-                      [
-                        "Tanggal Selesai",
-                        formatDate(
-                          selectedPeriod.end_date
-                        ),
-                      ],
-                      [
-                        "Status Rapor",
-                        isFinal
-                          ? "FINAL"
-                          : "PRATINJAU",
-                      ],
-                    ].map(([label, value]) => (
-                      <div
-                        className="bw-info-row"
-                        key={label}
-                      >
-                        <strong>{label}</strong>
-                        <span>: {value}</span>
-                      </div>
-                    ))}
-                  </section>
-                </div>
-
-                <section>
-                  <div className="bw-section-title">
-                    1. PENILAIAN KOMPETENSI UTAMA
-                  </div>
-
-                  <div className="bw-scroll">
-                    <table className="bw-table">
-                      <thead>
-                        <tr>
-                          <th>KATEGORI</th>
-                          <th>TARGET</th>
-                          <th>PENCAPAIAN</th>
-                          <th>PERSENTASE</th>
-                          <th>STATUS</th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        {summary.map((item) => (
-                          <tr key={item.key}>
-                            <td
-                              className="bw-category"
-                              style={{
-                                background:
-                                  item.color,
-                              }}
-                            >
-                              {item.title}
-                            </td>
-
-                            <td>
-                              {formatNumber(
-                                item.target
-                              )}{" "}
-                              {item.unit}
-                            </td>
-
-                            <td>
-                              {formatNumber(
-                                item.realized,
-                                item.key === "Fisik"
-                                  ? 3
-                                  : 0
-                              )}{" "}
-                              {item.unit}
-                            </td>
-
-                            <td>
-                              <strong>
-                                {formatNumber(
-                                  item.percentage,
-                                  2
-                                )}
-                                %
-                              </strong>
-                            </td>
-
-                            <td>
-                              <span
-                                className={
-                                  "bw-status " +
-                                  (item.achieved
-                                    ? "success"
-                                    : "")
-                                }
-                              >
-                                {item.achieved
-                                  ? "Target tercapai"
-                                  : "Belum mencapai target"}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <div className="bw-summary">
-                  <div className="bw-summary-card">
-                    Kategori Dinilai
-                    <strong>
-                      {summary.length}
-                    </strong>
-                  </div>
-
-                  <div className="bw-summary-card">
-                    Target Tercapai
-                    <strong>
-                      {completed}/{summary.length}
-                    </strong>
-                  </div>
-
-                  <div className="bw-summary-card">
-                    Kategori Belum Tercapai
-                    <strong>
-                      {pending}
-                    </strong>
-                  </div>
-                </div>
-
-                <section className="bw-note">
-                  <div className="bw-section-title">
-                    2. CATATAN DAN EVALUASI
-                  </div>
-
-                  {pending === 0 ? (
-                    <p>
-                      Seluruh target kompetensi
-                      pada periode yang dipilih
-                      telah tercapai berdasarkan
-                      data terverifikasi.
-                    </p>
-                  ) : (
-                    <p>
-                      Sebanyak{" "}
-                      <strong>{pending}</strong>{" "}
-                      kategori belum mencapai
-                      target pada periode
-                      yang dipilih.
-                    </p>
-                  )}
-
-                  <p>
-                    Data yang belum tercatat
-                    atau belum diverifikasi
-                    tidak otomatis menunjukkan
-                    kegagalan peserta.
-                  </p>
-
-                  {savedReport?.mentor_notes && (
-                    <p>
-                      <strong>
-                        Catatan Mentor:
-                      </strong>{" "}
-                      {savedReport.mentor_notes}
-                    </p>
-                  )}
-
-                  {savedReport?.recommendation && (
-                    <p>
-                      <strong>
-                        Rekomendasi:
-                      </strong>{" "}
-                      {savedReport.recommendation}
-                    </p>
-                  )}
-
-                  {isFinal && savedScores.length > 0 && (
-                    <p>
-                      Rapor ini memiliki{" "}
-                      <strong>
-                        {savedScores.length}
-                      </strong>{" "}
-                      indikator penilaian tersimpan.
-                      Tampilan pencapaian di atas
-                      masih dihitung dari data
-                      kegiatan terkini.
-                    </p>
-                  )}
-                </section>
-
-                <footer className="bw-footer">
-                  <div>
-                    OJT MineTrack · PT Berau Coal
-                    <br />
-                    Tanggal cetak:{" "}
-                    {formatDate(todayISO())}
-                  </div>
-
-                  <div>
-                    Status:{" "}
-                    {isFinal
-                      ? "FINAL"
-                      : "PRATINJAU"}
-
-                    {savedReport?.finalized_at && (
-                      <>
-                        <br />
-                        Difinalisasi:{" "}
-                        {new Date(
-                          savedReport.finalized_at
-                        ).toLocaleString("id-ID")}
-                      </>
+                    {savedReport?.status === "draft" && (
+                      <p className="bw-muted">
+                        Sebelum finalisasi, pastikan perubahan terakhir sudah
+                        disimpan melalui tombol Simpan Draft.
+                      </p>
                     )}
+                  </section>
+                )}
+
+                {!isFinal && (
+                  <div className="bw-alert info">
+                    PRATINJAU — Dokumen belum Final. Angka pencapaian
+                    masih mengikuti data kegiatan terkini.
                   </div>
-                </footer>
-              </article>
+                )}
+
+                <article className="bw-paper">
+                  <div className="bw-paper-header">
+                    <h1>RAPOR PENCAPAIAN OJT</h1>
+                    <h2>PERIODE 2 MINGGUAN</h2>
+                    <small>EMERGENCY RESPONSE GROUP · PT BERAU COAL</small>
+                  </div>
+
+                  <div className="bw-info">
+                    <section className="bw-box">
+                      <div className="bw-title">DATA PESERTA</div>
+                      {[
+                        ["Nama", participant?.full_name || "Peserta OJT"],
+                        ["Departemen", participant?.department || "—"],
+                        ["Site", program.site || "—"],
+                        [
+                          "Periode OJT",
+                          `${dateText(program.start_date)} – ${dateText(program.end_date)}`,
+                        ],
+                      ].map(([label, value]) => (
+                        <div className="bw-row" key={label}>
+                          <strong>{label}</strong>
+                          <span>: {value}</span>
+                        </div>
+                      ))}
+                    </section>
+
+                    <section className="bw-box">
+                      <div className="bw-title">PERIODE PENILAIAN</div>
+                      {[
+                        ["Periode", selectedPeriod.period_label],
+                        ["Mulai", dateText(selectedPeriod.start_date)],
+                        ["Selesai", dateText(selectedPeriod.end_date)],
+                        ["Status", statusLabel(savedReport?.status)],
+                      ].map(([label, value]) => (
+                        <div className="bw-row" key={label}>
+                          <strong>{label}</strong>
+                          <span>: {value}</span>
+                        </div>
+                      ))}
+                    </section>
+                  </div>
+
+                  <section>
+                    <div className="bw-title">1. PENILAIAN KOMPETENSI UTAMA</div>
+
+                    <div className="bw-scroll">
+                      <table className="bw-table">
+                        <thead>
+                          <tr>
+                            <th>KATEGORI</th>
+                            <th>TARGET</th>
+                            <th>PENCAPAIAN</th>
+                            <th>PERSENTASE</th>
+                            <th>STATUS</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayed.map((item) => {
+                            const achieved =
+                              item.realized !== null &&
+                              item.realized >= item.target;
+
+                            return (
+                              <tr key={item.key}>
+                                <td
+                                  className="bw-category"
+                                  style={{ background: item.color }}
+                                >
+                                  {item.title}
+                                </td>
+                                <td>
+                                  {numberText(item.target)} {item.unit}
+                                </td>
+                                <td>
+                                  {item.realized === null
+                                    ? "—"
+                                    : numberText(
+                                        item.realized,
+                                        item.key === "Fisik" ? 3 : 0
+                                      )}{" "}
+                                  {item.realized === null ? "" : item.unit}
+                                </td>
+                                <td>
+                                  <strong>
+                                    {item.percentage === null
+                                      ? "—"
+                                      : `${numberText(item.percentage, 2)}%`}
+                                  </strong>
+                                </td>
+                                <td>
+                                  <span className={`bw-tag ${achieved ? "ok" : ""}`}>
+                                    {achieved ? "Tercapai" : "Belum tercapai"}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  <div className="bw-stats">
+                    <div className="bw-stat">
+                      Kategori Penilaian
+                      <strong>{displayed.length}</strong>
+                    </div>
+                    <div className="bw-stat">
+                      Target Tercapai
+                      <strong>{completed}/{displayed.length}</strong>
+                    </div>
+                    <div className="bw-stat">
+                      Belum Tercapai
+                      <strong>{displayed.length - completed}</strong>
+                    </div>
+                  </div>
+
+                  <section className="bw-note">
+                    <div className="bw-title">2. CATATAN DAN EVALUASI</div>
+
+                    <p>
+                      {completed === displayed.length
+                        ? "Seluruh target kompetensi pada periode ini telah tercapai."
+                        : `${displayed.length - completed} kategori belum mencapai target pada periode ini.`}
+                    </p>
+
+                    <p>
+                      <strong>Catatan Mentor:</strong>
+                      {" "}
+                      {isFinal
+                        ? savedReport?.mentor_notes || "Tidak ada catatan."
+                        : mentorNotes || "Belum diisi."}
+                    </p>
+
+                    <p>
+                      <strong>Rekomendasi:</strong>
+                      {" "}
+                      {isFinal
+                        ? savedReport?.recommendation || "Tidak ada rekomendasi."
+                        : recommendation || "Belum diisi."}
+                    </p>
+
+                    <p>
+                      Data yang belum tercatat atau diverifikasi
+                      tidak otomatis menunjukkan kegagalan peserta.
+                    </p>
+                  </section>
+
+                  <footer className="bw-footer">
+                    <div>
+                      OJT MineTrack · PT Berau Coal
+                      <br />
+                      Tanggal cetak: {dateText(localToday())}
+                    </div>
+
+                    <div>
+                      Status: {statusLabel(savedReport?.status)}
+                      {savedReport?.finalized_at && (
+                        <>
+                          <br />
+                          Difinalisasi:{" "}
+                          {new Date(savedReport.finalized_at).toLocaleString("id-ID")}
+                        </>
+                      )}
+                    </div>
+                  </footer>
+                </article>
+              </>
             )}
           </>
         )}
