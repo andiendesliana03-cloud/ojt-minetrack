@@ -52,6 +52,10 @@ function blank() {
   };
 }
 
+function normalizeRole(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function parseNotes(value) {
   const raw = String(value || "");
   const start = raw.lastIndexOf(META_START);
@@ -295,8 +299,16 @@ export default function InputSIMPER() {
 
   const [mentor, setMentor] = useState(null);
   const [program, setProgram] = useState(null);
+
   const [recordId, setRecordId] = useState(null);
+  const [savedRecord, setSavedRecord] = useState(null);
+
   const [form, setForm] = useState(blank);
+
+  // Data baru: form terbuka.
+  // Data tersimpan: form kosong dan terkunci.
+  // Tekan Edit untuk melanjutkan penilaian.
+  const [editing, setEditing] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -304,10 +316,33 @@ export default function InputSIMPER() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const progress = useMemo(
+  // Progres form hanya untuk pratinjau saat edit.
+  const draftProgress = useMemo(
     () => calculateProgress(form),
     [form]
   );
+
+  // Progres tersimpan digunakan oleh ringkasan
+  // agar tetap benar ketika form kosong.
+  const savedForm = useMemo(
+    () => fromRecord(savedRecord),
+    [savedRecord]
+  );
+
+  const savedProgress = useMemo(
+    () => calculateProgress(savedForm),
+    [savedForm]
+  );
+
+  const progress =
+    recordId && !editing
+      ? savedProgress
+      : draftProgress;
+
+  const displayForm =
+    recordId && !editing
+      ? savedForm
+      : form;
 
   const peserta = Array.isArray(program?.peserta)
     ? program.peserta[0]
@@ -315,11 +350,23 @@ export default function InputSIMPER() {
 
   const name = peserta?.full_name || "Peserta OJT";
 
+  const role = normalizeRole(mentor?.role);
+
+  const canManage =
+    role === "admin" ||
+    role === "mentor";
+
+  const formOpen =
+    !recordId ||
+    editing;
+
   const disabled =
     loading ||
     saving ||
     deleting ||
-    program?.status !== "active";
+    !canManage ||
+    program?.status !== "active" ||
+    !formOpen;
 
   const finalStatus = progress.passed
     ? "LULUS"
@@ -327,21 +374,20 @@ export default function InputSIMPER() {
 
   const issuanceLabel = optionLabel(
     PENERBITAN_OPTIONS,
-    form.issuance_status
+    displayForm.issuance_status
   );
 
-  function change(name, value) {
+  function change(field, value) {
+    if (disabled) return;
+
     setForm((previous) => {
       const next = {
         ...previous,
-        [name]: value,
+        [field]: value,
       };
 
-      // Jika status bukan Terbit, tanggal dan nomor
-      // dikosongkan agar tidak terbaca sebagai
-      // SIMPER yang sudah diterbitkan.
       if (
-        name === "issuance_status" &&
+        field === "issuance_status" &&
         value !== "issued"
       ) {
         next.graduation_date = "";
@@ -370,7 +416,89 @@ export default function InputSIMPER() {
 
   function applyRecord(data) {
     setRecordId(data?.id || null);
-    setForm(fromRecord(data));
+    setSavedRecord(data || null);
+
+    // Form hanya dikosongkan setelah hasil
+    // database berhasil dibaca.
+    setForm(blank());
+    setEditing(false);
+  }
+
+  async function verifyAccess(requireActive = false) {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      throw new Error(
+        "Sesi login tidak tersedia. Silakan login kembali."
+      );
+    }
+
+    const {
+      data: profile,
+      error: profileError,
+    } = await supabase
+      .from("profiles")
+      .select("id,full_name,role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+
+    const userRole = normalizeRole(profile?.role);
+
+    if (
+      !profile ||
+      !["admin", "mentor"].includes(userRole)
+    ) {
+      throw new Error(
+        "Hanya Admin dan Mentor yang dapat mengelola SIMPER."
+      );
+    }
+
+    const {
+      data: programData,
+      error: programError,
+    } = await supabase
+      .from("ojt_programs")
+      .select(`
+        id,
+        site,
+        start_date,
+        end_date,
+        status,
+        peserta:profiles!ojt_programs_participant_id_fkey(
+          full_name,
+          department
+        )
+      `)
+      .eq("id", programId)
+      .maybeSingle();
+
+    if (programError) throw programError;
+
+    if (!programData) {
+      throw new Error(
+        "Program OJT tidak ditemukan atau akses ditolak."
+      );
+    }
+
+    if (
+      requireActive &&
+      programData.status !== "active"
+    ) {
+      throw new Error(
+        "Program OJT tidak aktif."
+      );
+    }
+
+    // RLS database tetap menjadi pengaman utama.
+    return {
+      profile,
+      programData,
+    };
   }
 
   async function reload() {
@@ -390,57 +518,13 @@ export default function InputSIMPER() {
     async function initialize() {
       setLoading(true);
       setError("");
+      setSuccess("");
 
       try {
         const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
-
-        if (authError || !user) {
-          router.replace("/login");
-          return;
-        }
-
-        const {
-          data: profile,
-          error: profileError,
-        } = await supabase
-          .from("profiles")
-          .select("id,full_name,role")
-          .eq("id", user.id)
-          .single();
-
-        if (profileError) throw profileError;
-
-        if (
-          String(profile?.role).toLowerCase() !==
-          "mentor"
-        ) {
-          router.replace("/peserta");
-          return;
-        }
-
-        const {
-          data: programData,
-          error: programError,
-        } = await supabase
-          .from("ojt_programs")
-          .select(`
-            id,
-            site,
-            start_date,
-            end_date,
-            status,
-            peserta:profiles!ojt_programs_participant_id_fkey(
-              full_name,
-              department
-            )
-          `)
-          .eq("id", programId)
-          .single();
-
-        if (programError) throw programError;
+          profile,
+          programData,
+        } = await verifyAccess();
 
         const record = await getRecord(programId);
 
@@ -450,12 +534,19 @@ export default function InputSIMPER() {
         setProgram(programData);
         applyRecord(record);
       } catch (err) {
-        if (active) {
-          setError(
-            err?.message ||
-            "Gagal memuat data SIMPER."
-          );
-        }
+        if (!active) return;
+
+        setMentor(null);
+        setProgram(null);
+        setRecordId(null);
+        setSavedRecord(null);
+        setForm(blank());
+        setEditing(false);
+
+        setError(
+          err?.message ||
+          "Gagal memuat data SIMPER."
+        );
       } finally {
         if (active) setLoading(false);
       }
@@ -466,7 +557,38 @@ export default function InputSIMPER() {
     return () => {
       active = false;
     };
-  }, [programId, router]);
+  }, [programId]);
+
+  function startEditing() {
+    if (
+      !recordId ||
+      !savedRecord ||
+      loading ||
+      saving ||
+      deleting ||
+      !canManage ||
+      program?.status !== "active"
+    ) {
+      return;
+    }
+
+    // Muat semua nilai tersimpan agar edit
+    // berikutnya tidak menghapus status
+    // KMKOP, Praktik, atau Orientasi sebelumnya.
+    setForm(fromRecord(savedRecord));
+    setEditing(true);
+    setError("");
+    setSuccess("");
+  }
+
+  function cancelEditing() {
+    if (saving || deleting) return;
+
+    setForm(blank());
+    setEditing(false);
+    setError("");
+    setSuccess("");
+  }
 
   async function save(event) {
     event.preventDefault();
@@ -489,7 +611,7 @@ export default function InputSIMPER() {
     }
 
     if (
-      progress.orientasi &&
+      draftProgress.orientasi &&
       !form.orientation_date
     ) {
       setError(
@@ -501,7 +623,7 @@ export default function InputSIMPER() {
 
     if (
       form.issuance_status === "issued" &&
-      !progress.passed
+      !draftProgress.passed
     ) {
       setError(
         "SIMPER hanya dapat dinyatakan terbit " +
@@ -526,47 +648,58 @@ export default function InputSIMPER() {
 
     try {
       const {
-        data: activeProgram,
-        error: activeError,
-      } = await supabase
-        .from("ojt_programs")
-        .select("id")
-        .eq("id", programId)
-        .eq("status", "active")
-        .maybeSingle();
+        profile,
+        programData,
+      } = await verifyAccess(true);
 
-      if (activeError) throw activeError;
+      setMentor(profile);
+      setProgram(programData);
 
-      if (!activeProgram) {
-        throw new Error("Program OJT tidak aktif.");
+      // Periksa apakah record sudah ada.
+      // Jangan membuat catatan ganda jika
+      // halaman belum mendapat data terbaru.
+      const currentRecord = await getRecord(programId);
+
+      if (
+        recordId &&
+        currentRecord?.id !== recordId
+      ) {
+        throw new Error(
+          "Data SIMPER telah berubah. Muat ulang halaman sebelum menyimpan."
+        );
+      }
+
+      if (
+        !recordId &&
+        currentRecord
+      ) {
+        throw new Error(
+          "Data SIMPER sudah tersedia. Muat ulang halaman untuk mengeditnya."
+        );
       }
 
       const payload = {
         simper_type: form.simper_type.trim(),
 
-        // Kolom lama tetap dipertahankan.
         administration_status:
           form.administration_status,
+
         training_status:
           form.training_status,
 
-        // KMKOP dan Praktik.
-        theory_status: form.theory_status,
-        practice_status: form.practice_status,
+        theory_status:
+          form.theory_status,
 
-        // Orientasi dan penerbitan tersimpan
-        // dalam metadata notes.
+        practice_status:
+          form.practice_status,
+
         notes: buildNotes(form),
 
-        // Status kelulusan otomatis.
-        status: progress.status,
+        status: draftProgress.status,
 
-        // Informasi lama dipertahankan.
         application_date:
           form.application_date || null,
 
-        // Tanggal terbit menggunakan kolom
-        // graduation_date yang sudah tersedia.
         graduation_date:
           form.issuance_status === "issued"
             ? form.graduation_date
@@ -588,7 +721,7 @@ export default function InputSIMPER() {
           .insert({
             ...payload,
             program_id: programId,
-            created_by: mentor.id,
+            created_by: profile.id,
           })
           .select("id");
       }
@@ -601,12 +734,19 @@ export default function InputSIMPER() {
         );
       }
 
+      // Baca hasil tersimpan untuk memastikan
+      // ringkasan memakai data Supabase.
       await reload();
 
       setSuccess(
-        "Penilaian dan penerbitan SIMPER berhasil disimpan."
+        "Data SIMPER berhasil disimpan. " +
+        "Form telah dikosongkan. " +
+        "Gunakan Edit Data Tersimpan untuk " +
+        "melanjutkan tahap berikutnya."
       );
     } catch (err) {
+      // Jangan mengosongkan form jika
+      // Supabase gagal menyimpan.
       setError(
         err?.message ||
         "Gagal menyimpan data SIMPER."
@@ -619,9 +759,13 @@ export default function InputSIMPER() {
   async function remove() {
     if (
       !recordId ||
-      disabled ||
+      loading ||
+      saving ||
+      deleting ||
+      !mentor ||
       !program ||
-      program.id !== programId
+      program.id !== programId ||
+      program.status !== "active"
     ) {
       return;
     }
@@ -640,6 +784,8 @@ export default function InputSIMPER() {
     setSuccess("");
 
     try {
+      await verifyAccess(true);
+
       const { data, error: deleteError } =
         await supabase
           .from("simper_records")
@@ -668,6 +814,8 @@ export default function InputSIMPER() {
       setDeleting(false);
     }
   }
+
+  const showingSaved = !!recordId && !editing;
 
   return (
     <main className="sp-root">
@@ -980,6 +1128,26 @@ export default function InputSIMPER() {
           padding: 20px 0;
         }
 
+        .sp-progress-statuses {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 14px;
+          margin: 15px 0;
+        }
+
+        .sp-progress-statuses > div {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 7px;
+        }
+
+        .sp-mini-label {
+          font-size: 11px;
+          font-weight: 800;
+          color: #71887b;
+        }
+
         @media (max-width: 650px) {
           .sp-top {
             padding: 13px;
@@ -1086,6 +1254,7 @@ export default function InputSIMPER() {
                     : "Tidak Aktif"}
                 </span>
               </div>
+
               <p>
                 Identitas peserta otomatis dan terkunci.
                 Penilaian ini hanya untuk {name}.
@@ -1101,6 +1270,61 @@ export default function InputSIMPER() {
             {success && (
               <div className="sp-alert success">
                 {success}
+              </div>
+            )}
+
+            {showingSaved && (
+              <section className="sp-card">
+                <h2>Data SIMPER Telah Tersimpan</h2>
+
+                <p>
+                  Data SIMPER peserta sudah tersimpan
+                  di Supabase. Kolom input dikosongkan
+                  untuk mencegah perubahan yang tidak
+                  disengaja.
+                </p>
+
+                <div className="sp-actions">
+                  <button
+                    type="button"
+                    className="sp-button"
+                    onClick={startEditing}
+                    disabled={
+                      loading ||
+                      saving ||
+                      deleting ||
+                      program.status !== "active"
+                    }
+                  >
+                    Edit Data Tersimpan
+                  </button>
+
+                  <button
+                    type="button"
+                    className="sp-button danger"
+                    onClick={remove}
+                    disabled={
+                      loading ||
+                      saving ||
+                      deleting ||
+                      program.status !== "active"
+                    }
+                  >
+                    {deleting
+                      ? "Menghapus..."
+                      : "Hapus"}
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {editing && (
+              <div className="sp-alert info">
+                Mode Edit Aktif. Nilai tersimpan
+                telah dimuat ke form. Ubah komponen
+                yang diperlukan, kemudian tekan
+                Simpan Perubahan. Komponen lain
+                tetap mengikuti nilai sebelumnya.
               </div>
             )}
 
@@ -1149,7 +1373,8 @@ export default function InputSIMPER() {
                   </span>
                   <span
                     className={
-                      form.issuance_status === "issued"
+                      displayForm.issuance_status ===
+                      "issued"
                         ? "sp-status passed"
                         : "sp-status"
                     }
@@ -1170,6 +1395,7 @@ export default function InputSIMPER() {
             <form onSubmit={save}>
               <section className="sp-card">
                 <h2>Informasi SIMPER</h2>
+
                 <InputField
                   label="Jenis SIMPER"
                   value={form.simper_type}
@@ -1245,6 +1471,7 @@ export default function InputSIMPER() {
               <section className="sp-card">
                 <div className="sp-stage-header">
                   <div className="sp-number">04</div>
+
                   <div className="sp-stage-text">
                     <h2>Penerbitan SIMPER</h2>
                     <p>
@@ -1255,14 +1482,17 @@ export default function InputSIMPER() {
 
                   <span
                     className={
-                      form.issuance_status === "issued"
+                      displayForm.issuance_status ===
+                      "issued"
                         ? "sp-badge complete"
                         : "sp-badge"
                     }
                   >
-                    {form.issuance_status === "issued"
+                    {displayForm.issuance_status ===
+                    "issued"
                       ? "Terbit"
-                      : form.issuance_status === "processing"
+                      : displayForm.issuance_status ===
+                        "processing"
                       ? "Diproses"
                       : "Belum Terbit"}
                   </span>
@@ -1336,32 +1566,44 @@ export default function InputSIMPER() {
                 </div>
 
                 <div className="sp-actions">
-                  <button
-                    type="submit"
-                    className="sp-button"
-                    disabled={disabled}
-                    style={{ flex: 1 }}
-                  >
-                    {saving
-                      ? "Menyimpan..."
-                      : recordId
-                      ? "Simpan Perubahan"
-                      : "Simpan Monitoring SIMPER"}
-                  </button>
+                  {!showingSaved && (
+                    <button
+                      type="submit"
+                      className="sp-button"
+                      disabled={disabled}
+                      style={{ flex: 1 }}
+                    >
+                      {saving
+                        ? "Menyimpan..."
+                        : recordId
+                        ? "Simpan Perubahan"
+                        : "Simpan Monitoring SIMPER"}
+                    </button>
+                  )}
 
-                  {recordId && (
+                  {editing && (
                     <button
                       type="button"
-                      className="sp-button danger"
-                      disabled={disabled}
-                      onClick={remove}
+                      className="sp-button"
+                      style={{
+                        background: "#6b7e75",
+                      }}
+                      disabled={saving || deleting}
+                      onClick={cancelEditing}
                     >
-                      {deleting
-                        ? "Menghapus..."
-                        : "Hapus"}
+                      Batal Edit
                     </button>
                   )}
                 </div>
+
+                {showingSaved && (
+                  <p>
+                    Data sudah tersimpan.
+                    Gunakan tombol Edit Data
+                    Tersimpan untuk memperbarui
+                    penilaian.
+                  </p>
+                )}
               </section>
             </form>
 
@@ -1373,26 +1615,26 @@ export default function InputSIMPER() {
                   "KMKOP",
                   optionLabel(
                     KMKOP_OPTIONS,
-                    form.theory_status
+                    displayForm.theory_status
                   ),
                 ],
                 [
                   "Praktik",
                   optionLabel(
                     PRAKTIK_OPTIONS,
-                    form.practice_status
+                    displayForm.practice_status
                   ),
                 ],
                 [
                   "Orientasi Area",
                   optionLabel(
                     ORIENTASI_OPTIONS,
-                    form.orientation_status
+                    displayForm.orientation_status
                   ),
                 ],
                 [
                   "Tanggal Orientasi",
-                  formatDate(form.orientation_date),
+                  formatDate(displayForm.orientation_date),
                 ],
                 [
                   "Komponen Terpenuhi",
@@ -1406,14 +1648,19 @@ export default function InputSIMPER() {
                 ["Status Penerbitan", issuanceLabel],
                 [
                   "Tanggal SIMPER Terbit",
-                  form.issuance_status === "issued"
-                    ? formatDate(form.graduation_date)
+                  displayForm.issuance_status ===
+                  "issued"
+                    ? formatDate(
+                        displayForm.graduation_date
+                      )
                     : "—",
                 ],
                 [
                   "Nomor SIMPER",
-                  form.issuance_status === "issued"
-                    ? form.issuance_number || "—"
+                  displayForm.issuance_status ===
+                  "issued"
+                    ? displayForm.issuance_number ||
+                      "—"
                     : "—",
                 ],
               ].map(([label, value]) => (
@@ -1424,8 +1671,10 @@ export default function InputSIMPER() {
               ))}
 
               <p>
-                {recordId
-                  ? "Rekaman SIMPER sudah tersedia. Perubahan baru berlaku setelah disimpan."
+                {editing
+                  ? "Mode edit aktif. Ringkasan mengikuti perubahan form yang belum disimpan."
+                  : recordId
+                  ? "Ringkasan menampilkan data yang sudah tersimpan di Supabase. Form input telah dikosongkan."
                   : "Belum ada rekaman SIMPER. Isi penilaian kemudian tekan Simpan."}
               </p>
             </section>
@@ -1437,28 +1686,6 @@ export default function InputSIMPER() {
           {" · "}PT Berau Coal
         </footer>
       </div>
-
-      <style>{`
-        .sp-progress-statuses {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 14px;
-          margin: 15px 0;
-        }
-
-        .sp-progress-statuses > div {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 7px;
-        }
-
-        .sp-mini-label {
-          font-size: 11px;
-          font-weight: 800;
-          color: #71887b;
-        }
-      `}</style>
     </main>
   );
 }
