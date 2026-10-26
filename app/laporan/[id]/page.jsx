@@ -276,16 +276,24 @@ export default function RaporOJTPage() {
         if (profileResult.error) throw profileResult.error;
 
         const profile = profileResult.data;
-        const role = String(profile.role || "").toLowerCase();
+        const role = String(profile.role || "")
+          .trim()
+          .toLowerCase();
 
         const isAdmin = role === "admin";
         const isMentor = role === "mentor";
-        const isParticipant = ["participant", "peserta"].includes(role);
+        const isParticipant = [
+          "participant",
+          "peserta",
+        ].includes(role);
 
-        // Hak akses:
-        // Admin dapat membuka semua program.
-        // Mentor hanya dapat membuka program binaannya.
-        // Peserta hanya dapat membuka program miliknya.
+        // Hak akses OJT MineTrack:
+        // Admin: seluruh program, termasuk maintenance.
+        // Mentor: seluruh program saat maintenance OFF.
+        // Peserta: hanya program miliknya sendiri.
+        // Tidak menggunakan filter mentor_id.
+        // Maintenance dikendalikan RLS Supabase.
+
         if (!isAdmin && !isMentor && !isParticipant) {
           throw new Error("Akun tidak memiliki akses.");
         }
@@ -306,9 +314,8 @@ export default function RaporOJTPage() {
           `)
           .eq("id", programId);
 
-        if (isMentor) {
-          query = query.eq("mentor_id", userId);
-        }
+        // Pembatasan hanya untuk akun peserta.
+        // Admin dan Mentor tidak dibatasi mentor_id.
 
         if (isParticipant) {
           query = query.eq("participant_id", userId);
