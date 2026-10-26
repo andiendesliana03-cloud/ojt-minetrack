@@ -7,8 +7,10 @@ import { supabase } from "../../../../lib/supabase";
 
 // OJT MineTrack v2.0
 // Monitoring SIMPER — Read Only
+// Admin: seluruh peserta
+// Mentor: peserta binaannya
+// Peserta: program miliknya
 // Sinkron dengan Input SIMPER Mentor.
-// Tidak memerlukan perubahan database.
 
 const META_START = "[[SIMPER_V2]]";
 const META_END = "[[/SIMPER_V2]]";
@@ -101,8 +103,6 @@ function parseNotes(value) {
     };
   }
 
-  // Catatan mentor dipisahkan dari metadata.
-  // Metadata tidak ditampilkan sebagai teks.
   const humanNotes = (
     raw.slice(0, start) +
     raw.slice(end + META_END.length)
@@ -239,6 +239,9 @@ export default function MonitoringSIMPER() {
 
   async function loadData(initial = false) {
     if (!programId) {
+      setProgram(null);
+      setRecords([]);
+      setSelectedId("");
       setError("ID program OJT tidak ditemukan.");
       setLoading(false);
       return;
@@ -263,21 +266,24 @@ export default function MonitoringSIMPER() {
         return;
       }
 
+      const userId = auth.user.id;
+
       const {
         data: profile,
         error: profileError,
       } = await supabase
         .from("profiles")
         .select("role")
-        .eq("id", auth.user.id)
+        .eq("id", userId)
         .single();
 
       if (profileError) throw profileError;
 
       const role = String(
         profile?.role || ""
-      ).toLowerCase();
+      ).trim().toLowerCase();
 
+      const isAdmin = role === "admin";
       const isMentor = role === "mentor";
 
       const isParticipant = [
@@ -285,17 +291,26 @@ export default function MonitoringSIMPER() {
         "peserta",
       ].includes(role);
 
-      if (!isMentor && !isParticipant) {
+      if (
+        !isAdmin &&
+        !isMentor &&
+        !isParticipant
+      ) {
         throw new Error(
           "Akun tidak memiliki akses monitoring."
         );
       }
+
+      // Admin dapat melihat seluruh program.
+      // Mentor hanya peserta binaannya.
+      // Peserta hanya program sendiri.
 
       let query = supabase
         .from("ojt_programs")
         .select(`
           id,
           participant_id,
+          mentor_id,
           site,
           peserta:profiles!ojt_programs_participant_id_fkey(
             full_name,
@@ -304,19 +319,35 @@ export default function MonitoringSIMPER() {
         `)
         .eq("id", programId);
 
+      if (isMentor) {
+        query = query.eq(
+          "mentor_id",
+          userId
+        );
+      }
+
       if (isParticipant) {
         query = query.eq(
           "participant_id",
-          auth.user.id
+          userId
         );
       }
 
       const {
         data: programData,
         error: programError,
-      } = await query.single();
+      } = await query.maybeSingle();
 
       if (programError) throw programError;
+
+      if (!programData) {
+        throw new Error(
+          "Program OJT tidak ditemukan atau Anda tidak memiliki akses."
+        );
+      }
+
+      // Data SIMPER diambil setelah akses program
+      // berhasil diverifikasi.
 
       const {
         data: simperData,
@@ -324,7 +355,7 @@ export default function MonitoringSIMPER() {
       } = await supabase
         .from("simper_records")
         .select("*")
-        .eq("program_id", programId)
+        .eq("program_id", programData.id)
         .order("created_at", {
           ascending: false,
         });
@@ -342,6 +373,10 @@ export default function MonitoringSIMPER() {
           : result[0]?.id || ""
       );
     } catch (err) {
+      setProgram(null);
+      setRecords([]);
+      setSelectedId("");
+
       setError(
         err?.message ||
         "Gagal memuat data Monitoring SIMPER."
@@ -356,9 +391,13 @@ export default function MonitoringSIMPER() {
     if (programId) {
       loadData(true);
     } else {
+      setProgram(null);
+      setRecords([]);
+      setSelectedId("");
       setError("ID program OJT tidak ditemukan.");
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programId]);
 
   const record = useMemo(() => {
