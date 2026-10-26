@@ -94,6 +94,9 @@ export default function MonitoringPage() {
     let active = true;
 
     async function load() {
+      setLoading(true);
+      setError("");
+
       try {
         const { data: auth, error: authError } =
           await supabase.auth.getUser();
@@ -103,19 +106,22 @@ export default function MonitoringPage() {
           return;
         }
 
+        const userId = auth.user.id;
+
         const { data: profile, error: profileError } =
           await supabase
             .from("profiles")
             .select("role")
-            .eq("id", auth.user.id)
+            .eq("id", userId)
             .single();
 
         if (profileError) throw profileError;
 
         const role = String(
           profile?.role || ""
-        ).toLowerCase();
+        ).trim().toLowerCase();
 
+        const isAdmin = role === "admin";
         const isMentor = role === "mentor";
 
         const isParticipant = [
@@ -123,7 +129,7 @@ export default function MonitoringPage() {
           "peserta",
         ].includes(role);
 
-        if (!isMentor && !isParticipant) {
+        if (!isAdmin && !isMentor && !isParticipant) {
           throw new Error(
             "Akun tidak memiliki akses monitoring."
           );
@@ -134,6 +140,7 @@ export default function MonitoringPage() {
           .select(`
             id,
             participant_id,
+            mentor_id,
             site,
             peserta:profiles!ojt_programs_participant_id_fkey(
               full_name,
@@ -142,17 +149,28 @@ export default function MonitoringPage() {
           `)
           .eq("id", id);
 
+        // Admin dapat mengakses seluruh program.
+        // Mentor hanya peserta binaannya.
+        // Peserta hanya program miliknya sendiri.
+
+        if (isMentor) {
+          query = query.eq("mentor_id", userId);
+        }
+
         if (isParticipant) {
-          query = query.eq(
-            "participant_id",
-            auth.user.id
-          );
+          query = query.eq("participant_id", userId);
         }
 
         const { data, error: queryError } =
-          await query.single();
+          await query.maybeSingle();
 
         if (queryError) throw queryError;
+
+        if (!data) {
+          throw new Error(
+            "Program OJT tidak ditemukan atau Anda tidak memiliki akses."
+          );
+        }
 
         if (active) {
           setProgram(data);
@@ -187,7 +205,7 @@ export default function MonitoringPage() {
     : program?.peserta;
 
   function openMenu(menu) {
-    if (!id || !menu?.path) {
+    if (!id || !menu?.path || !program) {
       return;
     }
 
