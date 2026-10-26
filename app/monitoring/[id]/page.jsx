@@ -89,6 +89,7 @@ export default function MonitoringPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [program, setProgram] = useState(null);
+  const [role, setRole] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -117,23 +118,40 @@ export default function MonitoringPage() {
 
         if (profileError) throw profileError;
 
-        const role = String(
+        const currentRole = String(
           profile?.role || ""
-        ).trim().toLowerCase();
+        )
+          .trim()
+          .toLowerCase();
 
-        const isAdmin = role === "admin";
-        const isMentor = role === "mentor";
+        const isAdmin = currentRole === "admin";
+        const isMentor = currentRole === "mentor";
 
         const isParticipant = [
           "participant",
           "peserta",
-        ].includes(role);
+        ].includes(currentRole);
 
         if (!isAdmin && !isMentor && !isParticipant) {
           throw new Error(
             "Akun tidak memiliki akses monitoring."
           );
         }
+
+        // Konsep hak akses OJT MineTrack:
+        //
+        // Admin:
+        // - Dapat mengakses seluruh program.
+        // - Tetap memiliki akses saat maintenance ON.
+        //
+        // Mentor:
+        // - Dapat mengakses seluruh program.
+        // - Tidak dibatasi berdasarkan mentor_id.
+        // - Diblokir oleh RLS saat maintenance ON.
+        //
+        // Peserta:
+        // - Hanya dapat mengakses program sendiri.
+        // - Diblokir oleh RLS saat maintenance ON.
 
         let query = supabase
           .from("ojt_programs")
@@ -149,13 +167,11 @@ export default function MonitoringPage() {
           `)
           .eq("id", id);
 
-        // Admin dapat mengakses seluruh program.
-        // Mentor hanya peserta binaannya.
-        // Peserta hanya program miliknya sendiri.
-
-        if (isMentor) {
-          query = query.eq("mentor_id", userId);
-        }
+        // Hanya Peserta yang perlu dibatasi
+        // berdasarkan participant_id.
+        //
+        // Admin dan Mentor dapat membuka
+        // seluruh program tanpa filter mentor_id.
 
         if (isParticipant) {
           query = query.eq("participant_id", userId);
@@ -174,9 +190,11 @@ export default function MonitoringPage() {
 
         if (active) {
           setProgram(data);
+          setRole(currentRole);
         }
       } catch (err) {
         if (active) {
+          setProgram(null);
           setError(
             err?.message || "Gagal memuat monitoring."
           );
@@ -204,6 +222,11 @@ export default function MonitoringPage() {
     ? program.peserta[0]
     : program?.peserta;
 
+  const isParticipant = [
+    "participant",
+    "peserta",
+  ].includes(role);
+
   function openMenu(menu) {
     if (!id || !menu?.path || !program) {
       return;
@@ -213,6 +236,14 @@ export default function MonitoringPage() {
       `/monitoring/${encodeURIComponent(id)}/${menu.path}`;
 
     router.push(destination);
+  }
+
+  function goBack() {
+    if (isParticipant) {
+      router.push("/dashboard-peserta");
+    } else {
+      router.push(`/peserta/${id}`);
+    }
   }
 
   return (
@@ -416,9 +447,7 @@ export default function MonitoringPage() {
         <button
           type="button"
           className="mt-back"
-          onClick={() =>
-            router.push(`/peserta/${id}`)
-          }
+          onClick={goBack}
         >
           ← Kembali
         </button>
