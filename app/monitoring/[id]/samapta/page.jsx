@@ -202,10 +202,21 @@ export default function MonitoringSamaptaPage() {
 
       if (profileError) throw profileError;
 
-      const role = String(profile?.role || "").toLowerCase();
+      const role = String(profile?.role || "")
+        .trim()
+        .toLowerCase();
 
-      if (!["mentor", "participant", "peserta"].includes(role)) {
-        throw new Error("Akun tidak memiliki akses monitoring.");
+      const isAdmin = role === "admin";
+      const isMentor = role === "mentor";
+      const isParticipant = [
+        "participant",
+        "peserta",
+      ].includes(role);
+
+      if (!isAdmin && !isMentor && !isParticipant) {
+        throw new Error(
+          "Akun tidak memiliki akses monitoring."
+        );
       }
 
       let programQuery = supabase
@@ -213,6 +224,7 @@ export default function MonitoringSamaptaPage() {
         .select(`
           id,
           participant_id,
+          mentor_id,
           site,
           peserta:profiles!ojt_programs_participant_id_fkey(
             full_name,
@@ -221,13 +233,30 @@ export default function MonitoringSamaptaPage() {
         `)
         .eq("id", id);
 
-      if (role === "participant" || role === "peserta") {
-        programQuery = programQuery.eq("participant_id", user.id);
+      // Admin: seluruh program OJT
+      // Mentor: hanya program peserta binaannya
+      // Peserta: hanya program OJT miliknya
+
+      if (isMentor) {
+        programQuery = programQuery.eq(
+          "mentor_id",
+          user.id
+        );
       }
 
-      const programResult = await programQuery.maybeSingle();
+      if (isParticipant) {
+        programQuery = programQuery.eq(
+          "participant_id",
+          user.id
+        );
+      }
 
-      if (programResult.error) throw programResult.error;
+      const programResult =
+        await programQuery.maybeSingle();
+
+      if (programResult.error) {
+        throw programResult.error;
+      }
 
       if (!programResult.data) {
         throw new Error(
@@ -240,15 +269,19 @@ export default function MonitoringSamaptaPage() {
         .select(
           "id,test_date,test_type,score,outcome,result_value"
         )
-        .eq("program_id", id)
+        .eq("program_id", programResult.data.id)
         .order("test_date", { ascending: false });
 
-      if (recordsResult.error) throw recordsResult.error;
+      if (recordsResult.error) {
+        throw recordsResult.error;
+      }
 
       setProgram(programResult.data);
       setRecords(recordsResult.data || []);
     } catch (err) {
-      setError(err?.message || "Gagal memuat data Samapta.");
+      setError(
+        err?.message || "Gagal memuat data Samapta."
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
