@@ -333,7 +333,7 @@ export default function DetailPeserta() {
           return;
         }
 
-        // Admin dan Mentor diizinkan membuka halaman.
+        // Admin dan Mentor dapat membuka halaman.
         if (
           !["admin", "mentor"].includes(currentRole)
         ) {
@@ -342,9 +342,12 @@ export default function DetailPeserta() {
           );
         }
 
-        // Ambil program terlebih dahulu agar pemeriksaan
-        // penugasan Mentor dilakukan sebelum mengambil data detail.
-        let programQuery = supabase
+        // OJT MineTrack:
+        // Admin dan Mentor dapat mengelola seluruh peserta.
+        // Tidak menggunakan filter mentor_id.
+        // Maintenance tetap dikendalikan RLS Supabase.
+
+        const programResult = await supabase
           .from("ojt_programs")
           .select(`
             id,
@@ -358,17 +361,8 @@ export default function DetailPeserta() {
               department
             )
           `)
-          .eq("id", programId);
-
-        if (currentRole === "mentor") {
-          programQuery = programQuery.eq(
-            "mentor_id",
-            user.id
-          );
-        }
-
-        const programResult =
-          await programQuery.maybeSingle();
+          .eq("id", programId)
+          .maybeSingle();
 
         if (programResult.error) {
           throw programResult.error;
