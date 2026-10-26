@@ -63,11 +63,12 @@ function kmText(value) {
 export default function AchievementPage() {
   const router = useRouter();
   const params = useParams();
+
   const programId = Array.isArray(params?.id)
     ? params.id[0]
     : params?.id;
 
-  const [mentor, setMentor] = useState(null);
+  const [manager, setManager] = useState(null);
   const [program, setProgram] = useState(null);
   const [types, setTypes] = useState([]);
   const [records, setRecords] = useState([]);
@@ -87,6 +88,13 @@ export default function AchievementPage() {
   const [actionId, setActionId] = useState(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  const role = String(manager?.role || "").toLowerCase();
+  const canManage = role === "admin" || role === "mentor";
+
+  const participant = Array.isArray(program?.peserta)
+    ? program.peserta[0]
+    : program?.peserta;
 
   const selectedType = types.find((t) => t.code === typeCode);
   const isFisik = normalize(selectedType?.name) === "fisik";
@@ -134,69 +142,88 @@ export default function AchievementPage() {
     let active = true;
 
     async function load() {
+      setLoading(true);
+      setError("");
+
       try {
         const { data: auth, error: authError } =
           await supabase.auth.getUser();
 
-        if (authError || !auth.user) {
+        if (authError || !auth?.user) {
           router.replace("/login");
           return;
         }
 
-        const [profileResult, programResult, typeResult, recordResult] =
-          await Promise.all([
-            supabase
-              .from("profiles")
-              .select("id,full_name,role")
-              .eq("id", auth.user.id)
-              .single(),
+        const userId = auth.user.id;
 
-            supabase
-              .from("ojt_programs")
-              .select(`
-                id,
-                site,
-                start_date,
-                end_date,
-                status,
-                peserta:profiles!ojt_programs_participant_id_fkey(
-                  full_name,
-                  department
-                )
-              `)
-              .eq("id", programId)
-              .single(),
+        const profileResult = await supabase
+          .from("profiles")
+          .select("id,full_name,role")
+          .eq("id", userId)
+          .single();
 
-            supabase
-              .from("achievement_types")
-              .select("code,name")
-              .order("name"),
+        if (profileResult.error) throw profileResult.error;
 
-            supabase
-              .from("achievement_records")
-              .select(
-                "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
-              )
-              .eq("program_id", programId)
-              .order("activity_date", { ascending: false }),
-          ]);
+        const profile = profileResult.data;
+        const currentRole = String(profile?.role || "").toLowerCase();
 
-        for (const result of [
-          profileResult,
-          programResult,
-          typeResult,
-          recordResult,
-        ]) {
-          if (result.error) throw result.error;
+        if (!["admin", "mentor"].includes(currentRole)) {
+          throw new Error(
+            "Halaman Achievement hanya dapat diakses Admin atau Mentor."
+          );
         }
 
-        if (profileResult.data?.role !== "mentor") {
-          throw new Error("Halaman input hanya untuk Mentor.");
+        let programQuery = supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            mentor_id,
+            site,
+            start_date,
+            end_date,
+            status,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
+            )
+          `)
+          .eq("id", programId);
+
+        if (currentRole === "mentor") {
+          programQuery = programQuery.eq("mentor_id", userId);
         }
+
+        const programResult = await programQuery.maybeSingle();
+
+        if (programResult.error) throw programResult.error;
+
+        if (!programResult.data) {
+          throw new Error(
+            "Program OJT tidak ditemukan atau Anda tidak memiliki akses."
+          );
+        }
+
+        const [typeResult, recordResult] = await Promise.all([
+          supabase
+            .from("achievement_types")
+            .select("code,name")
+            .order("name"),
+
+          supabase
+            .from("achievement_records")
+            .select(
+              "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
+            )
+            .eq("program_id", programId)
+            .order("activity_date", { ascending: false }),
+        ]);
+
+        if (typeResult.error) throw typeResult.error;
+        if (recordResult.error) throw recordResult.error;
 
         if (!active) return;
 
-        setMentor(profileResult.data);
+        setManager(profile);
         setProgram(programResult.data);
         setTypes(typeResult.data || []);
         setRecords(recordResult.data || []);
@@ -209,21 +236,30 @@ export default function AchievementPage() {
 
         setTypeCode(first?.code || "");
 
-        const todayWeek = weekOf(
-          today(),
-          programResult.data?.start_date
-        );
+        const todayWeek = weekOf(today(), programResult.data.start_date);
 
-        setSelectedWeek(todayWeek || 1);
+        const latestWeek = (recordResult.data || [])
+          .map((item) =>
+            weekOf(item.activity_date, programResult.data.start_date)
+          )
+          .filter((value) => value !== null)
+          .sort((a, b) => b - a)[0];
+
+        setSelectedWeek(todayWeek || latestWeek || 1);
       } catch (err) {
-        if (active) setError(err.message || "Gagal memuat Achievement.");
+        if (active) {
+          setError(err.message || "Gagal memuat Achievement.");
+        }
       } finally {
         if (active) setLoading(false);
       }
     }
 
     load();
-    return () => { active = false; };
+
+    return () => {
+      active = false;
+    };
   }, [programId, router]);
 
   const progress = useMemo(() => {
@@ -245,7 +281,8 @@ export default function AchievementPage() {
         const achieved =
           target.name === "Fisik"
             ? matching.reduce(
-                (sum, r) => sum + Math.max(0, Number(r.distance_km) || 0),
+                (sum, r) =>
+                  sum + Math.max(0, Number(r.distance_km) || 0),
                 0
               )
             : matching.length;
@@ -302,7 +339,8 @@ export default function AchievementPage() {
 
   async function save(event) {
     event.preventDefault();
-    if (saving || actionId || !mentor) return;
+
+    if (saving || actionId || !canManage || !program) return;
 
     setError("");
     setMessage("");
@@ -314,6 +352,14 @@ export default function AchievementPage() {
 
     if (currentWeek === null) {
       setError("Tanggal harus berada dalam Week 01–25 OJT.");
+      return;
+    }
+
+    if (
+      program.end_date &&
+      activityDate > program.end_date
+    ) {
+      setError("Tanggal kegiatan melewati akhir periode OJT.");
       return;
     }
 
@@ -350,17 +396,23 @@ export default function AchievementPage() {
             .select("id");
 
       if (result.error) throw result.error;
-      if (!result.data?.length) throw new Error("Data tidak tersimpan.");
+
+      if (!result.data?.length) {
+        throw new Error(
+          "Data tidak tersimpan. Periksa izin database."
+        );
+      }
 
       await reloadRecords();
+
       setSelectedWeek(currentWeek);
       setSelectedCategory(
         TARGETS.find(
           (t) => normalize(t.name) === normalize(selectedType?.name)
         )?.name || "Fisik"
       );
-      resetForm();
 
+      resetForm();
       setMessage("Achievement tersimpan dan menunggu verifikasi.");
     } catch (err) {
       setError(err.message || "Gagal menyimpan Achievement.");
@@ -370,6 +422,8 @@ export default function AchievementPage() {
   }
 
   function edit(item) {
+    if (!canManage) return;
+
     setEditId(item.id);
     setTypeCode(item.type_code);
     setActivityDate(item.activity_date);
@@ -386,9 +440,16 @@ export default function AchievementPage() {
   }
 
   async function verify(item) {
-    if (actionId || saving || item.status !== "pending") return;
+    if (
+      !canManage ||
+      actionId ||
+      saving ||
+      item.status !== "pending"
+    ) return;
 
-    const itemType = types.find((t) => t.code === item.type_code);
+    const itemType = types.find(
+      (t) => t.code === item.type_code
+    );
 
     if (
       normalize(itemType?.name) === "fisik" &&
@@ -409,7 +470,7 @@ export default function AchievementPage() {
         .from("achievement_records")
         .update({
           status: "verified",
-          verified_by: mentor.id,
+          verified_by: manager.id,
         })
         .eq("id", item.id)
         .eq("program_id", programId)
@@ -417,7 +478,12 @@ export default function AchievementPage() {
         .select("id");
 
       if (err) throw err;
-      if (!data?.length) throw new Error("Verifikasi gagal.");
+
+      if (!data?.length) {
+        throw new Error(
+          "Verifikasi gagal. Periksa izin database."
+        );
+      }
 
       await reloadRecords();
       setMessage("Kegiatan berhasil diverifikasi.");
@@ -429,8 +495,11 @@ export default function AchievementPage() {
   }
 
   async function remove(item) {
-    if (actionId || saving) return;
-    if (!window.confirm("Hapus kegiatan ini secara permanen?")) return;
+    if (!canManage || actionId || saving) return;
+
+    if (!window.confirm("Hapus kegiatan ini secara permanen?")) {
+      return;
+    }
 
     setActionId(item.id);
     setError("");
@@ -445,9 +514,15 @@ export default function AchievementPage() {
         .select("id");
 
       if (err) throw err;
-      if (!data?.length) throw new Error("Data tidak terhapus.");
+
+      if (!data?.length) {
+        throw new Error(
+          "Data tidak terhapus. Periksa izin database."
+        );
+      }
 
       if (editId === item.id) resetForm();
+
       await reloadRecords();
       setMessage("Kegiatan berhasil dihapus.");
     } catch (err) {
@@ -458,15 +533,21 @@ export default function AchievementPage() {
   }
 
   if (loading) {
-    return <main className="ach-loading">Memuat Achievement OJT...</main>;
+    return (
+      <main className="ach-loading">
+        Memuat Achievement OJT...
+      </main>
+    );
   }
 
-  if (!mentor || !program) {
+  if (!manager || !program) {
     return (
       <main className="ach-loading">
         <h2>Achievement tidak dapat dibuka</h2>
         <p>{error || "Akses tidak tersedia."}</p>
-        <button onClick={() => router.push("/")}>Dashboard</button>
+        <button onClick={() => router.push("/")}>
+          Dashboard
+        </button>
       </main>
     );
   }
@@ -496,7 +577,10 @@ export default function AchievementPage() {
           justify-content: space-between;
           gap: 12px;
         }
-        .ach-brand { font-size: 20px; font-weight: 900; }
+        .ach-brand {
+          font-size: 20px;
+          font-weight: 900;
+        }
         .ach-brand span { color: #27c991; }
         .ach-container {
           max-width: 1150px;
@@ -516,8 +600,14 @@ export default function AchievementPage() {
           font-weight: 800;
           letter-spacing: 1px;
         }
-        .ach-banner h1 { margin: 12px 0; font-size: 27px; }
-        .ach-banner p { color: #d7ebe1; font-size: 12px; }
+        .ach-banner h1 {
+          margin: 12px 0;
+          font-size: 27px;
+        }
+        .ach-banner p {
+          color: #d7ebe1;
+          font-size: 12px;
+        }
         .ach-card {
           background: white;
           border: 1px solid #e0eae6;
@@ -527,8 +617,15 @@ export default function AchievementPage() {
           box-shadow: 0 4px 15px #123c3010;
           min-width: 0;
         }
-        .ach-card h2 { margin: 0 0 12px; font-size: 18px; }
-        .ach-muted { color: #73867e; font-size: 12px; line-height: 1.6; }
+        .ach-card h2 {
+          margin: 0 0 12px;
+          font-size: 18px;
+        }
+        .ach-muted {
+          color: #73867e;
+          font-size: 12px;
+          line-height: 1.6;
+        }
         .ach-grid {
           display: grid;
           grid-template-columns: minmax(0,1fr) minmax(0,1fr);
@@ -567,11 +664,21 @@ export default function AchievementPage() {
           font-weight: 800;
           cursor: pointer;
         }
-        .ach-btn:disabled { opacity: .5; cursor: not-allowed; }
-        .ach-btn.secondary { background: #e7f4ed; color: #126849; }
+        .ach-btn:disabled {
+          opacity: .5;
+          cursor: not-allowed;
+        }
+        .ach-btn.secondary {
+          background: #e7f4ed;
+          color: #126849;
+        }
         .ach-btn.blue { background: #2879bd; }
         .ach-btn.red { background: #d04444; }
-        .ach-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .ach-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
         .ach-progress {
           background: #e6eeeb;
           height: 10px;
@@ -623,8 +730,14 @@ export default function AchievementPage() {
           font-size: 13px;
           overflow-wrap: anywhere;
         }
-        .ach-alert.error { background: #fff0f0; color: #b91c1c; }
-        .ach-alert.success { background: #e6f8ee; color: #08784d; }
+        .ach-alert.error {
+          background: #fff0f0;
+          color: #b91c1c;
+        }
+        .ach-alert.success {
+          background: #e6f8ee;
+          color: #08784d;
+        }
         .ach-week-grid {
           display: grid;
           grid-template-columns: repeat(5,minmax(0,1fr));
@@ -644,9 +757,7 @@ export default function AchievementPage() {
           border-color: #0b9668;
           background: #ddf6e9;
         }
-        .ach-week.done {
-          background: #c9f1df;
-        }
+        .ach-week.done { background: #c9f1df; }
         .ach-footer {
           text-align: center;
           color: #839a90;
@@ -668,7 +779,9 @@ export default function AchievementPage() {
         <div className="ach-brand">
           OJT <span>MineTrack</span>
         </div>
+
         <button
+          type="button"
           className="ach-btn secondary"
           onClick={() => router.push(`/peserta/${programId}`)}
         >
@@ -680,29 +793,48 @@ export default function AchievementPage() {
         <section className="ach-banner">
           <small>EMERGENCY RESPONSE GROUP · PT BERAU COAL</small>
           <h1>Input Achievement OJT</h1>
+
           <p>
-            {program.peserta?.full_name || "Peserta OJT"}
+            {participant?.full_name || "Peserta OJT"}
             {" · "}
             {program.site || "Site belum diisi"}
           </p>
+
           <p>
             Periode {dateText(program.start_date)}
             {" – "}
             {dateText(program.end_date)}
           </p>
+
+          <p>
+            Pengelola: {role === "admin" ? "Administrator" : "Mentor"}
+          </p>
         </section>
 
-        {error && <div className="ach-alert error">{error}</div>}
-        {message && <div className="ach-alert success">✓ {message}</div>}
+        {error && (
+          <div className="ach-alert error">
+            {error}
+          </div>
+        )}
+
+        {message && (
+          <div className="ach-alert success">
+            ✓ {message}
+          </div>
+        )}
 
         <section className="ach-card">
           <div className="ach-row">
             <h2>Progres Achievement Keseluruhan</h2>
-            <strong style={{ color: "#087f5b" }}>{overall}%</strong>
+            <strong style={{ color: "#087f5b" }}>
+              {overall}%
+            </strong>
           </div>
+
           <div className="ach-progress">
             <span style={{ width: `${overall}%` }} />
           </div>
+
           <p className="ach-muted">
             Rata-rata pencapaian enam kategori selama 25 minggu.
             Hanya kegiatan terverifikasi yang dihitung.
@@ -711,7 +843,10 @@ export default function AchievementPage() {
 
         <div className="ach-grid">
           <section className="ach-card">
-            <h2>{editId ? "Edit Achievement" : "Input Pencapaian OJT"}</h2>
+            <h2>
+              {editId ? "Edit Achievement" : "Input Pencapaian OJT"}
+            </h2>
+
             <p className="ach-muted">
               Masukkan kegiatan peserta untuk minggu yang sesuai.
             </p>
@@ -719,17 +854,23 @@ export default function AchievementPage() {
             <form onSubmit={save}>
               <div className="ach-field">
                 <label>Kategori Pencapaian</label>
+
                 <select
                   className="ach-input"
                   value={typeCode}
                   onChange={(e) => setTypeCode(e.target.value)}
                   required
                 >
-                  {!typeCode && <option value="">Pilih kategori</option>}
+                  {!typeCode && (
+                    <option value="">Pilih kategori</option>
+                  )}
+
                   {TARGETS.map((target) => {
                     const type = types.find(
-                      (t) => normalize(t.name) === normalize(target.name)
+                      (t) =>
+                        normalize(t.name) === normalize(target.name)
                     );
+
                     return type ? (
                       <option key={type.code} value={type.code}>
                         {target.name}
@@ -741,6 +882,7 @@ export default function AchievementPage() {
 
               <div className="ach-field">
                 <label>Tanggal Kegiatan</label>
+
                 <input
                   className="ach-input"
                   type="date"
@@ -748,6 +890,7 @@ export default function AchievementPage() {
                   onChange={(e) => setActivityDate(e.target.value)}
                   required
                 />
+
                 <p className="ach-muted">
                   {currentWeek
                     ? `Week ${String(currentWeek).padStart(2, "0")}`
@@ -758,21 +901,27 @@ export default function AchievementPage() {
               {isFisik && (
                 <div className="ach-field">
                   <label>Jarak Tempuh Fisik</label>
+
                   <div className="ach-pair">
                     <div>
                       <label>Kilometer</label>
+
                       <select
                         className="ach-input"
                         value={kilometer}
                         onChange={(e) => setKilometer(e.target.value)}
                       >
                         {Array.from({ length: 101 }, (_, i) => (
-                          <option key={i} value={i}>{i} km</option>
+                          <option key={i} value={i}>
+                            {i} km
+                          </option>
                         ))}
                       </select>
                     </div>
+
                     <div>
                       <label>Tambahan Meter</label>
+
                       <input
                         className="ach-input"
                         type="number"
@@ -793,10 +942,14 @@ export default function AchievementPage() {
                       borderRadius: 12,
                     }}
                   >
-                    <span className="ach-muted">Total jarak kegiatan</span>
+                    <span className="ach-muted">
+                      Total jarak kegiatan
+                    </span>
+
                     <h2 style={{ color: "#087f5b", margin: "6px 0" }}>
                       {distance === null ? "—" : kmText(distance)} km
                     </h2>
+
                     <span className="ach-muted">
                       Target 25 km per minggu
                     </span>
@@ -806,6 +959,7 @@ export default function AchievementPage() {
 
               <div className="ach-field">
                 <label>Keterangan Kegiatan (Opsional)</label>
+
                 <textarea
                   className="ach-input"
                   rows={4}
@@ -819,7 +973,12 @@ export default function AchievementPage() {
                 <button
                   className="ach-btn"
                   type="submit"
-                  disabled={saving || !!actionId || !typeCode}
+                  disabled={
+                    saving ||
+                    !!actionId ||
+                    !typeCode ||
+                    !canManage
+                  }
                 >
                   {saving
                     ? "Menyimpan..."
@@ -833,6 +992,7 @@ export default function AchievementPage() {
                     className="ach-btn secondary"
                     type="button"
                     onClick={resetForm}
+                    disabled={saving}
                   >
                     Batal Edit
                   </button>
@@ -843,6 +1003,7 @@ export default function AchievementPage() {
 
           <section className="ach-card">
             <h2>Progres Enam Kategori</h2>
+
             <p className="ach-muted">
               Setiap kategori dihitung berdasarkan target per minggu.
             </p>
@@ -850,7 +1011,10 @@ export default function AchievementPage() {
             {progress.map((item) => (
               <div className="ach-category" key={item.name}>
                 <div className="ach-row">
-                  <strong>{item.icon} {item.name}</strong>
+                  <strong>
+                    {item.icon} {item.name}
+                  </strong>
+
                   <strong style={{ color: "#087f5b" }}>
                     {item.percent}%
                   </strong>
@@ -876,10 +1040,13 @@ export default function AchievementPage() {
           <div className="ach-pair" style={{ marginBottom: 15 }}>
             <div className="ach-field">
               <label>Kategori</label>
+
               <select
                 className="ach-input"
                 value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
+                onChange={(e) =>
+                  setSelectedCategory(e.target.value)
+                }
               >
                 {TARGETS.map((t) => (
                   <option key={t.name} value={t.name}>
@@ -891,10 +1058,13 @@ export default function AchievementPage() {
 
             <div className="ach-field">
               <label>Minggu</label>
+
               <select
                 className="ach-input"
                 value={selectedWeek}
-                onChange={(e) => setSelectedWeek(Number(e.target.value))}
+                onChange={(e) =>
+                  setSelectedWeek(Number(e.target.value))
+                }
               >
                 {Array.from({ length: WEEKS }, (_, i) => (
                   <option key={i} value={i + 1}>
@@ -915,15 +1085,21 @@ export default function AchievementPage() {
           >
             <div className="ach-row">
               <strong>
-                {selectedCategory} · Week {String(selectedWeek).padStart(2, "0")}
+                {selectedCategory} · Week{" "}
+                {String(selectedWeek).padStart(2, "0")}
               </strong>
+
               <strong style={{ color: "#087f5b" }}>
                 {weekProgress?.percent || 0}%
               </strong>
             </div>
 
             <div className="ach-progress">
-              <span style={{ width: `${weekProgress?.percent || 0}%` }} />
+              <span
+                style={{
+                  width: `${weekProgress?.percent || 0}%`,
+                }}
+              />
             </div>
 
             <span className="ach-muted">
@@ -933,7 +1109,9 @@ export default function AchievementPage() {
               {" dari "}
               {activeProgress?.target} {activeProgress?.unit}
               {" · "}
-              {weekProgress?.completed ? "Target tercapai" : "Belum tercapai"}
+              {weekProgress?.completed
+                ? "Target tercapai"
+                : "Belum tercapai"}
             </span>
           </div>
 
@@ -948,24 +1126,35 @@ export default function AchievementPage() {
                 onClick={() => setSelectedWeek(w.week)}
               >
                 <strong>W{String(w.week).padStart(2, "0")}</strong>
-                <div style={{ marginTop: 6 }}>{w.percent}%</div>
+                <div style={{ marginTop: 6 }}>
+                  {w.percent}%
+                </div>
               </button>
             ))}
           </div>
 
-          <h2 style={{ marginTop: 22 }}>Riwayat Minggu Ini</h2>
+          <h2 style={{ marginTop: 22 }}>
+            Riwayat Minggu Ini
+          </h2>
 
           {!weekRecords.length && (
-            <p className="ach-muted">Belum ada kegiatan pada minggu ini.</p>
+            <p className="ach-muted">
+              Belum ada kegiatan pada minggu ini.
+            </p>
           )}
 
           {weekRecords.map((item) => (
             <div className="ach-record" key={item.id}>
               <div className="ach-row">
-                <strong>{dateText(item.activity_date)}</strong>
+                <strong>
+                  {dateText(item.activity_date)}
+                </strong>
+
                 <span
                   className={`ach-status ${
-                    item.status === "verified" ? "verified" : "pending"
+                    item.status === "verified"
+                      ? "verified"
+                      : "pending"
                   }`}
                 >
                   {item.status === "verified"
@@ -977,11 +1166,18 @@ export default function AchievementPage() {
               </div>
 
               {item.distance_km != null && (
-                <p><strong>{kmText(item.distance_km)} km</strong></p>
+                <p>
+                  <strong>
+                    {kmText(item.distance_km)} km
+                  </strong>
+                </p>
               )}
 
               {item.description && (
-                <p className="ach-muted" style={{ whiteSpace: "pre-wrap" }}>
+                <p
+                  className="ach-muted"
+                  style={{ whiteSpace: "pre-wrap" }}
+                >
                   {item.description}
                 </p>
               )}
@@ -1010,7 +1206,9 @@ export default function AchievementPage() {
                   disabled={!!actionId || saving}
                   onClick={() => remove(item)}
                 >
-                  {actionId === item.id ? "Memproses..." : "Hapus"}
+                  {actionId === item.id
+                    ? "Memproses..."
+                    : "Hapus"}
                 </button>
               </div>
             </div>
