@@ -36,9 +36,7 @@ function parseDate(value) {
   }
 
   const [year, month, day] = parts;
-  const result = new Date(
-    Date.UTC(year, month - 1, day)
-  );
+  const result = new Date(Date.UTC(year, month - 1, day));
 
   if (
     result.getUTCFullYear() !== year ||
@@ -73,6 +71,7 @@ function localToday() {
 
 function formatDate(value) {
   const date = parseDate(value);
+
   if (!date) return "—";
 
   return new Intl.DateTimeFormat("id-ID", {
@@ -110,6 +109,7 @@ function average(items) {
       }
 
       const value = Number(item.score);
+
       return Number.isFinite(value) ? value : null;
     })
     .filter((value) => value !== null);
@@ -193,9 +193,7 @@ function calculateSamapta(items) {
 
       const value = Number(found.score);
 
-      return Number.isFinite(value)
-        ? value
-        : null;
+      return Number.isFinite(value) ? value : null;
     };
 
     const a = get("Lari 12 Menit");
@@ -347,53 +345,713 @@ function getWeekData(
   };
 }
 
+// =====================================================
+// PEMBUAT PDF ASLI TANPA DEPENDENSI TAMBAHAN
+// =====================================================
+//
+// File dibuat dengan format PDF 1.4 standar.
+// Menggunakan Helvetica dan halaman A4 portrait.
+// Tidak membutuhkan jsPDF, html2canvas, atau API.
+//
+// Catatan:
+// Font PDF standar mendukung karakter Latin dasar.
+// Karakter khusus di luar font tersebut dinormalisasi
+// untuk menjaga kompatibilitas pembaca PDF.
+// =====================================================
+
+function createWeeklyPdf({
+  participantName,
+  department,
+  site,
+  startDate,
+  endDate,
+  selected,
+  activeWeeks,
+}) {
+  const PAGE_WIDTH = 595.28;
+  const PAGE_HEIGHT = 841.89;
+  const MARGIN = 43;
+  const BOTTOM = 60;
+
+  const COLOR = {
+    ink: [0.1, 0.23, 0.18],
+    muted: [0.43, 0.54, 0.48],
+    green: [0.05, 0.53, 0.35],
+    light: [0.92, 0.97, 0.94],
+    line: [0.87, 0.91, 0.88],
+    white: [1, 1, 1],
+  };
+
+  const pages = [[]];
+
+  let currentPage = 0;
+  let cursor = PAGE_HEIGHT - 107;
+
+  const current = () => pages[currentPage];
+
+  function safe(input) {
+    return String(input ?? "")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[–—]/g, "-")
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/•/g, "-")
+      .replace(/\u00a0/g, " ")
+      .replace(/[^\x20-\x7E\n]/g, "?");
+  }
+
+  function escaped(input) {
+    return safe(input)
+      .replace(/\\/g, "\\\\")
+      .replace(/\(/g, "\\(")
+      .replace(/\)/g, "\\)")
+      .replace(/\n/g, " ");
+  }
+
+  function rgb(color) {
+    return color
+      .map((value) => value.toFixed(3))
+      .join(" ");
+  }
+
+  function rect(x, y, width, height, color) {
+    current().push(
+      `${rgb(color)} rg ` +
+      `${x.toFixed(2)} ` +
+      `${y.toFixed(2)} ` +
+      `${width.toFixed(2)} ` +
+      `${height.toFixed(2)} re f`
+    );
+  }
+
+  function line(y) {
+    rect(
+      MARGIN,
+      y,
+      PAGE_WIDTH - MARGIN * 2,
+      0.6,
+      COLOR.line
+    );
+  }
+
+  function write(
+    input,
+    x,
+    y,
+    size = 10,
+    bold = false,
+    color = COLOR.ink
+  ) {
+    current().push(
+      `BT /${bold ? "F2" : "F1"} ` +
+      `${size} Tf ${rgb(color)} rg ` +
+      `1 0 0 1 ${x.toFixed(2)} ` +
+      `${y.toFixed(2)} Tm ` +
+      `(${escaped(input)}) Tj ET`
+    );
+  }
+
+  function decoratePage(isFirst) {
+    rect(
+      0,
+      PAGE_HEIGHT - 85,
+      PAGE_WIDTH,
+      85,
+      [0.035, 0.14, 0.17]
+    );
+
+    write(
+      isFirst
+        ? "EVALUASI MINGGUAN OJT"
+        : "EVALUASI MINGGUAN OJT - LANJUTAN",
+      MARGIN,
+      PAGE_HEIGHT - 45,
+      isFirst ? 19 : 16,
+      true,
+      COLOR.white
+    );
+
+    write(
+      "OJT MineTrack v2.0  |  " +
+      "Emergency Response Group - PT Berau Coal",
+      MARGIN,
+      PAGE_HEIGHT - 65,
+      9,
+      false,
+      [0.77, 0.92, 0.84]
+    );
+  }
+
+  function newPage() {
+    pages.push([]);
+    currentPage += 1;
+    cursor = PAGE_HEIGHT - 107;
+    decoratePage(false);
+  }
+
+  function need(amount = 25) {
+    if (cursor - amount < BOTTOM) {
+      newPage();
+    }
+  }
+
+  function wrap(input, maxWidth, size = 10) {
+    const charMax = Math.max(
+      12,
+      Math.floor(maxWidth / (size * 0.54))
+    );
+
+    const parts = safe(input).split("\n");
+    const result = [];
+
+    for (const part of parts) {
+      const words = part
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+
+      if (!words.length) {
+        result.push("");
+        continue;
+      }
+
+      let buffer = "";
+
+      for (const rawWord of words) {
+        const chunks =
+          rawWord.match(
+            new RegExp(`.{1,${charMax}}`, "g")
+          ) || [rawWord];
+
+        for (const word of chunks) {
+          if (!buffer) {
+            buffer = word;
+          } else if (
+            (buffer + " " + word).length <= charMax
+          ) {
+            buffer += " " + word;
+          } else {
+            result.push(buffer);
+            buffer = word;
+          }
+        }
+      }
+
+      if (buffer) {
+        result.push(buffer);
+      }
+    }
+
+    return result;
+  }
+
+  function paragraph(
+    content,
+    {
+      size = 10,
+      bold = false,
+      color = COLOR.ink,
+      indent = 0,
+      gap = 6,
+    } = {}
+  ) {
+    const lines = wrap(
+      content,
+      PAGE_WIDTH - MARGIN * 2 - indent,
+      size
+    );
+
+    for (const part of lines) {
+      need(size + 7);
+
+      write(
+        part,
+        MARGIN + indent,
+        cursor,
+        size,
+        bold,
+        color
+      );
+
+      cursor -= size + 5;
+    }
+
+    cursor -= gap;
+  }
+
+  function section(title) {
+    need(39);
+    cursor -= 6;
+
+    rect(
+      MARGIN,
+      cursor - 25,
+      PAGE_WIDTH - MARGIN * 2,
+      29,
+      COLOR.light
+    );
+
+    write(
+      title,
+      MARGIN + 10,
+      cursor - 15,
+      10,
+      true,
+      COLOR.green
+    );
+
+    cursor -= 39;
+  }
+
+  function row(label, value) {
+    need(21);
+
+    write(
+      label,
+      MARGIN + 4,
+      cursor,
+      10,
+      false,
+      COLOR.muted
+    );
+
+    write(
+      value,
+      MARGIN + 215,
+      cursor,
+      10,
+      true,
+      COLOR.ink
+    );
+
+    cursor -= 21;
+    line(cursor + 8);
+  }
+
+  function entry(title, date, details, score) {
+    need(48);
+
+    paragraph(
+      `${title} | ${date} | Nilai: ${score}`,
+      {
+        size: 10,
+        bold: true,
+        gap: 1,
+      }
+    );
+
+    if (details) {
+      paragraph(details, {
+        size: 9,
+        color: COLOR.muted,
+        gap: 5,
+      });
+    }
+
+    cursor -= 5;
+  }
+
+  // ---------------------------------------------------
+  // ISI PDF
+  // ---------------------------------------------------
+
+  decoratePage(true);
+
+  section("IDENTITAS PESERTA");
+
+  row("Nama peserta", participantName);
+
+  row(
+    "Departemen / site",
+    `${department} / ${site}`
+  );
+
+  row(
+    "Periode OJT",
+    `${startDate} - ${endDate}`
+  );
+
+  row(
+    "Minggu evaluasi",
+    `Week ${selected.number} ` +
+    `(${selected.startISO} - ${selected.endISO})`
+  );
+
+  section("RINGKASAN NILAI DAN AKTIVITAS");
+
+  row(
+    "Rata-rata teori",
+    selected.theoryAverage == null
+      ? "Belum ada"
+      : Number(selected.theoryAverage).toFixed(2)
+  );
+
+  row(
+    "Rata-rata praktik",
+    selected.practiceAverage == null
+      ? "Belum ada"
+      : Number(selected.practiceAverage).toFixed(2)
+  );
+
+  row(
+    "Nilai Samapta",
+    selected.samaptaResult?.final == null
+      ? "Belum lengkap"
+      : Number(
+          selected.samaptaResult.final
+        ).toFixed(2)
+  );
+
+  row(
+    "Achievement terverifikasi",
+    `${selected.verified} kegiatan`
+  );
+
+  row(
+    "Achievement pending",
+    `${selected.pending} kegiatan`
+  );
+
+  row(
+    "Cakupan program",
+    `${activeWeeks} dari 25 minggu memiliki catatan`
+  );
+
+  section("ENAM KATEGORI ACHIEVEMENT");
+
+  selected.categorySummary.forEach((item) => {
+    row(
+      item.name,
+      `${item.total} catatan | ` +
+      `${item.verified} verified | ` +
+      `${item.pending} pending`
+    );
+  });
+
+  section("RIWAYAT POST-TEST");
+
+  if (!selected.postTests.length) {
+    paragraph(
+      "Belum ada Post-Test pada minggu ini."
+    );
+  }
+
+  selected.postTests.forEach((item) => {
+    entry(
+      "Post-Test",
+      formatDate(item.test_date),
+      item.notes,
+      displayScore(item.score)
+    );
+  });
+
+  section("RIWAYAT PRAKTIK MINGGUAN");
+
+  if (!selected.practice.length) {
+    paragraph(
+      "Belum ada nilai praktik pada minggu ini."
+    );
+  }
+
+  selected.practice.forEach((item) => {
+    entry(
+      item.practice_name || "Praktik OJT",
+      formatDate(getPracticeDate(item)),
+      item.notes,
+      displayScore(item.score)
+    );
+  });
+
+  section("HASIL SAMAPTA");
+
+  if (selected.samaptaResult) {
+    row(
+      "Tanggal tes",
+      formatDate(selected.samaptaResult.date)
+    );
+
+    row(
+      "Nilai A",
+      Number(
+        selected.samaptaResult.a
+      ).toFixed(2)
+    );
+
+    row(
+      "Nilai B",
+      Number(
+        selected.samaptaResult.b
+      ).toFixed(2)
+    );
+
+    row(
+      "Nilai akhir",
+      Number(
+        selected.samaptaResult.final
+      ).toFixed(2)
+    );
+
+    row(
+      "Status lari",
+      selected.samaptaResult.outcome === "pass"
+        ? "Lulus"
+        : selected.samaptaResult.outcome === "fail"
+        ? "Tidak Lulus"
+        : "Belum dinilai"
+    );
+  } else {
+    paragraph(
+      "Belum ada lima komponen tes Samapta " +
+      "lengkap pada minggu ini."
+    );
+  }
+
+  section("KESIMPULAN MONITORING");
+
+  row(
+    "Catatan Achievement",
+    String(selected.achievements.length)
+  );
+
+  row(
+    "Catatan Post-Test",
+    String(selected.postTests.length)
+  );
+
+  row(
+    "Catatan Praktik",
+    String(selected.practice.length)
+  );
+
+  row(
+    "Komponen Samapta",
+    String(selected.samapta.length)
+  );
+
+  paragraph(
+    "Rekap ini merupakan ringkasan otomatis " +
+    "catatan OJT. Dokumen ini bukan persetujuan " +
+    "atau penilaian akhir mentor.",
+    {
+      size: 9,
+      color: COLOR.muted,
+    }
+  );
+
+  // ---------------------------------------------------
+  // FOOTER PDF DAN NOMOR HALAMAN
+  // ---------------------------------------------------
+
+  for (let i = 0; i < pages.length; i++) {
+    pages[i].push(
+      `${rgb(COLOR.line)} rg ` +
+      `${MARGIN} 48 ` +
+      `${(PAGE_WIDTH - 2 * MARGIN).toFixed(2)} ` +
+      `0.7 re f`
+    );
+
+    pages[i].push(
+      `BT /F1 8 Tf ${rgb(COLOR.muted)} rg ` +
+      `1 0 0 1 ${MARGIN} 33 Tm ` +
+      `(Dibuat otomatis oleh OJT MineTrack) Tj ET`
+    );
+
+    pages[i].push(
+      `BT /F1 8 Tf ${rgb(COLOR.muted)} rg ` +
+      `1 0 0 1 ${PAGE_WIDTH - 100} 33 Tm ` +
+      `(Halaman ${i + 1} / ${pages.length}) Tj ET`
+    );
+  }
+
+  // ---------------------------------------------------
+  // SERIALISASI DOKUMEN PDF
+  // ---------------------------------------------------
+
+  const objects = [null];
+
+  const addObject = (content = "") => {
+    objects.push(content);
+    return objects.length - 1;
+  };
+
+  const catalogId = addObject();
+  const pagesId = addObject();
+
+  const regularFontId = addObject(
+    "<< /Type /Font /Subtype /Type1 " +
+    "/BaseFont /Helvetica " +
+    "/Encoding /WinAnsiEncoding >>"
+  );
+
+  const boldFontId = addObject(
+    "<< /Type /Font /Subtype /Type1 " +
+    "/BaseFont /Helvetica-Bold " +
+    "/Encoding /WinAnsiEncoding >>"
+  );
+
+  const pageIds = [];
+
+  for (const pageContent of pages) {
+    const stream =
+      pageContent.join("\n") + "\n";
+
+    const contentId = addObject(
+      `<< /Length ${stream.length} >>\n` +
+      `stream\n${stream}endstream`
+    );
+
+    const pageId = addObject(
+      `<< /Type /Page ` +
+      `/Parent ${pagesId} 0 R ` +
+      `/MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
+      `/Resources << /Font << ` +
+      `/F1 ${regularFontId} 0 R ` +
+      `/F2 ${boldFontId} 0 R ` +
+      `>> >> ` +
+      `/Contents ${contentId} 0 R >>`
+    );
+
+    pageIds.push(pageId);
+  }
+
+  objects[catalogId] =
+    `<< /Type /Catalog ` +
+    `/Pages ${pagesId} 0 R >>`;
+
+  objects[pagesId] =
+    `<< /Type /Pages /Kids [` +
+    pageIds.map((id) => `${id} 0 R`).join(" ") +
+    `] /Count ${pageIds.length} >>`;
+
+  let output = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+
+  const offsets = [0];
+
+  for (let i = 1; i < objects.length; i++) {
+    offsets[i] = output.length;
+
+    output +=
+      `${i} 0 obj\n` +
+      `${objects[i]}\n` +
+      `endobj\n`;
+  }
+
+  const xref = output.length;
+
+  output +=
+    `xref\n0 ${objects.length}\n` +
+    `0000000000 65535 f \n`;
+
+  for (let i = 1; i < objects.length; i++) {
+    output +=
+      `${String(offsets[i]).padStart(10, "0")} ` +
+      `00000 n \n`;
+  }
+
+  output +=
+    `trailer\n` +
+    `<< /Size ${objects.length} ` +
+    `/Root ${catalogId} 0 R >>\n` +
+    `startxref\n${xref}\n%%EOF`;
+
+  const bytes = new Uint8Array(output.length);
+
+  for (let i = 0; i < output.length; i++) {
+    bytes[i] = output.charCodeAt(i) & 255;
+  }
+
+  return new Blob([bytes], {
+    type: "application/pdf",
+  });
+}
+
+function makePdfFileName(name, week) {
+  const safeName = String(name || "Peserta-OJT")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+
+  return (
+    `Evaluasi-Mingguan-` +
+    `${safeName || "Peserta-OJT"}-` +
+    `Week-${String(week).padStart(2, "0")}.pdf`
+  );
+}
+
+// =====================================================
+// KOMPONEN ICON
+// =====================================================
+
 function Icon({ name, size = 20 }) {
   const shapes = {
     back: (
       <path d="m15 18-6-6 6-6M9 12h12" />
     ),
+
     lock: (
       <>
         <rect x="5" y="10" width="14" height="11" rx="2" />
         <path d="M8 10V7a4 4 0 0 1 8 0v3" />
       </>
     ),
+
     calendar: (
       <>
         <rect x="3" y="5" width="18" height="16" rx="2" />
         <path d="M7 3v4M17 3v4M3 10h18" />
       </>
     ),
-    check: <path d="m4 12 5 5L20 6" />,
-    left: <path d="m15 18-6-6 6-6" />,
-    right: <path d="m9 18 6-6-6-6" />,
-    chart: (
-      <>
-        <path d="M4 20V12M10 20V5M16 20v-9M22 20V8" />
-      </>
+
+    check: (
+      <path d="m4 12 5 5L20 6" />
     ),
+
+    left: (
+      <path d="m15 18-6-6 6-6" />
+    ),
+
+    right: (
+      <path d="m9 18 6-6-6-6" />
+    ),
+
+    chart: (
+      <path d="M4 20V12M10 20V5M16 20v-9M22 20V8" />
+    ),
+
     book: (
       <>
         <path d="M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1" />
         <path d="M12 5c3-2 6-2 9-1v15c-3-1-6-1-9 1M12 5v15" />
       </>
     ),
+
     fitness: (
-      <>
-        <path d="M3 10v4M6 8v8M18 8v8M21 10v4M6 12h12" />
-      </>
+      <path d="M3 10v4M6 8v8M18 8v8M21 10v4M6 12h12" />
     ),
+
     print: (
       <>
         <path d="M6 9V3h12v6M6 18H4V9h16v9h-2" />
         <path d="M6 15h12v6H6z" />
       </>
     ),
+
     refresh: (
       <>
         <path d="M20 11a8 8 0 0 0-14-5L3 9" />
         <path d="M3 4v5h5M4 13a8 8 0 0 0 14 5l3-3" />
         <path d="M21 20v-5h-5" />
+      </>
+    ),
+
+    download: (
+      <>
+        <path d="M12 3v12" />
+        <path d="m7 10 5 5 5-5" />
+        <path d="M4 17v4h16v-4" />
       </>
     ),
   };
@@ -430,6 +1088,10 @@ function Stat({ label, value, sub, icon }) {
   );
 }
 
+// =====================================================
+// HALAMAN EVALUASI MINGGUAN
+// =====================================================
+
 export default function EvaluasiMingguanOJT() {
   const router = useRouter();
   const params = useParams();
@@ -452,6 +1114,7 @@ export default function EvaluasiMingguanOJT() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
+  const [pdfNotice, setPdfNotice] = useState("");
 
   async function fetchMonitoringData(id) {
     const [
@@ -530,7 +1193,11 @@ export default function EvaluasiMingguanOJT() {
   }
 
   useEffect(() => {
-    if (!programId) return;
+    if (!programId) {
+      setLoading(false);
+      setError("ID program OJT tidak tersedia.");
+      return;
+    }
 
     let active = true;
 
@@ -538,6 +1205,7 @@ export default function EvaluasiMingguanOJT() {
       setLoading(true);
       setError("");
       setWarning("");
+      setPdfNotice("");
       setProgram(null);
       setWeek(1);
       setFilter("all");
@@ -547,6 +1215,8 @@ export default function EvaluasiMingguanOJT() {
           data: { user },
           error: authError,
         } = await supabase.auth.getUser();
+
+        if (!active) return;
 
         if (authError || !user) {
           router.replace("/login");
@@ -561,6 +1231,8 @@ export default function EvaluasiMingguanOJT() {
           .select("id,role")
           .eq("id", user.id)
           .single();
+
+        if (!active) return;
 
         if (profileError) throw profileError;
 
@@ -587,6 +1259,8 @@ export default function EvaluasiMingguanOJT() {
           `)
           .eq("id", programId)
           .single();
+
+        if (!active) return;
 
         if (programError) throw programError;
 
@@ -619,7 +1293,7 @@ export default function EvaluasiMingguanOJT() {
       } catch (err) {
         if (active) {
           setError(
-            err.message ||
+            err?.message ||
               "Gagal memuat Evaluasi Mingguan."
           );
         }
@@ -640,15 +1314,17 @@ export default function EvaluasiMingguanOJT() {
 
     setRefreshing(true);
     setError("");
+    setPdfNotice("");
 
     try {
       const data = await fetchMonitoringData(
         programId
       );
+
       applyData(data);
     } catch (err) {
       setError(
-        err.message || "Gagal memperbarui data."
+        err?.message || "Gagal memperbarui data."
       );
     } finally {
       setRefreshing(false);
@@ -704,8 +1380,12 @@ export default function EvaluasiMingguanOJT() {
     ? weekOf(localToday(), program.start_date)
     : null;
 
+  const participant = Array.isArray(program?.peserta)
+    ? program.peserta[0]
+    : program?.peserta;
+
   const participantName =
-    program?.peserta?.full_name || "Peserta OJT";
+    participant?.full_name || "Peserta OJT";
 
   const totalRecords = selected
     ? selected.achievements.length +
@@ -714,16 +1394,119 @@ export default function EvaluasiMingguanOJT() {
       selected.samapta.length
     : 0;
 
+  // ===================================================
+  // FUNGSI UNDUH PDF
+  // ===================================================
+
+  function downloadWeeklyPdf() {
+    if (!program || !selected) {
+      setError(
+        "Data minggu belum tersedia untuk dibuat PDF."
+      );
+      return;
+    }
+
+    setError("");
+    setPdfNotice("");
+
+    try {
+      const pdfBlob = createWeeklyPdf({
+        participantName,
+        department: participant?.department || "—",
+        site: program.site || "—",
+        startDate: formatDate(program.start_date),
+        endDate: formatDate(program.end_date),
+        selected,
+        activeWeeks,
+      });
+
+      const url = window.URL.createObjectURL(
+        pdfBlob
+      );
+
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = makePdfFileName(
+        participantName,
+        selected.number
+      );
+
+      link.style.display = "none";
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      // Beri browser waktu menyelesaikan
+      // pembukaan atau pengunduhan Blob.
+      window.setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 60000);
+
+      setPdfNotice(
+        "File PDF telah dibuat dan permintaan " +
+        "unduhan dikirim ke browser. " +
+        "Periksa folder Unduhan atau aplikasi Files."
+      );
+    } catch (err) {
+      setError(
+        "Gagal membuat PDF: " +
+        (err?.message || "Terjadi kesalahan.")
+      );
+    }
+  }
+
+  // ===================================================
+  // FUNGSI CETAK
+  // ===================================================
+
+  function printWeeklyReport() {
+    if (!program || !selected) {
+      setError(
+        "Data minggu belum tersedia untuk dicetak."
+      );
+      return;
+    }
+
+    setError("");
+
+    try {
+      if (typeof window.print !== "function") {
+        throw new Error(
+          "Browser tidak mendukung fitur cetak."
+        );
+      }
+
+      window.print();
+    } catch (err) {
+      setError(
+        "Gagal membuka cetak: " +
+        (err?.message || "Browser tidak mendukung.")
+      );
+    }
+  }
+
+  // ===================================================
+  // TAMPILAN HALAMAN
+  // ===================================================
+
   return (
     <main className="wm-root">
       <style>{`
-        * { box-sizing: border-box; }
+        * {
+          box-sizing: border-box;
+        }
 
         .wm-root {
           min-height: 100vh;
           background: #f2f6f7;
           color: #193a2d;
           font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .wm-root button {
+          font-family: inherit;
         }
 
         .wm-topbar {
@@ -741,7 +1524,9 @@ export default function EvaluasiMingguanOJT() {
           font-weight: 900;
         }
 
-        .wm-brand span { color: #36cb98; }
+        .wm-brand span {
+          color: #36cb98;
+        }
 
         .wm-container {
           max-width: 1100px;
@@ -1195,6 +1980,30 @@ export default function EvaluasiMingguanOJT() {
           color: #865c0d;
         }
 
+        .wm-pdf-notice {
+          background: #eaf9f0;
+          color: #08774f;
+          border: 1px solid #c9ebd8;
+        }
+
+        .wm-pdf-actions {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 15px;
+        }
+
+        .wm-pdf-actions .wm-btn {
+          width: 100%;
+        }
+
+        .wm-pdf-help {
+          font-size: 11px;
+          color: #73897b;
+          line-height: 1.7;
+          margin-top: 12px;
+        }
+
         .wm-footer {
           padding: 20px;
           text-align: center;
@@ -1202,7 +2011,7 @@ export default function EvaluasiMingguanOJT() {
           font-size: 11px;
         }
 
-        @media(max-width: 760px) {
+        @media (max-width: 760px) {
           .wm-topbar {
             padding: 13px 15px;
           }
@@ -1279,35 +2088,228 @@ export default function EvaluasiMingguanOJT() {
           .wm-category-grid {
             grid-template-columns: 1fr;
           }
+
+          .wm-pdf-actions {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        /* ==========================================
+           CETAK REKAP MINGGUAN - A4 PORTRAIT
+           ========================================== */
+
+        @page {
+          size: A4 portrait;
+          margin: 12mm;
         }
 
         @media print {
+          html,
+          body {
+            width: auto !important;
+            min-width: 0 !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+          }
+
           .wm-topbar,
           .wm-filter,
           .wm-week-grid,
           .wm-nav,
           .wm-print,
-          .wm-refresh {
+          .wm-refresh,
+          .wm-pdf-actions,
+          .wm-pdf-help,
+          .wm-no-print,
+          .wm-footer {
             display: none !important;
           }
 
           .wm-root {
-            background: white;
+            width: 100% !important;
+            min-height: 0 !important;
+            height: auto !important;
+            background: white !important;
+            color: #193a2d !important;
+            overflow: visible !important;
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
           }
 
           .wm-container {
-            max-width: none;
-            padding: 0;
-          }
-
-          .wm-card {
-            box-shadow: none;
-            break-inside: avoid;
+            max-width: none !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
           }
 
           .wm-hero {
+            padding: 14px 16px !important;
+            margin-bottom: 9px !important;
+            border-radius: 8px !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
             print-color-adjust: exact;
             -webkit-print-color-adjust: exact;
+          }
+
+          .wm-hero h1 {
+            font-size: 19px !important;
+            margin: 7px 0 !important;
+          }
+
+          .wm-hero p {
+            font-size: 10px !important;
+          }
+
+          .wm-card {
+            padding: 10px 12px !important;
+            margin-bottom: 8px !important;
+            border-radius: 7px !important;
+            box-shadow: none !important;
+            min-height: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+          }
+
+          .wm-card h2 {
+            font-size: 13px !important;
+            margin-bottom: 8px !important;
+            break-after: avoid;
+            page-break-after: avoid;
+          }
+
+          .wm-person {
+            padding: 9px !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .wm-avatar {
+            width: 35px !important;
+            height: 35px !important;
+            font-size: 12px !important;
+          }
+
+          .wm-person-name {
+            font-size: 12px !important;
+          }
+
+          .wm-person-meta,
+          .wm-muted {
+            font-size: 9px !important;
+          }
+
+          .wm-lock {
+            padding: 7px !important;
+            margin-top: 7px !important;
+            font-size: 9px !important;
+            break-inside: avoid;
+          }
+
+          .wm-stats {
+            grid-template-columns:
+              repeat(4, minmax(0, 1fr)) !important;
+            gap: 7px !important;
+          }
+
+          .wm-stat {
+            padding: 8px !important;
+            border-radius: 6px !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .wm-stat-top {
+            font-size: 9px !important;
+          }
+
+          .wm-stat strong {
+            font-size: 16px !important;
+            margin: 6px 0 !important;
+          }
+
+          .wm-stat small {
+            font-size: 8px !important;
+          }
+
+          .wm-progress-number {
+            font-size: 22px !important;
+          }
+
+          .wm-track {
+            height: 7px !important;
+            margin: 7px 0 !important;
+          }
+
+          .wm-category-grid {
+            grid-template-columns:
+              repeat(2, minmax(0, 1fr)) !important;
+            gap: 7px !important;
+          }
+
+          .wm-category {
+            padding: 8px !important;
+            border-radius: 6px !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .wm-category-title {
+            font-size: 10px !important;
+            margin-bottom: 6px !important;
+          }
+
+          .wm-category-stats {
+            font-size: 9px !important;
+          }
+
+          .wm-category-stats span {
+            padding: 4px !important;
+          }
+
+          .wm-history-item {
+            padding: 8px 0 !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .wm-history-item strong,
+          .wm-history-value {
+            font-size: 10px !important;
+          }
+
+          .wm-history-item p {
+            font-size: 9px !important;
+          }
+
+          .wm-empty {
+            padding: 9px !important;
+            font-size: 9px !important;
+          }
+
+          .wm-section-title {
+            margin-bottom: 8px !important;
+            break-after: avoid;
+          }
+
+          .wm-section-icon {
+            width: 29px !important;
+            height: 29px !important;
+          }
+
+          .wm-alert {
+            padding: 9px !important;
+            font-size: 9px !important;
+            break-inside: auto;
           }
         }
       `}</style>
@@ -1351,6 +2353,7 @@ export default function EvaluasiMingguanOJT() {
         {loading ? (
           <section className="wm-card">
             <h2>Memuat Evaluasi Mingguan...</h2>
+
             <p className="wm-muted">
               Mengambil data monitoring peserta.
             </p>
@@ -1364,6 +2367,7 @@ export default function EvaluasiMingguanOJT() {
             </div>
 
             <button
+              type="button"
               className="wm-btn"
               onClick={() => router.push("/")}
             >
@@ -1389,7 +2393,7 @@ export default function EvaluasiMingguanOJT() {
                   </div>
 
                   <div className="wm-person-meta">
-                    {program.peserta?.department || "—"}
+                    {participant?.department || "—"}
                     {" · "}
                     {program.site || "—"}
                     <br />
@@ -1399,11 +2403,13 @@ export default function EvaluasiMingguanOJT() {
                   </div>
                 </div>
 
-                <span className={
-                  program.status === "active"
-                    ? "wm-pill active"
-                    : "wm-pill"
-                }>
+                <span
+                  className={
+                    program.status === "active"
+                      ? "wm-pill active"
+                      : "wm-pill"
+                  }
+                >
                   {program.status === "active"
                     ? "Aktif"
                     : "Tidak Aktif"}
@@ -1412,16 +2418,21 @@ export default function EvaluasiMingguanOJT() {
 
               <div className="wm-lock">
                 <Icon name="lock" size={17} />
+
                 <span>
                   Peserta otomatis mengikuti halaman
                   Detail Peserta. Semua data evaluasi
-                  hanya untuk <strong>{participantName}</strong>.
+                  hanya untuk{" "}
+                  <strong>{participantName}</strong>.
                 </span>
               </div>
             </section>
 
             {error && (
-              <div className="wm-alert" role="alert">
+              <div
+                className="wm-alert wm-no-print"
+                role="alert"
+              >
                 {error}
               </div>
             )}
@@ -1432,12 +2443,22 @@ export default function EvaluasiMingguanOJT() {
               </div>
             )}
 
+            {pdfNotice && (
+              <div
+                className="wm-alert wm-pdf-notice wm-no-print"
+                role="status"
+              >
+                {pdfNotice}
+              </div>
+            )}
+
             <section className="wm-card">
               <div className="wm-progress-head">
                 <div>
                   <h2 style={{ marginBottom: 4 }}>
                     Aktivitas Program OJT
                   </h2>
+
                   <div className="wm-muted">
                     {activeWeeks} dari 25 minggu
                     memiliki catatan aktivitas
@@ -1471,7 +2492,7 @@ export default function EvaluasiMingguanOJT() {
               </p>
             </section>
 
-            <section className="wm-card">
+            <section className="wm-card wm-no-print">
               <div className="wm-selected-head">
                 <h2>Pilih Minggu Evaluasi</h2>
 
@@ -1483,6 +2504,7 @@ export default function EvaluasiMingguanOJT() {
                   title="Muat ulang data"
                 >
                   <Icon name="refresh" size={17} />
+
                   {refreshing
                     ? "Memuat..."
                     : "Refresh"}
@@ -1570,11 +2592,13 @@ export default function EvaluasiMingguanOJT() {
                   <div className="wm-selected-head">
                     <h2>Ringkasan Week {week}</h2>
 
-                    <span className={
-                      selected.hasActivity
-                        ? "wm-pill active"
-                        : "wm-pill"
-                    }>
+                    <span
+                      className={
+                        selected.hasActivity
+                          ? "wm-pill active"
+                          : "wm-pill"
+                      }
+                    >
                       {selected.hasActivity
                         ? "Ada Aktivitas"
                         : "Belum Ada"}
@@ -1582,10 +2606,8 @@ export default function EvaluasiMingguanOJT() {
                   </div>
 
                   <p className="wm-muted">
-                    <Icon
-                      name="calendar"
-                      size={15}
-                    />{" "}
+                    <Icon name="calendar" size={15} />
+                    {" "}
                     {formatDate(selected.startISO)}
                     {" – "}
                     {formatDate(selected.endISO)}
@@ -1642,7 +2664,7 @@ export default function EvaluasiMingguanOJT() {
                     />
                   </div>
 
-                  <div className="wm-nav">
+                  <div className="wm-nav wm-no-print">
                     <button
                       type="button"
                       className="wm-btn gray"
@@ -1682,9 +2704,7 @@ export default function EvaluasiMingguanOJT() {
                       <Icon name="check" />
                     </div>
 
-                    <h2>
-                      Enam Pencapaian OJT
-                    </h2>
+                    <h2>Enam Pencapaian OJT</h2>
                   </div>
 
                   <div className="wm-category-grid">
@@ -1723,9 +2743,7 @@ export default function EvaluasiMingguanOJT() {
                       <Icon name="book" />
                     </div>
 
-                    <h2>
-                      Riwayat Post-Test
-                    </h2>
+                    <h2>Riwayat Post-Test</h2>
                   </div>
 
                   {!selected.postTests.length ? (
@@ -1743,6 +2761,7 @@ export default function EvaluasiMingguanOJT() {
                           <strong>
                             {formatDate(item.test_date)}
                           </strong>
+
                           <p>
                             {item.notes ||
                               "Tanpa catatan mentor"}
@@ -1784,6 +2803,7 @@ export default function EvaluasiMingguanOJT() {
                             {item.practice_name ||
                               "Praktik OJT"}
                           </strong>
+
                           <p>
                             {formatDate(
                               item.practice_date
@@ -1813,10 +2833,11 @@ export default function EvaluasiMingguanOJT() {
 
                   {selected.samaptaResult ? (
                     <>
-                      <div className="wm-stats"
+                      <div
+                        className="wm-stats"
                         style={{
                           gridTemplateColumns:
-                            "repeat(3,1fr)"
+                            "repeat(3,1fr)",
                         }}
                       >
                         <Stat
@@ -1897,19 +2918,19 @@ export default function EvaluasiMingguanOJT() {
                     {[
                       [
                         "Pencapaian OJT",
-                        selected.achievements.length
+                        selected.achievements.length,
                       ],
                       [
                         "Post-Test",
-                        selected.postTests.length
+                        selected.postTests.length,
                       ],
                       [
                         "Praktik Mingguan",
-                        selected.practice.length
+                        selected.practice.length,
                       ],
                       [
                         "Komponen Samapta",
-                        selected.samapta.length
+                        selected.samapta.length,
                       ],
                     ].map(([name, count]) => (
                       <div
@@ -1919,11 +2940,12 @@ export default function EvaluasiMingguanOJT() {
                         <div className="wm-category-title">
                           {name}
                         </div>
+
                         <div
                           style={{
                             fontSize: 20,
                             fontWeight: 900,
-                            color: "#0b855c"
+                            color: "#0b855c",
                           }}
                         >
                           {count}
@@ -1939,18 +2961,34 @@ export default function EvaluasiMingguanOJT() {
                     atau penilaian akhir mentor.
                   </p>
 
-                  <button
-                    type="button"
-                    className="wm-btn wm-print"
-                    style={{
-                      width: "100%",
-                      marginTop: 12,
-                    }}
-                    onClick={() => window.print()}
-                  >
-                    <Icon name="print" size={18} />
-                    Cetak / Simpan Rekap Week {week}
-                  </button>
+                  <div className="wm-pdf-actions wm-no-print">
+                    <button
+                      type="button"
+                      className="wm-btn"
+                      onClick={downloadWeeklyPdf}
+                    >
+                      <Icon name="download" size={18} />
+                      Unduh PDF Week {week}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="wm-btn gray"
+                      onClick={printWeeklyReport}
+                    >
+                      <Icon name="print" size={18} />
+                      Cetak Rekap Week {week}
+                    </button>
+                  </div>
+
+                  <p className="wm-pdf-help wm-no-print">
+                    Gunakan Unduh PDF untuk menyimpan
+                    file langsung. Jika dialog cetak
+                    tidak muncul di HP, buka file PDF
+                    yang telah diunduh melalui browser
+                    atau aplikasi Files, lalu pilih
+                    Bagikan dan Cetak.
+                  </p>
                 </section>
               </>
             )}
