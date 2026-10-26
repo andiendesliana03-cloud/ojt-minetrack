@@ -17,15 +17,23 @@ const TARGETS = [
 ];
 
 function normalize(value) {
-  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 function parseDate(value) {
   if (!value) return null;
 
-  const parts = String(value).slice(0, 10).split("-").map(Number);
+  const parts = String(value)
+    .slice(0, 10)
+    .split("-")
+    .map(Number);
 
-  if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n))) {
+  if (
+    parts.length !== 3 ||
+    parts.some((n) => !Number.isInteger(n))
+  ) {
     return null;
   }
 
@@ -55,7 +63,9 @@ function weekOf(dateValue, startValue) {
 
   const week = Math.floor(days / 7) + 1;
 
-  return week >= 1 && week <= TOTAL_WEEKS ? week : null;
+  return week >= 1 && week <= TOTAL_WEEKS
+    ? week
+    : null;
 }
 
 function addDays(value, days) {
@@ -63,6 +73,7 @@ function addDays(value, days) {
   if (!date) return null;
 
   date.setUTCDate(date.getUTCDate() + days);
+
   return date.toISOString().slice(0, 10);
 }
 
@@ -70,8 +81,11 @@ function today() {
   const date = new Date();
 
   return new Date(
-    date.getTime() - date.getTimezoneOffset() * 60000
-  ).toISOString().slice(0, 10);
+    date.getTime() -
+      date.getTimezoneOffset() * 60000
+  )
+    .toISOString()
+    .slice(0, 10);
 }
 
 function formatDate(value) {
@@ -94,7 +108,11 @@ function formatNumber(value, digits = 1) {
 }
 
 function formatScore(value) {
-  if (value === null || value === undefined || value === "") {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
     return "—";
   }
 
@@ -114,17 +132,28 @@ function initials(name) {
 function average(rows) {
   const values = rows
     .map((row) => row.score)
-    .filter((value) => value !== null && value !== undefined && value !== "")
+    .filter(
+      (value) =>
+        value !== null &&
+        value !== undefined &&
+        value !== ""
+    )
     .map(Number)
     .filter(Number.isFinite);
 
   if (!values.length) return null;
 
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
+  return (
+    values.reduce((sum, value) => sum + value, 0) /
+    values.length
+  );
 }
 
 function ProgressBar({ value }) {
-  const percentage = Math.min(100, Math.max(0, Number(value) || 0));
+  const percentage = Math.min(
+    100,
+    Math.max(0, Number(value) || 0)
+  );
 
   return (
     <div
@@ -168,31 +197,48 @@ export default function DetailPeserta() {
   const [refreshing, setRefreshing] = useState(false);
   const [savingTest, setSavingTest] = useState(false);
   const [testActionId, setTestActionId] = useState(null);
+
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  const role = String(mentor?.role || "").toLowerCase();
+  const isAdmin = role === "admin";
+  const isMentor = role === "mentor";
 
   async function fetchRecords() {
     const results = await Promise.all([
       supabase
         .from("achievement_records")
-        .select("id,type_code,activity_date,distance_km,status")
+        .select(
+          "id,type_code,activity_date,distance_km,status"
+        )
         .eq("program_id", programId)
-        .order("activity_date", { ascending: false }),
+        .order("activity_date", {
+          ascending: false,
+        }),
 
       supabase
         .from("post_test_scores")
-        .select("id,test_date,score,notes,created_at")
+        .select(
+          "id,test_date,score,notes,created_at"
+        )
         .eq("program_id", programId)
-        .order("test_date", { ascending: false }),
+        .order("test_date", {
+          ascending: false,
+        }),
 
       supabase
         .from("weekly_practice_scores")
-        .select("id,practice_date,practice_name,score")
+        .select(
+          "id,practice_date,practice_name,score"
+        )
         .eq("program_id", programId),
 
       supabase
         .from("samapta_records")
-        .select("id,test_date,test_type,score,outcome,result_value")
+        .select(
+          "id,test_date,test_type,score,outcome,result_value"
+        )
         .eq("program_id", programId),
 
       supabase
@@ -214,7 +260,9 @@ export default function DetailPeserta() {
 
     results.forEach((result, index) => {
       if (result.error) {
-        throw new Error(`${labels[index]}: ${result.error.message}`);
+        throw new Error(
+          `${labels[index]}: ${result.error.message}`
+        );
       }
     });
 
@@ -259,52 +307,92 @@ export default function DetailPeserta() {
           return;
         }
 
-        const { data: profile, error: profileError } = await supabase
+        const {
+          data: profile,
+          error: profileError,
+        } = await supabase
           .from("profiles")
           .select("id,full_name,role")
           .eq("id", user.id)
           .single();
 
-        if (profileError) throw profileError;
+        if (profileError) {
+          throw profileError;
+        }
 
-        const role = String(profile?.role || "").toLowerCase();
+        const currentRole = String(
+          profile?.role || ""
+        ).toLowerCase();
 
-        if (role === "participant" || role === "peserta") {
+        // Peserta tetap menggunakan dashboard sendiri.
+        if (
+          currentRole === "participant" ||
+          currentRole === "peserta"
+        ) {
           router.replace("/dashboard-peserta");
           return;
         }
 
-        if (role !== "mentor") {
-          throw new Error("Halaman ini hanya dapat diakses Mentor.");
+        // Admin dan Mentor diizinkan membuka halaman.
+        if (
+          !["admin", "mentor"].includes(currentRole)
+        ) {
+          throw new Error(
+            "Halaman ini hanya dapat diakses Admin atau Mentor."
+          );
         }
 
-        const [programResult, typesResult, records] = await Promise.all([
-          supabase
-            .from("ojt_programs")
-            .select(`
-              id,
-              site,
-              start_date,
-              end_date,
-              status,
-              peserta:profiles!ojt_programs_participant_id_fkey(
-                full_name,
-                department
-              )
-            `)
-            .eq("id", programId)
-            .single(),
+        // Ambil program terlebih dahulu agar pemeriksaan
+        // penugasan Mentor dilakukan sebelum mengambil data detail.
+        let programQuery = supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            site,
+            mentor_id,
+            start_date,
+            end_date,
+            status,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
+            )
+          `)
+          .eq("id", programId);
 
-          supabase
-            .from("achievement_types")
-            .select("code,name")
-            .order("name"),
+        if (currentRole === "mentor") {
+          programQuery = programQuery.eq(
+            "mentor_id",
+            user.id
+          );
+        }
 
-          fetchRecords(),
-        ]);
+        const programResult =
+          await programQuery.maybeSingle();
 
-        if (programResult.error) throw programResult.error;
-        if (typesResult.error) throw typesResult.error;
+        if (programResult.error) {
+          throw programResult.error;
+        }
+
+        if (!programResult.data) {
+          throw new Error(
+            "Program OJT tidak ditemukan atau Anda tidak memiliki akses."
+          );
+        }
+
+        const [typesResult, records] =
+          await Promise.all([
+            supabase
+              .from("achievement_types")
+              .select("code,name")
+              .order("name"),
+
+            fetchRecords(),
+          ]);
+
+        if (typesResult.error) {
+          throw typesResult.error;
+        }
 
         if (!active) return;
 
@@ -313,22 +401,35 @@ export default function DetailPeserta() {
         setTypes(typesResult.data || []);
         applyRecords(records);
 
-        const currentWeek = weekOf(today(), programResult.data.start_date);
+        const currentWeek = weekOf(
+          today(),
+          programResult.data.start_date
+        );
 
         const latestWeek = records.achievements
           .map((item) =>
-            weekOf(item.activity_date, programResult.data.start_date)
+            weekOf(
+              item.activity_date,
+              programResult.data.start_date
+            )
           )
           .filter((value) => value !== null)
           .sort((a, b) => b - a)[0];
 
-        setWeek(currentWeek || latestWeek || 1);
+        setWeek(
+          currentWeek || latestWeek || 1
+        );
       } catch (err) {
         if (active) {
-          setError(err?.message || "Gagal memuat data peserta.");
+          setError(
+            err?.message ||
+              "Gagal memuat data peserta."
+          );
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
@@ -340,7 +441,15 @@ export default function DetailPeserta() {
   }, [programId, router]);
 
   async function refresh() {
-    if (refreshing || loading || !programId) return;
+    if (
+      refreshing ||
+      loading ||
+      !programId ||
+      !mentor ||
+      !program
+    ) {
+      return;
+    }
 
     setRefreshing(true);
     setError("");
@@ -349,7 +458,10 @@ export default function DetailPeserta() {
     try {
       applyRecords(await fetchRecords());
     } catch (err) {
-      setError(err?.message || "Gagal memperbarui data.");
+      setError(
+        err?.message ||
+          "Gagal memperbarui data."
+      );
     } finally {
       setRefreshing(false);
     }
@@ -360,15 +472,22 @@ export default function DetailPeserta() {
     setError("");
     setMessage("");
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
   async function reloadTests() {
     const { data, error: err } = await supabase
       .from("post_test_scores")
-      .select("id,test_date,score,notes,created_at")
+      .select(
+        "id,test_date,score,notes,created_at"
+      )
       .eq("program_id", programId)
-      .order("test_date", { ascending: false });
+      .order("test_date", {
+        ascending: false,
+      });
 
     if (err) throw err;
 
@@ -385,18 +504,27 @@ export default function DetailPeserta() {
   async function saveTest(event) {
     event.preventDefault();
 
-    if (!mentor || savingTest || testActionId) return;
+    if (
+      !mentor ||
+      !program ||
+      savingTest ||
+      testActionId
+    ) {
+      return;
+    }
 
-    const score = Number(testScore);
+    const numericScore = Number(testScore);
 
     if (
       !testDate ||
       testScore.trim() === "" ||
-      !Number.isFinite(score) ||
-      score < 0 ||
-      score > 100
+      !Number.isFinite(numericScore) ||
+      numericScore < 0 ||
+      numericScore > 100
     ) {
-      setError("Nilai Post-Test harus antara 0–100.");
+      setError(
+        "Nilai Post-Test harus antara 0–100."
+      );
       return;
     }
 
@@ -407,7 +535,7 @@ export default function DetailPeserta() {
     try {
       const payload = {
         test_date: testDate,
-        score,
+        score: numericScore,
         notes: testNotes.trim() || null,
       };
 
@@ -427,17 +555,27 @@ export default function DetailPeserta() {
             })
             .select("id");
 
-      if (result.error) throw result.error;
+      if (result.error) {
+        throw result.error;
+      }
 
       if (!result.data?.length) {
-        throw new Error("Nilai tidak berhasil disimpan.");
+        throw new Error(
+          "Nilai tidak berhasil disimpan. Periksa izin database."
+        );
       }
 
       await reloadTests();
       resetTest();
-      setMessage("Nilai Post-Test berhasil disimpan.");
+
+      setMessage(
+        "Nilai Post-Test berhasil disimpan."
+      );
     } catch (err) {
-      setError(err?.message || "Gagal menyimpan Post-Test.");
+      setError(
+        err?.message ||
+          "Gagal menyimpan Post-Test."
+      );
     } finally {
       setSavingTest(false);
     }
@@ -448,20 +586,37 @@ export default function DetailPeserta() {
     setTestDate(item.test_date);
     setTestScore(String(item.score));
     setTestNotes(item.notes || "");
+
     openPanel("posttest");
   }
 
   async function deleteTest(item) {
-    if (!mentor || savingTest || testActionId) return;
+    if (
+      !mentor ||
+      !program ||
+      savingTest ||
+      testActionId
+    ) {
+      return;
+    }
 
-    if (!window.confirm("Hapus nilai Post-Test ini?")) return;
+    if (
+      !window.confirm(
+        "Hapus nilai Post-Test ini?"
+      )
+    ) {
+      return;
+    }
 
     setTestActionId(item.id);
     setError("");
     setMessage("");
 
     try {
-      const { data, error: err } = await supabase
+      const {
+        data,
+        error: err,
+      } = await supabase
         .from("post_test_scores")
         .delete()
         .eq("id", item.id)
@@ -471,15 +626,25 @@ export default function DetailPeserta() {
       if (err) throw err;
 
       if (!data?.length) {
-        throw new Error("Nilai tidak terhapus.");
+        throw new Error(
+          "Nilai tidak terhapus. Periksa izin database."
+        );
       }
 
-      if (editTestId === item.id) resetTest();
+      if (editTestId === item.id) {
+        resetTest();
+      }
 
       await reloadTests();
-      setMessage("Nilai Post-Test berhasil dihapus.");
+
+      setMessage(
+        "Nilai Post-Test berhasil dihapus."
+      );
     } catch (err) {
-      setError(err?.message || "Gagal menghapus Post-Test.");
+      setError(
+        err?.message ||
+          "Gagal menghapus Post-Test."
+      );
     } finally {
       setTestActionId(null);
     }
@@ -488,41 +653,62 @@ export default function DetailPeserta() {
   const weekly = useMemo(() => {
     const rows = achievements.filter(
       (item) =>
-        weekOf(item.activity_date, program?.start_date) === week
+        weekOf(
+          item.activity_date,
+          program?.start_date
+        ) === week
     );
 
     const verified = rows.filter(
-      (item) => item.status === "verified"
+      (item) =>
+        item.status === "verified"
     );
 
     const categories = TARGETS.map((target) => {
       const type = types.find(
-        (item) => normalize(item.name) === normalize(target.name)
+        (item) =>
+          normalize(item.name) ===
+          normalize(target.name)
       );
 
       const matched = type
-        ? verified.filter((item) => item.type_code === type.code)
+        ? verified.filter(
+            (item) =>
+              item.type_code === type.code
+          )
         : [];
 
       let actual = 0;
 
       if (target.name === "Fisik") {
-        const meters = matched.reduce((sum, item) => {
-          const distance = Number(item.distance_km);
+        const meters = matched.reduce(
+          (sum, item) => {
+            const distance = Number(
+              item.distance_km
+            );
 
-          if (!Number.isFinite(distance) || distance <= 0) {
-            return sum;
-          }
+            if (
+              !Number.isFinite(distance) ||
+              distance <= 0
+            ) {
+              return sum;
+            }
 
-          return sum + Math.round(distance * 1000);
-        }, 0);
+            return (
+              sum +
+              Math.round(distance * 1000)
+            );
+          },
+          0
+        );
 
         actual = meters / 1000;
       } else {
         actual = matched.length;
       }
 
-      const percent = (actual / target.target) * 100;
+      const percent =
+        (actual / target.target) * 100;
 
       return {
         ...target,
@@ -533,29 +719,52 @@ export default function DetailPeserta() {
     });
 
     const overall =
-      categories.reduce((sum, item) => sum + item.capped, 0) /
-      TARGETS.length;
+      categories.reduce(
+        (sum, item) =>
+          sum + item.capped,
+        0
+      ) / TARGETS.length;
 
     return {
       categories,
       overall,
-      achieved: categories.filter((item) => item.percent >= 100).length,
+      achieved: categories.filter(
+        (item) =>
+          item.percent >= 100
+      ).length,
       verified: verified.length,
-      pending: rows.filter((item) => item.status === "pending").length,
+      pending: rows.filter(
+        (item) =>
+          item.status === "pending"
+      ).length,
     };
-  }, [achievements, types, program, week]);
+  }, [
+    achievements,
+    types,
+    program,
+    week,
+  ]);
 
-  const participant = Array.isArray(program?.peserta)
+  const participant = Array.isArray(
+    program?.peserta
+  )
     ? program.peserta[0]
     : program?.peserta;
 
-  const participantName = participant?.full_name || "Peserta OJT";
+  const participantName =
+    participant?.full_name ||
+    "Peserta OJT";
 
   const weekStart = program?.start_date
-    ? addDays(program.start_date, (week - 1) * 7)
+    ? addDays(
+        program.start_date,
+        (week - 1) * 7
+      )
     : null;
 
-  const weekEnd = weekStart ? addDays(weekStart, 6) : null;
+  const weekEnd = weekStart
+    ? addDays(weekStart, 6)
+    : null;
 
   const menus = [
     {
@@ -585,7 +794,9 @@ export default function DetailPeserta() {
     {
       title: "SIMPER",
       icon: "🪪",
-      desc: simper ? "Data tersedia" : "Belum ada data",
+      desc: simper
+        ? "Data tersedia"
+        : "Belum ada data",
       route: `/simper/${programId}`,
     },
     {
@@ -616,7 +827,12 @@ export default function DetailPeserta() {
 
   if (loading) {
     return (
-      <main style={{ padding: 30, fontFamily: "Arial" }}>
+      <main
+        style={{
+          padding: 30,
+          fontFamily: "Arial",
+        }}
+      >
         <h2>OJT MineTrack</h2>
         <p>Memuat data peserta...</p>
       </main>
@@ -625,10 +841,26 @@ export default function DetailPeserta() {
 
   if (!mentor || !program) {
     return (
-      <main style={{ padding: 30, fontFamily: "Arial" }}>
-        <h2>Data Tidak Dapat Ditampilkan</h2>
-        <p>{error || "Akses tidak tersedia."}</p>
-        <button onClick={() => router.push("/")}>
+      <main
+        style={{
+          padding: 30,
+          fontFamily: "Arial",
+        }}
+      >
+        <h2>
+          Data Tidak Dapat Ditampilkan
+        </h2>
+
+        <p>
+          {error ||
+            "Akses tidak tersedia."}
+        </p>
+
+        <button
+          onClick={() =>
+            router.push("/")
+          }
+        >
           Kembali ke Dashboard
         </button>
       </main>
@@ -1315,15 +1547,26 @@ export default function DetailPeserta() {
               : openPanel("dashboard")
           }
         >
-          ← {panel === "dashboard" ? "Dashboard" : "Menu Peserta"}
+          ←{" "}
+          {panel === "dashboard"
+            ? "Dashboard"
+            : "Menu Peserta"}
         </button>
       </header>
 
       <div className="mt-container">
         <section className="mt-banner">
-          <small>EMERGENCY RESPONSE GROUP · PT BERAU COAL</small>
+          <small>
+            EMERGENCY RESPONSE GROUP ·
+            PT BERAU COAL
+          </small>
+
           <h1>Detail Peserta OJT</h1>
-          <p>Monitoring Kompetensi dan Evaluasi OJT</p>
+
+          <p>
+            Monitoring Kompetensi dan
+            Evaluasi OJT
+          </p>
         </section>
 
         <section className="mt-card">
@@ -1338,8 +1581,10 @@ export default function DetailPeserta() {
               </div>
 
               <div className="mt-profile-meta">
-                {participant?.department || "—"} ·{" "}
-                {program.site || "Site belum diisi"}
+                {participant?.department || "—"}
+                {" · "}
+                {program.site ||
+                  "Site belum diisi"}
               </div>
             </div>
 
@@ -1354,16 +1599,29 @@ export default function DetailPeserta() {
 
           <div className="mt-profile-details">
             <div>
-              <span className="mt-info-label">Periode OJT</span>
+              <span className="mt-info-label">
+                Periode OJT
+              </span>
+
               <div className="mt-info-value">
-                {formatDate(program.start_date)} –{" "}
+                {formatDate(program.start_date)}
+                {" – "}
                 {formatDate(program.end_date)}
               </div>
             </div>
 
             <div>
-              <span className="mt-info-label">Mentor</span>
+              <span className="mt-info-label">
+                Akses Pengelola
+              </span>
+
               <div className="mt-info-value">
+                {isAdmin
+                  ? "Administrator"
+                  : isMentor
+                  ? "Mentor"
+                  : "—"}
+                {" · "}
                 {mentor.full_name || "—"}
               </div>
             </div>
@@ -1371,13 +1629,19 @@ export default function DetailPeserta() {
         </section>
 
         {error && (
-          <div className="mt-alert error" role="alert">
+          <div
+            className="mt-alert error"
+            role="alert"
+          >
             {error}
           </div>
         )}
 
         {message && (
-          <div className="mt-alert success" role="status">
+          <div
+            className="mt-alert success"
+            role="status"
+          >
             ✓ {message}
           </div>
         )}
@@ -1386,7 +1650,9 @@ export default function DetailPeserta() {
           <>
             <section className="mt-card">
               <div className="mt-section-head">
-                <h2 className="mt-title">Progress Achievement OJT</h2>
+                <h2 className="mt-title">
+                  Progress Achievement OJT
+                </h2>
 
                 <button
                   type="button"
@@ -1394,73 +1660,121 @@ export default function DetailPeserta() {
                   onClick={refresh}
                   disabled={refreshing}
                 >
-                  {refreshing ? "Memuat..." : "↻ Refresh"}
+                  {refreshing
+                    ? "Memuat..."
+                    : "↻ Refresh"}
                 </button>
               </div>
 
               <div className="mt-overall">
                 <div>
                   <div className="mt-overall-label">
-                    Progress Week {String(week).padStart(2, "0")}
+                    Progress Week{" "}
+                    {String(week).padStart(
+                      2,
+                      "0"
+                    )}
                   </div>
 
                   <div className="mt-overall-note">
-                    Rata-rata pencapaian 6 kategori terverifikasi
+                    Rata-rata pencapaian
+                    6 kategori terverifikasi
                   </div>
                 </div>
 
                 <div className="mt-overall-value">
-                  {formatNumber(weekly.overall)}%
+                  {formatNumber(
+                    weekly.overall
+                  )}
+                  %
                 </div>
               </div>
 
-              <ProgressBar value={weekly.overall} />
+              <ProgressBar
+                value={weekly.overall}
+              />
 
               <div className="mt-stats">
                 <div className="mt-stat">
-                  <small>Kategori Tercapai</small>
-                  <strong>{weekly.achieved}/6</strong>
+                  <small>
+                    Kategori Tercapai
+                  </small>
+
+                  <strong>
+                    {weekly.achieved}/6
+                  </strong>
                 </div>
 
                 <div className="mt-stat">
-                  <small>Terverifikasi</small>
-                  <strong>{weekly.verified}</strong>
+                  <small>
+                    Terverifikasi
+                  </small>
+
+                  <strong>
+                    {weekly.verified}
+                  </strong>
                 </div>
 
                 <div className="mt-stat">
-                  <small>Menunggu</small>
-                  <strong>{weekly.pending}</strong>
+                  <small>
+                    Menunggu
+                  </small>
+
+                  <strong>
+                    {weekly.pending}
+                  </strong>
                 </div>
               </div>
 
               <p
                 className="mt-subtitle"
-                style={{ marginTop: 14, marginBottom: 0 }}
+                style={{
+                  marginTop: 14,
+                  marginBottom: 0,
+                }}
               >
-                Progress dihitung per minggu. Setiap kategori
-                memiliki bobot sama dan kontribusinya dibatasi
-                maksimal 100% untuk progress keseluruhan.
+                Progress dihitung per
+                minggu. Setiap kategori
+                memiliki bobot sama dan
+                kontribusinya dibatasi
+                maksimal 100% untuk
+                progress keseluruhan.
               </p>
             </section>
 
             <section className="mt-card">
               <div className="mt-section-head">
-                <h2 className="mt-title">Achievement Mingguan</h2>
+                <h2 className="mt-title">
+                  Achievement Mingguan
+                </h2>
 
                 <select
                   className="mt-week-select"
                   aria-label="Pilih minggu Achievement"
                   value={week}
                   onChange={(event) =>
-                    setWeek(Number(event.target.value))
+                    setWeek(
+                      Number(
+                        event.target.value
+                      )
+                    )
                   }
                 >
                   {Array.from(
-                    { length: TOTAL_WEEKS },
+                    {
+                      length: TOTAL_WEEKS,
+                    },
                     (_, index) => index + 1
                   ).map((item) => (
-                    <option key={item} value={item}>
-                      Week {String(item).padStart(2, "0")}
+                    <option
+                      key={item}
+                      value={item}
+                    >
+                      Week{" "}
+                      {String(item).padStart(
+                        2,
+                        "0"
+                      )}
                     </option>
                   ))}
                 </select>
@@ -1473,47 +1787,62 @@ export default function DetailPeserta() {
               </div>
 
               <div className="mt-achievement-grid">
-                {weekly.categories.map((item) => (
-                  <div
-                    key={item.name}
-                    className="mt-achievement"
-                  >
-                    <div className="mt-achievement-top">
-                      <div className="mt-achievement-icon">
-                        {item.icon}
+                {weekly.categories.map(
+                  (item) => (
+                    <div
+                      key={item.name}
+                      className="mt-achievement"
+                    >
+                      <div className="mt-achievement-top">
+                        <div className="mt-achievement-icon">
+                          {item.icon}
+                        </div>
+
+                        <div
+                          className={`mt-achievement-percent ${
+                            item.percent >= 100
+                              ? "done"
+                              : ""
+                          }`}
+                        >
+                          {formatNumber(
+                            item.percent
+                          )}
+                          %
+                        </div>
                       </div>
 
-                      <div
-                        className={`mt-achievement-percent ${
-                          item.percent >= 100 ? "done" : ""
-                        }`}
-                      >
-                        {formatNumber(item.percent)}%
+                      <div className="mt-achievement-name">
+                        {item.name}
+                      </div>
+
+                      <ProgressBar
+                        value={item.percent}
+                      />
+
+                      <div className="mt-achievement-target">
+                        {item.name === "Fisik"
+                          ? formatNumber(
+                              item.actual,
+                              3
+                            )
+                          : item.actual}
+                        {" / "}
+                        {item.target}{" "}
+                        {item.unit}
                       </div>
                     </div>
-
-                    <div className="mt-achievement-name">
-                      {item.name}
-                    </div>
-
-                    <ProgressBar value={item.percent} />
-
-                    <div className="mt-achievement-target">
-                      {item.name === "Fisik"
-                        ? formatNumber(item.actual, 3)
-                        : item.actual}
-                      {" / "}
-                      {item.target} {item.unit}
-                    </div>
-                  </div>
-                ))}
+                  )
+                )}
               </div>
 
               <button
                 type="button"
                 className="mt-input-button"
                 onClick={() =>
-                  router.push(`/achievement/${programId}`)
+                  router.push(
+                    `/achievement/${programId}`
+                  )
                 }
               >
                 📝 Input Achievement →
@@ -1522,7 +1851,9 @@ export default function DetailPeserta() {
 
             <section className="mt-card">
               <div className="mt-section-head">
-                <h2 className="mt-title">Monitoring & Penilaian</h2>
+                <h2 className="mt-title">
+                  Monitoring & Penilaian
+                </h2>
               </div>
 
               <div className="mt-menu-grid">
@@ -1533,8 +1864,12 @@ export default function DetailPeserta() {
                     className="mt-menu"
                     onClick={() =>
                       item.route
-                        ? router.push(item.route)
-                        : openPanel(item.panel)
+                        ? router.push(
+                            item.route
+                          )
+                        : openPanel(
+                            item.panel
+                          )
                     }
                   >
                     <span className="mt-menu-icon">
@@ -1551,7 +1886,9 @@ export default function DetailPeserta() {
                       </div>
                     </div>
 
-                    <span className="mt-menu-arrow">›</span>
+                    <span className="mt-menu-arrow">
+                      ›
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1560,7 +1897,9 @@ export default function DetailPeserta() {
             <button
               type="button"
               className="mt-bottom-back"
-              onClick={() => router.push("/")}
+              onClick={() =>
+                router.push("/")
+              }
             >
               ← Kembali ke Dashboard
             </button>
@@ -1571,12 +1910,16 @@ export default function DetailPeserta() {
           <>
             <section className="mt-card">
               <div className="mt-section-head">
-                <h2 className="mt-title">Monitoring Post-Test</h2>
+                <h2 className="mt-title">
+                  Monitoring Post-Test
+                </h2>
 
                 <button
                   type="button"
                   className="mt-button outline"
-                  onClick={() => openPanel("dashboard")}
+                  onClick={() =>
+                    openPanel("dashboard")
+                  }
                 >
                   Kembali
                 </button>
@@ -1584,19 +1927,33 @@ export default function DetailPeserta() {
 
               <div className="mt-stats">
                 <div className="mt-stat">
-                  <small>Total Post-Test</small>
-                  <strong>{postTests.length}</strong>
+                  <small>
+                    Total Post-Test
+                  </small>
+
+                  <strong>
+                    {postTests.length}
+                  </strong>
                 </div>
 
                 <div className="mt-stat">
-                  <small>Rata-rata Nilai</small>
-                  <strong>{formatScore(average(postTests))}</strong>
+                  <small>
+                    Rata-rata Nilai
+                  </small>
+
+                  <strong>
+                    {formatScore(
+                      average(postTests)
+                    )}
+                  </strong>
                 </div>
               </div>
 
               <h3
                 className="mt-title"
-                style={{ margin: "24px 0 17px" }}
+                style={{
+                  margin: "24px 0 17px",
+                }}
               >
                 {editTestId
                   ? "Edit Nilai Post-Test"
@@ -1615,7 +1972,9 @@ export default function DetailPeserta() {
                     type="date"
                     value={testDate}
                     onChange={(event) =>
-                      setTestDate(event.target.value)
+                      setTestDate(
+                        event.target.value
+                      )
                     }
                     required
                   />
@@ -1623,7 +1982,8 @@ export default function DetailPeserta() {
 
                 <div className="mt-field-group">
                   <label htmlFor="mt-test-score">
-                    Nilai Post-Test (0–100)
+                    Nilai Post-Test
+                    (0–100)
                   </label>
 
                   <input
@@ -1635,7 +1995,9 @@ export default function DetailPeserta() {
                     step="0.01"
                     value={testScore}
                     onChange={(event) =>
-                      setTestScore(event.target.value)
+                      setTestScore(
+                        event.target.value
+                      )
                     }
                     required
                   />
@@ -1652,7 +2014,9 @@ export default function DetailPeserta() {
                     rows={3}
                     value={testNotes}
                     onChange={(event) =>
-                      setTestNotes(event.target.value)
+                      setTestNotes(
+                        event.target.value
+                      )
                     }
                     placeholder="Catatan evaluasi peserta..."
                   />
@@ -1663,7 +2027,8 @@ export default function DetailPeserta() {
                     type="submit"
                     className="mt-button"
                     disabled={
-                      savingTest || Boolean(testActionId)
+                      savingTest ||
+                      Boolean(testActionId)
                     }
                   >
                     {savingTest
@@ -1690,29 +2055,42 @@ export default function DetailPeserta() {
             <section className="mt-card">
               <h2
                 className="mt-title"
-                style={{ marginBottom: 16 }}
+                style={{
+                  marginBottom: 16,
+                }}
               >
                 Riwayat Nilai Post-Test
               </h2>
 
               {!postTests.length && (
                 <p className="mt-subtitle">
-                  Belum ada nilai Post-Test.
+                  Belum ada nilai
+                  Post-Test.
                 </p>
               )}
 
               {postTests.map((item) => (
-                <div className="mt-history" key={item.id}>
+                <div
+                  className="mt-history"
+                  key={item.id}
+                >
                   <div className="mt-history-title">
-                    Nilai: {formatScore(item.score)}
+                    Nilai:{" "}
+                    {formatScore(
+                      item.score
+                    )}
                   </div>
 
                   <div className="mt-history-meta">
-                    Tanggal: {formatDate(item.test_date)}
+                    Tanggal:{" "}
+                    {formatDate(
+                      item.test_date
+                    )}
                   </div>
 
                   <p className="mt-history-desc">
-                    {item.notes || "Tidak ada catatan."}
+                    {item.notes ||
+                      "Tidak ada catatan."}
                   </p>
 
                   <div className="mt-history-actions">
@@ -1720,9 +2098,14 @@ export default function DetailPeserta() {
                       type="button"
                       className="mt-button blue"
                       disabled={
-                        Boolean(testActionId) || savingTest
+                        Boolean(
+                          testActionId
+                        ) ||
+                        savingTest
                       }
-                      onClick={() => editTest(item)}
+                      onClick={() =>
+                        editTest(item)
+                      }
                     >
                       Edit
                     </button>
@@ -1731,11 +2114,17 @@ export default function DetailPeserta() {
                       type="button"
                       className="mt-button red"
                       disabled={
-                        Boolean(testActionId) || savingTest
+                        Boolean(
+                          testActionId
+                        ) ||
+                        savingTest
                       }
-                      onClick={() => deleteTest(item)}
+                      onClick={() =>
+                        deleteTest(item)
+                      }
                     >
-                      {testActionId === item.id
+                      {testActionId ===
+                      item.id
                         ? "Menghapus..."
                         : "Hapus"}
                     </button>
@@ -1747,7 +2136,8 @@ export default function DetailPeserta() {
         )}
 
         <footer className="mt-footer">
-          OJT MineTrack v2.0 · Emergency Response Group ·
+          OJT MineTrack v2.0 ·
+          Emergency Response Group ·
           PT Berau Coal
         </footer>
       </div>
