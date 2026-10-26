@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
@@ -53,6 +53,12 @@ const secondaryButton = {
 
 function normalize(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function isParticipantRole(role) {
+  return ["participant", "peserta"].includes(
+    normalize(role)
+  );
 }
 
 function formatDate(value) {
@@ -188,8 +194,10 @@ export default function DashboardPeserta() {
   const [registration, setRegistration] = useState(null);
 
   const [participants, setParticipants] = useState([]);
-  const [selectedParticipantId, setSelectedParticipantId] =
-    useState("");
+  const [
+    selectedParticipantId,
+    setSelectedParticipantId,
+  ] = useState("");
 
   const [access, setAccess] = useState("loading");
   const [loading, setLoading] = useState(true);
@@ -197,7 +205,27 @@ export default function DashboardPeserta() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
 
+  // Mencegah hasil permintaan lama menimpa
+  // Dashboard yang baru dipilih.
+  const requestIdRef = useRef(0);
+  const selectedIdRef = useRef("");
+
   const isAdmin = normalize(account?.role) === "admin";
+
+  function clearDashboard() {
+    setProfile(null);
+    setProgram(null);
+    setRegistration(null);
+    setAccess("loading");
+  }
+
+  // ====================================================
+  // DAFTAR PESERTA UNTUK PREVIEW ADMIN
+  //
+  // Hanya akun dengan role participant/peserta.
+  // Program OJT yang menggunakan akun Admin
+  // tidak dimasukkan ke dropdown preview.
+  // ====================================================
 
   async function fetchParticipantList() {
     const { data, error: listError } = await supabase
@@ -208,7 +236,8 @@ export default function DashboardPeserta() {
         peserta:profiles!ojt_programs_participant_id_fkey(
           id,
           full_name,
-          department
+          department,
+          role
         )
       `)
       .eq("status", "active");
@@ -220,14 +249,25 @@ export default function DashboardPeserta() {
     (data || []).forEach((item) => {
       if (!item.participant_id) return;
 
+      const peserta = Array.isArray(item.peserta)
+        ? item.peserta[0]
+        : item.peserta;
+
+      // Perlindungan preview:
+      // jangan tampilkan akun Admin/Mentor.
+      if (!peserta || !isParticipantRole(peserta.role)) {
+        return;
+      }
+
       if (!unique.has(item.participant_id)) {
         unique.set(item.participant_id, {
           id: item.participant_id,
           full_name:
-            item.peserta?.full_name || "Peserta OJT",
+            peserta.full_name || "Peserta OJT",
           department:
-            item.peserta?.department || "",
+            peserta.department || "",
           site: item.site || "",
+          role: normalize(peserta.role),
         });
       }
     });
@@ -237,6 +277,19 @@ export default function DashboardPeserta() {
     );
   }
 
+  // ====================================================
+  // DATA DASHBOARD PESERTA
+  //
+  // Peserta biasa:
+  // Menggunakan user.id dari Supabase Auth.
+  //
+  // Admin:
+  // Menggunakan pilihan peserta yang valid
+  // dari daftar preview.
+  //
+  // Semua akses tetap tunduk pada RLS.
+  // ====================================================
+
   async function fetchParticipantDashboard(
     participantId,
     adminPreview = false,
@@ -245,10 +298,10 @@ export default function DashboardPeserta() {
     let currentProfile = null;
 
     if (adminPreview) {
-      // ID preview harus berasal dari daftar
-      // program aktif yang dibaca dari Supabase.
       const selected = previewParticipants.find(
-        (item) => item.id === participantId
+        (item) =>
+          item.id === participantId &&
+          isParticipantRole(item.role)
       );
 
       if (!selected) {
@@ -261,7 +314,7 @@ export default function DashboardPeserta() {
         id: selected.id,
         full_name: selected.full_name,
         department: selected.department,
-        role: "participant",
+        role: selected.role,
       };
     } else {
       const {
@@ -278,6 +331,12 @@ export default function DashboardPeserta() {
       if (!data) {
         throw new Error(
           "Profil peserta tidak tersedia."
+        );
+      }
+
+      if (!isParticipantRole(data.role)) {
+        throw new Error(
+          "Akun tidak terdaftar sebagai Peserta OJT."
         );
       }
 
@@ -352,41 +411,58 @@ export default function DashboardPeserta() {
     const oldRegistration = oldRequests?.[0] || null;
     const activeProgram = activePrograms?.[0] || null;
 
+    const latestNew = newList[0] || null;
+
     const latestRegistration =
-      newList[0] || oldRegistration;
+      latestNew && oldRegistration
+        ? new Date(latestNew.created_at || 0) >=
+          new Date(oldRegistration.created_at || 0)
+          ? latestNew
+          : oldRegistration
+        : latestNew || oldRegistration;
 
     const hasPendingNew = newList.some(
-      (item) => item.status === "pending"
+      (item) =>
+        normalize(item.status) === "pending"
     );
 
     const hasApprovedNew = newList.some(
-      (item) => item.status === "approved"
+      (item) =>
+        normalize(item.status) === "approved"
     );
 
     const hasApprovedOld =
-      oldRegistration?.status === "approved";
+      normalize(oldRegistration?.status) ===
+      "approved";
 
     const hasPendingOld =
-      oldRegistration?.status === "pending";
+      normalize(oldRegistration?.status) ===
+      "pending";
 
+    // Pertahankan dukungan:
+    // - Persetujuan registrasi baru.
+    // - Persetujuan registrasi lama.
+    // - Program dengan legacy_access.
+    //
+    // Pengajuan pending tidak membatalkan
+    // hak akses program aktif yang sudah sah.
     const approvedProgram =
       !!activeProgram &&
       (
         hasApprovedNew ||
         hasApprovedOld ||
         activeProgram.legacy_access === true
-      ) &&
-      !hasPendingNew &&
-      !hasPendingOld;
+      );
 
     let nextAccess = "no_program";
 
-    if (hasPendingNew || hasPendingOld) {
-      nextAccess = "pending";
-    } else if (approvedProgram) {
+    if (approvedProgram) {
       nextAccess = "approved";
+    } else if (hasPendingNew || hasPendingOld) {
+      nextAccess = "pending";
     } else if (
-      latestRegistration?.status === "rejected"
+      normalize(latestRegistration?.status) ===
+      "rejected"
     ) {
       nextAccess = "rejected";
     }
@@ -409,14 +485,21 @@ export default function DashboardPeserta() {
     setAccess(data.access);
   }
 
+  // ====================================================
+  // MEMUAT DASHBOARD
+  // ====================================================
+
   async function loadDashboard(
     isRefresh = false,
     requestedParticipantId = null
   ) {
+    const requestId = ++requestIdRef.current;
+
     if (isRefresh) {
       setRefreshing(true);
     } else {
       setLoading(true);
+      clearDashboard();
     }
 
     setError("");
@@ -427,7 +510,14 @@ export default function DashboardPeserta() {
         error: authError,
       } = await supabase.auth.getUser();
 
+      if (requestId !== requestIdRef.current) return;
+
       if (authError || !user) {
+        setAccount(null);
+        setParticipants([]);
+        setSelectedParticipantId("");
+        selectedIdRef.current = "";
+        clearDashboard();
         router.replace("/login");
         return;
       }
@@ -441,6 +531,8 @@ export default function DashboardPeserta() {
         .eq("id", user.id)
         .maybeSingle();
 
+      if (requestId !== requestIdRef.current) return;
+
       if (accountError) throw accountError;
 
       if (!currentAccount) {
@@ -452,20 +544,23 @@ export default function DashboardPeserta() {
       const role = normalize(currentAccount.role);
 
       if (role === "mentor") {
+        setAccount(null);
+        clearDashboard();
         router.replace("/");
         return;
       }
 
       if (
         role !== "admin" &&
-        role !== "participant" &&
-        role !== "peserta"
+        !isParticipantRole(role)
       ) {
         throw new Error(
           "Akun tidak memiliki akses Dashboard Peserta."
         );
       }
 
+      // Seluruh keputusan role menggunakan
+      // profil akun yang baru diverifikasi.
       setAccount({
         ...currentAccount,
         role,
@@ -474,9 +569,12 @@ export default function DashboardPeserta() {
       if (role === "admin") {
         const list = await fetchParticipantList();
 
+        if (requestId !== requestIdRef.current) return;
+
         setParticipants(list);
 
         if (!list.length) {
+          selectedIdRef.current = "";
           setSelectedParticipantId("");
           setProfile(null);
           setRegistration(null);
@@ -487,7 +585,7 @@ export default function DashboardPeserta() {
 
         const requestedId =
           requestedParticipantId ||
-          selectedParticipantId;
+          selectedIdRef.current;
 
         const validSelection = list.some(
           (item) => item.id === requestedId
@@ -497,6 +595,7 @@ export default function DashboardPeserta() {
           ? requestedId
           : list[0].id;
 
+        selectedIdRef.current = targetId;
         setSelectedParticipantId(targetId);
 
         const next = await fetchParticipantDashboard(
@@ -505,47 +604,108 @@ export default function DashboardPeserta() {
           list
         );
 
+        if (requestId !== requestIdRef.current) return;
+
         applyDashboard(next);
       } else {
+        // Peserta hanya boleh meminta data
+        // menggunakan user.id miliknya sendiri.
         setParticipants([]);
         setSelectedParticipantId("");
+        selectedIdRef.current = "";
 
         const next = await fetchParticipantDashboard(
           user.id,
           false
         );
 
+        if (requestId !== requestIdRef.current) return;
+
         applyDashboard(next);
       }
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
+
+      clearDashboard();
+
       setError(
-        err.message ||
+        err?.message ||
           "Gagal memuat Dashboard Peserta."
       );
 
       setAccess("error");
-      setProgram(null);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }
 
   useEffect(() => {
     loadDashboard();
+
+    return () => {
+      requestIdRef.current += 1;
+    };
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function changePreviewParticipant(id) {
-    if (!isAdmin || !id || loading || refreshing) return;
+  // ====================================================
+  // PREVIEW ADMIN
+  // ====================================================
 
+  async function changePreviewParticipant(id) {
+    if (!isAdmin || !id || loading || refreshing) {
+      return;
+    }
+
+    const requestId = ++requestIdRef.current;
+
+    selectedIdRef.current = id;
     setSelectedParticipantId(id);
+
     setRefreshing(true);
     setError("");
 
     try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (requestId !== requestIdRef.current) return;
+
+      if (authError || !user) {
+        clearDashboard();
+        router.replace("/login");
+        return;
+      }
+
+      const {
+        data: verifiedAccount,
+        error: accountError,
+      } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (requestId !== requestIdRef.current) return;
+
+      if (accountError) throw accountError;
+
+      if (normalize(verifiedAccount?.role) !== "admin") {
+        throw new Error(
+          "Hanya Admin yang dapat menggunakan preview peserta."
+        );
+      }
+
       const selected = participants.find(
-        (item) => item.id === id
+        (item) =>
+          item.id === id &&
+          isParticipantRole(item.role)
       );
 
       if (!selected) {
@@ -560,29 +720,51 @@ export default function DashboardPeserta() {
         participants
       );
 
+      if (requestId !== requestIdRef.current) return;
+
       applyDashboard(next);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
+
+      setProfile(null);
+      setRegistration(null);
+      setProgram(null);
+
       setError(
-        err.message ||
+        err?.message ||
           "Gagal mengganti peserta preview."
       );
+
       setAccess("error");
-      setProgram(null);
     } finally {
-      setRefreshing(false);
+      if (requestId === requestIdRef.current) {
+        setRefreshing(false);
+      }
     }
   }
+
+  // ====================================================
+  // LOGOUT
+  // ====================================================
 
   async function logout() {
     if (loggingOut) return;
 
     setLoggingOut(true);
+    requestIdRef.current += 1;
 
     try {
       const { error: logoutError } =
         await supabase.auth.signOut();
 
       if (logoutError) throw logoutError;
+
+      setAccount(null);
+      setParticipants([]);
+      setSelectedParticipantId("");
+      selectedIdRef.current = "";
+
+      clearDashboard();
 
       router.replace("/login");
       router.refresh();
@@ -595,9 +777,9 @@ export default function DashboardPeserta() {
   }
 
   function openParticipantFeature(path) {
-    // Admin hanya membuka fitur untuk preview.
-    // Halaman tujuan tetap wajib memeriksa
-    // role dan izin database sendiri.
+    // Halaman tujuan wajib memeriksa
+    // user, role, kepemilikan program,
+    // dan kebijakan RLS sendiri.
     router.push(path);
   }
 
@@ -930,8 +1112,8 @@ export default function DashboardPeserta() {
                 }}
               >
                 Daftar preview diambil dari program
-                OJT aktif yang dapat dibaca akun
-                Admin. Periksa data program dan
+                OJT aktif milik akun peserta.
+                Periksa data program dan
                 kebijakan RLS jika daftar kosong.
               </p>
             </section>
