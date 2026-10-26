@@ -36,6 +36,11 @@ const NAV = [
     icon: "users",
   },
   {
+    label: "Rapor OJT",
+    url: "/rapor",
+    icon: "file",
+  },
+  {
     label: "Pendaftaran Peserta",
     url: "/mentor/daftar-peserta",
     icon: "file",
@@ -520,8 +525,6 @@ export default function MentorDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  // Status maintenance khusus tampilan Admin.
-  // Sumber status tetap Supabase app_settings.
   const [maintenanceMode, setMaintenanceMode] =
     useState(null);
 
@@ -765,7 +768,6 @@ export default function MentorDashboard() {
     };
   }, [router]);
 
-  // Memperbarui indikator maintenance untuk Admin.
   useEffect(() => {
     if (!isAdmin) return;
 
