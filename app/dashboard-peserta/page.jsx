@@ -5,6 +5,20 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
+const TOTAL_WEEKS = 25;
+
+const TARGETS = [
+  { name: "Fisik", target: 25 },
+  { name: "Training", target: 4 },
+  { name: "Sosialisasi", target: 3 },
+  { name: "Coaching", target: 1 },
+  { name: "Orientasi Area", target: 2 },
+  { name: "Hazard", target: 2 },
+];
+
+const META_START = "[[SIMPER_V2]]";
+const META_END = "[[/SIMPER_V2]]";
+
 const C = {
   green: "#153c2e",
   green2: "#205642",
@@ -51,25 +65,236 @@ const secondaryButton = {
   border: `1px solid ${C.border}`,
 };
 
-function normalize(value) {
-  return String(value || "").trim().toLowerCase();
+function normalize(v) {
+  return String(v || "").trim().toLowerCase();
+}
+
+function normalizeType(v) {
+  return normalize(v).replace(/[^a-z0-9]/g, "");
 }
 
 function isParticipantRole(role) {
-  return ["participant", "peserta"].includes(
-    normalize(role)
-  );
+  return ["participant", "peserta"].includes(normalize(role));
 }
 
 function formatDate(value) {
   if (!value) return "-";
-
-  const parts = String(value).slice(0, 10).split("-");
-
-  if (parts.length !== 3) return String(value);
-
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  const p = String(value).slice(0, 10).split("-");
+  return p.length === 3
+    ? `${p[2]}/${p[1]}/${p[0]}`
+    : String(value);
 }
+
+function parseDate(value) {
+  if (!value) return null;
+  const p = String(value).slice(0, 10).split("-").map(Number);
+
+  if (p.length !== 3 || p.some(n => !Number.isInteger(n))) {
+    return null;
+  }
+
+  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+
+  return d.getUTCFullYear() === p[0] &&
+    d.getUTCMonth() === p[1] - 1 &&
+    d.getUTCDate() === p[2]
+    ? d
+    : null;
+}
+
+function weekOf(value, startValue) {
+  const date = parseDate(value);
+  const start = parseDate(startValue);
+
+  if (!date || !start) return null;
+
+  const days = Math.round(
+    (date.getTime() - start.getTime()) / 86400000
+  );
+
+  if (days < 0) return null;
+
+  const week = Math.floor(days / 7) + 1;
+
+  return week >= 1 && week <= TOTAL_WEEKS
+    ? week
+    : null;
+}
+
+function clamp(v) {
+  return Math.max(0, Math.min(100, Number(v) || 0));
+}
+
+function emptyProgress() {
+  return {
+    achievement: 0,
+    completedCategories: 0,
+    activityWeeks: 0,
+    activityPercent: 0,
+    simper: 0,
+    simperCompleted: 0,
+    simperIssued: false,
+  };
+}
+
+// ====================================================
+// ACHIEVEMENT
+// SAMA DENGAN DASHBOARD MENTOR TAHAP 6.1
+// ====================================================
+
+function calculateAchievements(records, types, startDate) {
+  const codes = new Map(
+    types.map(t => [
+      normalizeType(t.name),
+      normalizeType(t.code),
+    ])
+  );
+
+  const verified = records.filter(r =>
+    normalize(r.status) === "verified" &&
+    weekOf(r.activity_date, startDate) !== null
+  );
+
+  const categories = TARGETS.map(item => {
+    const code = codes.get(normalizeType(item.name));
+
+    const matching = code
+      ? verified.filter(r =>
+          normalizeType(r.type_code) === code
+        )
+      : [];
+
+    let amount = 0;
+
+    if (item.name === "Fisik") {
+      amount = matching.reduce((sum, r) => {
+        const km = Number(r.distance_km);
+        return sum + (
+          Number.isFinite(km) && km > 0 ? km : 0
+        );
+      }, 0);
+    } else {
+      amount = matching.length;
+    }
+
+    return {
+      ...item,
+      amount,
+      progress: clamp((amount / item.target) * 100),
+      completed: amount >= item.target,
+    };
+  });
+
+  const total = categories.reduce(
+    (sum, item) => sum + item.progress,
+    0
+  );
+
+  return {
+    progress: Math.round(total / TARGETS.length),
+    completed: categories.filter(c => c.completed).length,
+  };
+}
+
+// ====================================================
+// SIMPER V2
+// 3 PERSYARATAN, PENERBITAN TERPISAH
+// ====================================================
+
+function parseSimperMetadata(notes) {
+  const text = String(notes || "");
+  const start = text.lastIndexOf(META_START);
+  const end = text.lastIndexOf(META_END);
+
+  if (start < 0 || end <= start) return null;
+
+  try {
+    const data = JSON.parse(
+      text.slice(start + META_START.length, end)
+    );
+
+    return data &&
+      typeof data === "object" &&
+      !Array.isArray(data)
+      ? data
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function calculateSimper(record) {
+  if (!record) {
+    return {
+      progress: 0,
+      completed: 0,
+      issued: false,
+    };
+  }
+
+  const meta = parseSimperMetadata(record.notes);
+
+  const steps = [
+    record.theory_status === "passed",
+    record.practice_status === "passed",
+    meta?.orientation_status === "completed",
+  ];
+
+  const completed = steps.filter(Boolean).length;
+
+  return {
+    progress: Math.round((completed / 3) * 100),
+    completed,
+    issued: meta?.issuance_status === "issued",
+  };
+}
+
+// ====================================================
+// RINGKASAN PER PROGRAM
+// ====================================================
+
+function buildProgress(program, data) {
+  const achievement = calculateAchievements(
+    data.achievements,
+    data.types,
+    program.start_date
+  );
+
+  const chosenSimper =
+    data.simper.find(r => parseSimperMetadata(r.notes)) ||
+    data.simper[0] ||
+    null;
+
+  const simper = calculateSimper(chosenSimper);
+
+  const weeks = new Set();
+
+  function markWeek(date) {
+    const week = weekOf(date, program.start_date);
+    if (week !== null) weeks.add(week);
+  }
+
+  data.achievements.forEach(r => markWeek(r.activity_date));
+  data.postTests.forEach(r => markWeek(r.test_date));
+  data.practices.forEach(r => markWeek(r.practice_date));
+  data.samapta.forEach(r => markWeek(r.test_date));
+
+  return {
+    achievement: achievement.progress,
+    completedCategories: achievement.completed,
+    activityWeeks: weeks.size,
+    activityPercent: Math.round(
+      (weeks.size / TOTAL_WEEKS) * 100
+    ),
+    simper: simper.progress,
+    simperCompleted: simper.completed,
+    simperIssued: simper.issued,
+  };
+}
+
+// ====================================================
+// STATUS PENDAFTARAN
+// ====================================================
 
 function getStatusInfo(access) {
   const statuses = {
@@ -108,12 +333,11 @@ function getStatusInfo(access) {
   return statuses[access] || statuses.no_program;
 }
 
-function MenuCard({
-  icon,
-  title,
-  description,
-  onClick,
-}) {
+// ====================================================
+// KOMPONEN MENU ASLI
+// ====================================================
+
+function MenuCard({ icon, title, description, onClick }) {
   return (
     <button
       type="button"
@@ -132,58 +356,112 @@ function MenuCard({
         color: C.text,
       }}
     >
-      <span
-        style={{
-          width: 44,
-          height: 44,
-          flexShrink: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: C.goldLight,
-          color: C.green,
-          borderRadius: 12,
-          fontSize: 22,
-          fontWeight: 800,
-        }}
-      >
+      <span style={{
+        width: 44,
+        height: 44,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: C.goldLight,
+        color: C.green,
+        borderRadius: 12,
+        fontSize: 22,
+        fontWeight: 800,
+      }}>
         {icon}
       </span>
 
       <span style={{ flex: 1, minWidth: 0 }}>
-        <strong
-          style={{
-            display: "block",
-            marginBottom: 5,
-            fontSize: 14,
-          }}
-        >
+        <strong style={{
+          display: "block",
+          marginBottom: 5,
+          fontSize: 14,
+        }}>
           {title}
         </strong>
 
-        <span
-          style={{
-            display: "block",
-            color: C.muted,
-            fontSize: 12,
-            lineHeight: 1.5,
-          }}
-        >
+        <span style={{
+          display: "block",
+          color: C.muted,
+          fontSize: 12,
+          lineHeight: 1.5,
+        }}>
           {description}
         </span>
       </span>
 
-      <span
-        style={{
-          color: C.green3,
-          fontSize: 20,
-        }}
-      >
+      <span style={{ color: C.green3, fontSize: 20 }}>
         ›
       </span>
     </button>
   );
 }
+
+// ====================================================
+// KOMPONEN PROGRES BAR
+// ====================================================
+
+function ProgressItem({ title, value, description }) {
+  const safe = clamp(value);
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        marginBottom: 9,
+      }}>
+        <strong style={{ fontSize: 13, color: C.text }}>
+          {title}
+        </strong>
+
+        <strong style={{
+          fontSize: 17,
+          color: C.green3,
+        }}>
+          {safe}%
+        </strong>
+      </div>
+
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={safe}
+        style={{
+          height: 11,
+          width: "100%",
+          overflow: "hidden",
+          borderRadius: 20,
+          background: "#e7eee8",
+        }}
+      >
+        <div style={{
+          height: "100%",
+          width: `${safe}%`,
+          background: `linear-gradient(90deg, ${C.green3}, #45a777)`,
+          borderRadius: 20,
+        }} />
+      </div>
+
+      <div style={{
+        fontSize: 11,
+        color: C.muted,
+        lineHeight: 1.7,
+        marginTop: 7,
+      }}>
+        {description}
+      </div>
+    </div>
+  );
+}
+
+// ====================================================
+// DASHBOARD PESERTA
+// ====================================================
 
 export default function DashboardPeserta() {
   const router = useRouter();
@@ -194,17 +472,16 @@ export default function DashboardPeserta() {
   const [registration, setRegistration] = useState(null);
 
   const [participants, setParticipants] = useState([]);
-
-  const [
-    selectedParticipantId,
-    setSelectedParticipantId,
-  ] = useState("");
+  const [selectedParticipantId, setSelectedParticipantId] = useState("");
 
   const [access, setAccess] = useState("loading");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
+
+  // BARU: ringkasan perkembangan.
+  const [progress, setProgress] = useState(emptyProgress());
 
   const requestIdRef = useRef(0);
   const selectedIdRef = useRef("");
@@ -215,17 +492,13 @@ export default function DashboardPeserta() {
     setProfile(null);
     setProgram(null);
     setRegistration(null);
+    setProgress(emptyProgress());
     setAccess("loading");
   }
 
   // ====================================================
   // DAFTAR PESERTA PREVIEW ADMIN
-  //
-  // Sumber:
-  // Program OJT dengan status active.
-  //
-  // Hanya akun participant/peserta.
-  // Admin dan Mentor tidak masuk dropdown.
+  // LOGIKA ASLI DIPERTAHANKAN
   // ====================================================
 
   async function fetchParticipantList() {
@@ -247,7 +520,7 @@ export default function DashboardPeserta() {
 
     const unique = new Map();
 
-    (data || []).forEach((item) => {
+    (data || []).forEach(item => {
       if (!item.participant_id) return;
 
       const peserta = Array.isArray(item.peserta)
@@ -261,33 +534,96 @@ export default function DashboardPeserta() {
       if (!unique.has(item.participant_id)) {
         unique.set(item.participant_id, {
           id: item.participant_id,
-          full_name:
-            peserta.full_name || "Peserta OJT",
-          department:
-            peserta.department || "",
+          full_name: peserta.full_name || "Peserta OJT",
+          department: peserta.department || "",
           site: item.site || "",
           role: normalize(peserta.role),
         });
       }
     });
 
-    return [...unique.values()].sort((a, b) =>
-      a.full_name.localeCompare(b.full_name)
+    return [...unique.values()].sort(
+      (a, b) => a.full_name.localeCompare(b.full_name)
     );
   }
 
   // ====================================================
+  // PENGAMBILAN PROGRES SATU PROGRAM
+  //
+  // Data tidak diubah, hanya dibaca.
+  // Sesuai target Dashboard Mentor Tahap 6.1.
+  // ====================================================
+
+  async function fetchProgramProgress(activeProgram) {
+    if (!activeProgram?.id) return emptyProgress();
+
+    const id = activeProgram.id;
+
+    const results = await Promise.all([
+      supabase
+        .from("achievement_types")
+        .select("code,name"),
+
+      supabase
+        .from("achievement_records")
+        .select(
+          "id,program_id,type_code,status,activity_date,distance_km"
+        )
+        .eq("program_id", id),
+
+      supabase
+        .from("post_test_scores")
+        .select("id,program_id,test_date")
+        .eq("program_id", id),
+
+      supabase
+        .from("weekly_practice_scores")
+        .select("id,program_id,practice_date")
+        .eq("program_id", id),
+
+      supabase
+        .from("samapta_records")
+        .select("id,program_id,test_date")
+        .eq("program_id", id),
+
+      supabase
+        .from("simper_records")
+        .select(
+          "id,program_id,theory_status,practice_status,status,notes"
+        )
+        .eq("program_id", id),
+    ]);
+
+    const labels = [
+      "Kategori Achievement",
+      "Achievement",
+      "Post-Test",
+      "Praktik",
+      "Samapta",
+      "SIMPER",
+    ];
+
+    results.forEach((result, index) => {
+      if (result.error) {
+        throw new Error(
+          `${labels[index]}: ${result.error.message}`
+        );
+      }
+    });
+
+    return buildProgress(activeProgram, {
+      types: results[0].data || [],
+      achievements: results[1].data || [],
+      postTests: results[2].data || [],
+      practices: results[3].data || [],
+      samapta: results[4].data || [],
+      simper: results[5].data || [],
+    });
+  }
+
+  // ====================================================
   // PENGAMBILAN DASHBOARD PESERTA
-  //
-  // Admin:
-  // Menampilkan program yang sudah active.
-  // Tidak mensyaratkan ulang approval dari
-  // tabel registrasi untuk mode preview.
-  //
-  // Peserta biasa:
-  // Seluruh aturan persetujuan lama dipertahankan.
-  //
-  // Semua akses tetap tunduk pada Supabase RLS.
+  // ATURAN PERSETUJUAN TETAP DIPERTAHANKAN
   // ====================================================
 
   async function fetchParticipantDashboard(
@@ -299,7 +635,7 @@ export default function DashboardPeserta() {
 
     if (adminPreview) {
       const selected = previewParticipants.find(
-        (item) =>
+        item =>
           item.id === participantId &&
           isParticipantRole(item.role)
       );
@@ -317,10 +653,7 @@ export default function DashboardPeserta() {
         role: selected.role,
       };
     } else {
-      const {
-        data,
-        error: profileError,
-      } = await supabase
+      const { data, error: profileError } = await supabase
         .from("profiles")
         .select("id,full_name,department,role")
         .eq("id", participantId)
@@ -329,9 +662,7 @@ export default function DashboardPeserta() {
       if (profileError) throw profileError;
 
       if (!data) {
-        throw new Error(
-          "Profil peserta tidak tersedia."
-        );
+        throw new Error("Profil peserta tidak tersedia.");
       }
 
       if (!isParticipantRole(data.role)) {
@@ -342,14 +673,6 @@ export default function DashboardPeserta() {
 
       currentProfile = data;
     }
-
-    // ------------------------------------------------
-    // PROGRAM AKTIF
-    //
-    // Preview Admin harus dapat menampilkan
-    // program aktif yang sudah ditemukan pada
-    // daftar peserta.
-    // ------------------------------------------------
 
     const {
       data: activePrograms,
@@ -367,92 +690,53 @@ export default function DashboardPeserta() {
       `)
       .eq("participant_id", participantId)
       .eq("status", "active")
-      .order("start_date", {
-        ascending: false,
-      })
+      .order("start_date", { ascending: false })
       .limit(1);
 
     if (programError) throw programError;
 
     const activeProgram = activePrograms?.[0] || null;
 
-    // ------------------------------------------------
-    // KHUSUS PREVIEW ADMIN
-    //
-    // Program dengan status active dianggap
-    // tersedia untuk preview Admin.
-    //
-    // Tidak bergantung pada registration_requests
-    // ataupun participant_registrations.
-    //
-    // Tidak ada perubahan data atau status di DB.
-    // ------------------------------------------------
-
+    // Preview Admin tidak memerlukan
+    // pemeriksaan ulang registrasi.
     if (adminPreview) {
+      const nextProgress = activeProgram
+        ? await fetchProgramProgress(activeProgram)
+        : emptyProgress();
+
       return {
         profile: currentProfile,
         registration: null,
         program: activeProgram,
-        access: activeProgram
-          ? "approved"
-          : "no_program",
+        access: activeProgram ? "approved" : "no_program",
+        progress: nextProgress,
       };
     }
 
-    // ------------------------------------------------
-    // REGISTRASI BARU
-    // Tetap digunakan untuk akun Peserta.
-    // ------------------------------------------------
-
-    const {
-      data: newRequests,
-      error: newError,
-    } = await supabase
+    const { data: newRequests, error: newError } = await supabase
       .from("ojt_registration_requests")
       .select(`
-        id,
-        status,
-        rejection_reason,
-        site,
-        start_date,
-        end_date,
-        created_at
+        id,status,rejection_reason,site,
+        start_date,end_date,created_at
       `)
       .eq("participant_id", participantId)
-      .order("created_at", {
-        ascending: false,
-      });
+      .order("created_at", { ascending: false });
 
     if (newError) throw newError;
 
-    // ------------------------------------------------
-    // REGISTRASI LAMA
-    // Tetap digunakan untuk akun Peserta.
-    // ------------------------------------------------
-
-    const {
-      data: oldRequests,
-      error: oldError,
-    } = await supabase
+    const { data: oldRequests, error: oldError } = await supabase
       .from("participant_registrations")
       .select(`
-        id,
-        status,
-        rejection_reason,
-        site,
-        created_at
+        id,status,rejection_reason,site,created_at
       `)
       .eq("user_id", participantId)
-      .order("created_at", {
-        ascending: false,
-      })
+      .order("created_at", { ascending: false })
       .limit(1);
 
     if (oldError) throw oldError;
 
     const newList = newRequests || [];
     const oldRegistration = oldRequests?.[0] || null;
-
     const latestNew = newList[0] || null;
 
     const latestRegistration =
@@ -464,24 +748,19 @@ export default function DashboardPeserta() {
         : latestNew || oldRegistration;
 
     const hasPendingNew = newList.some(
-      (item) =>
-        normalize(item.status) === "pending"
+      item => normalize(item.status) === "pending"
     );
 
     const hasApprovedNew = newList.some(
-      (item) =>
-        normalize(item.status) === "approved"
+      item => normalize(item.status) === "approved"
     );
 
     const hasApprovedOld =
-      normalize(oldRegistration?.status) ===
-      "approved";
+      normalize(oldRegistration?.status) === "approved";
 
     const hasPendingOld =
-      normalize(oldRegistration?.status) ===
-      "pending";
+      normalize(oldRegistration?.status) === "pending";
 
-    // Aturan akun Peserta tidak diubah.
     const approvedProgram =
       !!activeProgram &&
       (
@@ -497,11 +776,15 @@ export default function DashboardPeserta() {
     } else if (hasPendingNew || hasPendingOld) {
       nextAccess = "pending";
     } else if (
-      normalize(latestRegistration?.status) ===
-      "rejected"
+      normalize(latestRegistration?.status) === "rejected"
     ) {
       nextAccess = "rejected";
     }
+
+    // Hanya baca progres setelah akses program disetujui.
+    const nextProgress = nextAccess === "approved"
+      ? await fetchProgramProgress(activeProgram)
+      : emptyProgress();
 
     return {
       profile: currentProfile,
@@ -511,6 +794,7 @@ export default function DashboardPeserta() {
           ? activeProgram
           : null,
       access: nextAccess,
+      progress: nextProgress,
     };
   }
 
@@ -518,6 +802,7 @@ export default function DashboardPeserta() {
     setProfile(data.profile);
     setRegistration(data.registration);
     setProgram(data.program);
+    setProgress(data.progress || emptyProgress());
     setAccess(data.access);
   }
 
@@ -596,10 +881,7 @@ export default function DashboardPeserta() {
         );
       }
 
-      setAccount({
-        ...currentAccount,
-        role,
-      });
+      setAccount({ ...currentAccount, role });
 
       if (role === "admin") {
         const list = await fetchParticipantList();
@@ -614,6 +896,7 @@ export default function DashboardPeserta() {
           setProfile(null);
           setRegistration(null);
           setProgram(null);
+          setProgress(emptyProgress());
           setAccess("no_program");
           return;
         }
@@ -623,7 +906,7 @@ export default function DashboardPeserta() {
           selectedIdRef.current;
 
         const validSelection = list.some(
-          (item) => item.id === requestedId
+          item => item.id === requestedId
         );
 
         const targetId = validSelection
@@ -634,9 +917,7 @@ export default function DashboardPeserta() {
         setSelectedParticipantId(targetId);
 
         const next = await fetchParticipantDashboard(
-          targetId,
-          true,
-          list
+          targetId, true, list
         );
 
         if (requestId !== requestIdRef.current) return;
@@ -648,8 +929,7 @@ export default function DashboardPeserta() {
         selectedIdRef.current = "";
 
         const next = await fetchParticipantDashboard(
-          user.id,
-          false
+          user.id, false
         );
 
         if (requestId !== requestIdRef.current) return;
@@ -662,8 +942,7 @@ export default function DashboardPeserta() {
       clearDashboard();
 
       setError(
-        err?.message ||
-          "Gagal memuat Dashboard Peserta."
+        err?.message || "Gagal memuat Dashboard Peserta."
       );
 
       setAccess("error");
@@ -690,9 +969,7 @@ export default function DashboardPeserta() {
   // ====================================================
 
   async function changePreviewParticipant(id) {
-    if (!isAdmin || !id || loading || refreshing) {
-      return;
-    }
+    if (!isAdmin || !id || loading || refreshing) return;
 
     const requestId = ++requestIdRef.current;
 
@@ -701,9 +978,6 @@ export default function DashboardPeserta() {
 
     setRefreshing(true);
     setError("");
-
-    // Hilangkan data peserta sebelumnya agar
-    // tidak terlihat saat pilihan sedang berganti.
     clearDashboard();
 
     try {
@@ -740,21 +1014,17 @@ export default function DashboardPeserta() {
       }
 
       const selected = participants.find(
-        (item) =>
+        item =>
           item.id === id &&
           isParticipantRole(item.role)
       );
 
       if (!selected) {
-        throw new Error(
-          "Peserta tidak ditemukan."
-        );
+        throw new Error("Peserta tidak ditemukan.");
       }
 
       const next = await fetchParticipantDashboard(
-        id,
-        true,
-        participants
+        id, true, participants
       );
 
       if (requestId !== requestIdRef.current) return;
@@ -766,10 +1036,10 @@ export default function DashboardPeserta() {
       setProfile(null);
       setRegistration(null);
       setProgram(null);
+      setProgress(emptyProgress());
 
       setError(
-        err?.message ||
-          "Gagal mengganti peserta preview."
+        err?.message || "Gagal mengganti peserta preview."
       );
 
       setAccess("error");
@@ -800,26 +1070,25 @@ export default function DashboardPeserta() {
       setParticipants([]);
       setSelectedParticipantId("");
       selectedIdRef.current = "";
-
       clearDashboard();
 
       router.replace("/login");
       router.refresh();
     } catch {
-      setError(
-        "Gagal keluar. Silakan coba kembali."
-      );
+      setError("Gagal keluar. Silakan coba kembali.");
       setLoggingOut(false);
     }
   }
 
   function openParticipantFeature(path) {
-    // Halaman tujuan tetap harus melakukan
-    // verifikasi role, program, dan RLS.
     router.push(path);
   }
 
   const status = getStatusInfo(access);
+
+  // ====================================================
+  // TAMPILAN DASHBOARD PESERTA
+  // ====================================================
 
   return (
     <main
@@ -1030,10 +1299,8 @@ export default function DashboardPeserta() {
             <select
               id="admin-participant"
               value={selectedParticipantId}
-              onChange={(event) =>
-                changePreviewParticipant(
-                  event.target.value
-                )
+              onChange={event =>
+                changePreviewParticipant(event.target.value)
               }
               disabled={
                 loading ||
@@ -1057,15 +1324,10 @@ export default function DashboardPeserta() {
                 </option>
               )}
 
-              {participants.map((item) => (
-                <option
-                  key={item.id}
-                  value={item.id}
-                >
+              {participants.map(item => (
+                <option key={item.id} value={item.id}>
                   {item.full_name}
-                  {item.site
-                    ? ` — ${item.site}`
-                    : ""}
+                  {item.site ? ` — ${item.site}` : ""}
                 </option>
               ))}
             </select>
@@ -1271,13 +1533,9 @@ export default function DashboardPeserta() {
 
                 <p>
                   <strong>Periode:</strong>{" "}
-                  {formatDate(
-                    registration?.start_date
-                  )}
+                  {formatDate(registration?.start_date)}
                   {" s.d. "}
-                  {formatDate(
-                    registration?.end_date
-                  )}
+                  {formatDate(registration?.end_date)}
                 </p>
 
                 <p style={{ lineHeight: 1.7 }}>
@@ -1331,9 +1589,7 @@ export default function DashboardPeserta() {
                     type="button"
                     style={primaryButton}
                     onClick={() =>
-                      router.push(
-                        "/pengajuan-peserta"
-                      )
+                      router.push("/pengajuan-peserta")
                     }
                   >
                     Lihat dan Perbaiki Pengajuan
@@ -1461,6 +1717,83 @@ export default function DashboardPeserta() {
                     </strong>
                   </div>
                 </section>
+
+                {/* =====================================
+                    BARU: RINGKASAN PERKEMBANGAN OJT
+                    ===================================== */}
+
+                <section style={card}>
+                  <h2
+                    style={{
+                      color: C.green,
+                      fontSize: 18,
+                      margin: "0 0 8px",
+                    }}
+                  >
+                    Ringkasan Perkembangan OJT
+                  </h2>
+
+                  <p
+                    style={{
+                      color: C.muted,
+                      fontSize: 12,
+                      lineHeight: 1.7,
+                      margin: 0,
+                    }}
+                  >
+                    Progres berdasarkan pencapaian
+                    target dan aktivitas program
+                    selama 25 minggu.
+                  </p>
+
+                  <ProgressItem
+                    title="Progres Achievement"
+                    value={progress.achievement}
+                    description={
+                      `${progress.completedCategories} dari 6 kategori mencapai target. ` +
+                      "Hanya aktivitas terverifikasi yang dihitung."
+                    }
+                  />
+
+                  <ProgressItem
+                    title="Aktivitas Mingguan"
+                    value={progress.activityPercent}
+                    description={
+                      `${progress.activityWeeks} dari 25 minggu ` +
+                      "memiliki catatan aktivitas."
+                    }
+                  />
+
+                  <ProgressItem
+                    title="Progres SIMPER"
+                    value={progress.simper}
+                    description={
+                      `${progress.simperCompleted} dari 3 persyaratan ` +
+                      "SIMPER terpenuhi."
+                    }
+                  />
+
+                  <div
+                    style={{
+                      marginTop: 17,
+                      padding: 12,
+                      background: C.bg,
+                      borderRadius: 11,
+                      fontSize: 12,
+                      lineHeight: 1.7,
+                      color: C.green2,
+                    }}
+                  >
+                    <strong>Status Penerbitan SIMPER: </strong>
+                    {progress.simperIssued
+                      ? "Sudah Terbit"
+                      : "Belum Terbit"}
+                  </div>
+                </section>
+
+                {/* =====================================
+                    MENU PESERTA ASLI
+                    ===================================== */}
 
                 <section style={card}>
                   <h2
