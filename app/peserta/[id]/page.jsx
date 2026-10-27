@@ -168,6 +168,42 @@ function ProgressBar({ value }) {
   );
 }
 
+function AchievementMenu({
+  icon,
+  title,
+  description,
+  detail,
+  variant,
+  onClick,
+}) {
+  return (
+    <button
+      type="button"
+      className={`mt-ach-menu ${variant || ""}`}
+      onClick={onClick}
+    >
+      <div className="mt-ach-menu-top">
+        <div className="mt-ach-menu-icon">
+          {icon}
+        </div>
+
+        <span className="mt-ach-menu-arrow">
+          ↗
+        </span>
+      </div>
+
+      <h3>{title}</h3>
+
+      <p>{description}</p>
+
+      <div className="mt-ach-menu-bottom">
+        <span>{detail}</span>
+        <strong>Buka Menu →</strong>
+      </div>
+    </button>
+  );
+}
+
 export default function DetailPeserta() {
   const router = useRouter();
   const params = useParams();
@@ -324,7 +360,6 @@ export default function DetailPeserta() {
           profile?.role || ""
         ).toLowerCase();
 
-        // Peserta tetap menggunakan dashboard sendiri.
         if (
           currentRole === "participant" ||
           currentRole === "peserta"
@@ -333,7 +368,6 @@ export default function DetailPeserta() {
           return;
         }
 
-        // Admin dan Mentor dapat membuka halaman.
         if (
           !["admin", "mentor"].includes(currentRole)
         ) {
@@ -341,11 +375,6 @@ export default function DetailPeserta() {
             "Halaman ini hanya dapat diakses Admin atau Mentor."
           );
         }
-
-        // OJT MineTrack:
-        // Admin dan Mentor dapat mengelola seluruh peserta.
-        // Tidak menggunakan filter mentor_id.
-        // Maintenance tetap dikendalikan RLS Supabase.
 
         const programResult = await supabase
           .from("ojt_programs")
@@ -841,20 +870,11 @@ export default function DetailPeserta() {
           fontFamily: "Arial",
         }}
       >
-        <h2>
-          Data Tidak Dapat Ditampilkan
-        </h2>
+        <h2>Data Tidak Dapat Ditampilkan</h2>
 
-        <p>
-          {error ||
-            "Akses tidak tersedia."}
-        </p>
+        <p>{error || "Akses tidak tersedia."}</p>
 
-        <button
-          onClick={() =>
-            router.push("/")
-          }
-        >
+        <button onClick={() => router.push("/")}>
           Kembali ke Dashboard
         </button>
       </main>
@@ -894,6 +914,32 @@ export default function DetailPeserta() {
           color: #27c991;
         }
 
+        .mt-header-right {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
+
+        .mt-account {
+          text-align: right;
+        }
+
+        .mt-account span,
+        .mt-account strong {
+          display: block;
+        }
+
+        .mt-account span {
+          font-size: 10px;
+          color: #bad5ca;
+        }
+
+        .mt-account strong {
+          font-size: 12px;
+          margin-top: 4px;
+          color: white;
+        }
+
         .mt-back {
           background: #ffffff18;
           border: 1px solid #ffffff30;
@@ -905,7 +951,7 @@ export default function DetailPeserta() {
         }
 
         .mt-container {
-          max-width: 1100px;
+          max-width: 1200px;
           margin: auto;
           padding: 22px;
         }
@@ -1101,7 +1147,11 @@ export default function DetailPeserta() {
           display: block;
           height: 100%;
           border-radius: inherit;
-          background: linear-gradient(90deg, #25bc87, #0c815c);
+          background: linear-gradient(
+            90deg,
+            #25bc87,
+            #0c815c
+          );
           transition: width .2s;
         }
 
@@ -1153,73 +1203,95 @@ export default function DetailPeserta() {
           margin-bottom: 15px;
         }
 
-        .mt-achievement-grid {
+        .mt-ach-navigation {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 11px;
+          gap: 14px;
         }
 
-        .mt-achievement {
-          border: 1px solid #e3ebe7;
-          border-radius: 14px;
-          background: white;
-          padding: 14px;
-          text-align: left;
-          min-width: 0;
-        }
-
-        .mt-achievement-top {
+        .mt-ach-menu {
           display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-          margin-bottom: 12px;
+          flex-direction: column;
+          gap: 10px;
+          text-align: left;
+          border: 1px solid #dcebe3;
+          border-radius: 15px;
+          padding: 22px;
+          background: #fbfefd;
+          color: #193b30;
+          cursor: pointer;
+          min-width: 0;
+          min-height: 192px;
         }
 
-        .mt-achievement-icon {
-          width: 43px;
-          height: 43px;
-          border-radius: 12px;
-          background: #e5f7ec;
+        .mt-ach-menu:hover {
+          border-color: #37b988;
+          box-shadow: 0 6px 20px #08784d12;
+          transform: translateY(-1px);
+        }
+
+        .mt-ach-menu.monitoring {
+          background: #f5fafc;
+          border-color: #dce8ed;
+        }
+
+        .mt-ach-menu-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .mt-ach-menu-icon {
+          width: 50px;
+          height: 50px;
           display: grid;
           place-items: center;
-          font-size: 23px;
+          border-radius: 13px;
+          background: #e0f6e9;
+          font-size: 24px;
         }
 
-        .mt-achievement-percent {
-          font-size: 16px;
+        .mt-ach-menu.monitoring .mt-ach-menu-icon {
+          background: #e1eef7;
+        }
+
+        .mt-ach-menu-arrow {
+          font-size: 22px;
+          color: #0c8760;
+        }
+
+        .mt-ach-menu h3 {
+          font-size: 17px;
           font-weight: 900;
-          color: #e58c23;
+          margin: 4px 0 0;
         }
 
-        .mt-achievement-percent.done {
-          color: #07885a;
+        .mt-ach-menu p {
+          color: #788e81;
+          font-size: 12px;
+          line-height: 1.7;
+          margin: 0;
+          flex: 1;
         }
 
-        .mt-achievement-name {
-          font-size: 13px;
-          font-weight: 900;
-          margin-bottom: 11px;
+        .mt-ach-menu-bottom {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding-top: 13px;
+          border-top: 1px solid #e6eee9;
         }
 
-        .mt-achievement-target {
-          color: #7d9186;
+        .mt-ach-menu-bottom span {
+          color: #759184;
           font-size: 11px;
-          margin-top: 10px;
         }
 
-        .mt-input-button {
-          display: block;
-          width: 100%;
-          border: 0;
-          border-radius: 12px;
-          background: linear-gradient(90deg, #099d6c, #087e59);
-          color: white;
-          padding: 16px;
-          font-size: 15px;
-          font-weight: 900;
-          margin-top: 17px;
-          cursor: pointer;
+        .mt-ach-menu-bottom strong {
+          color: #07855b;
+          font-size: 11px;
         }
 
         .mt-menu-grid {
@@ -1415,7 +1487,6 @@ export default function DetailPeserta() {
         }
 
         @media (min-width: 900px) {
-          .mt-achievement-grid,
           .mt-menu-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
           }
@@ -1428,6 +1499,10 @@ export default function DetailPeserta() {
 
           .mt-brand {
             font-size: 18px;
+          }
+
+          .mt-account {
+            display: none;
           }
 
           .mt-back {
@@ -1474,27 +1549,31 @@ export default function DetailPeserta() {
             font-size: 29px;
           }
 
-          .mt-achievement-grid,
-          .mt-menu-grid {
+          .mt-ach-navigation {
             gap: 9px;
           }
 
-          .mt-achievement {
-            padding: 12px;
+          .mt-ach-menu {
+            padding: 14px;
+            min-height: 195px;
           }
 
-          .mt-achievement-name {
-            font-size: 12px;
+          .mt-ach-menu-icon {
+            width: 42px;
+            height: 42px;
+            font-size: 21px;
           }
 
-          .mt-achievement-icon {
-            width: 38px;
-            height: 38px;
-            font-size: 20px;
+          .mt-ach-menu h3 {
+            font-size: 14px;
           }
 
-          .mt-achievement-percent {
-            font-size: 15px;
+          .mt-ach-menu p {
+            font-size: 11px;
+          }
+
+          .mt-menu-grid {
+            gap: 9px;
           }
 
           .mt-menu {
@@ -1515,14 +1594,17 @@ export default function DetailPeserta() {
           }
         }
 
-        @media (max-width: 370px) {
-          .mt-profile {
-            flex-wrap: wrap;
+        @media (max-width: 420px) {
+          .mt-ach-navigation {
+            grid-template-columns: 1fr;
           }
 
-          .mt-achievement,
-          .mt-menu {
-            padding: 9px;
+          .mt-ach-menu {
+            min-height: 155px;
+          }
+
+          .mt-profile {
+            flex-wrap: wrap;
           }
         }
       `}</style>
@@ -1532,34 +1614,44 @@ export default function DetailPeserta() {
           OJT <span>MineTrack</span>
         </div>
 
-        <button
-          type="button"
-          className="mt-back"
-          onClick={() =>
-            panel === "dashboard"
-              ? router.push("/")
-              : openPanel("dashboard")
-          }
-        >
-          ←{" "}
-          {panel === "dashboard"
-            ? "Dashboard"
-            : "Menu Peserta"}
-        </button>
+        <div className="mt-header-right">
+          <div className="mt-account">
+            <span>
+              {isAdmin ? "Administrator" : "Mentor OJT"}
+            </span>
+
+            <strong>
+              {mentor.full_name || "Pengelola OJT"}
+            </strong>
+          </div>
+
+          <button
+            type="button"
+            className="mt-back"
+            onClick={() =>
+              panel === "dashboard"
+                ? router.push("/")
+                : openPanel("dashboard")
+            }
+          >
+            ←{" "}
+            {panel === "dashboard"
+              ? "Dashboard"
+              : "Menu Peserta"}
+          </button>
+        </div>
       </header>
 
       <div className="mt-container">
         <section className="mt-banner">
           <small>
-            EMERGENCY RESPONSE GROUP ·
-            PT BERAU COAL
+            EMERGENCY RESPONSE GROUP · PT BERAU COAL
           </small>
 
           <h1>Detail Peserta OJT</h1>
 
           <p>
-            Monitoring Kompetensi dan
-            Evaluasi OJT
+            Monitoring Kompetensi dan Evaluasi OJT
           </p>
         </section>
 
@@ -1577,8 +1669,7 @@ export default function DetailPeserta() {
               <div className="mt-profile-meta">
                 {participant?.department || "—"}
                 {" · "}
-                {program.site ||
-                  "Site belum diisi"}
+                {program.site || "Site belum diisi"}
               </div>
             </div>
 
@@ -1623,19 +1714,13 @@ export default function DetailPeserta() {
         </section>
 
         {error && (
-          <div
-            className="mt-alert error"
-            role="alert"
-          >
+          <div className="mt-alert error" role="alert">
             {error}
           </div>
         )}
 
         {message && (
-          <div
-            className="mt-alert success"
-            role="status"
-          >
+          <div className="mt-alert success" role="status">
             ✓ {message}
           </div>
         )}
@@ -1644,9 +1729,22 @@ export default function DetailPeserta() {
           <>
             <section className="mt-card">
               <div className="mt-section-head">
-                <h2 className="mt-title">
-                  Progress Achievement OJT
-                </h2>
+                <div>
+                  <h2 className="mt-title">
+                    Ringkasan Achievement OJT
+                  </h2>
+
+                  <p
+                    className="mt-subtitle"
+                    style={{
+                      marginTop: 7,
+                      marginBottom: 0,
+                    }}
+                  >
+                    Ringkasan pencapaian
+                    pada minggu program terpilih.
+                  </p>
+                </div>
 
                 <button
                   type="button"
@@ -1660,187 +1758,120 @@ export default function DetailPeserta() {
                 </button>
               </div>
 
-              <div className="mt-overall">
+              <div className="mt-section-head">
                 <div>
                   <div className="mt-overall-label">
                     Progress Week{" "}
-                    {String(week).padStart(
-                      2,
-                      "0"
-                    )}
+                    {String(week).padStart(2, "0")}
                   </div>
 
                   <div className="mt-overall-note">
-                    Rata-rata pencapaian
-                    6 kategori terverifikasi
+                    {weekStart && weekEnd
+                      ? `${formatDate(weekStart)} – ${formatDate(weekEnd)}`
+                      : "Periode belum tersedia"}
                   </div>
                 </div>
-
-                <div className="mt-overall-value">
-                  {formatNumber(
-                    weekly.overall
-                  )}
-                  %
-                </div>
-              </div>
-
-              <ProgressBar
-                value={weekly.overall}
-              />
-
-              <div className="mt-stats">
-                <div className="mt-stat">
-                  <small>
-                    Kategori Tercapai
-                  </small>
-
-                  <strong>
-                    {weekly.achieved}/6
-                  </strong>
-                </div>
-
-                <div className="mt-stat">
-                  <small>
-                    Terverifikasi
-                  </small>
-
-                  <strong>
-                    {weekly.verified}
-                  </strong>
-                </div>
-
-                <div className="mt-stat">
-                  <small>
-                    Menunggu
-                  </small>
-
-                  <strong>
-                    {weekly.pending}
-                  </strong>
-                </div>
-              </div>
-
-              <p
-                className="mt-subtitle"
-                style={{
-                  marginTop: 14,
-                  marginBottom: 0,
-                }}
-              >
-                Progress dihitung per
-                minggu. Setiap kategori
-                memiliki bobot sama dan
-                kontribusinya dibatasi
-                maksimal 100% untuk
-                progress keseluruhan.
-              </p>
-            </section>
-
-            <section className="mt-card">
-              <div className="mt-section-head">
-                <h2 className="mt-title">
-                  Achievement Mingguan
-                </h2>
 
                 <select
                   className="mt-week-select"
                   aria-label="Pilih minggu Achievement"
                   value={week}
                   onChange={(event) =>
-                    setWeek(
-                      Number(
-                        event.target.value
-                      )
-                    )
+                    setWeek(Number(event.target.value))
                   }
                 >
                   {Array.from(
-                    {
-                      length: TOTAL_WEEKS,
-                    },
+                    { length: TOTAL_WEEKS },
                     (_, index) => index + 1
                   ).map((item) => (
-                    <option
-                      key={item}
-                      value={item}
-                    >
+                    <option key={item} value={item}>
                       Week{" "}
-                      {String(item).padStart(
-                        2,
-                        "0"
-                      )}
+                      {String(item).padStart(2, "0")}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div className="mt-week-period">
-                {weekStart && weekEnd
-                  ? `${formatDate(weekStart)} – ${formatDate(weekEnd)}`
-                  : "Periode minggu belum tersedia"}
+              <div className="mt-overall">
+                <div>
+                  <div className="mt-overall-note">
+                    Rata-rata pencapaian enam kategori
+                    terverifikasi pada minggu ini.
+                  </div>
+                </div>
+
+                <div className="mt-overall-value">
+                  {formatNumber(weekly.overall)}%
+                </div>
               </div>
 
-              <div className="mt-achievement-grid">
-                {weekly.categories.map(
-                  (item) => (
-                    <div
-                      key={item.name}
-                      className="mt-achievement"
-                    >
-                      <div className="mt-achievement-top">
-                        <div className="mt-achievement-icon">
-                          {item.icon}
-                        </div>
+              <ProgressBar value={weekly.overall} />
 
-                        <div
-                          className={`mt-achievement-percent ${
-                            item.percent >= 100
-                              ? "done"
-                              : ""
-                          }`}
-                        >
-                          {formatNumber(
-                            item.percent
-                          )}
-                          %
-                        </div>
-                      </div>
+              <div className="mt-stats">
+                <div className="mt-stat">
+                  <small>Kategori Tercapai</small>
+                  <strong>{weekly.achieved}/6</strong>
+                </div>
 
-                      <div className="mt-achievement-name">
-                        {item.name}
-                      </div>
+                <div className="mt-stat">
+                  <small>Terverifikasi</small>
+                  <strong>{weekly.verified}</strong>
+                </div>
 
-                      <ProgressBar
-                        value={item.percent}
-                      />
+                <div className="mt-stat">
+                  <small>Menunggu</small>
+                  <strong>{weekly.pending}</strong>
+                </div>
+              </div>
+            </section>
 
-                      <div className="mt-achievement-target">
-                        {item.name === "Fisik"
-                          ? formatNumber(
-                              item.actual,
-                              3
-                            )
-                          : item.actual}
-                        {" / "}
-                        {item.target}{" "}
-                        {item.unit}
-                      </div>
-                    </div>
-                  )
-                )}
+            <section className="mt-card">
+              <div className="mt-section-head">
+                <div>
+                  <h2 className="mt-title">
+                    Achievement OJT
+                  </h2>
+
+                  <p
+                    className="mt-subtitle"
+                    style={{
+                      marginTop: 7,
+                      marginBottom: 0,
+                    }}
+                  >
+                    Input kegiatan dan monitoring
+                    pencapaian sekarang tersedia
+                    pada halaman yang terpisah.
+                  </p>
+                </div>
               </div>
 
-              <button
-                type="button"
-                className="mt-input-button"
-                onClick={() =>
-                  router.push(
-                    `/achievement/${programId}`
-                  )
-                }
-              >
-                📝 Input Achievement →
-              </button>
+              <div className="mt-ach-navigation">
+                <AchievementMenu
+                  icon="📝"
+                  title="Input Achievement"
+                  description="Catat kegiatan peserta, perbarui data, dan lakukan verifikasi Achievement."
+                  detail="Input · Edit · Verifikasi"
+                  onClick={() =>
+                    router.push(
+                      `/achievement/${programId}`
+                    )
+                  }
+                />
+
+                <AchievementMenu
+                  icon="📊"
+                  title="Monitoring Achievement"
+                  description="Pantau enam kategori, grafik perkembangan, target, dan riwayat 25 minggu."
+                  detail="Monitoring · Grafik · Riwayat"
+                  variant="monitoring"
+                  onClick={() =>
+                    router.push(
+                      `/achievement/${programId}/monitoring`
+                    )
+                  }
+                />
+              </div>
             </section>
 
             <section className="mt-card">
@@ -1858,12 +1889,8 @@ export default function DetailPeserta() {
                     className="mt-menu"
                     onClick={() =>
                       item.route
-                        ? router.push(
-                            item.route
-                          )
-                        : openPanel(
-                            item.panel
-                          )
+                        ? router.push(item.route)
+                        : openPanel(item.panel)
                     }
                   >
                     <span className="mt-menu-icon">
@@ -1891,9 +1918,7 @@ export default function DetailPeserta() {
             <button
               type="button"
               className="mt-bottom-back"
-              onClick={() =>
-                router.push("/")
-              }
+              onClick={() => router.push("/")}
             >
               ← Kembali ke Dashboard
             </button>
@@ -1921,33 +1946,21 @@ export default function DetailPeserta() {
 
               <div className="mt-stats">
                 <div className="mt-stat">
-                  <small>
-                    Total Post-Test
-                  </small>
-
-                  <strong>
-                    {postTests.length}
-                  </strong>
+                  <small>Total Post-Test</small>
+                  <strong>{postTests.length}</strong>
                 </div>
 
                 <div className="mt-stat">
-                  <small>
-                    Rata-rata Nilai
-                  </small>
-
+                  <small>Rata-rata Nilai</small>
                   <strong>
-                    {formatScore(
-                      average(postTests)
-                    )}
+                    {formatScore(average(postTests))}
                   </strong>
                 </div>
               </div>
 
               <h3
                 className="mt-title"
-                style={{
-                  margin: "24px 0 17px",
-                }}
+                style={{ margin: "24px 0 17px" }}
               >
                 {editTestId
                   ? "Edit Nilai Post-Test"
@@ -1966,9 +1979,7 @@ export default function DetailPeserta() {
                     type="date"
                     value={testDate}
                     onChange={(event) =>
-                      setTestDate(
-                        event.target.value
-                      )
+                      setTestDate(event.target.value)
                     }
                     required
                   />
@@ -1976,8 +1987,7 @@ export default function DetailPeserta() {
 
                 <div className="mt-field-group">
                   <label htmlFor="mt-test-score">
-                    Nilai Post-Test
-                    (0–100)
+                    Nilai Post-Test (0–100)
                   </label>
 
                   <input
@@ -1989,9 +1999,7 @@ export default function DetailPeserta() {
                     step="0.01"
                     value={testScore}
                     onChange={(event) =>
-                      setTestScore(
-                        event.target.value
-                      )
+                      setTestScore(event.target.value)
                     }
                     required
                   />
@@ -2008,9 +2016,7 @@ export default function DetailPeserta() {
                     rows={3}
                     value={testNotes}
                     onChange={(event) =>
-                      setTestNotes(
-                        event.target.value
-                      )
+                      setTestNotes(event.target.value)
                     }
                     placeholder="Catatan evaluasi peserta..."
                   />
@@ -2049,17 +2055,14 @@ export default function DetailPeserta() {
             <section className="mt-card">
               <h2
                 className="mt-title"
-                style={{
-                  marginBottom: 16,
-                }}
+                style={{ marginBottom: 16 }}
               >
                 Riwayat Nilai Post-Test
               </h2>
 
               {!postTests.length && (
                 <p className="mt-subtitle">
-                  Belum ada nilai
-                  Post-Test.
+                  Belum ada nilai Post-Test.
                 </p>
               )}
 
@@ -2069,22 +2072,15 @@ export default function DetailPeserta() {
                   key={item.id}
                 >
                   <div className="mt-history-title">
-                    Nilai:{" "}
-                    {formatScore(
-                      item.score
-                    )}
+                    Nilai: {formatScore(item.score)}
                   </div>
 
                   <div className="mt-history-meta">
-                    Tanggal:{" "}
-                    {formatDate(
-                      item.test_date
-                    )}
+                    Tanggal: {formatDate(item.test_date)}
                   </div>
 
                   <p className="mt-history-desc">
-                    {item.notes ||
-                      "Tidak ada catatan."}
+                    {item.notes || "Tidak ada catatan."}
                   </p>
 
                   <div className="mt-history-actions">
@@ -2092,14 +2088,10 @@ export default function DetailPeserta() {
                       type="button"
                       className="mt-button blue"
                       disabled={
-                        Boolean(
-                          testActionId
-                        ) ||
+                        Boolean(testActionId) ||
                         savingTest
                       }
-                      onClick={() =>
-                        editTest(item)
-                      }
+                      onClick={() => editTest(item)}
                     >
                       Edit
                     </button>
@@ -2108,17 +2100,12 @@ export default function DetailPeserta() {
                       type="button"
                       className="mt-button red"
                       disabled={
-                        Boolean(
-                          testActionId
-                        ) ||
+                        Boolean(testActionId) ||
                         savingTest
                       }
-                      onClick={() =>
-                        deleteTest(item)
-                      }
+                      onClick={() => deleteTest(item)}
                     >
-                      {testActionId ===
-                      item.id
+                      {testActionId === item.id
                         ? "Menghapus..."
                         : "Hapus"}
                     </button>
@@ -2130,8 +2117,7 @@ export default function DetailPeserta() {
         )}
 
         <footer className="mt-footer">
-          OJT MineTrack v2.0 ·
-          Emergency Response Group ·
+          OJT MineTrack v2.0 · Emergency Response Group ·
           PT Berau Coal
         </footer>
       </div>
