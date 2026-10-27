@@ -40,38 +40,76 @@ function normalizeType(v) {
   return normalize(v).replace(/[^a-z0-9]/g, "");
 }
 
+function isParticipantRole(role) {
+  return ["participant", "peserta"].includes(normalize(role));
+}
+
+function getPeserta(program) {
+  return Array.isArray(program?.peserta)
+    ? program.peserta[0]
+    : program?.peserta;
+}
+
 function formatDate(v) {
   if (!v) return "—";
   const p = String(v).slice(0, 10).split("-");
-  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : String(v);
+  return p.length === 3
+    ? `${p[2]}/${p[1]}/${p[0]}`
+    : String(v);
 }
 
 function parseDate(v) {
   if (!v) return null;
+
   const p = String(v).slice(0, 10).split("-").map(Number);
-  if (p.length !== 3 || p.some(n => !Number.isInteger(n))) return null;
+
+  if (
+    p.length !== 3 ||
+    p.some(n => !Number.isInteger(n))
+  ) return null;
+
   const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
-  return d.getUTCFullYear() === p[0] &&
+
+  return (
+    d.getUTCFullYear() === p[0] &&
     d.getUTCMonth() === p[1] - 1 &&
-    d.getUTCDate() === p[2] ? d : null;
+    d.getUTCDate() === p[2]
+  ) ? d : null;
 }
 
 function weekOf(value, startValue) {
   const date = parseDate(value);
   const start = parseDate(startValue);
+
   if (!date || !start) return null;
-  const days = Math.round((date.getTime() - start.getTime()) / 86400000);
+
+  const days = Math.round(
+    (date.getTime() - start.getTime()) / 86400000
+  );
+
   if (days < 0) return null;
+
   const week = Math.floor(days / 7) + 1;
-  return week >= 1 && week <= TOTAL_WEEKS ? week : null;
+
+  return week >= 1 && week <= TOTAL_WEEKS
+    ? week
+    : null;
 }
 
 function average(rows) {
   const nums = rows
-    .filter(r => r.score !== null && r.score !== undefined && r.score !== "")
+    .filter(
+      r =>
+        r.score !== null &&
+        r.score !== undefined &&
+        r.score !== ""
+    )
     .map(r => Number(r.score))
     .filter(Number.isFinite);
-  return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+
+  return nums.length
+    ? nums.reduce((a, b) => a + b, 0) / nums.length
+    : null;
 }
 
 function scoreText(v) {
@@ -80,8 +118,12 @@ function scoreText(v) {
 
 function initials(name) {
   return String(name || "Peserta OJT")
-    .trim().split(/\s+/).slice(0, 2)
-    .map(w => w[0]).join("").toUpperCase();
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(w => w[0])
+    .join("")
+    .toUpperCase();
 }
 
 function clamp(v) {
@@ -89,21 +131,7 @@ function clamp(v) {
 }
 
 // ====================================================
-// PROGRES ACHIEVEMENT — TARGET PROGRAM 25 MINGGU
-//
-// Fisik: total distance_km terverifikasi.
-// Kategori lain: jumlah kegiatan terverifikasi.
-//
-// Target:
-// Fisik          = 25 km
-// Training       = 4 kegiatan
-// Sosialisasi    = 3 kegiatan
-// Coaching       = 1 kegiatan
-// Orientasi Area = 2 kegiatan
-// Hazard         = 2 kegiatan
-//
-// Setiap kategori memiliki bobot 1/6.
-// Maksimal progres per kategori 100%.
+// ACHIEVEMENT - RUMUS ASLI
 // ====================================================
 
 function calculateAchievements(records, types, startDate) {
@@ -121,8 +149,11 @@ function calculateAchievements(records, types, startDate) {
 
   const categories = TARGETS.map(item => {
     const code = codes.get(normalizeType(item.name));
+
     const matching = code
-      ? verified.filter(r => normalizeType(r.type_code) === code)
+      ? verified.filter(
+          r => normalizeType(r.type_code) === code
+        )
       : [];
 
     let amount = 0;
@@ -130,6 +161,7 @@ function calculateAchievements(records, types, startDate) {
     if (item.name === "Fisik") {
       amount = matching.reduce((sum, r) => {
         const km = Number(r.distance_km);
+
         return sum + (
           Number.isFinite(km) && km > 0 ? km : 0
         );
@@ -151,7 +183,8 @@ function calculateAchievements(records, types, startDate) {
   });
 
   const total = categories.reduce(
-    (sum, c) => sum + c.progress, 0
+    (sum, c) => sum + c.progress,
+    0
   );
 
   const done = categories.filter(
@@ -167,11 +200,12 @@ function calculateAchievements(records, types, startDate) {
 }
 
 // ====================================================
-// SIMPER V2 — LOGIKA ASLI DIPERTAHANKAN
+// SIMPER V2 - RUMUS ASLI
 // ====================================================
 
 function parseSimperMetadata(notes) {
   const text = String(notes || "");
+
   const start = text.lastIndexOf(META_START);
   const end = text.lastIndexOf(META_END);
 
@@ -214,6 +248,7 @@ function calculateSimper(record) {
   ];
 
   const completed = steps.filter(Boolean).length;
+
   const issuanceStatus =
     meta?.issuance_status || "not_issued";
 
@@ -229,7 +264,7 @@ function calculateSimper(record) {
 }
 
 // ====================================================
-// SAMAPTA — LOGIKA ASLI DIPERTAHANKAN
+// SAMAPTA - RUMUS ASLI
 // ====================================================
 
 function getSamaptaSessions(records) {
@@ -252,7 +287,9 @@ function getSamaptaSessions(records) {
   sessions.forEach((items, date) => {
     const getScore = type => {
       const r = items.find(
-        i => normalizeType(i.test_type) === normalizeType(type)
+        i =>
+          normalizeType(i.test_type) ===
+          normalizeType(type)
       );
 
       if (
@@ -263,6 +300,7 @@ function getSamaptaSessions(records) {
       ) return null;
 
       const n = Number(r.score);
+
       return Number.isFinite(n) ? n : null;
     };
 
@@ -281,7 +319,8 @@ function getSamaptaSessions(records) {
     ) return;
 
     const b = parts.reduce(
-      (sum, n) => sum + n, 0
+      (sum, n) => sum + n,
+      0
     ) / 4;
 
     const run = items.find(
@@ -321,91 +360,74 @@ function getSamaptaSessions(records) {
 function Icon({ name, size = 21 }) {
   const icons = {
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
-
     home: (
       <>
         <path d="m3 10 9-7 9 7" />
         <path d="M5 9v12h14V9M9 21v-7h6v7" />
       </>
     ),
-
     users: (
       <>
         <circle cx="9" cy="8" r="3" />
         <path d="M3 20v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5" />
       </>
     ),
-
     file: (
       <>
         <rect x="5" y="3" width="14" height="18" rx="2" />
         <path d="M9 8h6M9 12h6M9 16h4" />
       </>
     ),
-
     check: <path d="m4 12 5 5L20 6" />,
-
-    chart: (
-      <path d="M5 20v-7M11 20V5M17 20v-11M22 20V3" />
-    ),
-
+    chart: <path d="M5 20v-7M11 20V5M17 20v-11M22 20V3" />,
     search: (
       <>
         <circle cx="10.5" cy="10.5" r="6.5" />
         <path d="m16 16 5 5" />
       </>
     ),
-
     arrow: <path d="m9 5 7 7-7 7" />,
-
     shield: (
       <>
         <path d="m12 2 9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z" />
         <path d="m8 12 3 3 5-6" />
       </>
     ),
-
     gear: (
       <>
         <circle cx="12" cy="12" r="3" />
         <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" />
       </>
     ),
-
     leaf: (
       <>
         <path d="M20 4C10 4 4 8 4 15a5 5 0 0 0 5 5c7 0 11-7 11-16Z" />
         <path d="M4 20c3-5 7-8 12-11" />
       </>
     ),
-
     refresh: (
       <>
         <path d="M20 11a8 8 0 0 0-14-5L3 9" />
         <path d="M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />
       </>
     ),
-
     logout: (
       <>
         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
         <path d="m16 17 5-5-5-5M21 12H9" />
       </>
     ),
-
     clock: (
       <>
         <circle cx="12" cy="12" r="9" />
         <path d="M12 7v5l4 2" />
       </>
     ),
-
     flag: (
       <>
         <path d="M5 22V3M5 4c6-4 9 4 15 0v11c-6 4-9-4-15 0" />
       </>
     ),
-
     calendar: (
       <>
         <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -505,7 +527,7 @@ function Metric({
 }
 
 // ====================================================
-// DASHBOARD MENTOR / ADMIN
+// DASHBOARD MENTOR DAN ADMIN
 // ====================================================
 
 export default function MentorDashboard() {
@@ -531,11 +553,12 @@ export default function MentorDashboard() {
 
   const isAdmin = normalize(mentor?.role) === "admin";
 
+  // ====================================================
+  // MAINTENANCE MODE
+  // ====================================================
+
   async function fetchMaintenanceStatus() {
-    const {
-      data,
-      error: statusError,
-    } = await supabase
+    const { data, error: statusError } = await supabase
       .from("app_settings")
       .select("maintenance_mode")
       .eq("id", 1)
@@ -547,9 +570,7 @@ export default function MentorDashboard() {
       );
     }
 
-    if (
-      typeof data?.maintenance_mode !== "boolean"
-    ) {
+    if (typeof data?.maintenance_mode !== "boolean") {
       throw new Error(
         "Pengaturan Maintenance Mode belum tersedia."
       );
@@ -559,6 +580,16 @@ export default function MentorDashboard() {
 
     return data.maintenance_mode;
   }
+
+  // ====================================================
+  // AMBIL DATA PESERTA OJT
+  //
+  // PERBAIKAN:
+  // 1. Mengambil role profil peserta.
+  // 2. Hanya role participant/peserta.
+  // 3. Admin dan Mentor tidak dihitung.
+  // 4. Semua statistik menggunakan hasil filter.
+  // ====================================================
 
   async function fetchDashboardData() {
     const [programRes, typeRes] = await Promise.all([
@@ -572,8 +603,10 @@ export default function MentorDashboard() {
           status,
           site,
           peserta:profiles!ojt_programs_participant_id_fkey(
+            id,
             full_name,
-            department
+            department,
+            role
           )
         `)
         .eq("status", "active")
@@ -598,7 +631,22 @@ export default function MentorDashboard() {
       );
     }
 
-    const list = programRes.data || [];
+    // FILTER KHUSUS ROLE PESERTA
+    const list = (programRes.data || [])
+      .filter(item => {
+        const peserta = getPeserta(item);
+
+        return (
+          peserta &&
+          isParticipantRole(peserta.role) &&
+          peserta.id === item.participant_id
+        );
+      })
+      .map(item => ({
+        ...item,
+        peserta: getPeserta(item),
+      }));
+
     const ids = list.map(item => item.id);
 
     if (!ids.length) {
@@ -614,7 +662,6 @@ export default function MentorDashboard() {
     }
 
     const results = await Promise.all([
-      // distance_km diperlukan untuk progres Fisik.
       supabase
         .from("achievement_records")
         .select(
@@ -697,6 +744,10 @@ export default function MentorDashboard() {
     setSimper(data.simper);
   }
 
+  // ====================================================
+  // VALIDASI AKSES
+  // ====================================================
+
   useEffect(() => {
     let mounted = true;
 
@@ -742,20 +793,12 @@ export default function MentorDashboard() {
         }
 
         const role = normalize(profile.role);
-
         const admin = role === "admin";
         const mentorRole = role === "mentor";
 
-        const participant = [
-          "participant",
-          "peserta",
-        ].includes(role);
+        const participant = isParticipantRole(role);
 
-        if (
-          !admin &&
-          !mentorRole &&
-          !participant
-        ) {
+        if (!admin && !mentorRole && !participant) {
           throw new Error(
             "Akun tidak memiliki izin mengakses OJT MineTrack."
           );
@@ -778,7 +821,6 @@ export default function MentorDashboard() {
           return;
         }
 
-        // Hak akses Admin dan Mentor tetap seperti kode asli.
         const next = await fetchDashboardData();
 
         if (!mounted) return;
@@ -801,9 +843,7 @@ export default function MentorDashboard() {
           );
         }
       } finally {
-        if (mounted) {
-          setLoading(false);
-        }
+        if (mounted) setLoading(false);
       }
     }
 
@@ -821,25 +861,20 @@ export default function MentorDashboard() {
 
     async function checkStatus() {
       try {
-        const mode =
-          await fetchMaintenanceStatus();
+        const mode = await fetchMaintenanceStatus();
 
         if (!active) return;
 
         setMaintenanceMode(mode);
       } catch {
-        if (active) {
-          setMaintenanceMode(null);
-        }
+        if (active) setMaintenanceMode(null);
       }
     }
 
     checkStatus();
 
     const interval = setInterval(() => {
-      if (
-        document.visibilityState === "visible"
-      ) {
+      if (document.visibilityState === "visible") {
         checkStatus();
       }
     }, 15000);
@@ -856,16 +891,13 @@ export default function MentorDashboard() {
       refreshing ||
       !mentor ||
       accessStatus !== "allowed"
-    ) {
-      return;
-    }
+    ) return;
 
     setRefreshing(true);
     setError("");
 
     try {
-      const mode =
-        await fetchMaintenanceStatus();
+      const mode = await fetchMaintenanceStatus();
 
       if (mode && !isAdmin) {
         setMentor(null);
@@ -879,8 +911,7 @@ export default function MentorDashboard() {
       applyDashboard(next);
     } catch (err) {
       setError(
-        err?.message ||
-        "Gagal memperbarui data."
+        err?.message || "Gagal memperbarui data."
       );
     } finally {
       setRefreshing(false);
@@ -906,7 +937,7 @@ export default function MentorDashboard() {
   }
 
   // ====================================================
-  // DATA PER PROGRAM
+  // DATA DAN PENILAIAN PER PROGRAM
   // ====================================================
 
   const dataByProgram = useMemo(() => {
@@ -935,17 +966,11 @@ export default function MentorDashboard() {
         r => r.program_id === id
       );
 
-      // PERBAIKAN:
-      // Gunakan pencapaian setiap target kategori.
       const achievementInfo = calculateAchievements(
         a,
         achievementTypes,
         program.start_date
       );
-
-      // =================================================
-      // SIMPER
-      // =================================================
 
       const chosenSimper =
         sp.find(record =>
@@ -954,26 +979,13 @@ export default function MentorDashboard() {
         sp[0] ||
         null;
 
-      const simperInfo =
-        calculateSimper(chosenSimper);
+      const simperInfo = calculateSimper(chosenSimper);
 
-      // =================================================
-      // SAMAPTA
-      // =================================================
+      const samaptaSessions = getSamaptaSessions(sm);
 
-      const samaptaSessions =
-        getSamaptaSessions(sm);
-
-      const latestSamapta =
-        samaptaSessions.length
-          ? samaptaSessions[
-              samaptaSessions.length - 1
-            ]
-          : null;
-
-      // =================================================
-      // AKTIVITAS 25 MINGGU
-      // =================================================
+      const latestSamapta = samaptaSessions.length
+        ? samaptaSessions[samaptaSessions.length - 1]
+        : null;
 
       const weeks = new Set();
 
@@ -988,21 +1000,10 @@ export default function MentorDashboard() {
         }
       };
 
-      a.forEach(r =>
-        markWeek(r.activity_date)
-      );
-
-      pt.forEach(r =>
-        markWeek(r.test_date)
-      );
-
-      pr.forEach(r =>
-        markWeek(r.practice_date)
-      );
-
-      sm.forEach(r =>
-        markWeek(r.test_date)
-      );
+      a.forEach(r => markWeek(r.activity_date));
+      pt.forEach(r => markWeek(r.test_date));
+      pr.forEach(r => markWeek(r.practice_date));
+      sm.forEach(r => markWeek(r.test_date));
 
       output[id] = {
         done: achievementInfo.done,
@@ -1021,26 +1022,16 @@ export default function MentorDashboard() {
         samaptaSessions,
         latestSamapta,
 
-        samaptaComplete:
-          samaptaSessions.length > 0,
-
+        samaptaComplete: samaptaSessions.length > 0,
         samaptaPassed:
           latestSamapta?.runPassed === true,
 
-        simperProgress:
-          simperInfo.progress,
+        simperProgress: simperInfo.progress,
+        simperPassed: simperInfo.passed,
+        simperIssued: simperInfo.released,
+        simperLegacy: simperInfo.legacy,
 
-        simperPassed:
-          simperInfo.passed,
-
-        simperIssued:
-          simperInfo.released,
-
-        simperLegacy:
-          simperInfo.legacy,
-
-        activityWeeks:
-          weeks.size,
+        activityWeeks: weeks.size,
 
         activityProgress: Math.round(
           (weeks.size / TOTAL_WEEKS) * 100
@@ -1060,13 +1051,18 @@ export default function MentorDashboard() {
   ]);
 
   // ====================================================
-  // FILTER PESERTA
+  // FILTER PENCARIAN DAN SITE
   // ====================================================
 
   const filtered = useMemo(() => {
     const keyword = normalize(search);
 
     return programs.filter(program => {
+      // Pengaman tambahan: tidak boleh Admin/Mentor.
+      if (!isParticipantRole(program.peserta?.role)) {
+        return false;
+      }
+
       const matchSite =
         siteFilter === "ALL" ||
         program.site === siteFilter;
@@ -1086,11 +1082,7 @@ export default function MentorDashboard() {
 
       return matchSite && matchKeyword;
     });
-  }, [
-    programs,
-    search,
-    siteFilter,
-  ]);
+  }, [programs, search, siteFilter]);
 
   // ====================================================
   // RINGKASAN DASHBOARD
@@ -1102,9 +1094,7 @@ export default function MentorDashboard() {
     );
 
     const relevantPractices =
-      practices.filter(row =>
-        ids.has(row.program_id)
-      );
+      practices.filter(row => ids.has(row.program_id));
 
     const totalProgress = filtered.reduce(
       (sum, program) =>
@@ -1138,25 +1128,18 @@ export default function MentorDashboard() {
       active: filtered.length,
 
       progress: filtered.length
-        ? Math.round(
-            totalProgress / filtered.length
-          )
+        ? Math.round(totalProgress / filtered.length)
         : 0,
 
-      practiceAverage:
-        average(relevantPractices),
+      practiceAverage: average(relevantPractices),
 
-      // Peserta lengkap jika keenam target terpenuhi.
       completed: filtered.filter(
         program =>
           dataByProgram[program.id]?.achievementCompleted
       ).length,
 
-      postTest:
-        countWithRecords("pt"),
-
-      practice:
-        countWithRecords("pr"),
+      postTest: countWithRecords("pt"),
+      practice: countWithRecords("pr"),
 
       samapta: filtered.filter(
         program =>
@@ -1168,8 +1151,7 @@ export default function MentorDashboard() {
           dataByProgram[program.id]?.samaptaPassed
       ).length,
 
-      simper:
-        countWithRecords("sp"),
+      simper: countWithRecords("sp"),
 
       simperIssued: filtered.filter(
         program =>
@@ -1183,16 +1165,10 @@ export default function MentorDashboard() {
         : 0,
 
       averageWeeks: filtered.length
-        ? (
-            totalWeeks / filtered.length
-          ).toFixed(1)
+        ? (totalWeeks / filtered.length).toFixed(1)
         : "0.0",
     };
-  }, [
-    filtered,
-    practices,
-    dataByProgram,
-  ]);
+  }, [filtered, practices, dataByProgram]);
 
   // ====================================================
   // PROGRES PER SITE
@@ -1230,10 +1206,7 @@ export default function MentorDashboard() {
         count: entries.length,
       };
     });
-  }, [
-    filtered,
-    dataByProgram,
-  ]);
+  }, [filtered, dataByProgram]);
 
   // ====================================================
   // HALAMAN MAINTENANCE
@@ -1241,1195 +1214,97 @@ export default function MentorDashboard() {
 
   if (accessStatus === "maintenance") {
     return (
-      <main
-        style={{
-          minHeight: "100vh",
-          background: "#061e24",
-          color: "white",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: 24,
-          fontFamily: "Arial, sans-serif",
-          textAlign: "center",
-        }}
-      >
-        <div style={{ maxWidth: 520 }}>
-          <div style={{ fontSize: 49 }}>
-            🛠️
-          </div>
+      <main className="track-access-page">
+        <style>{accessCSS}</style>
+        <div className="track-access-content">
+          <div style={{ fontSize: 49 }}>🛠️</div>
 
-          <h1
-            style={{
-              fontSize: 30,
-              marginBottom: 16,
-            }}
-          >
-            OJT MineTrack Sedang Maintenance
-          </h1>
+          <h1>OJT MineTrack Sedang Maintenance</h1>
 
-          <p
-            style={{
-              color: "#cbd5d1",
-              lineHeight: 1.8,
-            }}
-          >
-            Sistem sedang dalam proses
-            pemeliharaan. Akses Mentor dan
-            Peserta untuk sementara tidak
-            tersedia.
+          <p>
+            Sistem sedang dalam proses pemeliharaan.
+            Akses Mentor dan Peserta untuk sementara
+            tidak tersedia.
           </p>
 
           <button
-            type="button"
-            onClick={() =>
-              window.location.reload()
-            }
-            style={{
-              background: "#d8b45a",
-              color: "#061e24",
-              border: 0,
-              borderRadius: 12,
-              padding: "14px 22px",
-              fontWeight: 800,
-              cursor: "pointer",
-              marginTop: 17,
-            }}
+            className="track-access-button"
+            onClick={() => window.location.reload()}
           >
             Coba Lagi
           </button>
 
-          <div style={{ marginTop: 23 }}>
-            <button
-              type="button"
-              onClick={logout}
-              style={{
-                background: "transparent",
-                color: "#d8e8e2",
-                border: "1px solid #526e67",
-                padding: "12px 18px",
-                borderRadius: 10,
-                cursor: "pointer",
-              }}
-            >
-              Keluar Akun
-            </button>
-          </div>
+          <button
+            className="track-access-outline"
+            onClick={logout}
+          >
+            Keluar Akun
+          </button>
         </div>
       </main>
     );
   }
-
-  // ====================================================
-  // PEMERIKSAAN AKSES
-  // ====================================================
 
   if (
     accessStatus === "checking" ||
     accessStatus === "redirecting"
   ) {
     return (
-      <main
-        style={{
-          minHeight: "100vh",
-          background: "#061e24",
-          color: "white",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: 24,
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
-        <div style={{ textAlign: "center" }}>
+      <main className="track-access-page">
+        <style>{accessCSS}</style>
+        <div className="track-access-content">
           <h2>OJT MineTrack</h2>
-
-          <p style={{ color: "#cbd5d1" }}>
-            Memeriksa akses pengguna...
-          </p>
+          <p>Memeriksa akses pengguna...</p>
         </div>
       </main>
     );
   }
 
-  // ====================================================
-  // ERROR AKSES
-  // ====================================================
-
   if (accessStatus === "error") {
     return (
-      <main
-        style={{
-          minHeight: "100vh",
-          background: "#061e24",
-          color: "white",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: 24,
-          fontFamily: "Arial, sans-serif",
-          textAlign: "center",
-        }}
-      >
-        <div style={{ maxWidth: 560 }}>
+      <main className="track-access-page">
+        <style>{accessCSS}</style>
+        <div className="track-access-content">
           <h1>Gagal Memuat Dashboard</h1>
-
-          <p
-            style={{
-              color: "#cbd5d1",
-              lineHeight: 1.8,
-            }}
-          >
-            {error ||
-              "Pemeriksaan akses belum berhasil."}
+          <p>
+            {error || "Pemeriksaan akses belum berhasil."}
           </p>
-
-          <p
-            style={{
-              color: "#9db4ae",
-              fontSize: 13,
-              lineHeight: 1.7,
-            }}
-          >
-            Sistem tidak akan menampilkan
-            data OJT sebelum akses berhasil
-            diverifikasi.
+          <p>
+            Sistem tidak akan menampilkan data OJT
+            sebelum akses berhasil diverifikasi.
           </p>
 
           <button
-            type="button"
-            onClick={() =>
-              window.location.reload()
-            }
-            style={{
-              background: "#d8b45a",
-              color: "#061e24",
-              border: 0,
-              borderRadius: 12,
-              padding: "14px 22px",
-              fontWeight: 800,
-              cursor: "pointer",
-              marginTop: 16,
-            }}
+            className="track-access-button"
+            onClick={() => window.location.reload()}
           >
             Coba Lagi
           </button>
 
-          <div style={{ marginTop: 20 }}>
-            <button
-              type="button"
-              onClick={() =>
-                router.replace("/login")
-              }
-              style={{
-                background: "transparent",
-                color: "#d8e8e2",
-                border: "1px solid #526e67",
-                padding: "12px 18px",
-                borderRadius: 10,
-                cursor: "pointer",
-              }}
-            >
-              Buka Halaman Login
-            </button>
-          </div>
+          <button
+            className="track-access-outline"
+            onClick={() => router.replace("/login")}
+          >
+            Buka Halaman Login
+          </button>
         </div>
       </main>
     );
   }
 
   // ====================================================
-  // TAMPILAN DASHBOARD
+  // TAMPILAN DASHBOARD MENTOR / ADMIN
   // ====================================================
 
   return (
     <div className="track-shell">
-      <style>{`
-        * { box-sizing: border-box; }
-
-        .track-shell {
-          min-height: 100vh;
-          background: #f2f6f8;
-          color: #142c26;
-          font-family: Arial, Helvetica, sans-serif;
-        }
-
-        .track-sidebar {
-          position: fixed;
-          inset: 0 auto 0 0;
-          width: 248px;
-          z-index: 50;
-          display: flex;
-          flex-direction: column;
-          padding: 25px 15px;
-          overflow-y: auto;
-          color: white;
-          background: linear-gradient(
-            180deg,
-            #07141c 0%,
-            #08252a 56%,
-            #073b2e 100%
-          );
-        }
-
-        .track-brand {
-          padding: 11px 12px 29px;
-        }
-
-        .track-brand-title {
-          font-size: 25px;
-          letter-spacing: -.7px;
-          font-weight: 900;
-        }
-
-        .track-brand-title span {
-          color: #2cca95;
-        }
-
-        .track-brand-sub {
-          margin-top: 9px;
-          color: #bccdc8;
-          font-size: 11px;
-          line-height: 1.8;
-        }
-
-        .track-nav {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          width: 100%;
-          padding: 14px;
-          margin-bottom: 5px;
-          color: #dae7e1;
-          background: transparent;
-          border: 0;
-          border-radius: 10px;
-          font-size: 13px;
-          font-weight: 700;
-          text-align: left;
-          cursor: pointer;
-        }
-
-        .track-nav.active,
-        .track-nav:hover {
-          color: white;
-          background: linear-gradient(
-            90deg, #087854, #145c48
-          );
-        }
-
-        .track-nav:disabled {
-          opacity: .5;
-          cursor: not-allowed;
-        }
-
-        .track-admin-label {
-          padding: 13px 14px 8px;
-          margin-top: 12px;
-          color: #8ee7c4;
-          font-size: 10px;
-          font-weight: 900;
-          letter-spacing: 1px;
-          border-top: 1px solid #ffffff26;
-        }
-
-        .track-admin-nav {
-          background: #0c513f;
-          border: 1px solid #36c79555;
-        }
-
-        .track-admin-nav:hover {
-          background: #087854;
-        }
-
-        .track-maintenance-nav {
-          background: #243b32;
-          border: 1px solid #d8b45a70;
-          color: #f5d68c;
-        }
-
-        .track-maintenance-nav:hover {
-          background: #40513a;
-        }
-
-        .track-maintenance-indicator {
-          margin-left: auto;
-          padding: 4px 7px;
-          border-radius: 7px;
-          font-size: 9px;
-          font-weight: 900;
-          white-space: nowrap;
-        }
-
-        .track-maintenance-indicator.off {
-          color: #b4f5d8;
-          background: #0b654a;
-        }
-
-        .track-maintenance-indicator.on {
-          color: #ffe6ab;
-          background: #95520d;
-        }
-
-        .track-maintenance-indicator.unknown {
-          color: #d6ded9;
-          background: #52615a;
-        }
-
-        .track-sidebar-bottom {
-          margin-top: auto;
-          padding-top: 16px;
-          border-top: 1px solid #ffffff26;
-        }
-
-        .track-main {
-          margin-left: 248px;
-          min-width: 0;
-        }
-
-        .track-mobile-header {
-          display: none;
-        }
-
-        .track-hero {
-          position: relative;
-          min-height: 255px;
-          padding: 67px 36px 37px;
-          color: white;
-          background:
-            linear-gradient(
-              90deg,
-              rgba(2,17,23,.97),
-              rgba(5,26,28,.77) 48%,
-              rgba(4,25,25,.19)
-            ),
-            url("/background-erg.png.PNG");
-          background-size: cover;
-          background-position: center;
-        }
-
-        .track-hero-kicker {
-          color: #f5cb75;
-          font-weight: 800;
-          letter-spacing: 2px;
-          font-size: 11px;
-        }
-
-        .track-hero h1 {
-          margin: 17px 0 5px;
-          font-size: clamp(31px, 4vw, 54px);
-          font-weight: 900;
-          line-height: 1.15;
-        }
-
-        .track-hero h1 span {
-          color: #28c58b;
-        }
-
-        .track-hero p {
-          color: #eff9f5;
-          font-size: 15px;
-        }
-
-        .track-values {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 18px;
-          margin-top: 24px;
-          color: #e6e9dc;
-          font-size: 12px;
-        }
-
-        .track-value {
-          display: flex;
-          align-items: center;
-          gap: 7px;
-        }
-
-        .track-value svg {
-          color: #f2c96e;
-        }
-
-        .track-mentor {
-          position: absolute;
-          top: 18px;
-          right: 24px;
-          background: #061f24d9;
-          border: 1px solid #ffffff30;
-          border-radius: 12px;
-          padding: 10px 16px;
-          font-size: 12px;
-          font-weight: 800;
-        }
-
-        .track-admin-banner {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 16px;
-          padding: 15px 17px;
-          background: #e0f6ec;
-          border: 1px solid #a8dfc8;
-          border-radius: 14px;
-        }
-
-        .track-admin-banner strong {
-          display: block;
-          font-size: 13px;
-          color: #075a40;
-        }
-
-        .track-admin-banner p {
-          margin: 5px 0 0;
-          font-size: 11px;
-          color: #477366;
-          line-height: 1.5;
-        }
-
-        .track-admin-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 9px;
-        }
-
-        .track-admin-button {
-          border: 0;
-          border-radius: 9px;
-          padding: 11px 14px;
-          color: white;
-          background: #087c57;
-          font-size: 12px;
-          font-weight: 800;
-          cursor: pointer;
-        }
-
-        .track-admin-button.maintenance {
-          background: #153c2e;
-        }
-
-        .track-admin-button:hover {
-          opacity: .9;
-        }
-
-        .track-content {
-          max-width: 1520px;
-          padding: 23px 24px 30px;
-          margin: auto;
-        }
-
-        .track-metrics {
-          display: grid;
-          grid-template-columns:
-            repeat(4, minmax(0,1fr));
-          gap: 14px;
-          margin-bottom: 16px;
-        }
-
-        .track-metric {
-          position: relative;
-          min-width: 0;
-          min-height: 143px;
-          padding: 19px 17px;
-          background: white;
-          border: 1px solid #e6edf0;
-          border-radius: 17px;
-          box-shadow: 0 6px 22px #17384709;
-          overflow: hidden;
-        }
-
-        .track-metric-main {
-          display: flex;
-          align-items: flex-start;
-          gap: 13px;
-        }
-
-        .track-metric-icon {
-          width: 52px;
-          height: 52px;
-          border-radius: 13px;
-          display: grid;
-          place-items: center;
-          flex-shrink: 0;
-          color: white;
-        }
-
-        .track-metric-text {
-          min-width: 0;
-          padding-right: 10px;
-        }
-
-        .track-metric-label {
-          display: block;
-          color: #172f37;
-          font-size: 12px;
-          font-weight: 800;
-          line-height: 1.35;
-        }
-
-        .track-metric-value {
-          display: block;
-          margin-top: 7px;
-          font-size: 31px;
-          font-weight: 900;
-          color: #0c1925;
-        }
-
-        .track-metric-description {
-          display: block;
-          margin-top: 8px;
-          color: #81909c;
-          font-size: 10px;
-          line-height: 1.5;
-        }
-
-        .track-icon-button {
-          margin-left: auto;
-          flex-shrink: 0;
-          width: 29px;
-          height: 29px;
-          display: grid;
-          place-items: center;
-          border: 0;
-          border-radius: 50%;
-          background: #f0f5f7;
-          cursor: pointer;
-        }
-
-        .track-sparkline {
-          position: absolute;
-          right: 15px;
-          bottom: 15px;
-          display: flex;
-          align-items: flex-end;
-          gap: 4px;
-          height: 36px;
-          opacity: .65;
-        }
-
-        .track-sparkline span {
-          width: 5px;
-          border-radius: 3px 3px 0 0;
-          background: currentColor;
-        }
-
-        .track-card {
-          min-width: 0;
-          padding: 22px;
-          margin-bottom: 16px;
-          background: white;
-          border: 1px solid #e6edf0;
-          border-radius: 17px;
-          box-shadow: 0 6px 22px #17384708;
-        }
-
-        .track-card h2 {
-          margin: 0;
-          color: #14212b;
-          font-size: 18px;
-          font-weight: 900;
-        }
-
-        .track-card-heading {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          margin-bottom: 9px;
-        }
-
-        .track-card-sub {
-          margin: 8px 0 17px;
-          color: #83919d;
-          line-height: 1.6;
-          font-size: 12px;
-        }
-
-        .track-top-sections {
-          display: grid;
-          grid-template-columns: 1.3fr 1fr;
-          gap: 15px;
-        }
-
-        .track-site-row {
-          display: grid;
-          grid-template-columns:
-            45px 82px minmax(0,1fr) 46px;
-          gap: 12px;
-          align-items: center;
-          padding: 13px 0;
-          border-bottom: 1px solid #edf1f2;
-          font-size: 12px;
-        }
-
-        .track-site-row:last-child {
-          border: 0;
-        }
-
-        .track-site-icon {
-          width: 41px;
-          height: 41px;
-          border-radius: 11px;
-          background: #e3f7ef;
-          color: #0d9b6b;
-          display: grid;
-          place-items: center;
-        }
-
-        .track-progress {
-          width: 100%;
-          height: 10px;
-          overflow: hidden;
-          border-radius: 20px;
-          background: #e9eff1;
-        }
-
-        .track-progress span {
-          display: block;
-          height: 100%;
-          border-radius: inherit;
-          background: linear-gradient(
-            90deg, #2bbd8a, #109367
-          );
-        }
-
-        .track-monitor-grid {
-          display: grid;
-          grid-template-columns:
-            repeat(4, minmax(0,1fr));
-          gap: 12px;
-          padding: 14px 0;
-        }
-
-        .track-monitor-item {
-          text-align: center;
-          border-right: 1px solid #e9eef0;
-          min-width: 0;
-        }
-
-        .track-monitor-item:last-child {
-          border: 0;
-        }
-
-        .track-monitor-circle {
-          width: 39px;
-          height: 39px;
-          border-radius: 50%;
-          background: #e3f7ef;
-          color: #07986b;
-          display: grid;
-          place-items: center;
-          margin: 0 auto 7px;
-        }
-
-        .track-monitor-item strong {
-          display: block;
-          font-size: 20px;
-          font-weight: 900;
-        }
-
-        .track-monitor-item small {
-          display: block;
-          margin-top: 5px;
-          color: #85949d;
-          font-size: 10px;
-          line-height: 1.45;
-        }
-
-        .track-monitor-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          padding: 10px 0;
-          border-bottom: 1px solid #edf1f2;
-          font-size: 12px;
-          color: #50676a;
-        }
-
-        .track-monitor-row strong {
-          color: #07875c;
-          text-align: right;
-        }
-
-        .track-monitor-row:last-child {
-          border: 0;
-        }
-
-        .track-filters {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .track-field {
-          min-width: 0;
-          background: white;
-          border: 1px solid #dbe5e8;
-          border-radius: 9px;
-          padding: 11px 12px;
-          color: #1f3939;
-          font-size: 12px;
-        }
-
-        .track-search {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding-left: 11px;
-          border: 1px solid #dbe5e8;
-          border-radius: 9px;
-          background: white;
-          color: #8b9ba4;
-        }
-
-        .track-search input {
-          border: 0;
-          outline: 0;
-          padding: 11px 10px 11px 0;
-          width: 190px;
-          min-width: 0;
-          background: transparent;
-          color: #17382c;
-          font-size: 12px;
-        }
-
-        .track-table-wrap {
-          overflow-x: auto;
-        }
-
-        .track-table {
-          width: 100%;
-          min-width: 830px;
-          border-collapse: collapse;
-          text-align: left;
-          font-size: 12px;
-        }
-
-        .track-table th {
-          background: #f3f7f8;
-          color: #6a8184;
-          font-size: 11px;
-          padding: 13px;
-          white-space: nowrap;
-        }
-
-        .track-table td {
-          border-bottom: 1px solid #edf1f2;
-          padding: 14px 13px;
-        }
-
-        .track-table-name {
-          font-weight: 800;
-          color: #1b3530;
-        }
-
-        .track-badge {
-          display: inline-block;
-          border-radius: 20px;
-          background: #def7ec;
-          color: #078a61;
-          font-weight: 800;
-          font-size: 11px;
-          padding: 6px 12px;
-          white-space: nowrap;
-        }
-
-        .track-view {
-          cursor: pointer;
-          border: 0;
-          background: #e7f6ef;
-          color: #087550;
-          border-radius: 9px;
-          padding: 9px 12px;
-          font-size: 12px;
-          font-weight: 800;
-        }
-
-        .track-mobile-people {
-          display: none;
-        }
-
-        .track-person {
-          display: grid;
-          grid-template-columns:
-            minmax(0,1fr) auto;
-          align-items: center;
-          gap: 10px;
-          border: 1px solid #e5edef;
-          border-radius: 13px;
-          padding: 12px;
-          margin-bottom: 9px;
-        }
-
-        .track-person-heading {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          min-width: 0;
-        }
-
-        .track-avatar {
-          width: 40px;
-          height: 40px;
-          flex-shrink: 0;
-          display: grid;
-          place-items: center;
-          border-radius: 50%;
-          background: #d9f3e8;
-          color: #087a55;
-          font-size: 15px;
-          font-weight: 900;
-        }
-
-        .track-person-name {
-          font-size: 13px;
-          font-weight: 900;
-          overflow-wrap: anywhere;
-        }
-
-        .track-person-detail {
-          margin-top: 4px;
-          font-size: 11px;
-          color: #85929c;
-          line-height: 1.5;
-        }
-
-        .track-person-score {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-top: 12px;
-          font-size: 11px;
-          font-weight: 700;
-        }
-
-        .track-person-actions button {
-          border: 0;
-          width: 35px;
-          height: 35px;
-          background: #eff5f6;
-          border-radius: 50%;
-          display: grid;
-          place-items: center;
-          cursor: pointer;
-        }
-
-        .track-empty {
-          padding: 23px;
-          color: #80929a;
-          font-size: 13px;
-          text-align: center;
-        }
-
-        .track-alert {
-          background: #fff1f1;
-          border: 1px solid #ffc7c7;
-          border-radius: 12px;
-          padding: 14px;
-          color: #b91c1c;
-          margin-bottom: 17px;
-          overflow-wrap: anywhere;
-        }
-
-        .track-footer {
-          padding: 19px 8px;
-          color: #899ba6;
-          font-size: 11px;
-          text-align: center;
-        }
-
-        .track-overlay {
-          display: none;
-        }
-
-        @media(max-width:1200px) {
-          .track-metrics {
-            grid-template-columns:
-              repeat(2, minmax(0,1fr));
-          }
-
-          .track-top-sections {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media(max-width:760px) {
-          .track-sidebar {
-            width: 255px;
-            transform: translateX(-105%);
-            transition: transform .2s;
-          }
-
-          .track-sidebar.open {
-            transform: translateX(0);
-          }
-
-          .track-overlay.open {
-            display: block;
-            position: fixed;
-            inset: 0;
-            background: #0019138c;
-            z-index: 45;
-          }
-
-          .track-main {
-            margin-left: 0;
-          }
-
-          .track-mobile-header {
-            height: 60px;
-            display: flex;
-            position: sticky;
-            top: 0;
-            z-index: 35;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 18px;
-            color: white;
-            background: #091c24;
-          }
-
-          .track-mobile-header strong {
-            font-size: 20px;
-          }
-
-          .track-mobile-header strong span {
-            color: #29c88e;
-          }
-
-          .track-mobile-header button {
-            color: white;
-            background: transparent;
-            border: 0;
-            cursor: pointer;
-          }
-
-          .track-hero {
-            min-height: 177px;
-            padding: 23px 18px 29px;
-          }
-
-          .track-hero-kicker {
-            font-size: 9px;
-            letter-spacing: 1.3px;
-          }
-
-          .track-hero h1 {
-            font-size: 30px;
-            margin-top: 13px;
-          }
-
-          .track-hero p {
-            font-size: 12px;
-          }
-
-          .track-values {
-            gap: 9px;
-            margin-top: 18px;
-            font-size: 9px;
-          }
-
-          .track-value {
-            gap: 4px;
-          }
-
-          .track-value svg {
-            width: 13px;
-            height: 13px;
-          }
-
-          .track-mentor {
-            display: none;
-          }
-
-          .track-content {
-            padding: 0 12px 22px;
-            margin-top: -10px;
-            position: relative;
-            z-index: 1;
-          }
-
-          .track-admin-banner {
-            align-items: stretch;
-          }
-
-          .track-admin-actions {
-            width: 100%;
-            flex-direction: column;
-          }
-
-          .track-admin-button {
-            width: 100%;
-          }
-
-          .track-metrics {
-            gap: 9px;
-            margin-bottom: 13px;
-          }
-
-          .track-metric {
-            min-height: 128px;
-            padding: 12px 10px;
-            border-radius: 14px;
-          }
-
-          .track-metric-main {
-            gap: 9px;
-          }
-
-          .track-metric-icon {
-            width: 35px;
-            height: 35px;
-            border-radius: 10px;
-          }
-
-          .track-metric-icon svg {
-            width: 20px;
-            height: 20px;
-          }
-
-          .track-metric-label {
-            font-size: 10px;
-          }
-
-          .track-metric-value {
-            font-size: 25px;
-          }
-
-          .track-metric-description {
-            font-size: 9px;
-          }
-
-          .track-icon-button {
-            position: absolute;
-            top: 11px;
-            right: 9px;
-            width: 23px;
-            height: 23px;
-          }
-
-          .track-sparkline {
-            right: 11px;
-            bottom: 12px;
-          }
-
-          .track-sparkline span {
-            width: 4px;
-          }
-
-          .track-card {
-            padding: 15px 13px;
-            border-radius: 15px;
-            margin-bottom: 12px;
-          }
-
-          .track-card h2 {
-            font-size: 16px;
-          }
-
-          .track-card-sub {
-            font-size: 11px;
-          }
-
-          .track-site-row {
-            grid-template-columns:
-              35px 65px minmax(0,1fr) 38px;
-            gap: 8px;
-            font-size: 11px;
-          }
-
-          .track-site-icon {
-            width: 32px;
-            height: 32px;
-          }
-
-          .track-monitor-grid {
-            gap: 4px;
-          }
-
-          .track-monitor-circle {
-            width: 33px;
-            height: 33px;
-          }
-
-          .track-monitor-item strong {
-            font-size: 18px;
-          }
-
-          .track-monitor-item small {
-            font-size: 9px;
-          }
-
-          .track-card-heading {
-            flex-wrap: wrap;
-          }
-
-          .track-filters {
-            width: 100%;
-          }
-
-          .track-search {
-            flex: 1.3;
-            min-width: 0;
-          }
-
-          .track-search input {
-            width: 100%;
-            font-size: 11px;
-          }
-
-          .track-field {
-            flex: 1;
-            width: 105px;
-            font-size: 11px;
-          }
-
-          .track-table-wrap {
-            display: none;
-          }
-
-          .track-mobile-people {
-            display: block;
-          }
-
-          .track-person {
-            padding: 11px;
-          }
-        }
-
-        @media(max-width:380px) {
-          .track-metric-main {
-            display: block;
-          }
-
-          .track-metric-icon {
-            margin-bottom: 8px;
-          }
-
-          .track-metric {
-            min-height: 150px;
-          }
-
-          .track-filters {
-            flex-direction: column;
-          }
-
-          .track-search,
-          .track-field {
-            width: 100%;
-          }
-        }
-      `}</style>
+      <style>{dashboardCSS}</style>
 
       <div
         className={`track-overlay ${
           menuOpen ? "open" : ""
         }`}
-        onClick={() =>
-          setMenuOpen(false)
-        }
+        onClick={() => setMenuOpen(false)}
       />
 
       <aside
@@ -2457,9 +1332,7 @@ export default function MentorDashboard() {
               className={`track-nav ${
                 item.url === "/" ? "active" : ""
               }`}
-              onClick={() =>
-                navigate(item.url)
-              }
+              onClick={() => navigate(item.url)}
             >
               <Icon name={item.icon} size={19} />
               {item.label}
@@ -2529,7 +1402,6 @@ export default function MentorDashboard() {
             }
           >
             <Icon name="refresh" size={19} />
-
             {refreshing
               ? "Memperbarui..."
               : "Refresh Data"}
@@ -2555,9 +1427,7 @@ export default function MentorDashboard() {
           <button
             type="button"
             aria-label="Buka menu"
-            onClick={() =>
-              setMenuOpen(true)
-            }
+            onClick={() => setMenuOpen(true)}
           >
             <Icon name="menu" size={28} />
           </button>
@@ -2566,15 +1436,12 @@ export default function MentorDashboard() {
         <header className="track-hero">
           <div className="track-mentor">
             {isAdmin
-              ? `Administrator · ${
-                  mentor?.full_name || "Admin"
-                }`
+              ? `Administrator · ${mentor?.full_name || "Admin"}`
               : mentor?.full_name || "Mentor OJT"}
           </div>
 
           <div className="track-hero-kicker">
-            EMERGENCY RESPONSE GROUP ·
-            PT BERAU COAL
+            EMERGENCY RESPONSE GROUP · PT BERAU COAL
           </div>
 
           <h1>
@@ -2582,8 +1449,7 @@ export default function MentorDashboard() {
           </h1>
 
           <p>
-            Monitoring dan Evaluasi
-            On Job Training
+            Monitoring dan Evaluasi On Job Training
           </p>
 
           <div className="track-values">
@@ -2606,10 +1472,7 @@ export default function MentorDashboard() {
 
         <div className="track-content">
           {error && (
-            <div
-              role="alert"
-              className="track-alert"
-            >
+            <div role="alert" className="track-alert">
               {error}
             </div>
           )}
@@ -2628,14 +1491,12 @@ export default function MentorDashboard() {
                 <div className="track-admin-banner">
                   <div>
                     <strong>
-                      Mode Administrator —
-                      Dashboard Mentor
+                      Mode Administrator — Dashboard Mentor
                     </strong>
 
                     <p>
-                      Kamu sedang melihat
-                      Dashboard Mentor menggunakan
-                      akun Admin.
+                      Kamu sedang melihat Dashboard Mentor
+                      menggunakan akun Admin.
                     </p>
 
                     <p>
@@ -2662,7 +1523,6 @@ export default function MentorDashboard() {
 
                   <div className="track-admin-actions">
                     <button
-                      type="button"
                       className="track-admin-button"
                       onClick={() =>
                         navigate("/dashboard-peserta")
@@ -2672,7 +1532,6 @@ export default function MentorDashboard() {
                     </button>
 
                     <button
-                      type="button"
                       className="track-admin-button maintenance"
                       onClick={() =>
                         navigate("/admin/maintenance")
@@ -2706,9 +1565,7 @@ export default function MentorDashboard() {
 
                 <Metric
                   label="Rata-rata Nilai Praktik"
-                  value={scoreText(
-                    summary.practiceAverage
-                  )}
+                  value={scoreText(summary.practiceAverage)}
                   description="Dari penilaian yang tercatat"
                   icon="file"
                   color="#dfaa2e"
@@ -2754,7 +1611,7 @@ export default function MentorDashboard() {
                     ))
                   ) : (
                     <div className="track-empty">
-                      Belum ada program aktif.
+                      Belum ada peserta OJT aktif.
                     </div>
                   )}
                 </section>
@@ -2792,11 +1649,13 @@ export default function MentorDashboard() {
                         key={item.label}
                       >
                         <div className="track-monitor-circle">
-                          <Icon name={item.icon} size={20} />
+                          <Icon
+                            name={item.icon}
+                            size={20}
+                          />
                         </div>
 
                         <strong>{item.value}</strong>
-
                         <small>{item.label}</small>
                       </div>
                     ))}
@@ -2804,11 +1663,8 @@ export default function MentorDashboard() {
 
                   <div className="track-monitor-row">
                     <span>Samapta tes lengkap</span>
-
                     <strong>
-                      {summary.samapta}
-                      {" / "}
-                      {summary.active}
+                      {summary.samapta} / {summary.active}
                     </strong>
                   </div>
 
@@ -2816,11 +1672,8 @@ export default function MentorDashboard() {
                     <span>
                       Samapta lari lulus (tes terakhir)
                     </span>
-
                     <strong>
-                      {summary.samaptaPassed}
-                      {" / "}
-                      {summary.active}
+                      {summary.samaptaPassed} / {summary.active}
                     </strong>
                   </div>
 
@@ -2828,21 +1681,15 @@ export default function MentorDashboard() {
                     <span>
                       Peserta memiliki catatan SIMPER
                     </span>
-
                     <strong>
-                      {summary.simper}
-                      {" / "}
-                      {summary.active}
+                      {summary.simper} / {summary.active}
                     </strong>
                   </div>
 
                   <div className="track-monitor-row">
                     <span>SIMPER telah terbit</span>
-
                     <strong>
-                      {summary.simperIssued}
-                      {" / "}
-                      {summary.active}
+                      {summary.simperIssued} / {summary.active}
                     </strong>
                   </div>
 
@@ -2850,7 +1697,6 @@ export default function MentorDashboard() {
                     <span>
                       Rata-rata progres SIMPER
                     </span>
-
                     <strong>
                       {summary.simperAverage}%
                     </strong>
@@ -2860,10 +1706,8 @@ export default function MentorDashboard() {
                     <span>
                       Rata-rata minggu dengan aktivitas
                     </span>
-
                     <strong>
-                      {summary.averageWeeks}
-                      {" / 25"}
+                      {summary.averageWeeks} / 25
                     </strong>
                   </div>
                 </section>
@@ -2901,7 +1745,10 @@ export default function MentorDashboard() {
                       </option>
 
                       {SITES.map(site => (
-                        <option key={site} value={site}>
+                        <option
+                          key={site}
+                          value={site}
+                        >
                           {site}
                         </option>
                       ))}
@@ -2935,8 +1782,7 @@ export default function MentorDashboard() {
 
                     <tbody>
                       {filtered.map((program, index) => {
-                        const info =
-                          dataByProgram[program.id];
+                        const info = dataByProgram[program.id];
 
                         return (
                           <tr key={program.id}>
@@ -2963,18 +1809,10 @@ export default function MentorDashboard() {
                             </td>
 
                             <td>
-                              <div
-                                style={{
-                                  minWidth: 100,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                }}
-                              >
+                              <div className="track-inline-progress">
                                 <Progress
                                   value={info?.progress || 0}
                                 />
-
                                 <strong>
                                   {info?.progress || 0}%
                                 </strong>
@@ -3002,9 +1840,7 @@ export default function MentorDashboard() {
                                 className="track-view"
                                 type="button"
                                 onClick={() =>
-                                  navigate(
-                                    `/peserta/${program.id}`
-                                  )
+                                  navigate(`/peserta/${program.id}`)
                                 }
                               >
                                 Lihat Detail
@@ -3013,27 +1849,36 @@ export default function MentorDashboard() {
                           </tr>
                         );
                       })}
+
+                      {!filtered.length && (
+                        <tr>
+                          <td
+                            colSpan={10}
+                            style={{
+                              textAlign: "center",
+                              padding: 25,
+                              color: "#80929a",
+                            }}
+                          >
+                            Belum ada peserta OJT aktif
+                            yang sesuai filter.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
-
-                  {!filtered.length && (
-                    <div className="track-empty">
-                      Tidak ada peserta ditemukan.
-                    </div>
-                  )}
                 </div>
 
                 <div className="track-mobile-people">
                   {!filtered.length && (
                     <div className="track-empty">
-                      Tidak ada peserta
+                      Belum ada peserta OJT aktif
                       yang sesuai filter.
                     </div>
                   )}
 
                   {filtered.map(program => {
-                    const info =
-                      dataByProgram[program.id];
+                    const info = dataByProgram[program.id];
 
                     const name =
                       program.peserta?.full_name ||
@@ -3093,8 +1938,7 @@ export default function MentorDashboard() {
 
                           <div className="track-person-detail">
                             Aktivitas:{" "}
-                            {info?.activityWeeks || 0}
-                            /25 minggu
+                            {info?.activityWeeks || 0}/25 minggu
                             {" · "}
                             Samapta:{" "}
                             {info?.samaptaComplete
@@ -3108,12 +1952,13 @@ export default function MentorDashboard() {
                             type="button"
                             aria-label={`Lihat detail ${name}`}
                             onClick={() =>
-                              navigate(
-                                `/peserta/${program.id}`
-                              )
+                              navigate(`/peserta/${program.id}`)
                             }
                           >
-                            <Icon name="arrow" size={17} />
+                            <Icon
+                              name="arrow"
+                              size={17}
+                            />
                           </button>
                         </div>
                       </article>
@@ -3134,3 +1979,1026 @@ export default function MentorDashboard() {
     </div>
   );
 }
+
+// ====================================================
+// CSS AKSES DAN MAINTENANCE
+// ====================================================
+
+const accessCSS = `
+  .track-access-page {
+    min-height: 100vh;
+    background: #061e24;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+    font-family: Arial, sans-serif;
+    text-align: center;
+  }
+  .track-access-content {
+    max-width: 560px;
+  }
+  .track-access-content h1 {
+    font-size: 30px;
+    margin-bottom: 16px;
+  }
+  .track-access-content p {
+    color: #cbd5d1;
+    line-height: 1.8;
+  }
+  .track-access-button {
+    display: block;
+    margin: 17px auto 0;
+    background: #d8b45a;
+    color: #061e24;
+    border: 0;
+    border-radius: 12px;
+    padding: 14px 22px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .track-access-outline {
+    display: block;
+    margin: 20px auto 0;
+    background: transparent;
+    color: #d8e8e2;
+    border: 1px solid #526e67;
+    padding: 12px 18px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+`;
+
+// ====================================================
+// CSS DASHBOARD RESPONSIVE
+// ====================================================
+
+const dashboardCSS = `
+  * { box-sizing: border-box; }
+
+  .track-shell {
+    min-height: 100vh;
+    background: #f2f6f8;
+    color: #142c26;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  .track-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 248px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    padding: 25px 15px;
+    overflow-y: auto;
+    color: white;
+    background: linear-gradient(
+      180deg,
+      #07141c 0%,
+      #08252a 56%,
+      #073b2e 100%
+    );
+  }
+
+  .track-brand {
+    padding: 11px 12px 29px;
+  }
+
+  .track-brand-title {
+    font-size: 25px;
+    letter-spacing: -.7px;
+    font-weight: 900;
+  }
+
+  .track-brand-title span {
+    color: #2cca95;
+  }
+
+  .track-brand-sub {
+    margin-top: 9px;
+    color: #bccdc8;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+
+  .track-nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 14px;
+    margin-bottom: 5px;
+    color: #dae7e1;
+    background: transparent;
+    border: 0;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .track-nav.active,
+  .track-nav:hover {
+    color: white;
+    background: linear-gradient(
+      90deg, #087854, #145c48
+    );
+  }
+
+  .track-nav:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+  }
+
+  .track-admin-label {
+    padding: 13px 14px 8px;
+    margin-top: 12px;
+    color: #8ee7c4;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    border-top: 1px solid #ffffff26;
+  }
+
+  .track-admin-nav {
+    background: #0c513f;
+    border: 1px solid #36c79555;
+  }
+
+  .track-maintenance-nav {
+    background: #243b32;
+    border: 1px solid #d8b45a70;
+    color: #f5d68c;
+  }
+
+  .track-maintenance-indicator {
+    margin-left: auto;
+    padding: 4px 7px;
+    border-radius: 7px;
+    font-size: 9px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .track-maintenance-indicator.off {
+    color: #b4f5d8;
+    background: #0b654a;
+  }
+
+  .track-maintenance-indicator.on {
+    color: #ffe6ab;
+    background: #95520d;
+  }
+
+  .track-maintenance-indicator.unknown {
+    color: #d6ded9;
+    background: #52615a;
+  }
+
+  .track-sidebar-bottom {
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid #ffffff26;
+  }
+
+  .track-main {
+    margin-left: 248px;
+    min-width: 0;
+  }
+
+  .track-mobile-header {
+    display: none;
+  }
+
+  .track-hero {
+    position: relative;
+    min-height: 255px;
+    padding: 67px 36px 37px;
+    color: white;
+    background:
+      linear-gradient(
+        90deg,
+        rgba(2,17,23,.97),
+        rgba(5,26,28,.77) 48%,
+        rgba(4,25,25,.19)
+      ),
+      url("/background-erg.png.PNG");
+    background-size: cover;
+    background-position: center;
+  }
+
+  .track-hero-kicker {
+    color: #f5cb75;
+    font-weight: 800;
+    letter-spacing: 2px;
+    font-size: 11px;
+  }
+
+  .track-hero h1 {
+    margin: 17px 0 5px;
+    font-size: clamp(31px, 4vw, 54px);
+    font-weight: 900;
+    line-height: 1.15;
+  }
+
+  .track-hero h1 span {
+    color: #28c58b;
+  }
+
+  .track-hero p {
+    color: #eff9f5;
+    font-size: 15px;
+  }
+
+  .track-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 24px;
+    color: #e6e9dc;
+    font-size: 12px;
+  }
+
+  .track-value {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .track-value svg {
+    color: #f2c96e;
+  }
+
+  .track-mentor {
+    position: absolute;
+    top: 18px;
+    right: 24px;
+    background: #061f24d9;
+    border: 1px solid #ffffff30;
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .track-admin-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 15px 17px;
+    background: #e0f6ec;
+    border: 1px solid #a8dfc8;
+    border-radius: 14px;
+  }
+
+  .track-admin-banner strong {
+    display: block;
+    font-size: 13px;
+    color: #075a40;
+  }
+
+  .track-admin-banner p {
+    margin: 5px 0 0;
+    font-size: 11px;
+    color: #477366;
+    line-height: 1.5;
+  }
+
+  .track-admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+
+  .track-admin-button {
+    border: 0;
+    border-radius: 9px;
+    padding: 11px 14px;
+    color: white;
+    background: #087c57;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .track-admin-button.maintenance {
+    background: #153c2e;
+  }
+
+  .track-content {
+    max-width: 1520px;
+    padding: 23px 24px 30px;
+    margin: auto;
+  }
+
+  .track-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .track-metric {
+    position: relative;
+    min-width: 0;
+    min-height: 143px;
+    padding: 19px 17px;
+    background: white;
+    border: 1px solid #e6edf0;
+    border-radius: 17px;
+    box-shadow: 0 6px 22px #17384709;
+    overflow: hidden;
+  }
+
+  .track-metric-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+  }
+
+  .track-metric-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 13px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    color: white;
+  }
+
+  .track-metric-text {
+    min-width: 0;
+    padding-right: 10px;
+  }
+
+  .track-metric-label {
+    display: block;
+    color: #172f37;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.35;
+  }
+
+  .track-metric-value {
+    display: block;
+    margin-top: 7px;
+    font-size: 31px;
+    font-weight: 900;
+    color: #0c1925;
+  }
+
+  .track-metric-description {
+    display: block;
+    margin-top: 8px;
+    color: #81909c;
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .track-icon-button {
+    margin-left: auto;
+    flex-shrink: 0;
+    width: 29px;
+    height: 29px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: #f0f5f7;
+    cursor: pointer;
+  }
+
+  .track-sparkline {
+    position: absolute;
+    right: 15px;
+    bottom: 15px;
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 36px;
+    opacity: .65;
+  }
+
+  .track-sparkline span {
+    width: 5px;
+    border-radius: 3px 3px 0 0;
+    background: currentColor;
+  }
+
+  .track-card {
+    min-width: 0;
+    padding: 22px;
+    margin-bottom: 16px;
+    background: white;
+    border: 1px solid #e6edf0;
+    border-radius: 17px;
+    box-shadow: 0 6px 22px #17384708;
+  }
+
+  .track-card h2 {
+    margin: 0;
+    color: #14212b;
+    font-size: 18px;
+    font-weight: 900;
+  }
+
+  .track-card-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 9px;
+  }
+
+  .track-card-sub {
+    margin: 8px 0 17px;
+    color: #83919d;
+    line-height: 1.6;
+    font-size: 12px;
+  }
+
+  .track-top-sections {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 15px;
+  }
+
+  .track-site-row {
+    display: grid;
+    grid-template-columns: 45px 82px minmax(0,1fr) 46px;
+    gap: 12px;
+    align-items: center;
+    padding: 13px 0;
+    border-bottom: 1px solid #edf1f2;
+    font-size: 12px;
+  }
+
+  .track-site-row:last-child {
+    border: 0;
+  }
+
+  .track-site-icon {
+    width: 41px;
+    height: 41px;
+    border-radius: 11px;
+    background: #e3f7ef;
+    color: #0d9b6b;
+    display: grid;
+    place-items: center;
+  }
+
+  .track-progress {
+    width: 100%;
+    height: 10px;
+    overflow: hidden;
+    border-radius: 20px;
+    background: #e9eff1;
+  }
+
+  .track-progress span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(
+      90deg, #2bbd8a, #109367
+    );
+  }
+
+  .track-monitor-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 12px;
+    padding: 14px 0;
+  }
+
+  .track-monitor-item {
+    text-align: center;
+    border-right: 1px solid #e9eef0;
+    min-width: 0;
+  }
+
+  .track-monitor-item:last-child {
+    border: 0;
+  }
+
+  .track-monitor-circle {
+    width: 39px;
+    height: 39px;
+    border-radius: 50%;
+    background: #e3f7ef;
+    color: #07986b;
+    display: grid;
+    place-items: center;
+    margin: 0 auto 7px;
+  }
+
+  .track-monitor-item strong {
+    display: block;
+    font-size: 20px;
+    font-weight: 900;
+  }
+
+  .track-monitor-item small {
+    display: block;
+    margin-top: 5px;
+    color: #85949d;
+    font-size: 10px;
+    line-height: 1.45;
+  }
+
+  .track-monitor-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #edf1f2;
+    font-size: 12px;
+    color: #50676a;
+  }
+
+  .track-monitor-row strong {
+    color: #07875c;
+    text-align: right;
+  }
+
+  .track-monitor-row:last-child {
+    border: 0;
+  }
+
+  .track-filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .track-field {
+    min-width: 0;
+    background: white;
+    border: 1px solid #dbe5e8;
+    border-radius: 9px;
+    padding: 11px 12px;
+    color: #1f3939;
+    font-size: 12px;
+  }
+
+  .track-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 11px;
+    border: 1px solid #dbe5e8;
+    border-radius: 9px;
+    background: white;
+    color: #8b9ba4;
+  }
+
+  .track-search input {
+    border: 0;
+    outline: 0;
+    padding: 11px 10px 11px 0;
+    width: 190px;
+    min-width: 0;
+    background: transparent;
+    color: #17382c;
+    font-size: 12px;
+  }
+
+  .track-table-wrap {
+    overflow-x: auto;
+  }
+
+  .track-table {
+    width: 100%;
+    min-width: 830px;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 12px;
+  }
+
+  .track-table th {
+    background: #f3f7f8;
+    color: #6a8184;
+    font-size: 11px;
+    padding: 13px;
+    white-space: nowrap;
+  }
+
+  .track-table td {
+    border-bottom: 1px solid #edf1f2;
+    padding: 14px 13px;
+  }
+
+  .track-table-name {
+    font-weight: 800;
+    color: #1b3530;
+  }
+
+  .track-inline-progress {
+    min-width: 100px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .track-badge {
+    display: inline-block;
+    border-radius: 20px;
+    background: #def7ec;
+    color: #078a61;
+    font-weight: 800;
+    font-size: 11px;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+
+  .track-view {
+    cursor: pointer;
+    border: 0;
+    background: #e7f6ef;
+    color: #087550;
+    border-radius: 9px;
+    padding: 9px 12px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .track-mobile-people {
+    display: none;
+  }
+
+  .track-person {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid #e5edef;
+    border-radius: 13px;
+    padding: 12px;
+    margin-bottom: 9px;
+  }
+
+  .track-person-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .track-avatar {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #d9f3e8;
+    color: #087a55;
+    font-size: 15px;
+    font-weight: 900;
+  }
+
+  .track-person-name {
+    font-size: 13px;
+    font-weight: 900;
+    overflow-wrap: anywhere;
+  }
+
+  .track-person-detail {
+    margin-top: 4px;
+    font-size: 11px;
+    color: #85929c;
+    line-height: 1.5;
+  }
+
+  .track-person-score {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .track-person-actions button {
+    border: 0;
+    width: 35px;
+    height: 35px;
+    background: #eff5f6;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+
+  .track-empty {
+    padding: 23px;
+    color: #80929a;
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .track-alert {
+    background: #fff1f1;
+    border: 1px solid #ffc7c7;
+    border-radius: 12px;
+    padding: 14px;
+    color: #b91c1c;
+    margin-bottom: 17px;
+    overflow-wrap: anywhere;
+  }
+
+  .track-footer {
+    padding: 19px 8px;
+    color: #899ba6;
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .track-overlay {
+    display: none;
+  }
+
+  @media(max-width:1200px) {
+    .track-metrics {
+      grid-template-columns: repeat(2, minmax(0,1fr));
+    }
+
+    .track-top-sections {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media(max-width:760px) {
+    .track-sidebar {
+      width: 255px;
+      transform: translateX(-105%);
+      transition: transform .2s;
+    }
+
+    .track-sidebar.open {
+      transform: translateX(0);
+    }
+
+    .track-overlay.open {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: #0019138c;
+      z-index: 45;
+    }
+
+    .track-main {
+      margin-left: 0;
+    }
+
+    .track-mobile-header {
+      height: 60px;
+      display: flex;
+      position: sticky;
+      top: 0;
+      z-index: 35;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 18px;
+      color: white;
+      background: #091c24;
+    }
+
+    .track-mobile-header strong {
+      font-size: 20px;
+    }
+
+    .track-mobile-header strong span {
+      color: #29c88e;
+    }
+
+    .track-mobile-header button {
+      color: white;
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .track-hero {
+      min-height: 177px;
+      padding: 23px 18px 29px;
+    }
+
+    .track-hero-kicker {
+      font-size: 9px;
+      letter-spacing: 1.3px;
+    }
+
+    .track-hero h1 {
+      font-size: 30px;
+      margin-top: 13px;
+    }
+
+    .track-hero p {
+      font-size: 12px;
+    }
+
+    .track-values {
+      gap: 9px;
+      margin-top: 18px;
+      font-size: 9px;
+    }
+
+    .track-value {
+      gap: 4px;
+    }
+
+    .track-value svg {
+      width: 13px;
+      height: 13px;
+    }
+
+    .track-mentor {
+      display: none;
+    }
+
+    .track-content {
+      padding: 0 12px 22px;
+      margin-top: -10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .track-admin-banner {
+      align-items: stretch;
+    }
+
+    .track-admin-actions {
+      width: 100%;
+      flex-direction: column;
+    }
+
+    .track-admin-button {
+      width: 100%;
+    }
+
+    .track-metrics {
+      gap: 9px;
+      margin-bottom: 13px;
+    }
+
+    .track-metric {
+      min-height: 128px;
+      padding: 12px 10px;
+      border-radius: 14px;
+    }
+
+    .track-metric-main {
+      gap: 9px;
+    }
+
+    .track-metric-icon {
+      width: 35px;
+      height: 35px;
+      border-radius: 10px;
+    }
+
+    .track-metric-icon svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .track-metric-label {
+      font-size: 10px;
+    }
+
+    .track-metric-value {
+      font-size: 25px;
+    }
+
+    .track-metric-description {
+      font-size: 9px;
+    }
+
+    .track-icon-button {
+      position: absolute;
+      top: 11px;
+      right: 9px;
+      width: 23px;
+      height: 23px;
+    }
+
+    .track-sparkline {
+      right: 11px;
+      bottom: 12px;
+    }
+
+    .track-sparkline span {
+      width: 4px;
+    }
+
+    .track-card {
+      padding: 15px 13px;
+      border-radius: 15px;
+      margin-bottom: 12px;
+    }
+
+    .track-card h2 {
+      font-size: 16px;
+    }
+
+    .track-card-sub {
+      font-size: 11px;
+    }
+
+    .track-site-row {
+      grid-template-columns:
+        35px 65px minmax(0,1fr) 38px;
+      gap: 8px;
+      font-size: 11px;
+    }
+
+    .track-site-icon {
+      width: 32px;
+      height: 32px;
+    }
+
+    .track-monitor-grid {
+      gap: 4px;
+    }
+
+    .track-monitor-circle {
+      width: 33px;
+      height: 33px;
+    }
+
+    .track-monitor-item strong {
+      font-size: 18px;
+    }
+
+    .track-monitor-item small {
+      font-size: 9px;
+    }
+
+    .track-card-heading {
+      flex-wrap: wrap;
+    }
+
+    .track-filters {
+      width: 100%;
+    }
+
+    .track-search {
+      flex: 1.3;
+      min-width: 0;
+    }
+
+    .track-search input {
+      width: 100%;
+      font-size: 11px;
+    }
+
+    .track-field {
+      flex: 1;
+      width: 105px;
+      font-size: 11px;
+    }
+
+    .track-table-wrap {
+      display: none;
+    }
+
+    .track-mobile-people {
+      display: block;
+    }
+
+    .track-person {
+      padding: 11px;
+    }
+  }
+
+  @media(max-width:380px) {
+    .track-metric-main {
+      display: block;
+    }
+
+    .track-metric-icon {
+      margin-bottom: 8px;
+    }
+
+    .track-metric {
+      min-height: 150px;
+    }
+
+    .track-filters {
+      flex-direction: column;
+    }
+
+    .track-search,
+    .track-field {
+      width: 100%;
+    }
+  }
+`;
