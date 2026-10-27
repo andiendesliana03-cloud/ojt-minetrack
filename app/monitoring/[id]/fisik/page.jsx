@@ -127,6 +127,12 @@ function distanceMeters(value) {
   return Math.round(Number(value) * 1000);
 }
 
+function normalizeRole(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
 function ProgressBar({ percentage }) {
   const width = Math.min(
     100,
@@ -164,6 +170,17 @@ export default function MonitoringFisikPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
+  const [viewerId, setViewerId] = useState(null);
+
+  // ==================================================
+  // VERIFIKASI AKSES
+  //
+  // Admin dan Mentor boleh melihat seluruh program.
+  // Peserta hanya boleh melihat program miliknya.
+  //
+  // RLS Supabase tetap menjadi pengaman utama.
+  // ==================================================
+
   async function fetchData() {
     const {
       data: { user },
@@ -171,29 +188,44 @@ export default function MonitoringFisikPage() {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      router.replace("/login");
-      return null;
+      throw new Error(
+        "Sesi login tidak tersedia. Silakan login kembali."
+      );
     }
 
-    const { data: profile, error: profileError } =
-      await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
+    const {
+      data: profile,
+      error: profileError,
+    } = await supabase
+      .from("profiles")
+      .select("id,role")
+      .eq("id", user.id)
+      .single();
 
     if (profileError) throw profileError;
 
-    const role = String(profile?.role || "").toLowerCase();
+    if (!profile) {
+      throw new Error(
+        "Profil akun tidak ditemukan."
+      );
+    }
 
+    const role = normalizeRole(profile.role);
+
+    // PERBAIKAN:
+    // Admin sekarang diterima sebagai pengelola,
+    // sama seperti Mentor.
+    const isAdmin = role === "admin";
     const isMentor = role === "mentor";
+
+    const isManager = isAdmin || isMentor;
 
     const isParticipant = [
       "participant",
       "peserta",
     ].includes(role);
 
-    if (!isMentor && !isParticipant) {
+    if (!isManager && !isParticipant) {
       throw new Error(
         "Akun tidak memiliki akses Monitoring Fisik."
       );
@@ -214,6 +246,16 @@ export default function MonitoringFisikPage() {
       `)
       .eq("id", programId);
 
+    // Admin:
+    // - Seluruh program sesuai RLS.
+    //
+    // Mentor:
+    // - Seluruh program sesuai RLS.
+    //
+    // Peserta:
+    // - Hanya program dengan participant_id
+    //   yang sama dengan akun login.
+
     if (isParticipant) {
       programQuery = programQuery.eq(
         "participant_id",
@@ -231,6 +273,23 @@ export default function MonitoringFisikPage() {
     if (!programResult.data) {
       throw new Error(
         "Program OJT tidak ditemukan atau tidak dapat diakses."
+      );
+    }
+
+    // Validasi tambahan untuk Peserta.
+    // Tidak menggantikan pemeriksaan RLS.
+    if (
+      isParticipant &&
+      programResult.data.participant_id !== user.id
+    ) {
+      throw new Error(
+        "Peserta hanya dapat melihat Monitoring Fisik miliknya."
+      );
+    }
+
+    if (!parseDate(programResult.data.start_date)) {
+      throw new Error(
+        "Tanggal mulai OJT belum valid."
       );
     }
 
@@ -267,7 +326,7 @@ export default function MonitoringFisikPage() {
         verified_by,
         created_at
       `)
-      .eq("program_id", programId)
+      .eq("program_id", programResult.data.id)
       .eq("type_code", fisikType.code)
       .order("activity_date", {
         ascending: false,
@@ -281,10 +340,16 @@ export default function MonitoringFisikPage() {
     }
 
     return {
+      viewerId: user.id,
+      role,
       program: programResult.data,
       records: recordResult.data || [],
     };
   }
+
+  // ==================================================
+  // LOAD DATA
+  // ==================================================
 
   useEffect(() => {
     let active = true;
@@ -292,6 +357,9 @@ export default function MonitoringFisikPage() {
     async function load() {
       setLoading(true);
       setError("");
+      setProgram(null);
+      setRecords([]);
+      setViewerId(null);
 
       try {
         if (!programId) {
@@ -302,10 +370,11 @@ export default function MonitoringFisikPage() {
 
         const result = await fetchData();
 
-        if (!active || !result) return;
+        if (!active) return;
 
         setProgram(result.program);
         setRecords(result.records);
+        setViewerId(result.viewerId);
 
         const now = new Date();
 
@@ -335,12 +404,21 @@ export default function MonitoringFisikPage() {
           currentWeek || latestRecordedWeek || 1
         );
       } catch (err) {
-        if (active) {
-          setError(
-            err?.message ||
-              "Gagal memuat Monitoring Fisik."
-          );
+        if (!active) return;
+
+        if (
+          String(err?.message || "").includes(
+            "Sesi login tidak tersedia"
+          )
+        ) {
+          router.replace("/login");
+          return;
         }
+
+        setError(
+          err?.message ||
+            "Gagal memuat Monitoring Fisik."
+        );
       } finally {
         if (active) {
           setLoading(false);
@@ -355,8 +433,22 @@ export default function MonitoringFisikPage() {
     };
   }, [programId, router]);
 
+  // ==================================================
+  // REFRESH DATA
+  //
+  // Akses dicek ulang supaya perubahan role,
+  // sesi, dan hak melihat program ikut diterapkan.
+  // ==================================================
+
   async function refresh() {
-    if (refreshing || loading) return;
+    if (
+      refreshing ||
+      loading ||
+      !programId ||
+      !program
+    ) {
+      return;
+    }
 
     setRefreshing(true);
     setError("");
@@ -364,19 +456,46 @@ export default function MonitoringFisikPage() {
     try {
       const result = await fetchData();
 
-      if (!result) return;
+      if (result.viewerId !== viewerId) {
+        throw new Error(
+          "Akun login telah berubah. Silakan buka ulang halaman."
+        );
+      }
 
       setProgram(result.program);
       setRecords(result.records);
+      setViewerId(result.viewerId);
     } catch (err) {
-      setError(
-        err?.message ||
-          "Gagal memperbarui data Fisik."
-      );
+      // Jangan tampilkan data lama ketika
+      // verifikasi akses ulang gagal.
+      setProgram(null);
+      setRecords([]);
+      setViewerId(null);
+
+      if (
+        String(err?.message || "").includes(
+          "Sesi login tidak tersedia"
+        )
+      ) {
+        router.replace("/login");
+      } else {
+        setError(
+          err?.message ||
+            "Gagal memperbarui data Fisik."
+        );
+      }
     } finally {
       setRefreshing(false);
     }
   }
+
+  // ==================================================
+  // PERHITUNGAN FISIK
+  //
+  // Seluruh rumus dipertahankan.
+  // Target tetap 25 km per minggu.
+  // Hanya verified dihitung untuk target.
+  // ==================================================
 
   const summary = useMemo(() => {
     const weeklyRecords = records.filter(
@@ -442,6 +561,11 @@ export default function MonitoringFisikPage() {
   const endWeekDate = startWeekDate
     ? addDays(startWeekDate, 6)
     : null;
+
+  // ==================================================
+  // TAMPILAN MONITORING FISIK
+  // Seluruh desain lama dipertahankan.
+  // ==================================================
 
   return (
     <main className="mf-root">
