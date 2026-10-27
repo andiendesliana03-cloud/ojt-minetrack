@@ -1,7 +1,12 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
 
@@ -55,11 +60,23 @@ function normalize(value) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeRole(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
 function getPeriod(value) {
   const text = normalize(value);
 
   if (
-    ["awal", "baseline", "initial", "pretest", "tesawal"].includes(text)
+    [
+      "awal",
+      "baseline",
+      "initial",
+      "pretest",
+      "tesawal",
+    ].includes(text)
   ) {
     return "awal";
   }
@@ -79,7 +96,12 @@ function getPeriod(value) {
   }
 
   if (
-    ["akhir", "final", "posttest", "tesakhir"].includes(text)
+    [
+      "akhir",
+      "final",
+      "posttest",
+      "tesakhir",
+    ].includes(text)
   ) {
     return "akhir";
   }
@@ -91,7 +113,13 @@ function getExercise(value) {
   const text = normalize(value);
 
   if (
-    ["lari", "lari12menit", "lari12", "run12min", "run12minute"].includes(text)
+    [
+      "lari",
+      "lari12menit",
+      "lari12",
+      "run12min",
+      "run12minute",
+    ].includes(text)
   ) {
     return "lari";
   }
@@ -109,7 +137,11 @@ function getExercise(value) {
   }
 
   if (
-    ["shuttle", "shuttlerun", "shuttleruns"].includes(text)
+    [
+      "shuttle",
+      "shuttlerun",
+      "shuttleruns",
+    ].includes(text)
   ) {
     return "shuttle";
   }
@@ -127,8 +159,13 @@ function formatNumber(value, decimals = 0) {
 function formatDate(value) {
   if (!value) return "—";
 
-  const parts = String(value).slice(0, 10).split("-");
-  if (parts.length !== 3) return String(value);
+  const parts = String(value)
+    .slice(0, 10)
+    .split("-");
+
+  if (parts.length !== 3) {
+    return String(value);
+  }
 
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
@@ -163,147 +200,334 @@ export default function MonitoringSamaptaPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+
   const [program, setProgram] = useState(null);
   const [records, setRecords] = useState([]);
+
   const [period, setPeriod] = useState("awal");
 
-  async function loadData(isRefresh = false) {
-    if (!id) {
-      setError("ID program tidak ditemukan.");
-      setLoading(false);
+  const [viewerId, setViewerId] = useState(null);
+
+  // Nomor permintaan dipakai agar respons lama
+  // tidak menimpa hasil permintaan terbaru.
+  const requestIdRef = useRef(0);
+
+  // Identitas program yang sedang dibuka.
+  const currentProgramRef = useRef(id);
+  currentProgramRef.current = id;
+
+  // ==================================================
+  // HAK AKSES
+  //
+  // Admin:
+  // - Dapat membaca seluruh program yang
+  //   diizinkan policy RLS.
+  //
+  // Mentor:
+  // - Dapat membaca seluruh program yang
+  //   diizinkan policy RLS.
+  //
+  // Peserta:
+  // - Hanya dapat membaca program sendiri.
+  //
+  // Validasi frontend bukan pengganti RLS.
+  // ==================================================
+
+  async function fetchData(targetId) {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      throw new Error(
+        "Sesi login tidak tersedia. Silakan login kembali."
+      );
+    }
+
+    const {
+      data: profile,
+      error: profileError,
+    } = await supabase
+      .from("profiles")
+      .select("id,role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    if (!profile) {
+      throw new Error(
+        "Profil akun tidak ditemukan."
+      );
+    }
+
+    const role = normalizeRole(profile.role);
+
+    const isAdmin = role === "admin";
+    const isMentor = role === "mentor";
+
+    const isParticipant = [
+      "participant",
+      "peserta",
+    ].includes(role);
+
+    const isManager = isAdmin || isMentor;
+
+    if (!isManager && !isParticipant) {
+      throw new Error(
+        "Akun tidak memiliki akses Monitoring Samapta."
+      );
+    }
+
+    let programQuery = supabase
+      .from("ojt_programs")
+      .select(`
+        id,
+        participant_id,
+        mentor_id,
+        site,
+        peserta:profiles!ojt_programs_participant_id_fkey(
+          full_name,
+          department
+        )
+      `)
+      .eq("id", targetId);
+
+    if (isParticipant) {
+      programQuery = programQuery.eq(
+        "participant_id",
+        user.id
+      );
+    }
+
+    const {
+      data: programData,
+      error: programError,
+    } = await programQuery.maybeSingle();
+
+    if (programError) {
+      throw programError;
+    }
+
+    if (!programData) {
+      throw new Error(
+        "Program OJT tidak ditemukan atau tidak dapat diakses."
+      );
+    }
+
+    // Pemeriksaan tambahan untuk Peserta.
+    // Pembatasan utama tetap dilakukan RLS.
+    if (
+      isParticipant &&
+      programData.participant_id !== user.id
+    ) {
+      throw new Error(
+        "Peserta hanya dapat membuka Monitoring Samapta miliknya."
+      );
+    }
+
+    const {
+      data: samaptaData,
+      error: samaptaError,
+    } = await supabase
+      .from("samapta_records")
+      .select(
+        "id,test_date,test_type,score,outcome,result_value"
+      )
+      .eq("program_id", programData.id)
+      .order("test_date", {
+        ascending: false,
+      });
+
+    if (samaptaError) {
+      throw samaptaError;
+    }
+
+    return {
+      viewerId: user.id,
+      role,
+      program: programData,
+      records: samaptaData || [],
+    };
+  }
+
+  // ==================================================
+  // PEMUATAN DATA AWAL
+  // ==================================================
+
+  useEffect(() => {
+    const requestNumber = ++requestIdRef.current;
+    let active = true;
+
+    setLoading(true);
+    setRefreshing(false);
+    setError("");
+    setProgram(null);
+    setRecords([]);
+    setViewerId(null);
+    setPeriod("awal");
+
+    async function initialize() {
+      try {
+        if (!id) {
+          throw new Error(
+            "ID program tidak ditemukan."
+          );
+        }
+
+        const result = await fetchData(id);
+
+        if (
+          !active ||
+          requestNumber !== requestIdRef.current ||
+          id !== currentProgramRef.current
+        ) {
+          return;
+        }
+
+        setProgram(result.program);
+        setRecords(result.records);
+        setViewerId(result.viewerId);
+      } catch (err) {
+        if (
+          !active ||
+          requestNumber !== requestIdRef.current ||
+          id !== currentProgramRef.current
+        ) {
+          return;
+        }
+
+        setProgram(null);
+        setRecords([]);
+        setViewerId(null);
+
+        if (
+          String(err?.message || "").includes(
+            "Sesi login tidak tersedia"
+          )
+        ) {
+          router.replace("/login");
+          return;
+        }
+
+        setError(
+          err?.message ||
+            "Gagal memuat data Samapta."
+        );
+      } finally {
+        if (
+          active &&
+          requestNumber === requestIdRef.current &&
+          id === currentProgramRef.current
+        ) {
+          setLoading(false);
+        }
+      }
+    }
+
+    initialize();
+
+    return () => {
+      active = false;
+      requestIdRef.current += 1;
+    };
+
+    // Pergantian ID program harus menjalankan
+    // verifikasi baru dari awal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, router]);
+
+  // ==================================================
+  // REFRESH DATA
+  //
+  // Saat Refresh:
+  // - Verifikasi ulang akun dan role.
+  // - Verifikasi ulang izin membaca program.
+  // - Pastikan akun tidak berubah.
+  // - Jika verifikasi gagal, hapus data lama.
+  // ==================================================
+
+  async function refreshData() {
+    if (
+      !id ||
+      !program ||
+      !viewerId ||
+      loading ||
+      refreshing
+    ) {
       return;
     }
 
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
+    const requestNumber = ++requestIdRef.current;
 
+    setRefreshing(true);
     setError("");
 
     try {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
+      const result = await fetchData(id);
 
-      if (authError || !user) {
+      if (
+        requestNumber !== requestIdRef.current ||
+        id !== currentProgramRef.current
+      ) {
+        return;
+      }
+
+      if (result.viewerId !== viewerId) {
+        throw new Error(
+          "Akun login telah berubah. Silakan buka ulang halaman."
+        );
+      }
+
+      setProgram(result.program);
+      setRecords(result.records);
+      setViewerId(result.viewerId);
+    } catch (err) {
+      if (
+        requestNumber !== requestIdRef.current ||
+        id !== currentProgramRef.current
+      ) {
+        return;
+      }
+
+      // Penting:
+      // Data peserta lama tidak boleh tetap
+      // terlihat setelah verifikasi akses gagal.
+      setProgram(null);
+      setRecords([]);
+      setViewerId(null);
+
+      if (
+        String(err?.message || "").includes(
+          "Sesi login tidak tersedia"
+        )
+      ) {
         router.replace("/login");
         return;
       }
 
-      const { data: profile, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single();
-
-      if (profileError) throw profileError;
-
-      const role = String(profile?.role || "")
-        .trim()
-        .toLowerCase();
-
-      const isAdmin = role === "admin";
-      const isMentor = role === "mentor";
-      const isParticipant = [
-        "participant",
-        "peserta",
-      ].includes(role);
-
-      if (!isAdmin && !isMentor && !isParticipant) {
-        throw new Error(
-          "Akun tidak memiliki akses monitoring."
-        );
-      }
-
-      // Hak akses OJT MineTrack:
-      //
-      // Admin:
-      // - Dapat melihat seluruh program.
-      // - Tetap dapat mengakses ketika maintenance ON.
-      //
-      // Mentor:
-      // - Dapat melihat seluruh program.
-      // - Tidak dibatasi oleh mentor_id.
-      // - Dibatasi RLS ketika maintenance ON.
-      //
-      // Peserta:
-      // - Hanya dapat melihat program miliknya.
-      // - Dibatasi RLS ketika maintenance ON.
-
-      let programQuery = supabase
-        .from("ojt_programs")
-        .select(`
-          id,
-          participant_id,
-          mentor_id,
-          site,
-          peserta:profiles!ojt_programs_participant_id_fkey(
-            full_name,
-            department
-          )
-        `)
-        .eq("id", id);
-
-      // Pembatasan participant_id hanya
-      // diterapkan untuk akun Peserta.
-      //
-      // Admin dan Mentor dapat mengakses
-      // seluruh program tanpa filter mentor_id.
-
-      if (isParticipant) {
-        programQuery = programQuery.eq(
-          "participant_id",
-          user.id
-        );
-      }
-
-      const programResult =
-        await programQuery.maybeSingle();
-
-      if (programResult.error) {
-        throw programResult.error;
-      }
-
-      if (!programResult.data) {
-        throw new Error(
-          "Program OJT tidak ditemukan atau tidak dapat diakses."
-        );
-      }
-
-      const recordsResult = await supabase
-        .from("samapta_records")
-        .select(
-          "id,test_date,test_type,score,outcome,result_value"
-        )
-        .eq("program_id", programResult.data.id)
-        .order("test_date", { ascending: false });
-
-      if (recordsResult.error) {
-        throw recordsResult.error;
-      }
-
-      setProgram(programResult.data);
-      setRecords(recordsResult.data || []);
-    } catch (err) {
-      setProgram(null);
-      setRecords([]);
       setError(
-        err?.message || "Gagal memuat data Samapta."
+        err?.message ||
+          "Gagal memperbarui data Samapta."
       );
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (
+        requestNumber === requestIdRef.current &&
+        id === currentProgramRef.current
+      ) {
+        setRefreshing(false);
+      }
     }
   }
 
-  useEffect(() => {
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  // ==================================================
+  // PERHITUNGAN SAMAPTA
+  //
+  // Semua logika sebelumnya dipertahankan.
+  // ==================================================
 
   const peserta = Array.isArray(program?.peserta)
     ? program.peserta[0]
@@ -337,7 +561,8 @@ export default function MonitoringSamaptaPage() {
 
     for (const target of TARGETS) {
       const matches = selectedRecords.filter(
-        (item) => getExercise(item.outcome) === target.key
+        (item) =>
+          getExercise(item.outcome) === target.key
       );
 
       const latest = matches.find((item) =>
@@ -351,7 +576,8 @@ export default function MonitoringSamaptaPage() {
   }, [selectedRecords]);
 
   const knownCount = TARGETS.filter(
-    (target) => latestResults[target.key] !== null
+    (target) =>
+      latestResults[target.key] !== null
   ).length;
 
   const passedCount = TARGETS.filter((target) => {
@@ -359,9 +585,16 @@ export default function MonitoringSamaptaPage() {
 
     return (
       record &&
-      targetReached(record.result_value, target) === true
+      targetReached(
+        record.result_value,
+        target
+      ) === true
     );
   }).length;
+
+  // ==================================================
+  // TAMPILAN
+  // ==================================================
 
   return (
     <main className="sm-root">
@@ -472,7 +705,8 @@ export default function MonitoringSamaptaPage() {
 
         .sm-summary {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns:
+            repeat(3, minmax(0, 1fr));
           gap: 12px;
         }
 
@@ -496,7 +730,8 @@ export default function MonitoringSamaptaPage() {
 
         .sm-grid {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns:
+            repeat(2, minmax(0, 1fr));
           gap: 13px;
         }
 
@@ -599,7 +834,8 @@ export default function MonitoringSamaptaPage() {
           }
 
           .sm-summary {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns:
+              repeat(2, minmax(0, 1fr));
           }
         }
       `}</style>
@@ -612,14 +848,18 @@ export default function MonitoringSamaptaPage() {
         <button
           type="button"
           className="sm-button light"
-          onClick={() => router.push(`/monitoring/${id}`)}
+          onClick={() =>
+            router.push(`/monitoring/${id}`)
+          }
         >
           ← Kembali
         </button>
       </header>
 
       <div className="sm-container">
-        <h1 className="sm-title">Monitoring Samapta</h1>
+        <h1 className="sm-title">
+          Monitoring Samapta
+        </h1>
 
         <p className="sm-subtitle">
           Monitoring hasil tes kesamaptaan peserta OJT
@@ -627,9 +867,13 @@ export default function MonitoringSamaptaPage() {
         </p>
 
         {loading ? (
-          <div className="sm-card">Memuat data Samapta...</div>
+          <div className="sm-card">
+            Memuat data Samapta...
+          </div>
         ) : error ? (
-          <div className="sm-error">{error}</div>
+          <div className="sm-error" role="alert">
+            {error}
+          </div>
         ) : (
           <>
             <section className="sm-card sm-profile">
@@ -637,14 +881,20 @@ export default function MonitoringSamaptaPage() {
                 <strong>
                   {peserta?.full_name || "Peserta OJT"}
                 </strong>
+
                 <div className="sm-muted">
                   {peserta?.department || "—"}
                 </div>
               </div>
 
               <div>
-                <strong>{program?.site || "—"}</strong>
-                <div className="sm-muted">Site OJT</div>
+                <strong>
+                  {program?.site || "—"}
+                </strong>
+
+                <div className="sm-muted">
+                  Site OJT
+                </div>
               </div>
             </section>
 
@@ -659,7 +909,10 @@ export default function MonitoringSamaptaPage() {
                 }
               >
                 {PERIODS.map((item) => (
-                  <option key={item.value} value={item.value}>
+                  <option
+                    key={item.value}
+                    value={item.value}
+                  >
                     {item.label}
                   </option>
                 ))}
@@ -674,20 +927,32 @@ export default function MonitoringSamaptaPage() {
                 </div>
 
                 <div className="sm-stat">
-                  <small>Memenuhi Target Akhir</small>
-                  <strong>{passedCount}/5</strong>
+                  <small>
+                    Memenuhi Target Akhir
+                  </small>
+
+                  <strong>
+                    {passedCount}/5
+                  </strong>
                 </div>
 
                 <div className="sm-stat">
-                  <small>Catatan Periode</small>
-                  <strong>{selectedRecords.length}</strong>
+                  <small>
+                    Catatan Periode
+                  </small>
+
+                  <strong>
+                    {selectedRecords.length}
+                  </strong>
                 </div>
               </div>
 
               <p className="sm-muted">
-                Target akhir ditampilkan sebagai pembanding.
-                Hasil tes awal atau perkembangan tidak otomatis
-                dinyatakan gagal jika belum memenuhi target akhir.
+                Target akhir ditampilkan sebagai
+                pembanding. Hasil tes awal atau
+                perkembangan tidak otomatis
+                dinyatakan gagal jika belum
+                memenuhi target akhir.
               </p>
             </section>
 
@@ -696,16 +961,20 @@ export default function MonitoringSamaptaPage() {
 
               <div className="sm-grid">
                 {TARGETS.map((target) => {
-                  const record = latestResults[target.key];
+                  const record =
+                    latestResults[target.key];
 
-                  const value = record?.result_value;
+                  const value =
+                    record?.result_value;
 
                   const reached = record
                     ? targetReached(value, target)
                     : null;
 
                   const decimals =
-                    target.key === "shuttle" ? 2 : 0;
+                    target.key === "shuttle"
+                      ? 2
+                      : 0;
 
                   return (
                     <div
@@ -716,7 +985,10 @@ export default function MonitoringSamaptaPage() {
 
                       <div className="sm-value">
                         {record
-                          ? `${formatNumber(value, decimals)} ${target.unit}`
+                          ? `${formatNumber(
+                              value,
+                              decimals
+                            )} ${target.unit}`
                           : "Belum ada data"}
                       </div>
 
@@ -750,7 +1022,8 @@ export default function MonitoringSamaptaPage() {
 
                       {record && (
                         <div className="sm-muted">
-                          Tanggal: {formatDate(record.test_date)}
+                          Tanggal:{" "}
+                          {formatDate(record.test_date)}
                         </div>
                       )}
                     </div>
@@ -765,9 +1038,11 @@ export default function MonitoringSamaptaPage() {
                   type="button"
                   className="sm-button light"
                   disabled={refreshing}
-                  onClick={() => loadData(true)}
+                  onClick={refreshData}
                 >
-                  {refreshing ? "Memuat..." : "↻ Refresh"}
+                  {refreshing
+                    ? "Memuat..."
+                    : "↻ Refresh"}
                 </button>
               </div>
 
@@ -775,11 +1050,15 @@ export default function MonitoringSamaptaPage() {
 
               {!selectedRecords.length ? (
                 <p className="sm-muted">
-                  Belum ada hasil tes untuk periode ini.
+                  Belum ada hasil tes untuk
+                  periode ini.
                 </p>
               ) : (
                 selectedRecords.map((item) => (
-                  <div className="sm-history" key={item.id}>
+                  <div
+                    className="sm-history"
+                    key={item.id}
+                  >
                     <strong>
                       {getExercise(item.outcome)
                         ? TARGETS.find(
@@ -787,11 +1066,13 @@ export default function MonitoringSamaptaPage() {
                               target.key ===
                               getExercise(item.outcome)
                           )?.name
-                        : item.outcome || "Jenis tes belum diketahui"}
+                        : item.outcome ||
+                          "Jenis tes belum diketahui"}
                     </strong>
 
                     <div className="sm-muted">
-                      Tanggal: {formatDate(item.test_date)}
+                      Tanggal:{" "}
+                      {formatDate(item.test_date)}
                     </div>
 
                     <div className="sm-muted">
@@ -813,21 +1094,33 @@ export default function MonitoringSamaptaPage() {
 
             {grouped.lainnya.length > 0 && (
               <section className="sm-card">
-                <h2>Catatan Belum Terklasifikasi</h2>
+                <h2>
+                  Catatan Belum Terklasifikasi
+                </h2>
 
                 <p className="sm-muted">
-                  Ada {grouped.lainnya.length} catatan
-                  dengan jenis periode yang belum dikenali.
-                  Data tersebut tetap tersimpan dan tidak
-                  diubah oleh halaman monitoring.
+                  Ada {grouped.lainnya.length}
+                  {" "}catatan dengan jenis periode
+                  yang belum dikenali. Data
+                  tersebut tetap tersimpan dan
+                  tidak diubah oleh halaman
+                  monitoring.
                 </p>
 
                 {grouped.lainnya.map((item) => (
-                  <div className="sm-history" key={item.id}>
-                    <strong>{item.test_type || "—"}</strong>
+                  <div
+                    className="sm-history"
+                    key={item.id}
+                  >
+                    <strong>
+                      {item.test_type || "—"}
+                    </strong>
+
                     <div className="sm-muted">
-                      {formatDate(item.test_date)} ·{" "}
-                      {item.outcome || "—"} ·{" "}
+                      {formatDate(item.test_date)}
+                      {" · "}
+                      {item.outcome || "—"}
+                      {" · "}
                       {item.result_value ?? "—"}
                     </div>
                   </div>
