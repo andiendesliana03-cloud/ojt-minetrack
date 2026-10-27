@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
@@ -21,6 +21,10 @@ const FILTERS = [
   ["activity", "Ada Aktivitas"],
   ["empty", "Belum Ada"],
 ];
+
+function normalizeRole(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
 
 function parseDate(value) {
   if (!value) return null;
@@ -342,6 +346,179 @@ function getWeekData(
     ).length,
     activityCount,
     hasActivity: activityCount > 0,
+  };
+}
+
+// =====================================================
+// VERIFIKASI AKSES — REVISI
+//
+// Admin:
+// Semua program sesuai RLS.
+//
+// Mentor:
+// Hanya program dengan mentor_id = user.id.
+//
+// Peserta:
+// - Hanya participant_id = user.id
+// - Program active
+// - Persetujuan pendaftaran baru, lama,
+//   atau legacy_access yang sah.
+//
+// Halaman hanya membaca data monitoring.
+// =====================================================
+
+async function verifyWeeklyAccess(programId) {
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { redirect: "/login" };
+  }
+
+  const {
+    data: profile,
+    error: profileError,
+  } = await supabase
+    .from("profiles")
+    .select("id,role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) throw profileError;
+
+  if (!profile) {
+    throw new Error(
+      "Profil akun tidak ditemukan."
+    );
+  }
+
+  const role = normalizeRole(profile.role);
+
+  const isAdmin = role === "admin";
+  const isMentor = role === "mentor";
+
+  const isParticipant = [
+    "participant",
+    "peserta",
+  ].includes(role);
+
+  if (!isAdmin && !isMentor && !isParticipant) {
+    throw new Error(
+      "Role akun tidak memiliki akses Evaluasi Mingguan."
+    );
+  }
+
+  let query = supabase
+    .from("ojt_programs")
+    .select(`
+      id,
+      participant_id,
+      mentor_id,
+      site,
+      start_date,
+      end_date,
+      status,
+      legacy_access,
+      peserta:profiles!ojt_programs_participant_id_fkey(
+        full_name,
+        department
+      )
+    `)
+    .eq("id", programId);
+
+  if (isMentor) {
+    query = query.eq("mentor_id", user.id);
+  }
+
+  if (isParticipant) {
+    query = query
+      .eq("participant_id", user.id)
+      .eq("status", "active");
+  }
+
+  const {
+    data: program,
+    error: programError,
+  } = await query.maybeSingle();
+
+  if (programError) throw programError;
+
+  if (!program) {
+    throw new Error(
+      "Program OJT tidak ditemukan atau akun tidak memiliki izin."
+    );
+  }
+
+  if (!parseDate(program.start_date)) {
+    throw new Error(
+      "Tanggal mulai OJT belum valid."
+    );
+  }
+
+  if (isParticipant) {
+    // Mendukung pola persetujuan yang sama
+    // dengan Dashboard Peserta dan OjtInsights.
+    const [
+      newRequestResult,
+      oldRegistrationResult,
+    ] = await Promise.all([
+      supabase
+        .from("ojt_registration_requests")
+        .select("status")
+        .eq("participant_id", user.id),
+
+      supabase
+        .from("participant_registrations")
+        .select("status")
+        .eq("user_id", user.id),
+    ]);
+
+    if (newRequestResult.error) {
+      throw new Error(
+        "Gagal memeriksa persetujuan pendaftaran baru: " +
+        newRequestResult.error.message
+      );
+    }
+
+    if (oldRegistrationResult.error) {
+      throw new Error(
+        "Gagal memeriksa persetujuan pendaftaran lama: " +
+        oldRegistrationResult.error.message
+      );
+    }
+
+    const approvedNew = (
+      newRequestResult.data || []
+    ).some(
+      (item) =>
+        normalizeRole(item.status) === "approved"
+    );
+
+    const approvedOld = (
+      oldRegistrationResult.data || []
+    ).some(
+      (item) =>
+        normalizeRole(item.status) === "approved"
+    );
+
+    if (
+      !approvedNew &&
+      !approvedOld &&
+      program.legacy_access !== true
+    ) {
+      throw new Error(
+        "Program OJT belum memiliki persetujuan akses yang sah."
+      );
+    }
+  }
+
+  return {
+    userId: user.id,
+    profile,
+    program,
+    role,
   };
 }
 
@@ -1101,6 +1278,8 @@ export default function EvaluasiMingguanOJT() {
     : params?.id;
 
   const [program, setProgram] = useState(null);
+  const [viewer, setViewer] = useState(null);
+
   const [categories, setCategories] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [postTests, setPostTests] = useState([]);
@@ -1115,6 +1294,23 @@ export default function EvaluasiMingguanOJT() {
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const [pdfNotice, setPdfNotice] = useState("");
+
+  const requestRef = useRef(0);
+
+  const isParticipant = [
+    "participant",
+    "peserta",
+  ].includes(viewer?.role);
+
+  const backPath = isParticipant
+    ? "/dashboard-peserta"
+    : programId
+    ? `/peserta/${programId}`
+    : "/";
+
+  const backText = isParticipant
+    ? "Dashboard Peserta"
+    : "Detail Peserta";
 
   async function fetchMonitoringData(id) {
     const [
@@ -1192,6 +1388,10 @@ export default function EvaluasiMingguanOJT() {
     setWarning(data.warning);
   }
 
+  // ===================================================
+  // PEMUATAN AWAL — AKSES 3 ROLE
+  // ===================================================
+
   useEffect(() => {
     if (!programId) {
       setLoading(false);
@@ -1200,6 +1400,7 @@ export default function EvaluasiMingguanOJT() {
     }
 
     let active = true;
+    const requestId = ++requestRef.current;
 
     async function initialize() {
       setLoading(true);
@@ -1207,81 +1408,49 @@ export default function EvaluasiMingguanOJT() {
       setWarning("");
       setPdfNotice("");
       setProgram(null);
+      setViewer(null);
       setWeek(1);
       setFilter("all");
 
       try {
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
-
-        if (!active) return;
-
-        if (authError || !user) {
-          router.replace("/login");
-          return;
-        }
-
-        const {
-          data: profile,
-          error: profileError,
-        } = await supabase
-          .from("profiles")
-          .select("id,role")
-          .eq("id", user.id)
-          .single();
-
-        if (!active) return;
-
-        if (profileError) throw profileError;
-
-        if (profile?.role !== "mentor") {
-          router.replace("/dashboard-peserta");
-          return;
-        }
-
-        const {
-          data: programData,
-          error: programError,
-        } = await supabase
-          .from("ojt_programs")
-          .select(`
-            id,
-            site,
-            start_date,
-            end_date,
-            status,
-            peserta:profiles!ojt_programs_participant_id_fkey(
-              full_name,
-              department
-            )
-          `)
-          .eq("id", programId)
-          .single();
-
-        if (!active) return;
-
-        if (programError) throw programError;
-
-        if (!parseDate(programData.start_date)) {
-          throw new Error(
-            "Tanggal mulai OJT belum valid."
-          );
-        }
-
-        const result = await fetchMonitoringData(
+        const access = await verifyWeeklyAccess(
           programId
         );
 
-        if (!active) return;
+        if (
+          !active ||
+          requestId !== requestRef.current
+        ) {
+          return;
+        }
 
-        setProgram(programData);
+        if (access.redirect) {
+          router.replace(access.redirect);
+          return;
+        }
+
+        const result = await fetchMonitoringData(
+          access.program.id
+        );
+
+        if (
+          !active ||
+          requestId !== requestRef.current
+        ) {
+          return;
+        }
+
+        setViewer({
+          id: access.userId,
+          role: access.role,
+        });
+
+        setProgram(access.program);
         applyData(result);
 
         const current = weekOf(
           localToday(),
-          programData.start_date
+          access.program.start_date
         );
 
         setWeek(
@@ -1291,14 +1460,25 @@ export default function EvaluasiMingguanOJT() {
           )
         );
       } catch (err) {
-        if (active) {
+        if (
+          active &&
+          requestId === requestRef.current
+        ) {
+          setProgram(null);
+          setViewer(null);
+
           setError(
             err?.message ||
               "Gagal memuat Evaluasi Mingguan."
           );
         }
       } finally {
-        if (active) setLoading(false);
+        if (
+          active &&
+          requestId === requestRef.current
+        ) {
+          setLoading(false);
+        }
       }
     }
 
@@ -1306,28 +1486,90 @@ export default function EvaluasiMingguanOJT() {
 
     return () => {
       active = false;
+      requestRef.current += 1;
     };
   }, [programId, router]);
 
+  // ===================================================
+  // REFRESH — VERIFIKASI ULANG AKSES
+  // ===================================================
+
   async function refresh() {
-    if (!programId || refreshing || loading) return;
+    if (
+      !programId ||
+      refreshing ||
+      loading ||
+      !program ||
+      !viewer
+    ) {
+      return;
+    }
+
+    const requestId = ++requestRef.current;
 
     setRefreshing(true);
     setError("");
     setPdfNotice("");
 
     try {
-      const data = await fetchMonitoringData(
+      const access = await verifyWeeklyAccess(
         programId
       );
 
+      if (requestId !== requestRef.current) {
+        return;
+      }
+
+      if (access.redirect) {
+        setProgram(null);
+        setViewer(null);
+        router.replace(access.redirect);
+        return;
+      }
+
+      if (access.userId !== viewer.id) {
+        throw new Error(
+          "Akun pengguna berubah. Silakan buka ulang Evaluasi Mingguan."
+        );
+      }
+
+      const data = await fetchMonitoringData(
+        access.program.id
+      );
+
+      if (requestId !== requestRef.current) {
+        return;
+      }
+
+      setViewer({
+        id: access.userId,
+        role: access.role,
+      });
+
+      setProgram(access.program);
       applyData(data);
     } catch (err) {
+      if (requestId !== requestRef.current) {
+        return;
+      }
+
+      // Jangan pertahankan data setelah
+      // verifikasi akses atau refresh gagal.
+      setProgram(null);
+      setViewer(null);
+      setCategories([]);
+      setAchievements([]);
+      setPostTests([]);
+      setPractice([]);
+      setSamapta([]);
+
       setError(
         err?.message || "Gagal memperbarui data."
       );
     } finally {
-      setRefreshing(false);
+      if (requestId === requestRef.current) {
+        setRefreshing(false);
+      }
     }
   }
 
@@ -1395,7 +1637,7 @@ export default function EvaluasiMingguanOJT() {
     : 0;
 
   // ===================================================
-  // FUNGSI UNDUH PDF
+  // FUNGSI UNDUH PDF — DIPERTAHANKAN
   // ===================================================
 
   function downloadWeeklyPdf() {
@@ -1458,7 +1700,7 @@ export default function EvaluasiMingguanOJT() {
   }
 
   // ===================================================
-  // FUNGSI CETAK
+  // FUNGSI CETAK — DIPERTAHANKAN
   // ===================================================
 
   function printWeeklyReport() {
@@ -2322,17 +2564,11 @@ export default function EvaluasiMingguanOJT() {
         <button
           type="button"
           className="wm-back"
-          aria-label="Kembali ke Detail Peserta"
-          onClick={() =>
-            router.push(
-              programId
-                ? `/peserta/${programId}`
-                : "/"
-            )
-          }
+          aria-label={`Kembali ke ${backText}`}
+          onClick={() => router.push(backPath)}
         >
           <Icon name="back" size={18} />
-          Detail Peserta
+          {backText}
         </button>
       </header>
 
@@ -2369,7 +2605,7 @@ export default function EvaluasiMingguanOJT() {
             <button
               type="button"
               className="wm-btn"
-              onClick={() => router.push("/")}
+              onClick={() => router.push(backPath)}
             >
               Kembali ke Dashboard
             </button>
@@ -2420,10 +2656,12 @@ export default function EvaluasiMingguanOJT() {
                 <Icon name="lock" size={17} />
 
                 <span>
-                  Peserta otomatis mengikuti halaman
-                  Detail Peserta. Semua data evaluasi
-                  hanya untuk{" "}
+                  Peserta otomatis mengikuti program
+                  OJT yang telah diverifikasi.
+                  Semua data evaluasi hanya untuk{" "}
                   <strong>{participantName}</strong>.
+                  {isParticipant &&
+                    " Akses Anda bersifat baca saja."}
                 </span>
               </div>
             </section>
