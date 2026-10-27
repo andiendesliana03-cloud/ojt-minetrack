@@ -1,35 +1,74 @@
 
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
 const WEEKS = 25;
 
 const TARGETS = [
-  { name: "Fisik", target: 25, unit: "km", icon: "🏃" },
-  { name: "Training", target: 4, unit: "kegiatan", icon: "📚" },
-  { name: "Sosialisasi", target: 3, unit: "kegiatan", icon: "👥" },
-  { name: "Coaching", target: 1, unit: "kegiatan", icon: "💬" },
-  { name: "Orientasi Area", target: 2, unit: "kegiatan", icon: "🧭" },
-  { name: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
+  {
+    name: "Fisik",
+    target: 25,
+    unit: "km",
+    icon: "🏃",
+    label: "Detail Latihan Fisik",
+    placeholder:
+      "Contoh:\nJenis latihan: Lari pagi\nLokasi/rute: Area ERG\nKeterangan: Latihan ketahanan fisik bersama tim.",
+    hint: "Jelaskan jenis latihan, lokasi/rute, dan hasil kegiatan.",
+  },
+  {
+    name: "Training",
+    target: 4,
+    unit: "kegiatan",
+    icon: "📚",
+    label: "Detail Kegiatan Training",
+    placeholder:
+      "Contoh:\nJudul training: Basic Fire Fighting\nMateri: Penggunaan APAR dan pemadaman awal\nInstruktur: Tim ERG\nHasil: Memahami prosedur penggunaan APAR.",
+    hint: "Tuliskan judul pelatihan, materi, instruktur, dan hasil belajar.",
+  },
+  {
+    name: "Sosialisasi",
+    target: 3,
+    unit: "kegiatan",
+    icon: "📣",
+    label: "Detail Kegiatan Sosialisasi",
+    placeholder:
+      "Contoh:\nTopik: Keselamatan kerja\nSasaran: Karyawan operasional\nLokasi: Area kerja\nHasil: Penyampaian informasi mengenai prosedur keselamatan.",
+    hint: "Tuliskan topik, sasaran, lokasi, dan hasil sosialisasi.",
+  },
+  {
+    name: "Coaching",
+    target: 1,
+    unit: "kegiatan",
+    icon: "👥",
+    label: "Detail Kegiatan Coaching",
+    placeholder:
+      "Contoh:\nMateri coaching: Prosedur tanggap darurat\nMentor: Mentor OJT\nPembahasan: Evaluasi pemahaman prosedur\nTindak lanjut: Praktik lanjutan.",
+    hint: "Tuliskan materi, mentor, hasil pembinaan, dan tindak lanjut.",
+  },
+  {
+    name: "Orientasi Area",
+    target: 2,
+    unit: "kegiatan",
+    icon: "🗺️",
+    label: "Detail Orientasi Area",
+    placeholder:
+      "Contoh:\nArea: Workshop GMO SOUTH\nTujuan: Mengenali area operasional\nKegiatan: Pengenalan fasilitas dan jalur evakuasi\nHasil: Memahami kondisi area kerja.",
+    hint: "Tuliskan area, tujuan kunjungan, kegiatan, dan hasil orientasi.",
+  },
+  {
+    name: "Hazard",
+    target: 2,
+    unit: "kegiatan",
+    icon: "⚠️",
+    label: "Detail Identifikasi Hazard",
+    placeholder:
+      "Contoh:\nLokasi: Workshop\nPotensi bahaya: Material menghalangi akses\nRisiko: Tersandung\nPengendalian: Housekeeping dan pelaporan kepada PIC.",
+    hint: "Tuliskan lokasi, potensi bahaya, risiko, dan tindakan pengendalian.",
+  },
 ];
-
-function today() {
-  const d = new Date();
-
-  return new Date(
-    d.getTime() - d.getTimezoneOffset() * 60000
-  )
-    .toISOString()
-    .slice(0, 10);
-}
 
 function normalize(value) {
   return String(value || "")
@@ -41,7 +80,86 @@ function normalizeRole(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-// Rumus minggu program lama dipertahankan.
+function parseDate(value) {
+  const match = String(value || "")
+    .slice(0, 10)
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(
+    Date.UTC(year, month - 1, day)
+  );
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) return null;
+
+  return date;
+}
+
+function addDays(value, days) {
+  const date = parseDate(value);
+
+  if (!date) return null;
+
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return date.toISOString().slice(0, 10);
+}
+
+function today() {
+  const date = new Date();
+
+  return new Date(
+    date.getTime() - date.getTimezoneOffset() * 60000
+  )
+    .toISOString()
+    .slice(0, 10);
+}
+
+function dateText(value) {
+  const date = parseDate(value);
+
+  if (!date) return "—";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function kmText(value) {
+  return Number(value || 0).toLocaleString("id-ID", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
+}
+
+function weekLabel(value) {
+  return `Week ${String(value).padStart(2, "0")}`;
+}
+
+function errorText(error, fallback) {
+  if (!error) return fallback;
+
+  const message =
+    error.message || error.details || fallback;
+
+  return message + (
+    error.code ? ` [${error.code}]` : ""
+  );
+}
+
+// Rumus asli Minggu Program dipertahankan.
 function weekOf(dateValue, startValue) {
   if (!dateValue || !startValue) return null;
 
@@ -56,81 +174,99 @@ function weekOf(dateValue, startValue) {
   if (
     !Number.isFinite(date.getTime()) ||
     !Number.isFinite(start.getTime())
-  ) {
-    return null;
-  }
+  ) return null;
 
-  const week =
-    Math.floor(
-      (date.getTime() - start.getTime()) / 604800000
-    ) + 1;
+  const week = Math.floor(
+    (date.getTime() - start.getTime()) / 604800000
+  ) + 1;
 
   return week >= 1 && week <= WEEKS
     ? week
     : null;
 }
 
-function dateText(value) {
-  return value
-    ? String(value)
-        .slice(0, 10)
-        .split("-")
-        .reverse()
-        .join("/")
-    : "—";
-}
+// Kalender global yang sudah disepakati.
+const GLOBAL_WEEKS = Array.from(
+  { length: WEEKS },
+  (_, index) => {
+    const start = index === 0
+      ? "2026-09-12"
+      : addDays(
+          "2026-09-20",
+          (index - 1) * 7
+        );
 
-function kmText(value) {
-  return Number(value || 0).toLocaleString("id-ID", {
-    minimumFractionDigits: 3,
-    maximumFractionDigits: 3,
-  });
-}
+    return {
+      week: index + 1,
+      start,
+      end: addDays(start, 6),
+    };
+  }
+);
 
-function errorText(err, fallback) {
-  if (!err) return fallback;
-
-  const message =
-    err.message ||
-    err.details ||
-    fallback;
-
-  const code = err.code
-    ? ` [${err.code}]`
-    : "";
-
-  return `${message}${code}`;
-}
-
-function weekLabel(week) {
-  return `Week ${String(week).padStart(2, "0")}`;
-}
-
-// Kalender global hanya sebagai informasi tambahan.
-// Tidak mengganti rumus minggu program lama.
 function getGlobalWeek(value) {
   const key = String(value || "").slice(0, 10);
 
-  if (key >= "2026-09-12" && key <= "2026-09-18") {
-    return 1;
-  }
+  if (!parseDate(key)) return null;
 
-  if (key < "2026-09-20" || key > "2027-03-06") {
-    return null;
-  }
-
-  const start = new Date("2026-09-20T00:00:00Z");
-  const date = new Date(`${key}T00:00:00Z`);
-
-  if (!Number.isFinite(date.getTime())) return null;
-
-  const days = Math.floor(
-    (date.getTime() - start.getTime()) / 86400000
+  const found = GLOBAL_WEEKS.find(
+    item =>
+      key >= item.start &&
+      key <= item.end
   );
 
-  const week = Math.floor(days / 7) + 2;
+  return found?.week ?? null;
+}
 
-  return week >= 2 && week <= WEEKS ? week : null;
+function getAllowedRange(weekValue, program) {
+  if (!program?.start_date) return null;
+
+  const selected = GLOBAL_WEEKS.find(
+    item => String(item.week) === String(weekValue)
+  );
+
+  const programEndByWeeks =
+    addDays(program.start_date, WEEKS * 7 - 1);
+
+  const programEnd = program.end_date
+    ? (
+        program.end_date < programEndByWeeks
+          ? program.end_date
+          : programEndByWeeks
+      )
+    : programEndByWeeks;
+
+  const start = selected
+    ? (
+        selected.start > program.start_date
+          ? selected.start
+          : program.start_date
+      )
+    : program.start_date;
+
+  const end = selected
+    ? (
+        selected.end < programEnd
+          ? selected.end
+          : programEnd
+      )
+    : programEnd;
+
+  if (!start || !end || start > end) return null;
+
+  return { start, end };
+}
+
+function firstSuitableDate(program, preferredDate) {
+  const range = getAllowedRange("manual", program);
+  if (!range) return preferredDate || today();
+
+  const desired = preferredDate || today();
+
+  if (desired < range.start) return range.start;
+  if (desired > range.end) return range.end;
+
+  return desired;
 }
 
 export default function AchievementPage() {
@@ -149,6 +285,10 @@ export default function AchievementPage() {
 
   const [typeCode, setTypeCode] = useState("");
   const [activityDate, setActivityDate] = useState(today());
+
+  // Pilihan Week baru.
+  const [inputWeek, setInputWeek] = useState("manual");
+
   const [description, setDescription] = useState("");
   const [kilometer, setKilometer] = useState("0");
   const [meter, setMeter] = useState("0");
@@ -170,11 +310,7 @@ export default function AchievementPage() {
   const [message, setMessage] = useState("");
 
   const role = normalizeRole(manager?.role);
-
-  const canManage =
-    role === "admin" ||
-    role === "mentor";
-
+  const canManage = role === "admin" || role === "mentor";
   const programActive = program?.status === "active";
 
   const participant = Array.isArray(program?.peserta)
@@ -185,13 +321,19 @@ export default function AchievementPage() {
     item => item.code === typeCode
   );
 
+  const selectedTarget = TARGETS.find(
+    target =>
+      normalize(target.name) ===
+      normalize(selectedType?.name)
+  );
+
   const isFisik =
     normalize(selectedType?.name) === "fisik";
 
   const km = Number(kilometer);
   const m = Number(meter);
 
-  // Aturan validasi jarak asli dipertahankan.
+  // Validasi jarak asli dipertahankan.
   const validDistance =
     kilometer !== "" &&
     meter !== "" &&
@@ -214,9 +356,18 @@ export default function AchievementPage() {
 
   const globalWeek = getGlobalWeek(activityDate);
 
-  // ==================================================
-  // VALIDASI AKSES SEBELUM MUTASI
-  // ==================================================
+  const allowedDateRange = getAllowedRange(
+    inputWeek,
+    program
+  );
+
+  // Minggu global yang beririsan dengan program.
+  const availableWeeks = useMemo(
+    () => GLOBAL_WEEKS.filter(
+      item => getAllowedRange(item.week, program) !== null
+    ),
+    [program]
+  );
 
   async function verifyManagerAccess() {
     const {
@@ -292,13 +443,8 @@ export default function AchievementPage() {
     if (queryError) throw queryError;
 
     setRecords(data || []);
-
     return data || [];
   }
-
-  // ==================================================
-  // MEMUAT HALAMAN
-  // ==================================================
 
   useEffect(() => {
     if (!programId) {
@@ -375,25 +521,23 @@ export default function AchievementPage() {
           );
         }
 
-        const [
-          typeResult,
-          recordResult,
-        ] = await Promise.all([
-          supabase
-            .from("achievement_types")
-            .select("code,name")
-            .order("name"),
+        const [typeResult, recordResult] =
+          await Promise.all([
+            supabase
+              .from("achievement_types")
+              .select("code,name")
+              .order("name"),
 
-          supabase
-            .from("achievement_records")
-            .select(
-              "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
-            )
-            .eq("program_id", programId)
-            .order("activity_date", {
-              ascending: false,
-            }),
-        ]);
+            supabase
+              .from("achievement_records")
+              .select(
+                "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
+              )
+              .eq("program_id", programId)
+              .order("activity_date", {
+                ascending: false,
+              }),
+          ]);
 
         if (typeResult.error) throw typeResult.error;
         if (recordResult.error) throw recordResult.error;
@@ -405,7 +549,7 @@ export default function AchievementPage() {
         setTypes(typeResult.data || []);
         setRecords(recordResult.data || []);
 
-        const first = TARGETS.map(target =>
+        const firstType = TARGETS.map(target =>
           typeResult.data?.find(
             item =>
               normalize(item.name) ===
@@ -413,7 +557,22 @@ export default function AchievementPage() {
           )
         ).find(Boolean);
 
-        setTypeCode(first?.code || "");
+        setTypeCode(firstType?.code || "");
+
+        const initialDate = firstSuitableDate(
+          programData,
+          today()
+        );
+
+        setActivityDate(initialDate);
+
+        const initialGlobalWeek = getGlobalWeek(initialDate);
+
+        setInputWeek(
+          initialGlobalWeek !== null
+            ? String(initialGlobalWeek)
+            : "manual"
+        );
       } catch (err) {
         if (!active) return;
 
@@ -435,10 +594,6 @@ export default function AchievementPage() {
       active = false;
     };
   }, [programId, router]);
-
-  // ==================================================
-  // RINGKASAN DATA UNTUK HALAMAN INPUT
-  // ==================================================
 
   const counts = useMemo(() => ({
     total: records.length,
@@ -483,16 +638,43 @@ export default function AchievementPage() {
     filterStatus,
   ]);
 
-  // ==================================================
-  // INPUT DAN EDIT
-  // ==================================================
+  function changeInputWeek(value) {
+    setInputWeek(value);
+    setError("");
+    setMessage("");
+
+    const range = getAllowedRange(value, program);
+
+    if (!range) return;
+
+    // Saat memilih Week, tanggal otomatis menyesuaikan.
+    const nextDate =
+      activityDate >= range.start &&
+      activityDate <= range.end
+        ? activityDate
+        : range.start;
+
+    setActivityDate(nextDate);
+  }
 
   function resetForm() {
     setEditId(null);
-    setActivityDate(today());
     setDescription("");
     setKilometer("0");
     setMeter("0");
+
+    const defaultDate = firstSuitableDate(
+      program,
+      today()
+    );
+
+    setActivityDate(defaultDate);
+
+    const global = getGlobalWeek(defaultDate);
+
+    setInputWeek(
+      global !== null ? String(global) : "manual"
+    );
   }
 
   async function save(event) {
@@ -516,6 +698,7 @@ export default function AchievementPage() {
       return;
     }
 
+    // Aturan minggu program lama tetap berlaku.
     if (currentWeek === null) {
       setError(
         "Tanggal harus berada dalam Week 01–25 program peserta."
@@ -533,10 +716,19 @@ export default function AchievementPage() {
       return;
     }
 
-    if (isFisik && !validDistance) {
+    if (
+      !allowedDateRange ||
+      activityDate < allowedDateRange.start ||
+      activityDate > allowedDateRange.end
+    ) {
       setError(
-        "Masukkan jarak Fisik yang valid."
+        "Tanggal kegiatan harus berada dalam rentang Week yang dipilih dan periode OJT peserta."
       );
+      return;
+    }
+
+    if (isFisik && !validDistance) {
+      setError("Masukkan jarak Fisik yang valid.");
       return;
     }
 
@@ -580,7 +772,6 @@ export default function AchievementPage() {
       }
 
       await reloadRecords();
-
       resetForm();
 
       setMessage(
@@ -616,6 +807,16 @@ export default function AchievementPage() {
     setActivityDate(item.activity_date);
     setDescription(item.description || "");
 
+    const existingWeek = getGlobalWeek(
+      item.activity_date
+    );
+
+    setInputWeek(
+      existingWeek !== null
+        ? String(existingWeek)
+        : "manual"
+    );
+
     const totalMeters = Math.round(
       Number(item.distance_km || 0) * 1000
     );
@@ -634,10 +835,6 @@ export default function AchievementPage() {
       block: "start",
     });
   }
-
-  // ==================================================
-  // VERIFIKASI
-  // ==================================================
 
   function requestVerification(item) {
     if (
@@ -775,10 +972,6 @@ export default function AchievementPage() {
     }
   }
 
-  // ==================================================
-  // HAPUS
-  // ==================================================
-
   async function remove(item) {
     if (
       !canManage ||
@@ -853,15 +1046,12 @@ export default function AchievementPage() {
     }
   }
 
-  function openMonitoring() {
-    router.push(
-      `/achievement/${programId}/monitoring`
-    );
-  }
-
-  // ==================================================
-  // LOADING / ERROR
-  // ==================================================
+  const categoryHints = selectedTarget || {
+    name: selectedType?.name || "Kegiatan",
+    label: "Keterangan Kegiatan",
+    placeholder: "Jelaskan kegiatan yang dilakukan.",
+    hint: "Tuliskan uraian kegiatan secara jelas.",
+  };
 
   if (loading) {
     return (
@@ -904,6 +1094,7 @@ export default function AchievementPage() {
 
           <button
             className="in-button light"
+            type="button"
             onClick={() =>
               router.push(`/peserta/${programId}`)
             }
@@ -931,11 +1122,9 @@ export default function AchievementPage() {
               <span>
                 {participant?.full_name || "Peserta OJT"}
               </span>
-
               <span>
                 {program.site || "Site belum diisi"}
               </span>
-
               <span>
                 {dateText(program.start_date)}
                 {" – "}
@@ -946,33 +1135,43 @@ export default function AchievementPage() {
 
           <button
             className="in-button hero-button"
-            onClick={openMonitoring}
+            type="button"
+            onClick={() =>
+              router.push(
+                `/achievement/${programId}/monitoring`
+              )
+            }
           >
             📊 Buka Monitoring Achievement →
           </button>
         </section>
 
-        <nav className="in-tabs" aria-label="Menu Achievement">
+        <nav className="in-tabs">
           <div className="in-tab active">
             ✍️ Input Achievement
           </div>
 
           <button
             className="in-tab"
-            onClick={openMonitoring}
+            type="button"
+            onClick={() =>
+              router.push(
+                `/achievement/${programId}/monitoring`
+              )
+            }
           >
             📊 Monitoring Achievement
           </button>
         </nav>
 
         {error && (
-          <div role="alert" className="in-alert error">
+          <div className="in-alert error" role="alert">
             {error}
           </div>
         )}
 
         {message && (
-          <div role="status" className="in-alert success">
+          <div className="in-alert success" role="status">
             ✓ {message}
           </div>
         )}
@@ -1012,8 +1211,8 @@ export default function AchievementPage() {
                 </h2>
 
                 <p>
-                  Lengkapi data kegiatan untuk disimpan
-                  ke program OJT.
+                  Pilih kategori dan minggu,
+                  kemudian isi rincian kegiatan.
                 </p>
               </div>
 
@@ -1032,18 +1231,21 @@ export default function AchievementPage() {
                   id="in-category"
                   className="in-input"
                   value={typeCode}
-                  onChange={event =>
-                    setTypeCode(event.target.value)
-                  }
+                  onChange={event => {
+                    setTypeCode(event.target.value);
+
+                    // Tidak mengisi otomatis teks dari kategori
+                    // sebelumnya. Tiap kegiatan memiliki
+                    // keterangannya sendiri.
+                    if (!editId) setDescription("");
+                  }}
                   required
                   disabled={
                     saving || !!actionId || !programActive
                   }
                 >
                   {!typeCode && (
-                    <option value="">
-                      Pilih kategori
-                    </option>
+                    <option value="">Pilih kategori</option>
                   )}
 
                   {TARGETS.map(target => {
@@ -1066,6 +1268,48 @@ export default function AchievementPage() {
               </div>
 
               <div className="in-field">
+                <label htmlFor="in-week">
+                  Week Kegiatan (Kalender Global)
+                </label>
+
+                <select
+                  id="in-week"
+                  className="in-input"
+                  value={inputWeek}
+                  onChange={event =>
+                    changeInputWeek(event.target.value)
+                  }
+                  disabled={
+                    saving || !!actionId || !programActive
+                  }
+                >
+                  <option value="manual">
+                    Tanggal Manual / Di Luar Kalender Global
+                  </option>
+
+                  {availableWeeks.map(item => (
+                    <option
+                      key={item.week}
+                      value={String(item.week)}
+                    >
+                      {weekLabel(item.week)}
+                      {" — "}
+                      {dateText(item.start)}
+                      {" s.d. "}
+                      {dateText(item.end)}
+                    </option>
+                  ))}
+                </select>
+
+                <p className="in-help">
+                  Memilih Week akan menyesuaikan
+                  tanggal kegiatan secara otomatis.
+                  Minggu yang tidak beririsan dengan
+                  periode peserta tidak ditampilkan.
+                </p>
+              </div>
+
+              <div className="in-field">
                 <label htmlFor="in-date">
                   Tanggal Kegiatan
                 </label>
@@ -1075,6 +1319,8 @@ export default function AchievementPage() {
                   className="in-input"
                   type="date"
                   value={activityDate}
+                  min={allowedDateRange?.start}
+                  max={allowedDateRange?.end}
                   onChange={event =>
                     setActivityDate(event.target.value)
                   }
@@ -1084,9 +1330,20 @@ export default function AchievementPage() {
                   }
                 />
 
+                {allowedDateRange && (
+                  <div className="in-range-box">
+                    Rentang yang diperbolehkan:
+                    <strong>
+                      {dateText(allowedDateRange.start)}
+                      {" – "}
+                      {dateText(allowedDateRange.end)}
+                    </strong>
+                  </div>
+                )}
+
                 <div className="in-date-info">
                   <span>
-                    Minggu Program:{" "}
+                    Minggu Program Peserta:{" "}
                     <strong>
                       {currentWeek
                         ? weekLabel(currentWeek)
@@ -1182,18 +1439,22 @@ export default function AchievementPage() {
 
               <div className="in-field">
                 <label htmlFor="in-description">
-                  Keterangan Kegiatan (Opsional)
+                  {categoryHints.label} (Opsional)
                 </label>
+
+                <p className="in-help">
+                  {categoryHints.hint}
+                </p>
 
                 <textarea
                   id="in-description"
                   className="in-input"
-                  rows={5}
+                  rows={6}
                   value={description}
                   onChange={event =>
                     setDescription(event.target.value)
                   }
-                  placeholder="Contoh: Latihan lari bersama tim ERG."
+                  placeholder={categoryHints.placeholder}
                   disabled={
                     saving || !!actionId || !programActive
                   }
@@ -1203,7 +1464,8 @@ export default function AchievementPage() {
               <div className="in-form-info">
                 Setiap data baru atau hasil edit akan
                 berstatus <strong>Pending</strong>.
-                Achievement dihitung setelah diverifikasi.
+                Achievement dihitung setelah
+                diverifikasi.
               </div>
 
               <div className="in-form-actions">
@@ -1215,7 +1477,8 @@ export default function AchievementPage() {
                     !!actionId ||
                     !typeCode ||
                     !canManage ||
-                    !programActive
+                    !programActive ||
+                    !allowedDateRange
                   }
                 >
                   {saving
@@ -1243,19 +1506,16 @@ export default function AchievementPage() {
             <div className="in-card-head">
               <div>
                 <h2>Riwayat & Verifikasi</h2>
-                <p>
-                  Kelola kegiatan yang telah tercatat.
-                </p>
+                <p>Kelola kegiatan yang telah tercatat.</p>
               </div>
 
               <button
                 className="in-button light"
+                type="button"
                 onClick={refresh}
                 disabled={refreshing || saving || !!actionId}
               >
-                {refreshing
-                  ? "Memuat..."
-                  : "↻ Refresh"}
+                {refreshing ? "Memuat..." : "↻ Refresh"}
               </button>
             </div>
 
@@ -1280,9 +1540,9 @@ export default function AchievementPage() {
                   {Array.from(
                     { length: WEEKS },
                     (_, index) => index + 1
-                  ).map(week => (
-                    <option key={week} value={week}>
-                      {weekLabel(week)}
+                  ).map(item => (
+                    <option key={item} value={item}>
+                      {weekLabel(item)}
                     </option>
                   ))}
                 </select>
@@ -1374,6 +1634,10 @@ export default function AchievementPage() {
                     program.start_date
                   );
 
+                  const itemGlobalWeek = getGlobalWeek(
+                    item.activity_date
+                  );
+
                   return (
                     <article
                       className="in-record"
@@ -1394,9 +1658,15 @@ export default function AchievementPage() {
                           <div className="in-record-date">
                             {dateText(item.activity_date)}
                             {" · "}
+                            Program:{" "}
                             {itemWeek
                               ? weekLabel(itemWeek)
-                              : "Di luar minggu program"}
+                              : "Di luar program"}
+                            {" · "}
+                            Global:{" "}
+                            {itemGlobalWeek
+                              ? weekLabel(itemGlobalWeek)
+                              : "Di luar kalender"}
                           </div>
                         </div>
 
@@ -1434,6 +1704,7 @@ export default function AchievementPage() {
                         {item.status === "pending" && (
                           <button
                             className="in-button primary small"
+                            type="button"
                             onClick={() =>
                               requestVerification(item)
                             }
@@ -1452,6 +1723,7 @@ export default function AchievementPage() {
 
                         <button
                           className="in-button blue small"
+                          type="button"
                           onClick={() => edit(item)}
                           disabled={
                             !!actionId ||
@@ -1465,6 +1737,7 @@ export default function AchievementPage() {
 
                         <button
                           className="in-button red small"
+                          type="button"
                           onClick={() => remove(item)}
                           disabled={
                             !!actionId ||
@@ -1489,6 +1762,7 @@ export default function AchievementPage() {
         <div className="in-bottom-nav">
           <button
             className="in-button light"
+            type="button"
             onClick={() =>
               router.push(`/peserta/${programId}`)
             }
@@ -1498,7 +1772,12 @@ export default function AchievementPage() {
 
           <button
             className="in-button primary"
-            onClick={openMonitoring}
+            type="button"
+            onClick={() =>
+              router.push(
+                `/achievement/${programId}/monitoring`
+              )
+            }
           >
             Monitoring Achievement →
           </button>
@@ -1550,6 +1829,7 @@ export default function AchievementPage() {
             <div className="in-form-actions">
               <button
                 className="in-button primary"
+                type="button"
                 onClick={confirmVerification}
                 disabled={!!actionId || saving}
               >
@@ -1560,6 +1840,7 @@ export default function AchievementPage() {
 
               <button
                 className="in-button light"
+                type="button"
                 onClick={() =>
                   setConfirmVerifyItem(null)
                 }
@@ -1622,6 +1903,7 @@ const css = `
 
   .in-login {
     text-align: right;
+    max-width: 210px;
   }
 
   .in-login span,
@@ -1638,6 +1920,7 @@ const css = `
     margin-top: 4px;
     font-size: 12px;
     color: white;
+    overflow-wrap: anywhere;
   }
 
   .in-container {
@@ -1713,6 +1996,7 @@ const css = `
     border-radius: 11px;
     font-size: 13px;
     font-weight: 800;
+    cursor: pointer;
   }
 
   .in-tab.active {
@@ -1908,11 +2192,31 @@ const css = `
     outline-offset: 1px;
   }
 
+  .in-help {
+    margin: 8px 0 0;
+    font-size: 11px;
+    line-height: 1.6;
+    color: #779084;
+  }
+
+  .in-range-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 11px;
+    color: #6a8777;
+  }
+
+  .in-range-box strong {
+    color: #0b7754;
+  }
+
   .in-date-info {
     display: flex;
     flex-wrap: wrap;
     gap: 9px;
-    margin-top: 9px;
+    margin-top: 10px;
   }
 
   .in-date-info span {
@@ -2026,6 +2330,7 @@ const css = `
     margin-top: 7px;
     font-size: 11px;
     color: #86958d;
+    line-height: 1.6;
   }
 
   .in-status {
@@ -2142,15 +2447,23 @@ const css = `
 
   @media(max-width:650px) {
     .in-header {
-      padding: 14px;
+      padding: 12px;
     }
 
     .in-brand {
-      font-size: 18px;
+      font-size: 17px;
+    }
+
+    .in-header-actions {
+      gap: 8px;
     }
 
     .in-login {
-      display: none;
+      max-width: 115px;
+    }
+
+    .in-login strong {
+      font-size: 10px;
     }
 
     .in-container {
@@ -2211,6 +2524,10 @@ const css = `
   @media(max-width:350px) {
     .in-two-fields {
       grid-template-columns: 1fr;
+    }
+
+    .in-login {
+      display: none;
     }
 
     .in-header-actions .in-button {
