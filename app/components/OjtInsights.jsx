@@ -20,13 +20,13 @@ const SIMPER_META_START = "[[SIMPER_V2]]";
 const SIMPER_META_END = "[[/SIMPER_V2]]";
 
 function normalize(value) {
-  return String(value || "")
+  return String(value ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
 }
 
 function normalizeRole(value) {
-  return String(value || "").trim().toLowerCase();
+  return String(value ?? "").trim().toLowerCase();
 }
 
 function dateText(value) {
@@ -49,26 +49,26 @@ function parseDate(value) {
 
   if (
     parts.length !== 3 ||
-    parts.some((number) => !Number.isInteger(number))
+    parts.some((n) => !Number.isInteger(n))
   ) {
     return null;
   }
 
   const [year, month, day] = parts;
 
-  const result = new Date(
+  const date = new Date(
     Date.UTC(year, month - 1, day)
   );
 
   if (
-    result.getUTCFullYear() !== year ||
-    result.getUTCMonth() !== month - 1 ||
-    result.getUTCDate() !== day
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
   ) {
     return null;
   }
 
-  return result;
+  return date;
 }
 
 function weekOf(value, startValue) {
@@ -144,7 +144,7 @@ function getParticipant(program) {
 }
 
 // ====================================================
-// SIMPER
+// SIMPER V2 / V4
 // ====================================================
 
 function parseSimperMetadata(notes) {
@@ -165,10 +165,10 @@ function parseSimperMetadata(notes) {
 
     const metadata = JSON.parse(content);
 
-    // Mendukung metadata lama versi 2 dan
-    // metadata terbaru versi 4.
     if (
       metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata) &&
       [2, 4].includes(Number(metadata.version))
     ) {
       return metadata;
@@ -198,13 +198,14 @@ function getSimperProgress(simper) {
   const meta = parseSimperMetadata(simper.notes);
 
   const theory =
-    simper.theory_status === "passed";
+    normalizeRole(simper.theory_status) === "passed";
 
   const practice =
-    simper.practice_status === "passed";
+    normalizeRole(simper.practice_status) === "passed";
 
   const orientation =
-    meta?.orientation_status === "completed";
+    normalizeRole(meta?.orientation_status) ===
+    "completed";
 
   const completedSteps = [
     theory,
@@ -212,17 +213,13 @@ function getSimperProgress(simper) {
     orientation,
   ].filter(Boolean).length;
 
-  const percentage = [0, 33, 67, 100][
-    completedSteps
-  ];
+  const percentage = [0, 33, 67, 100][completedSteps];
 
-  // Penerbitan SIMPER terpisah dari
-  // tiga tahap progres.
-  //
-  // Status lama "passed" saja tidak
-  // membuktikan penerbitan dokumen.
+  // Penerbitan tidak menambah persentase.
+  // Mengikuti aturan yang sudah digunakan
+  // pada komponen OjtInsights sebelumnya.
   const released =
-    meta?.issuance_status === "issued" &&
+    normalizeRole(meta?.issuance_status) === "issued" &&
     Boolean(simper.graduation_date);
 
   return {
@@ -234,12 +231,15 @@ function getSimperProgress(simper) {
     orientation,
     released,
     meta,
-    legacy: !meta && simper.status === "passed",
+    legacy:
+      !meta &&
+      normalizeRole(simper.status) === "passed",
   };
 }
 
 // ====================================================
 // SAMAPTA
+// RUMUS ASLI DIPERTAHANKAN
 // ====================================================
 
 function getSamaptaResults(records) {
@@ -298,9 +298,7 @@ function getSamaptaResults(records) {
         normalize(item.test_type) === "lari12menit"
     );
 
-    const distance = hasScore(
-      running?.result_value
-    )
+    const distance = hasScore(running?.result_value)
       ? Number(running.result_value)
       : null;
 
@@ -325,8 +323,20 @@ function getSamaptaResults(records) {
 }
 
 // ====================================================
-// ACHIEVEMENT
-// Target per minggu selama 25 minggu.
+// ACHIEVEMENT — REVISI FINAL
+//
+// Target berlaku untuk seluruh program 25 minggu.
+//
+// Fisik = total distance_km verified
+// Lainnya = jumlah aktivitas verified
+//
+// Progres kategori:
+// min(100, pencapaian / target * 100)
+//
+// Progres keseluruhan:
+// rata-rata 6 progres kategori.
+//
+// Data mingguan tetap dihitung untuk rincian.
 // ====================================================
 
 function calculateCategories(
@@ -337,15 +347,18 @@ function calculateCategories(
   return CATEGORIES.map((category) => {
     const type = types.find(
       (item) =>
-        normalize(item.name) ===
-        normalize(category.name)
+        normalize(item.name) === normalize(category.name) ||
+        (
+          category.name === "Training" &&
+          normalize(item.name) === "internaltraining"
+        )
     );
 
     const verifiedRecords = type
       ? achievements.filter(
           (record) =>
-            record.type_code === type.code &&
-            record.status === "verified" &&
+            normalize(record.type_code) === normalize(type.code) &&
+            normalizeRole(record.status) === "verified" &&
             weekOf(
               record.activity_date,
               startDate
@@ -369,38 +382,37 @@ function calculateCategories(
         const achieved =
           category.name === "Fisik"
             ? matching.reduce(
-                (sum, record) =>
-                  sum +
-                  Math.max(
-                    0,
-                    Number(record.distance_km) || 0
-                  ),
+                (sum, record) => {
+                  const km = Number(record.distance_km);
+
+                  return sum + (
+                    Number.isFinite(km) && km > 0
+                      ? km
+                      : 0
+                  );
+                },
                 0
               )
             : matching.length;
 
-        const percentage = Math.min(
-          100,
-          Math.round(
-            (achieved / category.target) * 100
-          )
-        );
-
         return {
           week,
           achieved,
-          percentage,
-          completed: achieved >= category.target,
           count: matching.length,
         };
       }
     );
 
-    const percentage = Math.round(
-      weekly.reduce(
-        (sum, item) => sum + item.percentage,
-        0
-      ) / TOTAL_WEEKS
+    const totalAchieved = weekly.reduce(
+      (sum, item) => sum + item.achieved,
+      0
+    );
+
+    const percentage = Math.min(
+      100,
+      Math.round(
+        (totalAchieved / category.target) * 100
+      )
     );
 
     return {
@@ -409,13 +421,8 @@ function calculateCategories(
       verified: verifiedRecords.length,
       weekly,
       percentage,
-      completedWeeks: weekly.filter(
-        (item) => item.completed
-      ).length,
-      totalAchieved: weekly.reduce(
-        (sum, item) => sum + item.achieved,
-        0
-      ),
+      completed: totalAchieved >= category.target,
+      totalAchieved,
     };
   });
 }
@@ -455,11 +462,7 @@ function Stat({ label, value, helper }) {
   );
 }
 
-function Indicator({
-  title,
-  detail,
-  passed,
-}) {
+function Indicator({ title, detail, passed }) {
   return (
     <div className="oi-indicator">
       <div
@@ -484,9 +487,7 @@ function Indicator({
             : "oi-pill"
         }
       >
-        {passed
-          ? "Terpenuhi"
-          : "Belum Terpenuhi"}
+        {passed ? "Terpenuhi" : "Belum Terpenuhi"}
       </span>
     </div>
   );
@@ -537,19 +538,13 @@ function History({
 
 // ====================================================
 // KOMPONEN UTAMA
-// Dipakai halaman Evaluasi dan Laporan.
+// DIGUNAKAN EVALUASI DAN LAPORAN
 // ====================================================
 
-export default function OjtInsights({
-  id,
-  mode,
-}) {
+export default function OjtInsights({ id, mode }) {
   const router = useRouter();
 
-  const programId = Array.isArray(id)
-    ? id[0]
-    : id;
-
+  const programId = Array.isArray(id) ? id[0] : id;
   const isReport = mode === "laporan";
 
   const [data, setData] = useState(null);
@@ -558,7 +553,7 @@ export default function OjtInsights({
   const [refreshing, setRefreshing] = useState(false);
 
   // ==================================================
-  // QUERY SUPABASE
+  // QUERY DATA MONITORING
   // ==================================================
 
   async function getMonitoringData(targetId) {
@@ -606,9 +601,7 @@ export default function OjtInsights({
     ]);
 
     for (const result of results) {
-      if (result.error) {
-        throw result.error;
-      }
+      if (result.error) throw result.error;
     }
 
     return {
@@ -623,6 +616,13 @@ export default function OjtInsights({
 
   // ==================================================
   // VERIFIKASI AKSES
+  //
+  // Admin dan Mentor mengikuti RLS.
+  //
+  // Peserta:
+  // - Hanya program sendiri
+  // - Program harus active
+  // - Persetujuan baru/lama/legacy
   // ==================================================
 
   async function verifyAccess() {
@@ -646,9 +646,7 @@ export default function OjtInsights({
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profileError) {
-      throw profileError;
-    }
+    if (profileError) throw profileError;
 
     if (!profile) {
       throw new Error(
@@ -659,12 +657,10 @@ export default function OjtInsights({
     const role = normalizeRole(profile.role);
 
     const isManager =
-      role === "admin" ||
-      role === "mentor";
+      role === "admin" || role === "mentor";
 
     const isParticipant =
-      role === "participant" ||
-      role === "peserta";
+      role === "participant" || role === "peserta";
 
     if (!isManager && !isParticipant) {
       throw new Error(
@@ -681,6 +677,7 @@ export default function OjtInsights({
         status,
         start_date,
         end_date,
+        legacy_access,
         peserta:profiles!ojt_programs_participant_id_fkey(
           full_name,
           department
@@ -700,22 +697,11 @@ export default function OjtInsights({
       error: programError,
     } = await programQuery.maybeSingle();
 
-    if (programError) {
-      throw programError;
-    }
+    if (programError) throw programError;
 
     if (!program) {
       throw new Error(
         "Program OJT tidak ditemukan atau tidak dapat diakses."
-      );
-    }
-
-    if (
-      isParticipant &&
-      program.participant_id !== user.id
-    ) {
-      throw new Error(
-        "Anda hanya dapat melihat program OJT milik sendiri."
       );
     }
 
@@ -726,39 +712,68 @@ export default function OjtInsights({
     }
 
     if (isParticipant) {
-      const {
-        data: registrations,
-        error: registrationError,
-      } = await supabase
-        .from("participant_registrations")
-        .select("status,created_at")
-        .eq("user_id", user.id)
-        .order("created_at", {
-          ascending: false,
-        })
-        .limit(1);
-
-      if (registrationError) {
+      if (program.participant_id !== user.id) {
         throw new Error(
-          "Gagal memeriksa persetujuan pendaftaran."
+          "Anda hanya dapat melihat program OJT milik sendiri."
         );
       }
 
-      const registration =
-        registrations?.[0] || null;
-
-      if (
-        registration &&
-        registration.status !== "approved"
-      ) {
-        throw new Error(
-          "Pendaftaran peserta belum disetujui mentor."
-        );
-      }
-
-      if (program.status !== "active") {
+      if (normalizeRole(program.status) !== "active") {
         throw new Error(
           "Program OJT belum aktif."
+        );
+      }
+
+      const [
+        newResult,
+        oldResult,
+      ] = await Promise.all([
+        supabase
+          .from("ojt_registration_requests")
+          .select("status")
+          .eq("participant_id", user.id),
+
+        supabase
+          .from("participant_registrations")
+          .select("status")
+          .eq("user_id", user.id),
+      ]);
+
+      if (newResult.error) {
+        throw new Error(
+          "Gagal memeriksa pendaftaran baru: " +
+          newResult.error.message
+        );
+      }
+
+      if (oldResult.error) {
+        throw new Error(
+          "Gagal memeriksa pendaftaran lama: " +
+          oldResult.error.message
+        );
+      }
+
+      const approvedNew = (
+        newResult.data || []
+      ).some(
+        (item) =>
+          normalizeRole(item.status) === "approved"
+      );
+
+      const approvedOld = (
+        oldResult.data || []
+      ).some(
+        (item) =>
+          normalizeRole(item.status) === "approved"
+      );
+
+      if (
+        !approvedNew &&
+        !approvedOld &&
+        program.legacy_access !== true
+      ) {
+        throw new Error(
+          "Program belum memiliki persetujuan akses yang sah."
         );
       }
     }
@@ -771,7 +786,7 @@ export default function OjtInsights({
   }
 
   // ==================================================
-  // LOAD DATA
+  // INITIAL LOAD
   // ==================================================
 
   useEffect(() => {
@@ -793,8 +808,9 @@ export default function OjtInsights({
 
         if (!alive) return;
 
-        const monitoring =
-          await getMonitoringData(access.program.id);
+        const monitoring = await getMonitoringData(
+          access.program.id
+        );
 
         if (!alive) return;
 
@@ -821,9 +837,7 @@ export default function OjtInsights({
           "Gagal memuat data monitoring OJT."
         );
       } finally {
-        if (alive) {
-          setLoading(false);
-        }
+        if (alive) setLoading(false);
       }
     }
 
@@ -832,10 +846,12 @@ export default function OjtInsights({
     return () => {
       alive = false;
     };
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programId, router]);
 
   // ==================================================
-  // REFRESH DENGAN PENGECEKAN AKSES
+  // REFRESH DENGAN VERIFIKASI ULANG
   // ==================================================
 
   async function refresh() {
@@ -855,8 +871,9 @@ export default function OjtInsights({
         );
       }
 
-      const monitoring =
-        await getMonitoringData(access.program.id);
+      const monitoring = await getMonitoringData(
+        access.program.id
+      );
 
       setData({
         viewerId: access.user.id,
@@ -865,8 +882,6 @@ export default function OjtInsights({
         ...monitoring,
       });
     } catch (err) {
-      // Jangan mempertahankan tampilan
-      // data lama ketika verifikasi gagal.
       setData(null);
 
       setError(
@@ -909,66 +924,45 @@ export default function OjtInsights({
       ) / CATEGORIES.length
     );
 
-    const completedCategories =
-      categories.filter(
-        (category) =>
-          category.percentage === 100
-      ).length;
+    const completedCategories = categories.filter(
+      (category) => category.completed
+    ).length;
 
-    const totalVerified =
-      categories.reduce(
-        (sum, category) =>
-          sum + category.verified,
-        0
-      );
+    const totalVerified = categories.reduce(
+      (sum, category) => sum + category.verified,
+      0
+    );
 
-    const samaptaResults =
-      getSamaptaResults(samapta);
+    const samaptaResults = getSamaptaResults(samapta);
 
-    const latestSamapta =
-      samaptaResults.length
-        ? samaptaResults[
-            samaptaResults.length - 1
-          ]
-        : null;
+    const latestSamapta = samaptaResults.length
+      ? samaptaResults[samaptaResults.length - 1]
+      : null;
 
-    const simperProgress =
-      getSimperProgress(simper);
+    const simperProgress = getSimperProgress(simper);
 
     const activityWeeks = new Set();
 
     const markWeek = (value) => {
-      const week = weekOf(
-        value,
-        program.start_date
-      );
+      const week = weekOf(value, program.start_date);
 
       if (week !== null) {
         activityWeeks.add(week);
       }
     };
 
-    // Cakupan aktivitas mempertahankan
-    // definisi sebelumnya: minggu dengan
-    // catatan, tidak hanya yang diverifikasi.
-    ach.forEach((item) =>
-      markWeek(item.activity_date)
-    );
-
-    post.forEach((item) =>
-      markWeek(item.test_date)
-    );
-
+    // Indikator aktivitas menghitung minggu
+    // yang memiliki data, termasuk pending.
+    ach.forEach((item) => markWeek(item.activity_date));
+    post.forEach((item) => markWeek(item.test_date));
     practice.forEach((item) =>
       markWeek(item.practice_date)
     );
-
     samapta.forEach((item) =>
       markWeek(item.test_date)
     );
 
-    const activityCount =
-      activityWeeks.size;
+    const activityCount = activityWeeks.size;
 
     const validPost = post.filter(
       (item) => hasScore(item.score)
@@ -983,21 +977,19 @@ export default function OjtInsights({
         title: "Pencapaian Kompetensi OJT",
         detail:
           `${completedCategories} dari 6 kategori ` +
-          `mencapai 100% progres target mingguan`,
+          `mencapai target program`,
         ok: completedCategories === 6,
       },
       {
         title: "Post-Test",
         detail:
-          `${validPost.length} hasil tes ` +
-          `memiliki nilai valid`,
+          `${validPost.length} hasil tes memiliki nilai valid`,
         ok: validPost.length > 0,
       },
       {
         title: "Praktik Mingguan",
         detail:
-          `${validPractice.length} penilaian ` +
-          `memiliki nilai valid`,
+          `${validPractice.length} penilaian memiliki nilai valid`,
         ok: validPractice.length > 0,
       },
       {
@@ -1013,8 +1005,6 @@ export default function OjtInsights({
                 : "Status lari belum tersedia"
             )
           : "Belum ada lima komponen tes lengkap",
-        // Kelengkapan komponen tes, bukan
-        // keputusan lulus Samapta.
         ok: Boolean(latestSamapta),
       },
       {
@@ -1022,25 +1012,22 @@ export default function OjtInsights({
         detail: simperProgress.released
           ? "SIMPER tercatat telah diterbitkan"
           : (
-              `${simperProgress.percentage}% ` +
-              `progres KMKOP; status penerbitan ` +
-              `belum terverifikasi`
+              `${simperProgress.percentage}% progres KMKOP; ` +
+              `status penerbitan belum terverifikasi`
             ),
         ok: simperProgress.released,
       },
       {
         title: "Cakupan Aktivitas 25 Minggu",
         detail:
-          `${activityCount} dari 25 minggu ` +
-          `memiliki catatan aktivitas`,
+          `${activityCount} dari 25 minggu memiliki catatan aktivitas`,
         ok: activityCount === TOTAL_WEEKS,
       },
     ];
 
-    const fulfilled =
-      indicators.filter(
-        (item) => item.ok
-      ).length;
+    const fulfilled = indicators.filter(
+      (item) => item.ok
+    ).length;
 
     const completeness = Math.round(
       (fulfilled / indicators.length) * 100
@@ -1067,7 +1054,7 @@ export default function OjtInsights({
   }, [data]);
 
   // ==================================================
-  // LOADING DAN ERROR
+  // LOADING / ERROR
   // ==================================================
 
   if (loading) {
@@ -1108,14 +1095,12 @@ export default function OjtInsights({
   const participant = getParticipant(program);
 
   const participantName =
-    participant?.full_name ||
-    "Peserta OJT";
+    participant?.full_name || "Peserta OJT";
 
   const role = normalizeRole(profile.role);
 
   const viewerIsManager =
-    role === "mentor" ||
-    role === "admin";
+    role === "mentor" || role === "admin";
 
   const backPath = viewerIsManager
     ? `/peserta/${programId}`
@@ -1713,8 +1698,6 @@ export default function OjtInsights({
             min-height: 0 !important;
             break-inside: avoid;
             page-break-inside: avoid;
-            print-color-adjust: exact;
-            -webkit-print-color-adjust: exact;
           }
 
           .oi-hero h1 {
@@ -1734,10 +1717,6 @@ export default function OjtInsights({
             min-height: 0 !important;
             height: auto !important;
             overflow: visible !important;
-            break-before: auto !important;
-            page-break-before: auto !important;
-            break-after: auto !important;
-            page-break-after: auto !important;
             break-inside: auto !important;
             page-break-inside: auto !important;
           }
@@ -1867,7 +1846,6 @@ export default function OjtInsights({
             margin-top: 8px !important;
             font-size: 9px !important;
             break-inside: auto !important;
-            page-break-inside: auto !important;
           }
 
           .oi-history {
@@ -1906,7 +1884,6 @@ export default function OjtInsights({
             padding: 7px !important;
             font-size: 8px !important;
             break-inside: avoid;
-            page-break-inside: avoid;
           }
         }
       `}</style>
@@ -1978,6 +1955,7 @@ export default function OjtInsights({
           <div className="oi-lock">
             🔒 Identitas peserta otomatis dan
             terkunci berdasarkan program OJT.
+
             {!viewerIsManager && (
               <>
                 {" "}
@@ -2003,7 +1981,7 @@ export default function OjtInsights({
               value={`${analysis.achievementPct}%`}
               helper={
                 `${analysis.completedCategories}/6 ` +
-                `kategori mencapai 100%`
+                `kategori mencapai target`
               }
             />
 
@@ -2071,9 +2049,7 @@ export default function OjtInsights({
             </strong>
           </div>
 
-          <ProgressBar
-            value={analysis.completeness}
-          />
+          <ProgressBar value={analysis.completeness} />
 
           <p
             style={{
@@ -2082,10 +2058,10 @@ export default function OjtInsights({
               lineHeight: 1.7,
             }}
           >
-            Persentase ini menunjukkan
-            kelengkapan enam indikator monitoring,
-            bukan skor kesiapan operasional
-            atau keputusan kelulusan OJT.
+            Persentase ini menunjukkan kelengkapan
+            enam indikator monitoring, bukan skor
+            kesiapan operasional atau keputusan
+            kelulusan OJT.
           </p>
 
           {analysis.indicators.map((item) => (
@@ -2128,9 +2104,7 @@ export default function OjtInsights({
         </section>
 
         <section className="oi-card">
-          <h2>
-            Rincian Pencapaian Kompetensi
-          </h2>
+          <h2>Rincian Pencapaian Kompetensi</h2>
 
           <p
             style={{
@@ -2139,10 +2113,10 @@ export default function OjtInsights({
               lineHeight: 1.7,
             }}
           >
-            Progres dihitung dari target mingguan
-            selama 25 minggu. Hanya aktivitas
-            terverifikasi yang berkontribusi
-            terhadap pencapaian.
+            Progres dihitung berdasarkan target
+            kumulatif selama program OJT 25 minggu.
+            Hanya aktivitas terverifikasi yang
+            berkontribusi terhadap pencapaian.
           </p>
 
           {analysis.categories.map((item) => (
@@ -2154,18 +2128,23 @@ export default function OjtInsights({
                 {item.icon} {item.name}
 
                 <small>
-                  Target {item.target} {item.unit}/minggu
+                  Target {item.target} {item.unit}
                 </small>
               </div>
 
               <div className="oi-competency-middle">
-                <ProgressBar
-                  value={item.percentage}
-                />
+                <ProgressBar value={item.percentage} />
 
                 <small>
-                  {item.completedWeeks}/25 minggu
-                  mencapai target
+                  Pencapaian:{" "}
+                  {fmtNumber(
+                    item.totalAchieved,
+                    item.name === "Fisik" ? 2 : 0
+                  )}
+                  {" / "}
+                  {fmtNumber(item.target)}
+                  {" "}
+                  {item.unit}
                 </small>
               </div>
 
@@ -2174,6 +2153,7 @@ export default function OjtInsights({
 
                 <small>
                   {item.verified} kegiatan
+                  terverifikasi
                 </small>
               </div>
             </div>
@@ -2181,24 +2161,24 @@ export default function OjtInsights({
 
           <div className="oi-alert">
             <strong>Catatan Achievement:</strong>
-
             <br />
-
-            Persentase dihitung sebagai rata-rata
-            progres mingguan. Untuk Fisik,
-            pencapaian menggunakan total jarak
-            terverifikasi dalam kilometer,
-            sedangkan kategori lain menggunakan
-            jumlah kegiatan terverifikasi.
+            Persentase setiap kategori dihitung
+            dari pencapaian kumulatif terhadap
+            target program, maksimal 100%.
 
             <br />
             <br />
 
-            Total kegiatan terverifikasi:
-            {" "}
-            <strong>
-              {analysis.totalVerified}
-            </strong>.
+            Untuk Fisik, pencapaian menggunakan
+            jumlah kilometer terverifikasi.
+            Kategori lainnya menggunakan jumlah
+            kegiatan terverifikasi.
+
+            <br />
+            <br />
+
+            Total kegiatan terverifikasi:{" "}
+            <strong>{analysis.totalVerified}</strong>.
           </div>
         </section>
 
@@ -2223,9 +2203,7 @@ export default function OjtInsights({
               <span>{title}</span>
 
               <strong>
-                {complete
-                  ? "Selesai"
-                  : "Belum Selesai"}
+                {complete ? "Selesai" : "Belum Selesai"}
               </strong>
             </div>
           ))}
@@ -2277,9 +2255,9 @@ export default function OjtInsights({
               marginTop: 15,
             }}
           >
-            Penerbitan SIMPER ditampilkan
-            terpisah dan tidak menambah
-            persentase tiga tahap KMKOP.
+            Penerbitan SIMPER ditampilkan terpisah
+            dan tidak menambah persentase tiga
+            tahap KMKOP.
           </p>
         </section>
 
@@ -2341,9 +2319,7 @@ export default function OjtInsights({
             </section>
 
             <section className="oi-card">
-              <h2>
-                Catatan dan Pengesahan
-              </h2>
+              <h2>Catatan dan Pengesahan</h2>
 
               <p
                 style={{
@@ -2352,11 +2328,10 @@ export default function OjtInsights({
                   lineHeight: 1.7,
                 }}
               >
-                Laporan ini merupakan rekap
-                otomatis data monitoring OJT.
-                Keputusan akhir kelulusan atau
-                kesiapan operasional memerlukan
-                pemeriksaan dan pengesahan
+                Laporan ini merupakan rekap otomatis
+                data monitoring OJT. Keputusan akhir
+                kelulusan atau kesiapan operasional
+                memerlukan pemeriksaan dan pengesahan
                 sesuai ketentuan perusahaan.
               </p>
 
@@ -2368,9 +2343,7 @@ export default function OjtInsights({
               <div className="oi-signature">
                 Mengetahui,
 
-                <p>
-                  Mentor / Penanggung Jawab
-                </p>
+                <p>Mentor / Penanggung Jawab</p>
 
                 <div className="oi-signature-space" />
 
