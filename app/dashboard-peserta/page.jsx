@@ -194,6 +194,7 @@ export default function DashboardPeserta() {
   const [registration, setRegistration] = useState(null);
 
   const [participants, setParticipants] = useState([]);
+
   const [
     selectedParticipantId,
     setSelectedParticipantId,
@@ -205,8 +206,6 @@ export default function DashboardPeserta() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
 
-  // Mencegah hasil permintaan lama menimpa
-  // Dashboard yang baru dipilih.
   const requestIdRef = useRef(0);
   const selectedIdRef = useRef("");
 
@@ -220,11 +219,13 @@ export default function DashboardPeserta() {
   }
 
   // ====================================================
-  // DAFTAR PESERTA UNTUK PREVIEW ADMIN
+  // DAFTAR PESERTA PREVIEW ADMIN
   //
-  // Hanya akun dengan role participant/peserta.
-  // Program OJT yang menggunakan akun Admin
-  // tidak dimasukkan ke dropdown preview.
+  // Sumber:
+  // Program OJT dengan status active.
+  //
+  // Hanya akun participant/peserta.
+  // Admin dan Mentor tidak masuk dropdown.
   // ====================================================
 
   async function fetchParticipantList() {
@@ -253,8 +254,6 @@ export default function DashboardPeserta() {
         ? item.peserta[0]
         : item.peserta;
 
-      // Perlindungan preview:
-      // jangan tampilkan akun Admin/Mentor.
       if (!peserta || !isParticipantRole(peserta.role)) {
         return;
       }
@@ -278,16 +277,17 @@ export default function DashboardPeserta() {
   }
 
   // ====================================================
-  // DATA DASHBOARD PESERTA
-  //
-  // Peserta biasa:
-  // Menggunakan user.id dari Supabase Auth.
+  // PENGAMBILAN DASHBOARD PESERTA
   //
   // Admin:
-  // Menggunakan pilihan peserta yang valid
-  // dari daftar preview.
+  // Menampilkan program yang sudah active.
+  // Tidak mensyaratkan ulang approval dari
+  // tabel registrasi untuk mode preview.
   //
-  // Semua akses tetap tunduk pada RLS.
+  // Peserta biasa:
+  // Seluruh aturan persetujuan lama dipertahankan.
+  //
+  // Semua akses tetap tunduk pada Supabase RLS.
   // ====================================================
 
   async function fetchParticipantDashboard(
@@ -343,46 +343,13 @@ export default function DashboardPeserta() {
       currentProfile = data;
     }
 
-    const {
-      data: newRequests,
-      error: newError,
-    } = await supabase
-      .from("ojt_registration_requests")
-      .select(`
-        id,
-        status,
-        rejection_reason,
-        site,
-        start_date,
-        end_date,
-        created_at
-      `)
-      .eq("participant_id", participantId)
-      .order("created_at", {
-        ascending: false,
-      });
-
-    if (newError) throw newError;
-
-    const {
-      data: oldRequests,
-      error: oldError,
-    } = await supabase
-      .from("participant_registrations")
-      .select(`
-        id,
-        status,
-        rejection_reason,
-        site,
-        created_at
-      `)
-      .eq("user_id", participantId)
-      .order("created_at", {
-        ascending: false,
-      })
-      .limit(1);
-
-    if (oldError) throw oldError;
+    // ------------------------------------------------
+    // PROGRAM AKTIF
+    //
+    // Preview Admin harus dapat menampilkan
+    // program aktif yang sudah ditemukan pada
+    // daftar peserta.
+    // ------------------------------------------------
 
     const {
       data: activePrograms,
@@ -407,9 +374,84 @@ export default function DashboardPeserta() {
 
     if (programError) throw programError;
 
+    const activeProgram = activePrograms?.[0] || null;
+
+    // ------------------------------------------------
+    // KHUSUS PREVIEW ADMIN
+    //
+    // Program dengan status active dianggap
+    // tersedia untuk preview Admin.
+    //
+    // Tidak bergantung pada registration_requests
+    // ataupun participant_registrations.
+    //
+    // Tidak ada perubahan data atau status di DB.
+    // ------------------------------------------------
+
+    if (adminPreview) {
+      return {
+        profile: currentProfile,
+        registration: null,
+        program: activeProgram,
+        access: activeProgram
+          ? "approved"
+          : "no_program",
+      };
+    }
+
+    // ------------------------------------------------
+    // REGISTRASI BARU
+    // Tetap digunakan untuk akun Peserta.
+    // ------------------------------------------------
+
+    const {
+      data: newRequests,
+      error: newError,
+    } = await supabase
+      .from("ojt_registration_requests")
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        start_date,
+        end_date,
+        created_at
+      `)
+      .eq("participant_id", participantId)
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (newError) throw newError;
+
+    // ------------------------------------------------
+    // REGISTRASI LAMA
+    // Tetap digunakan untuk akun Peserta.
+    // ------------------------------------------------
+
+    const {
+      data: oldRequests,
+      error: oldError,
+    } = await supabase
+      .from("participant_registrations")
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        created_at
+      `)
+      .eq("user_id", participantId)
+      .order("created_at", {
+        ascending: false,
+      })
+      .limit(1);
+
+    if (oldError) throw oldError;
+
     const newList = newRequests || [];
     const oldRegistration = oldRequests?.[0] || null;
-    const activeProgram = activePrograms?.[0] || null;
 
     const latestNew = newList[0] || null;
 
@@ -439,13 +481,7 @@ export default function DashboardPeserta() {
       normalize(oldRegistration?.status) ===
       "pending";
 
-    // Pertahankan dukungan:
-    // - Persetujuan registrasi baru.
-    // - Persetujuan registrasi lama.
-    // - Program dengan legacy_access.
-    //
-    // Pengajuan pending tidak membatalkan
-    // hak akses program aktif yang sudah sah.
+    // Aturan akun Peserta tidak diubah.
     const approvedProgram =
       !!activeProgram &&
       (
@@ -518,6 +554,7 @@ export default function DashboardPeserta() {
         setSelectedParticipantId("");
         selectedIdRef.current = "";
         clearDashboard();
+
         router.replace("/login");
         return;
       }
@@ -559,8 +596,6 @@ export default function DashboardPeserta() {
         );
       }
 
-      // Seluruh keputusan role menggunakan
-      // profil akun yang baru diverifikasi.
       setAccount({
         ...currentAccount,
         role,
@@ -608,8 +643,6 @@ export default function DashboardPeserta() {
 
         applyDashboard(next);
       } else {
-        // Peserta hanya boleh meminta data
-        // menggunakan user.id miliknya sendiri.
         setParticipants([]);
         setSelectedParticipantId("");
         selectedIdRef.current = "";
@@ -668,6 +701,10 @@ export default function DashboardPeserta() {
 
     setRefreshing(true);
     setError("");
+
+    // Hilangkan data peserta sebelumnya agar
+    // tidak terlihat saat pilihan sedang berganti.
+    clearDashboard();
 
     try {
       const {
@@ -777,9 +814,8 @@ export default function DashboardPeserta() {
   }
 
   function openParticipantFeature(path) {
-    // Halaman tujuan wajib memeriksa
-    // user, role, kepemilikan program,
-    // dan kebijakan RLS sendiri.
+    // Halaman tujuan tetap harus melakukan
+    // verifikasi role, program, dan RLS.
     router.push(path);
   }
 
@@ -1487,6 +1523,19 @@ export default function DashboardPeserta() {
                         )
                       }
                     />
+
+                    {isAdmin && (
+                      <MenuCard
+                        icon="▦"
+                        title="Evaluasi Mingguan"
+                        description="Lihat evaluasi mingguan dan unduh/cetak PDF peserta."
+                        onClick={() =>
+                          openParticipantFeature(
+                            `/mingguan/${program.id}`
+                          )
+                        }
+                      />
+                    )}
                   </div>
 
                   {isAdmin && (
@@ -1499,9 +1548,9 @@ export default function DashboardPeserta() {
                       }}
                     >
                       Catatan Admin: akses ke menu
-                      lanjutan bergantung pada
-                      pemeriksaan role dan kebijakan
-                      RLS masing-masing halaman.
+                      lanjutan tetap bergantung pada
+                      validasi role dan kebijakan RLS
+                      masing-masing halaman.
                     </p>
                   )}
                 </section>
@@ -1515,9 +1564,7 @@ export default function DashboardPeserta() {
                 background: C.green2,
                 marginBottom: 12,
               }}
-              onClick={() =>
-                loadDashboard(true)
-              }
+              onClick={() => loadDashboard(true)}
               disabled={refreshing}
             >
               {refreshing
