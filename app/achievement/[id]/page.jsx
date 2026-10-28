@@ -4,16 +4,17 @@
 import React, {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "../../../../lib/supabase";
+import { supabase } from "../../../lib/supabase";
 
 // =====================================================
 // OJT MINETRACK V2.0
-// MONITORING ACHIEVEMENT
-// KALENDER GLOBAL • CAPAIAN MAKSIMAL 100%
+// INPUT ACHIEVEMENT - KALENDER GLOBAL
+// SIMPAN LANGSUNG - MAKSIMAL 100%
 // =====================================================
 
 const TOTAL_WEEKS = 25;
@@ -24,47 +25,65 @@ const TARGETS = [
     target: 25,
     unit: "km",
     icon: "🏃",
-    color: "#e24e46",
+    label: "Detail Latihan Fisik",
+    hint: "Tuliskan jenis latihan, rute atau lokasi, dan hasil kegiatan.",
+    placeholder:
+      "Jenis latihan: Lari pagi\nLokasi: Area ERG\nHasil: Latihan ketahanan fisik.",
   },
   {
     name: "Training",
     target: 4,
     unit: "kegiatan",
     icon: "📚",
-    color: "#e4a12d",
+    label: "Detail Internal Training",
+    hint: "Tuliskan judul pelatihan, materi, instruktur, dan hasil belajar.",
+    placeholder:
+      "Judul: Basic Fire Fighting\nMateri: Penggunaan APAR\nInstruktur: Tim ERG\nHasil: Memahami penggunaan APAR.",
   },
   {
     name: "Sosialisasi",
     target: 3,
     unit: "kegiatan",
     icon: "📣",
-    color: "#c7aa25",
+    label: "Detail Sosialisasi",
+    hint: "Tuliskan topik, peserta, lokasi, dan hasil sosialisasi.",
+    placeholder:
+      "Topik: Keselamatan kerja\nPeserta: Tim operasional\nLokasi: Area kerja\nHasil: Penyampaian prosedur.",
   },
   {
     name: "Orientasi Area",
     target: 2,
     unit: "kegiatan",
     icon: "🗺️",
-    color: "#268d61",
+    label: "Detail Orientasi Area",
+    hint: "Tuliskan area, tujuan, kegiatan, dan hasil orientasi.",
+    placeholder:
+      "Area: Workshop\nTujuan: Pengenalan area kerja\nKegiatan: Pengenalan fasilitas\nHasil: Memahami jalur evakuasi.",
   },
   {
     name: "Coaching",
     target: 1,
     unit: "kegiatan",
     icon: "👥",
-    color: "#219ac0",
+    label: "Detail Coaching",
+    hint: "Tuliskan materi, Mentor, pembahasan, dan tindak lanjut.",
+    placeholder:
+      "Materi: Prosedur tanggap darurat\nMentor: Mentor OJT\nHasil: Evaluasi pemahaman\nTindak lanjut: Praktik lanjutan.",
   },
   {
     name: "Hazard",
     target: 2,
     unit: "kegiatan",
     icon: "⚠️",
-    color: "#3573d2",
+    label: "Detail Identifikasi Hazard",
+    hint: "Tuliskan lokasi, potensi bahaya, risiko, dan pengendalian.",
+    placeholder:
+      "Lokasi: Workshop\nBahaya: Material menghalangi akses\nRisiko: Tersandung\nPengendalian: Housekeeping.",
   },
 ];
 
-function pad(number) {
-  return String(number).padStart(2, "0");
+function pad(value) {
+  return String(value).padStart(2, "0");
 }
 
 function normalize(value) {
@@ -74,7 +93,9 @@ function normalize(value) {
 }
 
 function normalizeRole(value) {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function parseDate(value) {
@@ -105,9 +126,13 @@ function parseDate(value) {
 
 function addDays(value, days) {
   const date = parseDate(value);
+
   if (!date) return null;
 
-  date.setUTCDate(date.getUTCDate() + days);
+  date.setUTCDate(
+    date.getUTCDate() + days
+  );
+
   return date.toISOString().slice(0, 10);
 }
 
@@ -127,12 +152,12 @@ function dateText(value) {
 
   if (!date) return "—";
 
-  return new Intl.DateTimeFormat("id-ID", {
+  return date.toLocaleDateString("id-ID", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     timeZone: "UTC",
-  }).format(date);
+  });
 }
 
 function kmText(value) {
@@ -145,45 +170,42 @@ function kmText(value) {
   );
 }
 
-function numberText(value, digits = 0) {
-  return Number(value || 0).toLocaleString(
-    "id-ID",
-    {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
-    }
-  );
-}
-
-function percent(realized, target) {
+function percent(value, target) {
   if (!(target > 0)) return 0;
 
   return Math.min(
     100,
-    Math.max(0, (realized / target) * 100)
+    Math.max(0, (value / target) * 100)
   );
 }
 
-function average(values) {
-  if (!values.length) return 0;
-
-  return (
-    values.reduce(
-      (sum, value) => sum + value,
-      0
-    ) / values.length
+function percentText(value) {
+  return Number(value || 0).toLocaleString(
+    "id-ID",
+    {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }
   );
+}
+
+function weekLabel(week) {
+  return `Week ${pad(week)}`;
+}
+
+function getErrorMessage(error, fallback) {
+  return error?.message || fallback;
 }
 
 // =====================================================
 // KALENDER GLOBAL OJT
 //
-// WEEK 01: 12–18 SEP 2026 (KHUSUS)
-// WEEK 02: 20–26 SEP 2026
-// WEEK 07: 25–31 OKT 2026
-// WEEK 25: 28 FEB–06 MAR 2027
+// WEEK 01 = 12–18 SEPTEMBER 2026
+// WEEK 02 = 20–26 SEPTEMBER 2026
+// WEEK 07 = 25–31 OKTOBER 2026
+// WEEK 25 = 28 FEBRUARI–6 MARET 2027
 //
-// 19 SEP 2026 DI LUAR KALENDER PROGRAM.
+// TANGGAL 19 SEPTEMBER 2026 TIDAK TERMASUK.
 // =====================================================
 
 const GLOBAL_WEEKS = Array.from(
@@ -206,96 +228,106 @@ const GLOBAL_WEEKS = Array.from(
 );
 
 function globalWeekOf(value) {
-  const key = String(value ?? "").slice(0, 10);
+  const date = String(value ?? "")
+    .slice(0, 10);
 
-  if (!parseDate(key)) return null;
+  if (!parseDate(date)) return null;
 
   const matched = GLOBAL_WEEKS.find(
-    (week) =>
-      key >= week.start &&
-      key <= week.end
+    (item) =>
+      date >= item.start &&
+      date <= item.end
   );
 
   return matched?.week ?? null;
 }
 
-function weekLabel(week) {
-  return `Week ${pad(week)}`;
-}
-
-function getWeek(week) {
-  return (
-    GLOBAL_WEEKS.find(
-      (item) => item.week === Number(week)
-    ) || null
+function getWeekRange(week, program) {
+  const item = GLOBAL_WEEKS.find(
+    (row) => row.week === Number(week)
   );
-}
-
-function programRangeForWeek(week, program) {
-  const selected = getWeek(week);
 
   if (
-    !selected ||
+    !item ||
     !parseDate(program?.start_date)
   ) {
     return null;
   }
 
+  const programStart = String(
+    program.start_date
+  ).slice(0, 10);
+
+  const programEnd = parseDate(
+    program.end_date
+  )
+    ? String(program.end_date).slice(0, 10)
+    : null;
+
   const start =
-    selected.start > program.start_date
-      ? selected.start
-      : program.start_date;
+    item.start > programStart
+      ? item.start
+      : programStart;
 
   const end =
-    program.end_date &&
-    program.end_date < selected.end
-      ? program.end_date
-      : selected.end;
+    programEnd && programEnd < item.end
+      ? programEnd
+      : item.end;
 
   if (start > end) return null;
 
-  return { start, end };
+  return {
+    start,
+    end,
+    globalStart: item.start,
+    globalEnd: item.end,
+  };
 }
 
-function defaultWeek(program) {
-  const date = todayLocal();
+function isDateAllowed(date, week, program) {
+  const range = getWeekRange(
+    week,
+    program
+  );
+
+  return Boolean(
+    range &&
+      parseDate(date) &&
+      date >= range.start &&
+      date <= range.end &&
+      globalWeekOf(date) === Number(week)
+  );
+}
+
+function getDefaultWeek(program) {
+  const today = todayLocal();
 
   const available = GLOBAL_WEEKS.filter(
-    (week) =>
-      programRangeForWeek(
-        week.week,
+    (item) =>
+      getWeekRange(item.week, program)
+  );
+
+  if (!available.length) return null;
+
+  const current = available.find(
+    (item) =>
+      isDateAllowed(
+        today,
+        item.week,
         program
       )
   );
 
-  if (!available.length) {
-    return globalWeekOf(date) || 1;
-  }
-
-  const active = available.find(
-    (week) => {
-      const range = programRangeForWeek(
-        week.week,
-        program
-      );
-
-      return (
-        date >= range.start &&
-        date <= range.end
-      );
-    }
-  );
-
-  if (active) return active.week;
+  if (current) return current.week;
 
   const upcoming = available.find(
-    (week) => {
-      const range = programRangeForWeek(
-        week.week,
+    (item) => {
+      const range = getWeekRange(
+        item.week,
         program
       );
 
-      return range.start > date;
+      return range?.start > today;
     }
   );
 
@@ -304,25 +336,35 @@ function defaultWeek(program) {
     : available[available.length - 1].week;
 }
 
-function getCategory(typeCode, types) {
-  const type = types.find(
-    (item) => item.code === typeCode
-  );
-
+function categoryForType(type) {
   return TARGETS.find(
     (target) =>
       normalize(target.name) ===
-      normalize(type?.name)
+        normalize(type?.name) ||
+      (
+        target.name === "Training" &&
+        normalize(type?.name) ===
+          "internaltraining"
+      )
+  );
+}
+
+function findTypeForTarget(target, types) {
+  return types.find(
+    (type) =>
+      categoryForType(type)?.name ===
+      target.name
   );
 }
 
 // =====================================================
-// HALAMAN MONITORING
+// HALAMAN INPUT ACHIEVEMENT
 // =====================================================
 
-export default function MonitoringAchievementPage() {
+export default function InputAchievementPage() {
   const params = useParams();
   const router = useRouter();
+  const formRef = useRef(null);
 
   const programId = Array.isArray(params?.id)
     ? params.id[0]
@@ -334,212 +376,216 @@ export default function MonitoringAchievementPage() {
   const [records, setRecords] = useState([]);
 
   const [selectedWeek, setSelectedWeek] =
-    useState(1);
+    useState(null);
 
-  const [historyWeek, setHistoryWeek] =
-    useState("selected");
+  const [activityDate, setActivityDate] =
+    useState("");
 
-  const [historyCategory, setHistoryCategory] =
+  const [typeCode, setTypeCode] =
+    useState("");
+
+  const [description, setDescription] =
+    useState("");
+
+  const [kilometer, setKilometer] =
+    useState("0");
+
+  const [meter, setMeter] =
+    useState("0");
+
+  const [editId, setEditId] = useState(null);
+
+  const [filterWeek, setFilterWeek] =
     useState("all");
 
-  const [historyStatus, setHistoryStatus] =
+  const [filterCategory, setFilterCategory] =
+    useState("all");
+
+  const [filterStatus, setFilterStatus] =
     useState("all");
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [deletingId, setDeletingId] =
+    useState(null);
+
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-
-  const [presentation, setPresentation] =
-    useState(false);
 
   const role = normalizeRole(account?.role);
 
   const canManage =
-    role === "admin" || role === "mentor";
+    role === "admin" ||
+    role === "mentor";
 
-  const participant = Array.isArray(program?.peserta)
+  const programActive =
+    normalizeRole(program?.status) ===
+    "active";
+
+  const participant = Array.isArray(
+    program?.peserta
+  )
     ? program.peserta[0]
     : program?.peserta;
 
+  const selectedType = types.find(
+    (item) => item.code === typeCode
+  );
+
+  const selectedCategory =
+    categoryForType(selectedType);
+
+  const isFisik =
+    selectedCategory?.name === "Fisik";
+
+  const km = Number(kilometer);
+  const m = Number(meter);
+
+  const validDistance =
+    kilometer !== "" &&
+    meter !== "" &&
+    Number.isInteger(km) &&
+    Number.isInteger(m) &&
+    km >= 0 &&
+    km <= 100 &&
+    m >= 0 &&
+    m <= 999 &&
+    km * 1000 + m > 0;
+
+  const distanceKm = validDistance
+    ? (km * 1000 + m) / 1000
+    : null;
+
+  const weekRange = getWeekRange(
+    selectedWeek,
+    program
+  );
+
+  const actualWeek =
+    globalWeekOf(activityDate);
+
+  const availableWeeks = useMemo(
+    () =>
+      GLOBAL_WEEKS.filter(
+        (item) =>
+          getWeekRange(
+            item.week,
+            program
+          )
+      ),
+    [program]
+  );
+
+  const verifiedRecords = useMemo(
+    () =>
+      records.filter(
+        (item) =>
+          normalizeRole(item.status) ===
+          "verified"
+      ),
+    [records]
+  );
+
+  const pendingRecords = useMemo(
+    () =>
+      records.filter(
+        (item) =>
+          normalizeRole(item.status) ===
+          "pending"
+      ),
+    [records]
+  );
+
   // ===================================================
-  // PEMERIKSAAN AKSES
+  // CEK LOGIN DAN AKSES
   // ===================================================
 
-  async function getAccess() {
+  async function checkManagerAccess() {
     const {
-      data: auth,
+      data: { user },
       error: authError,
     } = await supabase.auth.getUser();
 
-    if (authError || !auth?.user) {
-      return { redirect: "/login" };
+    if (authError || !user) {
+      throw new Error(
+        "Sesi login tidak tersedia."
+      );
     }
 
-    const {
-      data: profile,
-      error: profileError,
-    } = await supabase
-      .from("profiles")
-      .select("id,full_name,role")
-      .eq("id", auth.user.id)
-      .maybeSingle();
+    const { data: profile, error: profileError } =
+      await supabase
+        .from("profiles")
+        .select("id,full_name,role")
+        .eq("id", user.id)
+        .maybeSingle();
 
     if (profileError) throw profileError;
 
-    if (!profile) {
-      throw new Error(
-        "Profil pengguna tidak ditemukan."
-      );
-    }
-
-    const currentRole =
-      normalizeRole(profile.role);
-
-    const participantRole =
-      ["peserta", "participant"].includes(
-        currentRole
-      );
-
     if (
-      !participantRole &&
+      !profile ||
       !["admin", "mentor"].includes(
-        currentRole
+        normalizeRole(profile.role)
       )
     ) {
       throw new Error(
-        "Anda tidak memiliki akses Monitoring Achievement."
+        "Hanya Admin dan Mentor yang dapat mengelola Achievement."
       );
     }
 
-    let query = supabase
-      .from("ojt_programs")
-      .select(`
-        id,
-        participant_id,
-        mentor_id,
-        site,
-        status,
-        start_date,
-        end_date,
-        legacy_access,
-        peserta:profiles!ojt_programs_participant_id_fkey(
-          full_name,
-          department
-        )
-      `)
-      .eq("id", programId);
-
-    if (participantRole) {
-      query = query
-        .eq("participant_id", auth.user.id)
-        .eq("status", "active");
-    }
-
-    const {
-      data: programData,
-      error: programError,
-    } = await query.maybeSingle();
+    const { data: activeProgram, error: programError } =
+      await supabase
+        .from("ojt_programs")
+        .select("id,status")
+        .eq("id", programId)
+        .maybeSingle();
 
     if (programError) throw programError;
 
-    if (!programData) {
+    if (
+      !activeProgram ||
+      normalizeRole(activeProgram.status) !==
+        "active"
+    ) {
       throw new Error(
-        "Program OJT tidak ditemukan atau akses tidak tersedia."
+        "Program OJT tidak aktif atau akses tidak tersedia."
       );
     }
 
-    if (!parseDate(programData.start_date)) {
-      throw new Error(
-        "Tanggal mulai program OJT tidak valid."
-      );
-    }
-
-    if (participantRole) {
-      const [request, registration] =
-        await Promise.all([
-          supabase
-            .from("ojt_registration_requests")
-            .select("status")
-            .eq("participant_id", auth.user.id),
-
-          supabase
-            .from("participant_registrations")
-            .select("status")
-            .eq("user_id", auth.user.id),
-        ]);
-
-      if (request.error) throw request.error;
-      if (registration.error) {
-        throw registration.error;
-      }
-
-      const approved = [
-        ...(request.data || []),
-        ...(registration.data || []),
-      ].some(
-        (item) =>
-          normalizeRole(item.status) ===
-          "approved"
-      );
-
-      if (
-        !approved &&
-        programData.legacy_access !== true
-      ) {
-        throw new Error(
-          "Akses peserta belum disetujui."
-        );
-      }
-    }
-
-    return {
-      profile,
-      programData,
-    };
-  }
-
-  async function fetchAchievement() {
-    const [typeResult, recordResult] =
-      await Promise.all([
-        supabase
-          .from("achievement_types")
-          .select("code,name"),
-
-        supabase
-          .from("achievement_records")
-          .select(
-            "id,type_code,activity_date,description,distance_km,status,created_at"
-          )
-          .eq("program_id", programId)
-          .order(
-            "activity_date",
-            { ascending: false }
-          ),
-      ]);
-
-    if (typeResult.error) {
-      throw typeResult.error;
-    }
-
-    if (recordResult.error) {
-      throw recordResult.error;
-    }
-
-    return {
-      loadedTypes: typeResult.data || [],
-      loadedRecords: recordResult.data || [],
-    };
+    return profile;
   }
 
   // ===================================================
-  // LOAD DATA
+  // AMBIL DATA
   // ===================================================
+
+  async function reloadRecords() {
+    const { data, error: queryError } =
+      await supabase
+        .from("achievement_records")
+        .select(
+          "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
+        )
+        .eq("program_id", programId)
+        .order("activity_date", {
+          ascending: false,
+        });
+
+    if (queryError) throw queryError;
+
+    const result = data || [];
+
+    setRecords(result);
+
+    return result;
+  }
 
   useEffect(() => {
     if (!programId) {
-      setError("ID program tidak tersedia.");
       setLoading(false);
+      setError("ID program tidak tersedia.");
       return;
     }
 
@@ -548,38 +594,156 @@ export default function MonitoringAchievementPage() {
     async function load() {
       setLoading(true);
       setError("");
+      setMessage("");
 
       try {
-        const access = await getAccess();
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
 
-        if (!active) return;
-
-        if (access.redirect) {
-          router.replace(access.redirect);
+        if (authError || !user) {
+          if (active) router.replace("/login");
           return;
         }
 
-        const result = await fetchAchievement();
+        const {
+          data: profile,
+          error: profileError,
+        } = await supabase
+          .from("profiles")
+          .select("id,full_name,role")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        if (
+          !profile ||
+          !["admin", "mentor"].includes(
+            normalizeRole(profile.role)
+          )
+        ) {
+          throw new Error(
+            "Input Achievement hanya dapat diakses Admin dan Mentor."
+          );
+        }
+
+        const {
+          data: programData,
+          error: programError,
+        } = await supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            participant_id,
+            mentor_id,
+            site,
+            start_date,
+            end_date,
+            status,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
+            )
+          `)
+          .eq("id", programId)
+          .maybeSingle();
+
+        if (programError) throw programError;
+
+        if (!programData) {
+          throw new Error(
+            "Program OJT tidak ditemukan."
+          );
+        }
+
+        if (!parseDate(programData.start_date)) {
+          throw new Error(
+            "Tanggal mulai program OJT tidak valid."
+          );
+        }
+
+        const [
+          typeResult,
+          recordResult,
+        ] = await Promise.all([
+          supabase
+            .from("achievement_types")
+            .select("code,name")
+            .order("name"),
+
+          supabase
+            .from("achievement_records")
+            .select(
+              "id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
+            )
+            .eq("program_id", programId)
+            .order("activity_date", {
+              ascending: false,
+            }),
+        ]);
+
+        if (typeResult.error) {
+          throw typeResult.error;
+        }
+
+        if (recordResult.error) {
+          throw recordResult.error;
+        }
 
         if (!active) return;
 
-        setAccount(access.profile);
-        setProgram(access.programData);
-        setTypes(result.loadedTypes);
-        setRecords(result.loadedRecords);
-
-        setSelectedWeek(
-          defaultWeek(access.programData)
+        const loadedTypes = typeResult.data || [];
+        const defaultWeek = getDefaultWeek(
+          programData
         );
+
+        setAccount(profile);
+        setProgram(programData);
+        setTypes(loadedTypes);
+        setRecords(recordResult.data || []);
+
+        const fisikType = findTypeForTarget(
+          TARGETS[0],
+          loadedTypes
+        );
+
+        setTypeCode(
+          fisikType?.code ||
+            loadedTypes[0]?.code ||
+            ""
+        );
+
+        setSelectedWeek(defaultWeek);
+
+        if (defaultWeek) {
+          const range = getWeekRange(
+            defaultWeek,
+            programData
+          );
+
+          const today = todayLocal();
+
+          setActivityDate(
+            today >= range.start &&
+              today <= range.end
+              ? today
+              : range.start
+          );
+        }
       } catch (err) {
         if (!active) return;
 
         setAccount(null);
         setProgram(null);
+        setRecords([]);
 
         setError(
-          err?.message ||
-          "Gagal memuat Monitoring Achievement."
+          getErrorMessage(
+            err,
+            "Gagal memuat Input Achievement."
+          )
         );
       } finally {
         if (active) {
@@ -595,35 +759,345 @@ export default function MonitoringAchievementPage() {
     };
   }, [programId, router]);
 
-  async function refresh() {
-    if (refreshing) return;
+  // ===================================================
+  // GANTI WEEK
+  // ===================================================
+
+  function changeWeek(value) {
+    const week = Number(value);
+    const range = getWeekRange(week, program);
+
+    if (!range) {
+      setError(
+        "Week yang dipilih berada di luar periode peserta."
+      );
+      return;
+    }
+
+    setSelectedWeek(week);
+
+    setActivityDate((previous) =>
+      previous >= range.start &&
+      previous <= range.end
+        ? previous
+        : range.start
+    );
+
+    setError("");
+    setMessage("");
+  }
+
+  // ===================================================
+  // RESET FORM
+  // ===================================================
+
+  function resetForm() {
+    setEditId(null);
+    setDescription("");
+    setKilometer("0");
+    setMeter("0");
+
+    const week = getDefaultWeek(program);
+
+    setSelectedWeek(week);
+
+    if (week) {
+      const range = getWeekRange(
+        week,
+        program
+      );
+
+      const today = todayLocal();
+
+      setActivityDate(
+        today >= range.start &&
+          today <= range.end
+          ? today
+          : range.start
+      );
+    } else {
+      setActivityDate("");
+    }
+  }
+
+  // ===================================================
+  // SIMPAN LANGSUNG VERIFIED
+  // ===================================================
+
+  async function handleSave(event) {
+    event.preventDefault();
+
+    if (
+      saving ||
+      deletingId ||
+      !canManage ||
+      !programActive
+    ) {
+      return;
+    }
+
+    setError("");
+    setMessage("");
+
+    if (!selectedType || !selectedCategory) {
+      setError(
+        "Pilih kategori Achievement yang tersedia."
+      );
+      return;
+    }
+
+    if (!weekRange) {
+      setError(
+        "Pilih Week Global yang tersedia."
+      );
+      return;
+    }
+
+    if (
+      !isDateAllowed(
+        activityDate,
+        selectedWeek,
+        program
+      )
+    ) {
+      setError(
+        "Tanggal kegiatan harus berada pada Week Global yang dipilih dan sesuai periode peserta."
+      );
+      return;
+    }
+
+    if (isFisik && !validDistance) {
+      setError(
+        "Jarak Fisik harus lebih dari 0 km dan menggunakan angka yang valid."
+      );
+      return;
+    }
+
+    setSaving(true);
+
+    const wasEditing = Boolean(editId);
+
+    try {
+      const manager = await checkManagerAccess();
+
+      const payload = {
+        type_code: typeCode,
+        activity_date: activityDate,
+        description: description.trim(),
+        distance_km: isFisik
+          ? distanceKm
+          : null,
+        status: "verified",
+        verified_by: manager.id,
+      };
+
+      let result;
+
+      if (editId) {
+        result = await supabase
+          .from("achievement_records")
+          .update(payload)
+          .eq("id", editId)
+          .eq("program_id", programId)
+          .select("id,status");
+      } else {
+        result = await supabase
+          .from("achievement_records")
+          .insert({
+            ...payload,
+            program_id: programId,
+          })
+          .select("id,status");
+      }
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      if (
+        !result.data?.length ||
+        result.data[0].status !== "verified"
+      ) {
+        throw new Error(
+          "Penyimpanan belum dikonfirmasi sebagai Verified oleh Supabase."
+        );
+      }
+
+      await reloadRecords();
+      resetForm();
+
+      setFilterWeek("all");
+      setFilterCategory("all");
+      setFilterStatus("all");
+
+      setMessage(
+        wasEditing
+          ? "Perubahan Achievement berhasil disimpan dan langsung dihitung."
+          : "Achievement berhasil disimpan dan langsung tercatat tanpa verifikasi tambahan."
+      );
+    } catch (err) {
+      setError(
+        getErrorMessage(
+          err,
+          "Gagal menyimpan Achievement."
+        )
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ===================================================
+  // EDIT DATA
+  // ===================================================
+
+  function handleEdit(item) {
+    if (
+      !canManage ||
+      !programActive ||
+      saving ||
+      deletingId
+    ) {
+      return;
+    }
+
+    const week = globalWeekOf(
+      item.activity_date
+    );
+
+    if (
+      !week ||
+      !isDateAllowed(
+        item.activity_date,
+        week,
+        program
+      )
+    ) {
+      setError(
+        "Tanggal kegiatan lama berada di luar periode peserta atau Kalender Global."
+      );
+      setMessage("");
+      return;
+    }
+
+    setEditId(item.id);
+    setTypeCode(item.type_code);
+    setSelectedWeek(week);
+    setActivityDate(item.activity_date);
+    setDescription(item.description || "");
+
+    const totalMeters = Math.round(
+      Number(item.distance_km || 0) * 1000
+    );
+
+    setKilometer(
+      String(Math.floor(totalMeters / 1000))
+    );
+
+    setMeter(
+      String(totalMeters % 1000)
+    );
+
+    setError("");
+    setMessage("");
+
+    formRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  // ===================================================
+  // HAPUS DATA
+  // ===================================================
+
+  async function handleDelete(item) {
+    if (
+      !canManage ||
+      !programActive ||
+      saving ||
+      deletingId
+    ) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Yakin ingin menghapus kegiatan ini secara permanen?"
+      )
+    ) {
+      return;
+    }
+
+    setDeletingId(item.id);
+    setError("");
+    setMessage("");
+
+    try {
+      await checkManagerAccess();
+
+      const { data, error: deleteError } =
+        await supabase
+          .from("achievement_records")
+          .delete()
+          .eq("id", item.id)
+          .eq("program_id", programId)
+          .select("id");
+
+      if (deleteError) throw deleteError;
+
+      if (!data?.length) {
+        throw new Error(
+          "Data tidak berhasil dihapus. Periksa izin Supabase."
+        );
+      }
+
+      if (editId === item.id) {
+        resetForm();
+      }
+
+      await reloadRecords();
+
+      setMessage(
+        "Achievement berhasil dihapus."
+      );
+    } catch (err) {
+      setError(
+        getErrorMessage(
+          err,
+          "Gagal menghapus Achievement."
+        )
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  // ===================================================
+  // REFRESH DATA
+  // ===================================================
+
+  async function refreshData() {
+    if (refreshing || saving || deletingId) {
+      return;
+    }
 
     setRefreshing(true);
     setError("");
     setMessage("");
 
     try {
-      const access = await getAccess();
-
-      if (access.redirect) {
-        router.replace(access.redirect);
-        return;
-      }
-
-      const result = await fetchAchievement();
-
-      setAccount(access.profile);
-      setProgram(access.programData);
-      setTypes(result.loadedTypes);
-      setRecords(result.loadedRecords);
+      await reloadRecords();
 
       setMessage(
-        "Monitoring Achievement berhasil diperbarui."
+        "Data Achievement berhasil diperbarui."
       );
     } catch (err) {
       setError(
-        err?.message ||
-        "Gagal memperbarui data."
+        getErrorMessage(
+          err,
+          "Gagal memperbarui data."
+        )
       );
     } finally {
       setRefreshing(false);
@@ -631,196 +1105,104 @@ export default function MonitoringAchievementPage() {
   }
 
   // ===================================================
-  // DATA MINGGUAN GLOBAL
+  // HITUNG CAPAIAN MINGGU YANG DIPILIH
   // ===================================================
 
-  const weeklyData = useMemo(() => {
-    const verifiedRecords = records.filter(
-      (item) => item.status === "verified"
+  const weeklyProgress = useMemo(() => {
+    if (!selectedWeek) return [];
+
+    const weekRecords = verifiedRecords.filter(
+      (item) =>
+        globalWeekOf(
+          item.activity_date
+        ) === selectedWeek
     );
 
-    return GLOBAL_WEEKS.map((week) => {
-      const allWeekRecords = records.filter(
+    return TARGETS.map((target) => {
+      const type = findTypeForTarget(
+        target,
+        types
+      );
+
+      const items = weekRecords.filter(
         (item) =>
-          globalWeekOf(item.activity_date) ===
-          week.week
+          item.type_code === type?.code
       );
 
-      const validRecords = verifiedRecords.filter(
-        (item) =>
-          globalWeekOf(item.activity_date) ===
-          week.week
-      );
+      let realized = 0;
 
-      const categories = TARGETS.map(
-        (target) => {
-          const type = types.find(
-            (item) =>
-              normalize(item.name) ===
-              normalize(target.name)
-          );
+      if (target.name === "Fisik") {
+        const meters = items.reduce(
+          (sum, item) =>
+            sum +
+            Math.round(
+              Number(item.distance_km || 0) *
+                1000
+            ),
+          0
+        );
 
-          const items = validRecords.filter(
-            (item) =>
-              item.type_code === type?.code
-          );
-
-          let realized = 0;
-
-          if (target.name === "Fisik") {
-            const meters = items.reduce(
-              (sum, item) =>
-                sum +
-                Math.round(
-                  Number(item.distance_km || 0) *
-                    1000
-                ),
-              0
-            );
-
-            realized = meters / 1000;
-          } else {
-            realized = items.length;
-          }
-
-          const achievementPercent = percent(
-            realized,
-            target.target
-          );
-
-          return {
-            ...target,
-            realized,
-            percentage: achievementPercent,
-            achieved:
-              realized >= target.target,
-          };
-        }
-      );
-
-      const pending = allWeekRecords.filter(
-        (item) => item.status === "pending"
-      ).length;
+        realized = meters / 1000;
+      } else {
+        realized = items.length;
+      }
 
       return {
-        ...week,
-        records: allWeekRecords.length,
-        verified: validRecords.length,
-        pending,
-        categories,
-        overall: average(
-          categories.map(
-            (item) => item.percentage
-          )
+        ...target,
+        realized,
+        percentage: percent(
+          realized,
+          target.target
         ),
+        achieved:
+          realized >= target.target,
       };
     });
-  }, [records, types]);
-
-  const selectedData = useMemo(
-    () =>
-      weeklyData.find(
-        (week) =>
-          week.week === Number(selectedWeek)
-      ) || weeklyData[0],
-    [weeklyData, selectedWeek]
-  );
-
-  const activeWeekRange = programRangeForWeek(
+  }, [
     selectedWeek,
-    program
-  );
+    verifiedRecords,
+    types,
+  ]);
 
-  const availableWeeks = useMemo(
-    () =>
-      GLOBAL_WEEKS.filter(
-        (item) =>
-          programRangeForWeek(
-            item.week,
-            program
-          )
-      ),
-    [program]
-  );
+  const averageProgress = useMemo(() => {
+    if (!weeklyProgress.length) return 0;
 
-  // Program progress dihitung dari minggu global
-  // yang beririsan dengan periode OJT peserta.
-  // Setiap persentase mingguan maksimal 100%.
-
-  const overallProgram = useMemo(() => {
-    const eligible = weeklyData.filter(
-      (week) =>
-        programRangeForWeek(
-          week.week,
-          program
-        )
+    return (
+      weeklyProgress.reduce(
+        (sum, item) =>
+          sum + item.percentage,
+        0
+      ) / weeklyProgress.length
     );
-
-    return {
-      weeks: eligible.length,
-      percentage: average(
-        eligible.map(
-          (week) => week.overall
-        )
-      ),
-      completed: eligible.filter(
-        (week) =>
-          week.categories.every(
-            (item) => item.achieved
-          )
-      ).length,
-    };
-  }, [weeklyData, program]);
-
-  const totalRecords = records.length;
-
-  const verifiedRecords = records.filter(
-    (item) => item.status === "verified"
-  ).length;
-
-  const pendingRecords = records.filter(
-    (item) => item.status === "pending"
-  ).length;
-
-  const verifiedRatio = totalRecords
-    ? (verifiedRecords / totalRecords) * 100
-    : 0;
+  }, [weeklyProgress]);
 
   // ===================================================
   // FILTER RIWAYAT
   // ===================================================
 
-  const filteredHistory = useMemo(() => {
+  const filteredRecords = useMemo(() => {
     return records.filter((item) => {
-      const week = globalWeekOf(
-        item.activity_date
+      const type = types.find(
+        (entry) =>
+          entry.code === item.type_code
       );
 
-      const category = getCategory(
-        item.type_code,
-        types
-      );
+      const category = categoryForType(type);
 
       const matchWeek =
-        historyWeek === "all" ||
-        (
-          historyWeek === "selected" &&
-          week === selectedWeek
-        ) ||
-        (
-          historyWeek !== "selected" &&
-          historyWeek !== "all" &&
-          week === Number(historyWeek)
-        );
+        filterWeek === "all" ||
+        globalWeekOf(
+          item.activity_date
+        ) === Number(filterWeek);
 
       const matchCategory =
-        historyCategory === "all" ||
-        normalize(category?.name) ===
-          normalize(historyCategory);
+        filterCategory === "all" ||
+        category?.name === filterCategory;
 
       const matchStatus =
-        historyStatus === "all" ||
-        item.status === historyStatus;
+        filterStatus === "all" ||
+        normalizeRole(item.status) ===
+          filterStatus;
 
       return (
         matchWeek &&
@@ -831,48 +1213,32 @@ export default function MonitoringAchievementPage() {
   }, [
     records,
     types,
-    selectedWeek,
-    historyWeek,
-    historyCategory,
-    historyStatus,
+    filterWeek,
+    filterCategory,
+    filterStatus,
   ]);
 
-  const maxCount = Math.max(
-    1,
-    ...weeklyData.map(
-      (week) => week.verified
-    )
-  );
-
   // ===================================================
-  // CETAK / PRESENTASI
-  // ===================================================
-
-  function printPage() {
-    window.print();
-  }
-
-  // ===================================================
-  // LOADING
+  // LOADING DAN ERROR
   // ===================================================
 
   if (loading) {
     return (
-      <main className="am-loading">
-        Memuat Monitoring Achievement OJT...
+      <main className="ia-loading">
+        Memuat Input Achievement OJT...
       </main>
     );
   }
 
   if (!account || !program) {
     return (
-      <main className="am-loading">
+      <main className="ia-loading">
         <h2>
-          Monitoring Achievement tidak dapat dibuka
+          Input Achievement tidak dapat dibuka
         </h2>
 
         <p>
-          {error || "Data tidak tersedia."}
+          {error || "Akses tidak tersedia."}
         </p>
 
         <button
@@ -885,35 +1251,28 @@ export default function MonitoringAchievementPage() {
     );
   }
 
-  const backPath = canManage
-    ? `/peserta/${programId}`
-    : "/dashboard-peserta";
+  const detail = selectedCategory || {
+    label: "Detail Kegiatan",
+    hint: "Tuliskan rincian kegiatan.",
+    placeholder: "Tuliskan kegiatan.",
+  };
 
   return (
-    <main
-      className={
-        "am-root " +
-        (presentation
-          ? "am-presentation"
-          : "")
-      }
-    >
+    <main className="ia-root">
       <style>{css}</style>
 
       {/* HEADER */}
-      <header className="am-topbar">
-        <div className="am-brand">
+      <header className="ia-header">
+        <div className="ia-brand">
           OJT <span>MineTrack</span>
         </div>
 
-        <div className="am-header-right">
-          <div className="am-account">
+        <div className="ia-header-right">
+          <div className="ia-account">
             <small>
               {role === "admin"
                 ? "Administrator"
-                : role === "mentor"
-                ? "Mentor"
-                : "Peserta"}
+                : "Mentor"}
             </small>
 
             <strong>
@@ -923,9 +1282,11 @@ export default function MonitoringAchievementPage() {
 
           <button
             type="button"
-            className="am-btn light"
+            className="ia-btn light"
             onClick={() =>
-              router.push(backPath)
+              router.push(
+                `/peserta/${programId}`
+              )
             }
           >
             ← Kembali
@@ -933,24 +1294,25 @@ export default function MonitoringAchievementPage() {
         </div>
       </header>
 
-      <div className="am-container">
-        {/* HERO */}
-        <section className="am-hero">
+      <div className="ia-container">
+        {/* INFORMASI PESERTA */}
+        <section className="ia-hero">
           <div>
             <small>
-              EMERGENCY RESPONSE GROUP · PT BERAU COAL
+              EMERGENCY RESPONSE GROUP ·
+              PT BERAU COAL
             </small>
 
             <h1>
-              Monitoring Achievement OJT
+              Input Achievement OJT
             </h1>
 
             <p>
-              Evaluasi pencapaian berdasarkan
-              Kalender Global OJT Week 01–25.
+              Penginputan kegiatan menggunakan
+              Kalender Global Week 01–25.
             </p>
 
-            <div className="am-hero-meta">
+            <div className="ia-hero-meta">
               <span>
                 {participant?.full_name ||
                   "Peserta OJT"}
@@ -968,814 +1330,826 @@ export default function MonitoringAchievementPage() {
             </div>
           </div>
 
-          <div className="am-hero-badge">
-            <span>
-              PROGRAM GLOBAL
-            </span>
-
-            <strong>
-              25 WEEKS
-            </strong>
-          </div>
+          <button
+            type="button"
+            className="ia-btn hero-btn"
+            onClick={() =>
+              router.push(
+                `/achievement/${programId}/monitoring`
+              )
+            }
+          >
+            📊 Monitoring Achievement →
+          </button>
         </section>
 
         {/* NAVIGASI */}
-        <nav className="am-tabs">
-          {canManage && (
-            <button
-              type="button"
-              className="am-tab"
-              onClick={() =>
-                router.push(
-                  `/achievement/${programId}`
-                )
-              }
-            >
-              ✍️ Input Achievement
-            </button>
-          )}
-
-          <div className="am-tab active">
-            📊 Monitoring Achievement
+        <div className="ia-tabs">
+          <div className="ia-tab active">
+            ✍️ Input Achievement
           </div>
-        </nav>
+
+          <button
+            type="button"
+            className="ia-tab"
+            onClick={() =>
+              router.push(
+                `/achievement/${programId}/monitoring`
+              )
+            }
+          >
+            📊 Monitoring Achievement
+          </button>
+        </div>
 
         {error && (
-          <div className="am-alert error">
+          <div
+            className="ia-alert error"
+            role="alert"
+          >
             {error}
           </div>
         )}
 
         {message && (
-          <div className="am-alert success">
+          <div
+            className="ia-alert success"
+            role="status"
+          >
             ✓ {message}
           </div>
         )}
 
-        {/* TOOLBAR */}
-        <section className="am-toolbar">
-          <div className="am-toolbar-left">
-            <label htmlFor="am-week">
-              Pilih Week Global
-            </label>
-
-            <select
-              id="am-week"
-              className="am-select"
-              value={selectedWeek}
-              onChange={(event) =>
-                setSelectedWeek(
-                  Number(event.target.value)
-                )
-              }
-            >
-              {GLOBAL_WEEKS.map((week) => (
-                <option
-                  key={week.week}
-                  value={week.week}
-                >
-                  {weekLabel(week.week)}
-                  {" — "}
-                  {dateText(week.start)}
-                  {" s.d. "}
-                  {dateText(week.end)}
-                </option>
-              ))}
-            </select>
+        {!programActive && (
+          <div className="ia-alert warning">
+            Program OJT tidak aktif.
+            Input Achievement dinonaktifkan.
           </div>
+        )}
 
-          <div className="am-toolbar-actions">
-            <button
-              type="button"
-              className="am-btn light"
-              onClick={refresh}
-              disabled={refreshing}
-            >
-              {refreshing
-                ? "Memuat..."
-                : "↻ Refresh"}
-            </button>
-
-            <button
-              type="button"
-              className="am-btn blue"
-              onClick={() =>
-                setPresentation((value) => !value)
-              }
-            >
-              {presentation
-                ? "Tampilan Normal"
-                : "Mode Presentasi"}
-            </button>
-
-            <button
-              type="button"
-              className="am-btn primary"
-              onClick={printPage}
-            >
-              Cetak / PDF
-            </button>
-          </div>
-        </section>
-
-        {/* IDENTITAS MINGGU */}
-        <section className="am-week-banner">
-          <div>
-            <small>
-              PERIODE KALENDER GLOBAL
-            </small>
-
-            <h2>
-              {weekLabel(selectedWeek)}
-            </h2>
-
-            <p>
-              {dateText(selectedData.start)}
-              {" – "}
-              {dateText(selectedData.end)}
-            </p>
-          </div>
-
-          <div className="am-week-banner-note">
-            {activeWeekRange ? (
-              <>
-                <strong>
-                  Rentang Aktif Peserta
-                </strong>
-
-                <span>
-                  {dateText(activeWeekRange.start)}
-                  {" – "}
-                  {dateText(activeWeekRange.end)}
-                </span>
-              </>
-            ) : (
-              <>
-                <strong>
-                  Di luar periode peserta
-                </strong>
-
-                <span>
-                  Minggu ini tidak beririsan
-                  dengan tanggal OJT peserta.
-                </span>
-              </>
-            )}
-          </div>
-        </section>
-
-        {/* KPI */}
-        <section className="am-kpis">
-          <div className="am-kpi">
+        {/* RINGKASAN */}
+        <div className="ia-stats">
+          <div className="ia-stat">
             <span>
-              Total Kegiatan Week
+              Total Kegiatan
             </span>
 
             <strong>
-              {selectedData.records}
+              {records.length}
             </strong>
-
-            <small>
-              Semua status
-            </small>
           </div>
 
-          <div className="am-kpi green">
+          <div className="ia-stat green">
             <span>
               Kegiatan Tercatat
             </span>
 
             <strong>
-              {selectedData.verified}
+              {verifiedRecords.length}
             </strong>
-
-            <small>
-              Langsung dihitung
-            </small>
           </div>
 
-          <div className="am-kpi orange">
+          <div className="ia-stat orange">
             <span>
               Pending Lama
             </span>
 
             <strong>
-              {selectedData.pending}
+              {pendingRecords.length}
             </strong>
-
-            <small>
-              Belum dihitung
-            </small>
           </div>
+        </div>
 
-          <div className="am-kpi blue">
-            <span>
-              Progres Mingguan
-            </span>
-
+        {pendingRecords.length > 0 && (
+          <div className="ia-alert warning">
+            Terdapat{" "}
             <strong>
-              {numberText(
-                selectedData.overall,
-                2
-              )}%
-            </strong>
-
-            <small>
-              Maksimal 100%
-            </small>
+              {pendingRecords.length}
+            </strong>{" "}
+            kegiatan Pending dari sistem lama.
+            Data tetap disimpan dan belum
+            dihitung sampai ditinjau.
           </div>
-        </section>
+        )}
 
-        {/* KATEGORI */}
-        <section className="am-section">
-          <div className="am-section-head">
-            <div>
-              <h2>
-                Pencapaian Enam Kategori
-              </h2>
+        <div className="ia-layout">
+          {/* FORMULIR INPUT */}
+          <section
+            ref={formRef}
+            className="ia-card"
+          >
+            <div className="ia-card-head">
+              <div>
+                <h2>
+                  {editId
+                    ? "Edit Achievement"
+                    : "Formulir Input Achievement"}
+                </h2>
 
-              <p>
-                Realisasi aktual tetap ditampilkan.
-                Persentase dibatasi maksimal 100%.
-              </p>
+                <p>
+                  Pilih kategori, Week Global,
+                  tanggal, dan rincian kegiatan.
+                </p>
+              </div>
+
+              <span className="ia-pill">
+                {editId
+                  ? "Mode Edit"
+                  : "Input Baru"}
+              </span>
             </div>
 
-            <span className="am-section-tag">
-              {weekLabel(selectedWeek)}
-            </span>
-          </div>
+            <form onSubmit={handleSave}>
+              <div className="ia-field">
+                <label htmlFor="ia-category">
+                  Kategori Achievement
+                </label>
 
-          <div className="am-category-grid">
-            {selectedData.categories.map(
-              (item) => (
-                <article
-                  className="am-category"
-                  key={item.name}
+                <select
+                  id="ia-category"
+                  className="ia-input"
+                  value={typeCode}
+                  onChange={(event) => {
+                    setTypeCode(
+                      event.target.value
+                    );
+                    if (!editId) {
+                      setDescription("");
+                    }
+                  }}
+                  required
+                  disabled={
+                    saving ||
+                    deletingId !== null ||
+                    !programActive
+                  }
                 >
-                  <div className="am-category-head">
-                    <span className="am-category-icon">
-                      {item.icon}
-                    </span>
+                  <option value="">
+                    Pilih Kategori
+                  </option>
 
-                    <span
-                      className={
-                        "am-category-status " +
-                        (item.achieved
-                          ? "achieved"
-                          : "")
-                      }
+                  {TARGETS.map((target) => {
+                    const type = findTypeForTarget(
+                      target,
+                      types
+                    );
+
+                    if (!type) return null;
+
+                    return (
+                      <option
+                        key={type.code}
+                        value={type.code}
+                      >
+                        {target.icon} {target.name}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* MINGGU GLOBAL */}
+              <div className="ia-field">
+                <label htmlFor="ia-week">
+                  Pilih Week Global
+                </label>
+
+                <select
+                  id="ia-week"
+                  className="ia-input"
+                  value={selectedWeek ?? ""}
+                  onChange={(event) =>
+                    changeWeek(event.target.value)
+                  }
+                  required
+                  disabled={
+                    saving ||
+                    deletingId !== null ||
+                    !programActive
+                  }
+                >
+                  <option value="">
+                    Pilih Week
+                  </option>
+
+                  {availableWeeks.map((item) => (
+                    <option
+                      key={item.week}
+                      value={item.week}
                     >
-                      {item.achieved
-                        ? "Tercapai"
-                        : "Belum Tercapai"}
-                    </span>
+                      {weekLabel(item.week)}
+                      {" — "}
+                      {dateText(item.start)}
+                      {" s.d. "}
+                      {dateText(item.end)}
+                    </option>
+                  ))}
+                </select>
+
+                <p className="ia-help">
+                  Week yang dipilih tidak berubah
+                  menjadi Week 01. Semua data
+                  mengikuti tanggal tetap
+                  Kalender Global.
+                </p>
+              </div>
+
+              {/* TANGGAL */}
+              <div className="ia-field">
+                <label htmlFor="ia-date">
+                  Tanggal Kegiatan
+                </label>
+
+                <input
+                  id="ia-date"
+                  className="ia-input"
+                  type="date"
+                  value={activityDate}
+                  min={weekRange?.start || ""}
+                  max={weekRange?.end || ""}
+                  onChange={(event) =>
+                    setActivityDate(
+                      event.target.value
+                    )
+                  }
+                  required
+                  disabled={
+                    saving ||
+                    deletingId !== null ||
+                    !programActive ||
+                    !weekRange
+                  }
+                />
+
+                {weekRange && (
+                  <div className="ia-range">
+                    Rentang yang diperbolehkan:
+                    <strong>
+                      {dateText(weekRange.start)}
+                      {" – "}
+                      {dateText(weekRange.end)}
+                    </strong>
                   </div>
+                )}
 
-                  <h3>
-                    {item.name}
-                  </h3>
+                <div className="ia-week-info">
+                  <span>
+                    Week Pilihan:
+                    <strong>
+                      {selectedWeek
+                        ? weekLabel(selectedWeek)
+                        : "—"}
+                    </strong>
+                  </span>
 
-                  <div className="am-category-values">
+                  <span>
+                    Week Tanggal:
+                    <strong>
+                      {actualWeek
+                        ? weekLabel(actualWeek)
+                        : "—"}
+                    </strong>
+                  </span>
+                </div>
+
+                {selectedWeek &&
+                  actualWeek &&
+                  selectedWeek !== actualWeek && (
+                    <p className="ia-help danger">
+                      Tanggal tidak sesuai
+                      dengan Week yang dipilih.
+                    </p>
+                  )}
+              </div>
+
+              {/* FISIK */}
+              {isFisik && (
+                <div className="ia-field">
+                  <label>
+                    Jarak Tempuh Fisik
+                  </label>
+
+                  <div className="ia-two">
                     <div>
-                      <small>
-                        REALISASI
-                      </small>
+                      <label htmlFor="ia-km">
+                        Kilometer
+                      </label>
 
-                      <strong>
-                        {item.name === "Fisik"
-                          ? kmText(item.realized)
-                          : item.realized}
-                      </strong>
+                      <select
+                        id="ia-km"
+                        className="ia-input"
+                        value={kilometer}
+                        onChange={(event) =>
+                          setKilometer(
+                            event.target.value
+                          )
+                        }
+                        disabled={
+                          saving ||
+                          deletingId !== null ||
+                          !programActive
+                        }
+                      >
+                        {Array.from(
+                          { length: 101 },
+                          (_, index) => (
+                            <option
+                              key={index}
+                              value={index}
+                            >
+                              {index} km
+                            </option>
+                          )
+                        )}
+                      </select>
                     </div>
 
                     <div>
-                      <small>
-                        TARGET
-                      </small>
+                      <label htmlFor="ia-meter">
+                        Tambahan Meter
+                      </label>
 
-                      <strong>
-                        {item.target}
-                      </strong>
+                      <input
+                        id="ia-meter"
+                        className="ia-input"
+                        type="number"
+                        min="0"
+                        max="999"
+                        step="1"
+                        value={meter}
+                        onChange={(event) =>
+                          setMeter(
+                            event.target.value
+                          )
+                        }
+                        disabled={
+                          saving ||
+                          deletingId !== null ||
+                          !programActive
+                        }
+                      />
                     </div>
                   </div>
 
-                  <div className="am-progress-row">
+                  <div className="ia-distance">
                     <span>
-                      Pencapaian
+                      Total Jarak Kegiatan
                     </span>
 
                     <strong>
-                      {numberText(
-                        item.percentage,
-                        2
-                      )}%
+                      {distanceKm === null
+                        ? "—"
+                        : kmText(distanceKm)}{" "}
+                      km
                     </strong>
+
+                    <small>
+                      Target Fisik 25 km per Week.
+                      Realisasi di atas 25 km
+                      tetap tercatat, tetapi
+                      persentase maksimal 100%.
+                    </small>
                   </div>
+                </div>
+              )}
 
-                  <div className="am-progress-track">
-                    <div
-                      style={{
-                        width:
-                          `${item.percentage}%`,
-                        background:
-                          item.color,
-                      }}
-                    />
-                  </div>
+              {/* KETERANGAN */}
+              <div className="ia-field">
+                <label htmlFor="ia-description">
+                  {detail.label} (Opsional)
+                </label>
 
-                  <small className="am-unit">
-                    {item.unit}
-                    {" · "}
-                    Target per minggu global
-                  </small>
-                </article>
-              )
-            )}
-          </div>
-        </section>
+                <p className="ia-help">
+                  {detail.hint}
+                </p>
 
-        {/* GRAFIK 25 MINGGU */}
-        <section className="am-section">
-          <div className="am-section-head">
-            <div>
-              <h2>
-                Grafik Kegiatan Week 01–25
-              </h2>
-
-              <p>
-                Jumlah kegiatan berstatus
-                Verified berdasarkan tanggal
-                pada kalender global.
-              </p>
-            </div>
-          </div>
-
-          <div className="am-chart-scroll">
-            <div className="am-chart">
-              {weeklyData.map((week) => {
-                const height =
-                  week.verified === 0
-                    ? 0
-                    : Math.max(
-                        5,
-                        (week.verified /
-                          maxCount) *
-                          100
-                      );
-
-                return (
-                  <button
-                    type="button"
-                    key={week.week}
-                    className={
-                      "am-chart-column " +
-                      (
-                        week.week ===
-                        selectedWeek
-                          ? "selected"
-                          : ""
-                      )
-                    }
-                    title={
-                      `${weekLabel(week.week)}: ` +
-                      `${week.verified} kegiatan`
-                    }
-                    onClick={() =>
-                      setSelectedWeek(
-                        week.week
-                      )
-                    }
-                  >
-                    <span className="am-chart-value">
-                      {week.verified}
-                    </span>
-
-                    <span className="am-chart-space">
-                      <span
-                        style={{
-                          height:
-                            `${height}%`,
-                        }}
-                      />
-                    </span>
-
-                    <span className="am-chart-label">
-                      {pad(week.week)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        {/* PETA 25 MINGGU */}
-        <section className="am-section">
-          <div className="am-section-head">
-            <div>
-              <h2>
-                Ringkasan Week Global
-              </h2>
-
-              <p>
-                Pilih kotak minggu untuk
-                melihat pencapaiannya.
-              </p>
-            </div>
-          </div>
-
-          <div className="am-weeks-grid">
-            {weeklyData.map((week) => {
-              const available =
-                programRangeForWeek(
-                  week.week,
-                  program
-                );
-
-              return (
-                <button
-                  key={week.week}
-                  type="button"
-                  className={
-                    "am-week-tile " +
-                    (
-                      selectedWeek ===
-                      week.week
-                        ? "active "
-                        : ""
-                    ) +
-                    (
-                      !available
-                        ? "outside"
-                        : ""
+                <textarea
+                  id="ia-description"
+                  className="ia-input"
+                  rows={6}
+                  value={description}
+                  onChange={(event) =>
+                    setDescription(
+                      event.target.value
                     )
                   }
-                  onClick={() =>
-                    setSelectedWeek(
-                      week.week
+                  placeholder={detail.placeholder}
+                  disabled={
+                    saving ||
+                    deletingId !== null ||
+                    !programActive
+                  }
+                />
+              </div>
+
+              <div className="ia-form-note">
+                <strong>
+                  ✓ Tanpa Verifikasi Tambahan
+                </strong>
+
+                <p>
+                  Setelah disimpan, Achievement
+                  langsung berstatus Verified
+                  dan dihitung pada Monitoring.
+                </p>
+              </div>
+
+              <div className="ia-form-actions">
+                <button
+                  type="submit"
+                  className="ia-btn primary"
+                  disabled={
+                    saving ||
+                    deletingId !== null ||
+                    !programActive ||
+                    !canManage ||
+                    !selectedType ||
+                    !weekRange
+                  }
+                >
+                  {saving
+                    ? "Menyimpan..."
+                    : editId
+                    ? "✓ Simpan Perubahan"
+                    : "✓ Simpan Achievement"}
+                </button>
+
+                {editId && (
+                  <button
+                    type="button"
+                    className="ia-btn light"
+                    onClick={resetForm}
+                    disabled={saving}
+                  >
+                    Batal Edit
+                  </button>
+                )}
+              </div>
+            </form>
+          </section>
+
+          {/* RIWAYAT */}
+          <section className="ia-card">
+            <div className="ia-card-head">
+              <div>
+                <h2>
+                  Riwayat Achievement
+                </h2>
+
+                <p>
+                  Riwayat menggunakan nomor
+                  minggu dari Kalender Global.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="ia-btn light"
+                onClick={refreshData}
+                disabled={
+                  refreshing ||
+                  saving ||
+                  deletingId !== null
+                }
+              >
+                {refreshing
+                  ? "Memuat..."
+                  : "↻ Refresh"}
+              </button>
+            </div>
+
+            <div className="ia-filters">
+              <div>
+                <label htmlFor="ia-filter-week">
+                  Minggu Global
+                </label>
+
+                <select
+                  id="ia-filter-week"
+                  className="ia-input"
+                  value={filterWeek}
+                  onChange={(event) =>
+                    setFilterWeek(
+                      event.target.value
                     )
                   }
                 >
-                  <strong>
-                    W{pad(week.week)}
-                  </strong>
+                  <option value="all">
+                    Semua Minggu
+                  </option>
 
-                  <span>
-                    {numberText(
-                      week.overall,
-                      0
-                    )}%
-                  </span>
-
-                  <small>
-                    {week.verified}
-                    {" "}kegiatan
-                  </small>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* PROGRES PROGRAM */}
-        <section className="am-section">
-          <div className="am-section-head">
-            <div>
-              <h2>
-                Ringkasan Periode OJT Peserta
-              </h2>
-
-              <p>
-                Rata-rata pencapaian dari
-                minggu global yang beririsan
-                dengan periode peserta.
-              </p>
-            </div>
-          </div>
-
-          <div className="am-program-summary">
-            <div>
-              <span>
-                Rata-rata Pencapaian
-              </span>
-
-              <strong>
-                {numberText(
-                  overallProgram.percentage,
-                  2
-                )}%
-              </strong>
-            </div>
-
-            <div>
-              <span>
-                Minggu yang Beririsan
-              </span>
-
-              <strong>
-                {overallProgram.weeks}
-              </strong>
-            </div>
-
-            <div>
-              <span>
-                Minggu Semua Target Tercapai
-              </span>
-
-              <strong>
-                {overallProgram.completed}
-              </strong>
-            </div>
-
-            <div>
-              <span>
-                Total Kegiatan Tercatat
-              </span>
-
-              <strong>
-                {verifiedRecords}
-              </strong>
-            </div>
-          </div>
-
-          <div className="am-program-bar">
-            <div
-              style={{
-                width:
-                  `${overallProgram.percentage}%`,
-              }}
-            />
-          </div>
-
-          <p className="am-footnote">
-            Kelebihan realisasi satu minggu
-            tidak menutupi kekurangan
-            pada minggu lain. Setiap kategori
-            dihitung maksimal 100% per minggu.
-          </p>
-        </section>
-
-        {/* RIWAYAT KEGIATAN */}
-        <section className="am-section">
-          <div className="am-section-head">
-            <div>
-              <h2>
-                Riwayat Achievement
-              </h2>
-
-              <p>
-                Riwayat kegiatan menggunakan
-                nomor Week Kalender Global.
-              </p>
-            </div>
-
-            <span className="am-section-tag">
-              {filteredHistory.length} data
-            </span>
-          </div>
-
-          <div className="am-filters">
-            <div>
-              <label htmlFor="am-filter-week">
-                Filter Minggu
-              </label>
-
-              <select
-                id="am-filter-week"
-                className="am-select"
-                value={historyWeek}
-                onChange={(event) =>
-                  setHistoryWeek(
-                    event.target.value
-                  )
-                }
-              >
-                <option value="selected">
-                  Minggu yang dipilih
-                </option>
-
-                <option value="all">
-                  Semua Minggu
-                </option>
-
-                {GLOBAL_WEEKS.map(
-                  (week) => (
+                  {GLOBAL_WEEKS.map((item) => (
                     <option
-                      key={week.week}
-                      value={week.week}
+                      key={item.week}
+                      value={item.week}
                     >
-                      {weekLabel(week.week)}
+                      {weekLabel(item.week)}
                     </option>
-                  )
-                )}
-              </select>
-            </div>
+                  ))}
+                </select>
+              </div>
 
-            <div>
-              <label htmlFor="am-filter-category">
-                Kategori
-              </label>
+              <div>
+                <label htmlFor="ia-filter-category">
+                  Kategori
+                </label>
 
-              <select
-                id="am-filter-category"
-                className="am-select"
-                value={historyCategory}
-                onChange={(event) =>
-                  setHistoryCategory(
-                    event.target.value
-                  )
-                }
-              >
-                <option value="all">
-                  Semua Kategori
-                </option>
+                <select
+                  id="ia-filter-category"
+                  className="ia-input"
+                  value={filterCategory}
+                  onChange={(event) =>
+                    setFilterCategory(
+                      event.target.value
+                    )
+                  }
+                >
+                  <option value="all">
+                    Semua Kategori
+                  </option>
 
-                {TARGETS.map(
-                  (item) => (
+                  {TARGETS.map((item) => (
                     <option
                       key={item.name}
                       value={item.name}
                     >
                       {item.name}
                     </option>
-                  )
-                )}
-              </select>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="ia-filter-status">
+                  Status Data
+                </label>
+
+                <select
+                  id="ia-filter-status"
+                  className="ia-input"
+                  value={filterStatus}
+                  onChange={(event) =>
+                    setFilterStatus(
+                      event.target.value
+                    )
+                  }
+                >
+                  <option value="all">
+                    Semua Status
+                  </option>
+
+                  <option value="verified">
+                    Tercatat
+                  </option>
+
+                  <option value="pending">
+                    Pending Lama
+                  </option>
+                </select>
+              </div>
             </div>
 
-            <div>
-              <label htmlFor="am-filter-status">
-                Status
-              </label>
+            <div className="ia-list-summary">
+              <strong>
+                {filteredRecords.length} kegiatan
+              </strong>
 
-              <select
-                id="am-filter-status"
-                className="am-select"
-                value={historyStatus}
-                onChange={(event) =>
-                  setHistoryStatus(
-                    event.target.value
-                  )
-                }
-              >
-                <option value="all">
-                  Semua Status
-                </option>
-
-                <option value="verified">
-                  Tercatat
-                </option>
-
-                <option value="pending">
-                  Pending Lama
-                </option>
-              </select>
+              <span>
+                Sesuai filter
+              </span>
             </div>
-          </div>
 
-          {filteredHistory.length === 0 ? (
-            <div className="am-empty">
-              Belum ada kegiatan sesuai filter.
-            </div>
-          ) : (
-            <div className="am-history-table-wrap">
-              <table className="am-history-table">
-                <thead>
-                  <tr>
-                    <th>TANGGAL</th>
-                    <th>WEEK</th>
-                    <th>KATEGORI</th>
-                    <th>REALISASI</th>
-                    <th>KETERANGAN</th>
-                    <th>STATUS</th>
-                  </tr>
-                </thead>
+            {filteredRecords.length === 0 ? (
+              <div className="ia-empty">
+                Belum ada kegiatan
+                sesuai filter.
+              </div>
+            ) : (
+              <div className="ia-record-list">
+                {filteredRecords.map((item) => {
+                  const type = types.find(
+                    (entry) =>
+                      entry.code === item.type_code
+                  );
 
-                <tbody>
-                  {filteredHistory.map(
-                    (item) => {
-                      const category =
-                        getCategory(
-                          item.type_code,
-                          types
-                        );
+                  const category =
+                    categoryForType(type);
 
-                      const week =
-                        globalWeekOf(
-                          item.activity_date
-                        );
+                  const week = globalWeekOf(
+                    item.activity_date
+                  );
 
-                      return (
-                        <tr key={item.id}>
-                          <td>
+                  const isPending =
+                    normalizeRole(item.status) ===
+                    "pending";
+
+                  return (
+                    <article
+                      key={item.id}
+                      className="ia-record"
+                    >
+                      <div className="ia-record-top">
+                        <div>
+                          <div className="ia-record-title">
+                            <span>
+                              {category?.icon || "📋"}
+                            </span>
+
+                            <strong>
+                              {type?.name ||
+                                item.type_code}
+                            </strong>
+                          </div>
+
+                          <p className="ia-record-date">
                             {dateText(
                               item.activity_date
                             )}
-                          </td>
-
-                          <td>
+                            {" · "}
                             {week
                               ? weekLabel(week)
                               : "Di luar kalender"}
-                          </td>
+                          </p>
+                        </div>
 
-                          <td>
-                            <strong>
-                              {category?.icon ||
-                                "📋"}
-                              {" "}
-                              {category?.name ||
-                                item.type_code}
-                            </strong>
-                          </td>
+                        <span
+                          className={
+                            "ia-status " +
+                            (isPending
+                              ? "pending"
+                              : "verified")
+                          }
+                        >
+                          {isPending
+                            ? "Pending Lama"
+                            : item.status ===
+                                "verified"
+                            ? "Tercatat"
+                            : item.status || "—"}
+                        </span>
+                      </div>
 
-                          <td>
-                            {category?.name ===
-                            "Fisik"
-                              ? `${kmText(
-                                  item.distance_km
-                                )} km`
-                              : "1 kegiatan"}
-                          </td>
+                      {item.distance_km != null && (
+                        <p className="ia-record-distance">
+                          Jarak:{" "}
+                          <strong>
+                            {kmText(
+                              item.distance_km
+                            )}{" "}
+                            km
+                          </strong>
+                        </p>
+                      )}
 
-                          <td className="am-description">
-                            {item.description ||
-                              "—"}
-                          </td>
+                      {item.description && (
+                        <p className="ia-record-description">
+                          {item.description}
+                        </p>
+                      )}
 
-                          <td>
-                            <span
-                              className={
-                                "am-status " +
-                                (
-                                  item.status ===
-                                  "verified"
-                                    ? "verified"
-                                    : "pending"
-                                )
-                              }
-                            >
-                              {item.status ===
-                              "verified"
-                                ? "Tercatat"
-                                : item.status ===
-                                  "pending"
-                                ? "Pending Lama"
-                                : item.status ||
-                                  "—"}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    }
-                  )}
-                </tbody>
-              </table>
+                      {isPending && (
+                        <p className="ia-pending-note">
+                          Kegiatan ini merupakan
+                          data Pending lama dan
+                          belum dihitung.
+                        </p>
+                      )}
+
+                      <div className="ia-record-actions">
+                        <button
+                          type="button"
+                          className="ia-btn blue small"
+                          onClick={() =>
+                            handleEdit(item)
+                          }
+                          disabled={
+                            saving ||
+                            deletingId !== null ||
+                            !programActive
+                          }
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          className="ia-btn red small"
+                          onClick={() =>
+                            handleDelete(item)
+                          }
+                          disabled={
+                            saving ||
+                            deletingId !== null ||
+                            !programActive
+                          }
+                        >
+                          {deletingId === item.id
+                            ? "Menghapus..."
+                            : "Hapus"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* PROGRES MINGGU TERPILIH */}
+        {selectedWeek && (
+          <section className="ia-card ia-progress">
+            <div className="ia-card-head">
+              <div>
+                <h2>
+                  Pencapaian{" "}
+                  {weekLabel(selectedWeek)}
+                </h2>
+
+                <p>
+                  Target per minggu global.
+                  Persentase dibatasi 100%.
+                </p>
+              </div>
+
+              <div className="ia-overall">
+                {percentText(averageProgress)}%
+              </div>
             </div>
-          )}
-        </section>
 
-        {/* FOOTER RINGKAS */}
-        <section className="am-footer-summary">
-          <span>
-            Total seluruh data:
-            {" "}
-            <strong>
-              {totalRecords}
-            </strong>
-          </span>
+            <div className="ia-progress-grid">
+              {weeklyProgress.map((item) => (
+                <div
+                  className="ia-progress-item"
+                  key={item.name}
+                >
+                  <div className="ia-progress-head">
+                    <strong>
+                      {item.icon} {item.name}
+                    </strong>
 
-          <span>
-            Tercatat:
-            {" "}
-            <strong>
-              {verifiedRecords}
-            </strong>
-          </span>
+                    <span>
+                      {percentText(
+                        item.percentage
+                      )}%
+                    </span>
+                  </div>
 
-          <span>
-            Pending lama:
-            {" "}
-            <strong>
-              {pendingRecords}
-            </strong>
-          </span>
+                  <div className="ia-progress-bar">
+                    <div
+                      style={{
+                        width:
+                          `${item.percentage}%`,
+                      }}
+                    />
+                  </div>
 
-          <span>
-            Persentase data tercatat:
-            {" "}
-            <strong>
-              {numberText(
-                verifiedRatio,
-                2
-              )}%
-            </strong>
-          </span>
-        </section>
+                  <small>
+                    {item.name === "Fisik"
+                      ? kmText(item.realized)
+                      : item.realized}
+                    {" / "}
+                    {item.target} {item.unit}
+                    {item.achieved
+                      ? " · Tercapai"
+                      : ""}
+                  </small>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
-        <footer className="am-footer">
-          OJT MineTrack v2.0 · Emergency Response
-          Group · PT Berau Coal
+        <div className="ia-bottom-nav">
+          <button
+            type="button"
+            className="ia-btn light"
+            onClick={() =>
+              router.push(
+                `/peserta/${programId}`
+              )
+            }
+          >
+            ← Detail Peserta
+          </button>
+
+          <button
+            type="button"
+            className="ia-btn primary"
+            onClick={() =>
+              router.push(
+                `/achievement/${programId}/monitoring`
+              )
+            }
+          >
+            Monitoring Achievement →
+          </button>
+        </div>
+
+        <footer className="ia-footer">
+          OJT MineTrack v2.0 ·
+          Emergency Response Group ·
+          PT Berau Coal
         </footer>
       </div>
     </main>
@@ -1783,1049 +2157,716 @@ export default function MonitoringAchievementPage() {
 }
 
 // =====================================================
-// CSS DESKTOP, MOBILE, PRESENTASI, DAN CETAK
+// CSS RESPONSIVE
 // =====================================================
 
 const css = `
-.am-root,
-.am-root * {
+.ia-root,
+.ia-root * {
   box-sizing: border-box;
 }
 
-.am-root {
+.ia-root {
   min-height: 100vh;
-  background: #f0f5f3;
-  color: #18362e;
+  color: #18372e;
+  background: #f2f6f5;
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 13px;
 }
 
-.am-loading {
+.ia-loading {
   min-height: 100vh;
-  background: #f0f5f3;
-  padding: 32px;
+  padding: 30px;
+  background: #f2f6f5;
   font-family: Arial, sans-serif;
 }
 
-.am-topbar {
+.ia-header {
+  background: #071f25;
+  color: white;
+  padding: 15px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 15px 24px;
-  gap: 15px;
-  background: #071f25;
-  color: white;
+  gap: 16px;
 }
 
-.am-brand {
+.ia-brand {
   font-size: 22px;
   font-weight: 900;
   white-space: nowrap;
 }
 
-.am-brand span {
-  color: #2dcc94;
+.ia-brand span {
+  color: #29c990;
 }
 
-.am-header-right {
+.ia-header-right {
   display: flex;
   align-items: center;
   gap: 15px;
 }
 
-.am-account {
+.ia-account {
+  max-width: 210px;
   text-align: right;
-  max-width: 230px;
 }
 
-.am-account small {
+.ia-account small {
   display: block;
-  color: #a4c8b9;
+  color: #a9cfc0;
   font-size: 10px;
 }
 
-.am-account strong {
+.ia-account strong {
   display: block;
   margin-top: 4px;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-.am-container {
-  max-width: 1480px;
+.ia-container {
+  max-width: 1450px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 22px;
 }
 
-.am-hero {
+.ia-hero {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 30px;
-  border-radius: 17px;
+  align-items: center;
+  gap: 22px;
+  padding: 29px;
+  border-radius: 16px;
+  margin-bottom: 16px;
   color: white;
   background: linear-gradient(
-    110deg,
-    #081e28,
-    #086448
+    100deg,
+    #061d23,
+    #07513f
   );
 }
 
-.am-hero small {
-  color: #e5be67;
+.ia-hero small {
+  color: #e8be6d;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 1px;
 }
 
-.am-hero h1 {
-  font-size: clamp(25px,3vw,36px);
+.ia-hero h1 {
   margin: 12px 0 8px;
+  font-size: clamp(25px, 3vw, 34px);
 }
 
-.am-hero p {
-  color: #daebe1;
-  font-size: 13px;
+.ia-hero p {
+  color: #d7e8e0;
   line-height: 1.6;
+  font-size: 13px;
 }
 
-.am-hero-meta {
+.ia-hero-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 9px;
-  margin-top: 17px;
+  margin-top: 16px;
 }
 
-.am-hero-meta span {
-  background: #ffffff16;
-  border: 1px solid #ffffff30;
+.ia-hero-meta span {
   padding: 8px 12px;
+  border: 1px solid #ffffff30;
   border-radius: 30px;
+  background: #ffffff12;
   font-size: 11px;
 }
 
-.am-hero-badge {
-  min-width: 165px;
-  padding: 19px;
-  text-align: center;
-  background: #ffffff16;
-  border: 1px solid #ffffff38;
-  border-radius: 13px;
-}
-
-.am-hero-badge span {
-  display: block;
-  color: #d2ede1;
-  font-size: 10px;
-}
-
-.am-hero-badge strong {
-  display: block;
-  font-size: 27px;
-  margin-top: 7px;
-}
-
-.am-tabs {
+.ia-tabs {
   display: flex;
   gap: 8px;
-  margin: 15px 0;
+  margin-bottom: 16px;
 }
 
-.am-tab {
-  padding: 12px 17px;
-  color: #296448;
-  font-size: 12px;
-  font-weight: 800;
-  background: white;
-  border: 1px solid #dbe7df;
-  border-radius: 9px;
-  cursor: pointer;
-}
-
-.am-tab.active {
-  background: #07885c;
-  color: white;
-}
-
-.am-alert {
-  padding: 13px;
+.ia-tab {
+  padding: 13px 18px;
+  border: 1px solid #dce9e2;
   border-radius: 10px;
-  margin-bottom: 13px;
-  font-size: 12px;
-}
-
-.am-alert.error {
-  background: #ffebeb;
-  color: #a52323;
-}
-
-.am-alert.success {
-  background: #e1f7eb;
-  color: #087751;
-}
-
-.am-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 12px;
   background: white;
-  border: 1px solid #dfe9e3;
-  padding: 16px;
-  border-radius: 13px;
-  margin-bottom: 15px;
-}
-
-.am-toolbar-left {
-  flex: 1;
-  max-width: 430px;
-}
-
-.am-toolbar-left label,
-.am-filters label {
-  display: block;
-  margin-bottom: 7px;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.am-select {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid #d1e0d8;
-  border-radius: 9px;
-  background: white;
-  color: #234537;
-  padding: 11px 12px;
-  font-size: 12px;
-}
-
-.am-toolbar-actions {
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-.am-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 11px 14px;
-  border: none;
-  border-radius: 8px;
+  color: #32624e;
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
 
-.am-btn.primary {
+.ia-tab.active {
+  background: #07855d;
   color: white;
-  background: #09875d;
 }
 
-.am-btn.blue {
-  color: white;
-  background: #254a77;
+.ia-btn {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 15px;
+  border: none;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
-.am-btn.light {
-  color: #176547;
-  background: #e4f2eb;
-}
-
-.am-btn:disabled {
+.ia-btn:disabled {
   opacity: .5;
   cursor: not-allowed;
 }
 
-.am-week-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 21px 25px;
+.ia-btn.primary {
+  background: #07875d;
+  color: white;
+}
+
+.ia-btn.light {
+  background: #e3f3e9;
+  color: #176347;
+}
+
+.ia-btn.blue {
+  background: #2b78be;
+  color: white;
+}
+
+.ia-btn.red {
+  background: #ce4646;
+  color: white;
+}
+
+.ia-btn.small {
+  padding: 9px 12px;
+  font-size: 11px;
+}
+
+.ia-btn.hero-btn {
   background: white;
-  border: 1px solid #dbe9e0;
-  border-radius: 13px;
-  margin-bottom: 15px;
-}
-
-.am-week-banner small {
-  color: #6f9180;
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.am-week-banner h2 {
-  font-size: 27px;
-  margin: 5px 0;
-}
-
-.am-week-banner p {
-  font-size: 13px;
-  color: #668878;
-  margin: 0;
-}
-
-.am-week-banner-note {
-  background: #eff8f2;
-  border-radius: 10px;
-  padding: 13px;
-  min-width: 220px;
-  text-align: right;
-}
-
-.am-week-banner-note strong,
-.am-week-banner-note span {
-  display: block;
-}
-
-.am-week-banner-note strong {
-  color: #087a50;
-  font-size: 11px;
-}
-
-.am-week-banner-note span {
-  color: #748d80;
-  font-size: 11px;
-  margin-top: 6px;
-}
-
-.am-kpis {
-  display: grid;
-  grid-template-columns:
-    repeat(4,minmax(0,1fr));
-  gap: 12px;
-  margin-bottom: 15px;
-}
-
-.am-kpi {
-  background: white;
-  border: 1px solid #dfe9e4;
-  border-radius: 13px;
-  padding: 18px;
-}
-
-.am-kpi > span {
-  font-size: 11px;
-  color: #718b7c;
-  display: block;
-}
-
-.am-kpi strong {
-  display: block;
-  font-size: 27px;
-  margin: 9px 0;
-}
-
-.am-kpi small {
-  color: #92a398;
-  font-size: 10px;
-}
-
-.am-kpi.green strong {
-  color: #0a8759;
-}
-
-.am-kpi.orange strong {
-  color: #c88a19;
-}
-
-.am-kpi.blue strong {
-  color: #286aaf;
-}
-
-.am-section {
-  background: white;
-  border: 1px solid #dfe9e3;
-  border-radius: 15px;
-  padding: 22px;
-  margin-bottom: 15px;
-}
-
-.am-section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-}
-
-.am-section-head h2 {
-  font-size: 18px;
-  margin: 0;
-}
-
-.am-section-head p {
-  color: #85968b;
-  font-size: 12px;
-  line-height: 1.6;
-  margin: 7px 0 0;
-}
-
-.am-section-tag {
-  background: #e6f6ed;
-  color: #087c54;
-  font-size: 11px;
-  font-weight: 800;
-  border-radius: 30px;
-  padding: 8px 12px;
-}
-
-.am-category-grid {
-  display: grid;
-  grid-template-columns:
-    repeat(3,minmax(0,1fr));
-  gap: 13px;
-}
-
-.am-category {
-  border: 1px solid #e1e9e5;
-  border-radius: 13px;
-  padding: 18px;
-}
-
-.am-category-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.am-category-icon {
-  font-size: 23px;
-}
-
-.am-category-status {
-  font-size: 10px;
-  border-radius: 30px;
-  padding: 7px 10px;
-  color: #946b21;
-  background: #fff3df;
+  color: #0c4c37;
   white-space: nowrap;
 }
 
-.am-category-status.achieved {
-  color: #087e53;
-  background: #e3f6e9;
-}
-
-.am-category h3 {
-  font-size: 15px;
-  margin: 14px 0 18px;
-}
-
-.am-category-values {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.am-category-values small {
-  display: block;
-  color: #8c9e94;
-  font-size: 10px;
-}
-
-.am-category-values strong {
-  display: block;
-  font-size: 25px;
-  margin-top: 6px;
-}
-
-.am-progress-row {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 20px;
-  font-size: 11px;
-}
-
-.am-progress-row strong {
-  color: #0b855b;
-}
-
-.am-progress-track {
-  margin-top: 8px;
-  height: 10px;
-  border-radius: 30px;
-  background: #e6eee8;
-  overflow: hidden;
-}
-
-.am-progress-track div {
-  height: 100%;
-  border-radius: inherit;
-}
-
-.am-unit {
-  display: block;
-  color: #859a8c;
-  font-size: 10px;
-  margin-top: 10px;
-}
-
-.am-chart-scroll {
-  overflow-x: auto;
-}
-
-.am-chart {
-  display: grid;
-  grid-template-columns:
-    repeat(25,minmax(25px,1fr));
-  gap: 7px;
-  min-width: 800px;
-  height: 220px;
-}
-
-.am-chart-column {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: end;
-  gap: 5px;
-  padding: 0;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  color: #6e8779;
-}
-
-.am-chart-value {
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.am-chart-space {
-  height: 170px;
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: #f4f8f5;
-  border-radius: 5px;
-}
-
-.am-chart-space span {
-  display: block;
-  width: 80%;
-  background: #2aab78;
-  border-radius: 5px 5px 0 0;
-}
-
-.am-chart-column.selected
-.am-chart-space span {
-  background: #155790;
-}
-
-.am-chart-label {
-  font-size: 9px;
-  font-weight: 800;
-}
-
-.am-weeks-grid {
-  display: grid;
-  grid-template-columns:
-    repeat(5,minmax(0,1fr));
-  gap: 9px;
-}
-
-.am-week-tile {
-  padding: 12px 7px;
-  border: 1px solid #dbe8df;
-  border-radius: 9px;
-  background: #f8fbf9;
-  text-align: center;
-  cursor: pointer;
-  color: #254e3c;
-}
-
-.am-week-tile strong,
-.am-week-tile span,
-.am-week-tile small {
-  display: block;
-}
-
-.am-week-tile strong {
+.ia-alert {
+  margin-bottom: 16px;
+  padding: 13px 16px;
+  border-radius: 11px;
   font-size: 12px;
-}
-
-.am-week-tile span {
-  font-size: 17px;
-  font-weight: 900;
-  margin-top: 5px;
-}
-
-.am-week-tile small {
-  font-size: 9px;
-  color: #8da197;
-  margin-top: 5px;
-}
-
-.am-week-tile.active {
-  color: white;
-  background: #087f59;
-  border-color: #087f59;
-}
-
-.am-week-tile.active small {
-  color: #d0ebe0;
-}
-
-.am-week-tile.outside:not(.active) {
-  background: #f1f2f2;
-  opacity: .65;
-}
-
-.am-program-summary {
-  display: grid;
-  grid-template-columns:
-    repeat(4,minmax(0,1fr));
-  gap: 10px;
-}
-
-.am-program-summary > div {
-  padding: 16px;
-  background: #f5f9f7;
-  border-radius: 10px;
-}
-
-.am-program-summary span {
-  display: block;
-  color: #759082;
-  font-size: 11px;
-}
-
-.am-program-summary strong {
-  display: block;
-  font-size: 25px;
-  margin-top: 8px;
-  color: #087b54;
-}
-
-.am-program-bar {
-  margin-top: 15px;
-  height: 13px;
-  background: #e4eee8;
-  border-radius: 30px;
-  overflow: hidden;
-}
-
-.am-program-bar div {
-  height: 100%;
-  background: #1a9a6c;
-  border-radius: inherit;
-}
-
-.am-footnote {
-  margin: 10px 0 0;
-  font-size: 11px;
   line-height: 1.6;
-  color: #84988b;
 }
 
-.am-filters {
+.ia-alert.error {
+  background: #fff0f0;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.ia-alert.success {
+  background: #e0f6e9;
+  border: 1px solid #b9e8ce;
+  color: #08734c;
+}
+
+.ia-alert.warning {
+  background: #fff8e5;
+  border: 1px solid #f1d992;
+  color: #91610d;
+}
+
+.ia-stats {
   display: grid;
   grid-template-columns:
-    repeat(3,minmax(0,1fr));
+    repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
 
-.am-history-table-wrap {
-  overflow-x: auto;
+.ia-stat {
+  padding: 19px;
+  background: white;
+  border: 1px solid #e0eae6;
+  border-radius: 13px;
 }
 
-.am-history-table {
-  width: 100%;
-  min-width: 800px;
-  border-collapse: collapse;
+.ia-stat span {
+  display: block;
+  color: #758a7e;
+  font-size: 12px;
+}
+
+.ia-stat strong {
+  display: block;
+  margin-top: 9px;
+  font-size: 29px;
+  color: #17372e;
+}
+
+.ia-stat.green strong {
+  color: #07885b;
+}
+
+.ia-stat.orange strong {
+  color: #cc8916;
+}
+
+.ia-layout {
+  display: grid;
+  grid-template-columns:
+    minmax(0, .9fr)
+    minmax(0, 1.25fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.ia-card {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid #e0eae6;
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 4px 15px #123c3010;
+  scroll-margin-top: 20px;
+}
+
+.ia-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 23px;
+}
+
+.ia-card-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ia-card-head p {
+  margin: 8px 0 0;
+  color: #85958c;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ia-pill {
+  background: #e2f5e9;
+  color: #087a57;
+  padding: 8px 12px;
+  border-radius: 20px;
   font-size: 11px;
-}
-
-.am-history-table th,
-.am-history-table td {
-  border-bottom: 1px solid #e4ece7;
-  padding: 12px 9px;
-  text-align: left;
-  vertical-align: top;
-}
-
-.am-history-table th {
-  font-size: 10px;
-  color: #6c8779;
-  background: #f4f8f5;
-}
-
-.am-description {
-  max-width: 280px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.5;
-}
-
-.am-status {
-  display: inline-block;
-  white-space: nowrap;
-  padding: 7px 9px;
-  border-radius: 30px;
-  font-size: 10px;
   font-weight: 800;
 }
 
-.am-status.verified {
-  color: #087b55;
-  background: #e1f6e8;
+.ia-field {
+  margin-bottom: 20px;
 }
 
-.am-status.pending {
-  color: #a16b15;
-  background: #fff0d4;
+.ia-field > label,
+.ia-two label,
+.ia-filters label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.am-empty {
-  text-align: center;
-  padding: 38px;
-  color: #8a9c91;
+.ia-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  color: #203b30;
+  background: white;
+  border: 1px solid #d4e2d9;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
 }
 
-.am-footer-summary {
+.ia-input:focus {
+  outline: 2px solid #a5dcc1;
+  outline-offset: 1px;
+}
+
+.ia-help {
+  margin: 8px 0 0;
+  color: #779084;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.ia-help.danger {
+  color: #b91c1c;
+}
+
+.ia-range {
   display: flex;
   flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  color: #6a8777;
+  font-size: 11px;
+}
+
+.ia-range strong {
+  color: #0b7754;
+}
+
+.ia-week-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 11px;
+}
+
+.ia-week-info span {
+  background: #f2f6f4;
+  border-radius: 7px;
+  padding: 7px 9px;
+  color: #73867b;
+  font-size: 10px;
+}
+
+.ia-week-info strong {
+  display: block;
+  margin-top: 3px;
+  color: #12764f;
+}
+
+.ia-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.ia-distance {
+  background: #e6f6ed;
   padding: 15px;
-  background: #e7f0eb;
+  border-radius: 11px;
+  margin-top: 13px;
+}
+
+.ia-distance span,
+.ia-distance small {
+  display: block;
+  color: #738b7d;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.ia-distance strong {
+  display: block;
+  color: #087a53;
+  font-size: 23px;
+  margin: 9px 0;
+}
+
+.ia-form-note {
+  padding: 14px;
+  margin-bottom: 18px;
   border-radius: 10px;
-  color: #587b67;
+  background: #eef8f1;
+  color: #246b4a;
+  font-size: 12px;
+}
+
+.ia-form-note p {
+  margin: 7px 0 0;
+  line-height: 1.7;
+}
+
+.ia-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.ia-filters {
+  display: grid;
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.ia-list-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 13px;
+  padding: 17px 0;
+  border-bottom: 1px solid #edf1ee;
+}
+
+.ia-list-summary strong {
+  font-size: 13px;
+}
+
+.ia-list-summary span {
+  color: #86978c;
   font-size: 11px;
 }
 
-.am-footer-summary strong {
-  color: #155b3d;
+.ia-record-list {
+  max-height: 1000px;
+  overflow-y: auto;
 }
 
-.am-footer {
+.ia-record {
+  padding: 17px 0;
+  border-bottom: 1px solid #edf1ee;
+}
+
+.ia-record-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ia-record-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.ia-record-title span {
+  font-size: 20px;
+}
+
+.ia-record-date {
+  margin: 8px 0 0;
+  color: #86958d;
+  font-size: 11px;
+}
+
+.ia-status {
+  display: inline-block;
+  padding: 7px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ia-status.verified {
+  background: #def5e8;
+  color: #087c55;
+}
+
+.ia-status.pending {
+  background: #fff1d2;
+  color: #a7771c;
+}
+
+.ia-record-distance {
+  font-size: 12px;
+  margin: 12px 0 0;
+}
+
+.ia-record-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: #667b6e;
+  line-height: 1.7;
+}
+
+.ia-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 13px;
+}
+
+.ia-pending-note {
+  background: #fff7e7;
+  color: #946d24;
+  padding: 9px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.ia-empty {
+  padding: 35px 10px;
   text-align: center;
-  padding: 26px 0;
+  color: #899c8f;
+  font-size: 12px;
+}
+
+.ia-progress {
+  margin-top: 16px;
+}
+
+.ia-overall {
+  background: #def6e9;
+  color: #087a53;
+  font-size: 23px;
+  font-weight: 900;
+  border-radius: 12px;
+  padding: 10px 16px;
+}
+
+.ia-progress-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ia-progress-item {
+  border: 1px solid #e1eae5;
+  border-radius: 11px;
+  padding: 14px;
+}
+
+.ia-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ia-progress-head span {
+  color: #0b865b;
+  font-weight: 800;
+}
+
+.ia-progress-bar {
+  height: 9px;
+  border-radius: 20px;
+  background: #e7eee9;
+  overflow: hidden;
+  margin: 12px 0 9px;
+}
+
+.ia-progress-bar div {
+  background: #159667;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.ia-progress-item small {
   font-size: 11px;
-  color: #90a296;
+  color: #768a7e;
 }
 
-/* =========================================
-   MODE PRESENTASI
-   ========================================= */
-
-.am-presentation {
-  background: white;
+.ia-bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
 }
 
-.am-presentation .am-topbar,
-.am-presentation .am-tabs {
-  display: none;
+.ia-footer {
+  text-align: center;
+  font-size: 11px;
+  color: #849b8e;
+  padding: 28px 5px;
 }
 
-.am-presentation .am-container {
-  max-width: 1700px;
-}
-
-.am-presentation .am-hero {
-  padding: 27px;
-}
-
-.am-presentation .am-category h3 {
-  font-size: 17px;
-}
-
-.am-presentation .am-category-values strong {
-  font-size: 30px;
-}
-
-/* =========================================
-   RESPONSIVE
-   ========================================= */
-
-@media(max-width:1100px) {
-  .am-category-grid {
-    grid-template-columns:
-      repeat(2,minmax(0,1fr));
+@media (max-width: 1000px) {
+  .ia-layout {
+    grid-template-columns: 1fr;
   }
 
-  .am-kpis,
-  .am-program-summary {
+  .ia-progress-grid {
     grid-template-columns:
-      repeat(2,minmax(0,1fr));
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .ia-record-list {
+    max-height: none;
   }
 }
 
-@media(max-width:700px) {
-  .am-topbar {
+@media (max-width: 650px) {
+  .ia-header {
     padding: 12px;
   }
 
-  .am-brand {
+  .ia-brand {
     font-size: 17px;
   }
 
-  .am-account {
-    max-width: 110px;
+  .ia-header-right {
+    gap: 8px;
   }
 
-  .am-account strong {
+  .ia-account {
+    max-width: 115px;
+  }
+
+  .ia-account strong {
     font-size: 10px;
   }
 
-  .am-container {
-    padding: 11px;
-  }
-
-  .am-hero {
-    padding: 20px;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .am-hero h1 {
-    font-size: 25px;
-  }
-
-  .am-hero-badge {
-    display: none;
-  }
-
-  .am-toolbar {
-    align-items: stretch;
-  }
-
-  .am-toolbar-left {
-    max-width: none;
-    width: 100%;
-  }
-
-  .am-toolbar-actions {
-    width: 100%;
-  }
-
-  .am-toolbar-actions .am-btn {
-    flex: 1;
-    font-size: 10px;
-    padding: 10px 7px;
-  }
-
-  .am-week-banner {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 18px;
-  }
-
-  .am-week-banner-note {
-    text-align: left;
-    min-width: 0;
-  }
-
-  .am-section {
-    padding: 15px;
-  }
-
-  .am-category-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .am-weeks-grid {
-    grid-template-columns:
-      repeat(5,minmax(0,1fr));
-    gap: 5px;
-  }
-
-  .am-week-tile {
-    padding: 10px 3px;
-  }
-
-  .am-week-tile span {
-    font-size: 14px;
-  }
-
-  .am-kpis {
-    gap: 7px;
-  }
-
-  .am-kpi {
+  .ia-container {
     padding: 12px;
   }
 
-  .am-kpi strong {
-    font-size: 22px;
+  .ia-hero {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 21px;
   }
 
-  .am-program-summary {
-    grid-template-columns: 1fr 1fr;
+  .ia-hero h1 {
+    font-size: 23px;
   }
 
-  .am-filters {
+  .ia-tabs {
+    gap: 6px;
+  }
+
+  .ia-tab {
+    flex: 1;
+    padding: 11px 7px;
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .ia-card {
+    padding: 15px;
+  }
+
+  .ia-stats {
+    gap: 7px;
+  }
+
+  .ia-stat {
+    padding: 12px 9px;
+  }
+
+  .ia-stat span {
+    font-size: 10px;
+  }
+
+  .ia-stat strong {
+    font-size: 23px;
+  }
+
+  .ia-filters {
     grid-template-columns: 1fr;
   }
+
+  .ia-progress-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ia-bottom-nav .ia-btn {
+    font-size: 10px;
+    padding: 11px 9px;
+  }
 }
 
-/* =========================================
-   CETAK PDF
-   ========================================= */
-
-@page {
-  size: A4 landscape;
-  margin: 8mm;
-}
-
-@media print {
-  html,
-  body {
-    background: white !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
-  .am-root {
-    background: white !important;
-    min-height: 0 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  .am-topbar,
-  .am-tabs,
-  .am-toolbar-actions,
-  .am-filters {
-    display: none !important;
-  }
-
-  .am-container {
-    width: 100% !important;
-    max-width: none !important;
-    padding: 0 !important;
-  }
-
-  .am-hero {
-    padding: 14px !important;
-    margin-bottom: 10px !important;
-    break-inside: avoid;
-  }
-
-  .am-hero h1 {
-    font-size: 22px !important;
-  }
-
-  .am-hero-badge {
-    display: block !important;
-  }
-
-  .am-toolbar {
-    padding: 8px !important;
-    margin-bottom: 8px !important;
-    border: 0 !important;
-  }
-
-  .am-toolbar-left label,
-  .am-toolbar-left select {
-    display: none !important;
-  }
-
-  .am-toolbar {
-    display: none !important;
-  }
-
-  .am-week-banner {
-    padding: 12px !important;
-    margin-bottom: 8px !important;
-    break-inside: avoid;
-  }
-
-  .am-kpis {
-    grid-template-columns:
-      repeat(4,minmax(0,1fr)) !important;
-    gap: 7px !important;
-    break-inside: avoid;
-  }
-
-  .am-kpi {
-    padding: 11px !important;
-  }
-
-  .am-kpi strong {
-    font-size: 20px !important;
-  }
-
-  .am-section {
-    padding: 12px !important;
-    margin-bottom: 9px !important;
-  }
-
-  .am-category-grid {
-    grid-template-columns:
-      repeat(3,minmax(0,1fr)) !important;
-    gap: 8px !important;
-  }
-
-  .am-category {
-    padding: 11px !important;
-    break-inside: avoid;
-  }
-
-  .am-category h3 {
-    font-size: 12px !important;
-    margin: 9px 0 !important;
-  }
-
-  .am-category-values strong {
-    font-size: 18px !important;
-  }
-
-  .am-chart-scroll,
-  .am-history-table-wrap {
-    overflow: visible !important;
-  }
-
-  .am-chart {
-    min-width: 0 !important;
-    height: 160px !important;
-    gap: 4px !important;
-  }
-
-  .am-chart-space {
-    height: 118px !important;
-  }
-
-  .am-weeks-grid {
-    grid-template-columns:
-      repeat(5,minmax(0,1fr)) !important;
-  }
-
-  .am-program-summary {
-    grid-template-columns:
-      repeat(4,minmax(0,1fr)) !important;
-  }
-
-  .am-program-summary strong {
-    font-size: 18px !important;
-  }
-
-  .am-history-table {
-    width: 100% !important;
-    min-width: 0 !important;
-    font-size: 9px !important;
-  }
-
-  .am-history-table th,
-  .am-history-table td {
-    padding: 6px 4px !important;
-  }
-
-  .am-history-table tr {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-
-  .am-footer {
-    padding: 12px 0 !important;
+@media (max-width: 350px) {
+  .ia-two {
+    grid-template-columns: 1fr;
   }
 }
 `;
