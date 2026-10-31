@@ -5,12 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
 
-// =====================================================
+// ======================================================
 // OJT MINETRACK V2.0
-// MONITORING ACHIEVEMENT — SIMPLIFIED
-// Kalender Global Week 01–25
-// Tanpa Progres Keseluruhan dan Riwayat Achievement
-// =====================================================
+// MONITORING ACHIEVEMENT
+// DESAIN SERAGAM DENGAN DETAIL PESERTA
+// GLOBAL CALENDAR WEEK 01–25
+// ======================================================
 
 const TOTAL_WEEKS = 25;
 
@@ -19,7 +19,7 @@ const TARGETS = [
   { name: "Training", target: 4, unit: "kegiatan", icon: "🎓" },
   { name: "Sosialisasi", target: 3, unit: "kegiatan", icon: "👥" },
   { name: "Coaching", target: 1, unit: "kegiatan", icon: "💬" },
-  { name: "Orientasi Area", target: 2, unit: "kegiatan", icon: "🧭" },
+  { name: "Orientasi Area", target: 2, unit: "kegiatan", icon: "📍" },
   { name: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
 ];
 
@@ -61,9 +61,11 @@ function parseDate(value) {
 
 function addDays(value, days) {
   const date = parseDate(value);
+
   if (!date) return null;
 
   date.setUTCDate(date.getUTCDate() + days);
+
   return date.toISOString().slice(0, 10);
 }
 
@@ -90,7 +92,7 @@ function globalWeekOf(value) {
 
   return (
     GLOBAL_WEEKS.find(
-      (item) => date >= item.start && date <= item.end
+      item => date >= item.start && date <= item.end
     )?.week ?? null
   );
 }
@@ -119,34 +121,30 @@ function insideProgram(value, program) {
 }
 
 function programWeekRange(program, weekNumber) {
-  const week = GLOBAL_WEEKS[weekNumber - 1];
+  const global = GLOBAL_WEEKS[weekNumber - 1];
 
   if (
-    !week ||
+    !global ||
     !parseDate(program?.start_date)
   ) {
     return null;
   }
 
-  const startProgram = String(program.start_date).slice(0, 10);
+  const begin = String(program.start_date).slice(0, 10);
 
-  const endProgram = parseDate(program.end_date)
+  const finish = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
 
   const start =
-    week.start > startProgram
-      ? week.start
-      : startProgram;
+    global.start > begin ? global.start : begin;
 
   const end =
-    endProgram && endProgram < week.end
-      ? endProgram
-      : week.end;
+    finish && finish < global.end
+      ? finish
+      : global.end;
 
-  return start <= end
-    ? { start, end }
-    : null;
+  return start <= end ? { start, end } : null;
 }
 
 function todayWITA() {
@@ -157,22 +155,22 @@ function todayWITA() {
     day: "2-digit",
   }).formatToParts(new Date());
 
-  const get = (type) =>
-    parts.find((item) => item.type === type)?.value || "";
+  const get = type =>
+    parts.find(item => item.type === type)?.value || "";
 
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function initialWeek(program, records) {
   const available = GLOBAL_WEEKS.filter(
-    (item) => programWeekRange(program, item.week)
+    item => programWeekRange(program, item.week)
   );
 
   if (!available.length) return 1;
 
   const today = todayWITA();
 
-  const current = available.find((item) => {
+  const current = available.find(item => {
     const range = programWeekRange(program, item.week);
 
     return (
@@ -185,21 +183,22 @@ function initialWeek(program, records) {
   if (current) return current.week;
 
   const recorded = records
-    .filter((item) =>
+    .filter(item =>
       insideProgram(item.activity_date, program)
     )
-    .map((item) => globalWeekOf(item.activity_date))
-    .filter((week) =>
-      available.some((item) => item.week === week)
+    .map(item => globalWeekOf(item.activity_date))
+    .filter(number =>
+      available.some(item => item.week === number)
     );
 
   if (recorded.length) {
     return Math.max(...recorded);
   }
 
-  return available.find(
-    (item) => item.start > today
-  )?.week || available[available.length - 1].week;
+  return (
+    available.find(item => item.start > today)?.week ||
+    available[available.length - 1].week
+  );
 }
 
 function formatDate(value) {
@@ -219,19 +218,21 @@ function weekLabel(week) {
   return `Week ${String(week).padStart(2, "0")}`;
 }
 
-function numberText(value, digits = 2) {
+function num(value, digits = 2) {
   const number = Number(value);
 
   return Number.isFinite(number)
     ? number.toLocaleString("id-ID", {
-        minimumFractionDigits: digits,
         maximumFractionDigits: digits,
       })
     : "—";
 }
 
 function kmText(value) {
-  return numberText(value, 3);
+  return Number(value || 0).toLocaleString("id-ID", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
 }
 
 function clamp(value) {
@@ -246,7 +247,7 @@ function initials(name) {
     .trim()
     .split(/\s+/)
     .slice(0, 2)
-    .map((word) => word[0] || "")
+    .map(word => word[0] || "")
     .join("")
     .toUpperCase();
 }
@@ -296,7 +297,7 @@ function categoryName(value) {
 
 function categoryFor(record, types) {
   const type = types.find(
-    (item) =>
+    item =>
       normalize(item.code) === normalize(record.type_code)
   );
 
@@ -304,9 +305,7 @@ function categoryFor(record, types) {
     categoryName(record.type_code) ||
     categoryName(type?.name);
 
-  return TARGETS.find(
-    (item) => item.name === name
-  ) || null;
+  return TARGETS.find(item => item.name === name) || null;
 }
 
 function achievedValue(records, category) {
@@ -314,17 +313,17 @@ function achievedValue(records, category) {
     return records.length;
   }
 
-  const meters = records.reduce((sum, record) => {
-    const km = Number(record.distance_km);
+  const totalMeters = records.reduce((sum, item) => {
+    const distance = Number(item.distance_km);
 
     return sum + (
-      Number.isFinite(km) && km > 0
-        ? Math.round(km * 1000)
+      Number.isFinite(distance) && distance > 0
+        ? Math.round(distance * 1000)
         : 0
     );
   }, 0);
 
-  return meters / 1000;
+  return totalMeters / 1000;
 }
 
 function amountText(value, category) {
@@ -334,22 +333,45 @@ function amountText(value, category) {
 }
 
 function ProgressBar({ value }) {
+  const safe = clamp(value);
+
   return (
     <div
-      className="am-progress"
+      className="ma-progress"
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={clamp(value)}
+      aria-valuenow={safe}
     >
-      <span style={{ width: `${clamp(value)}%` }} />
+      <span style={{ width: `${safe}%` }} />
     </div>
   );
 }
 
-// =====================================================
+function SummaryCard({
+  icon,
+  value,
+  title,
+  subtitle,
+  tone = "green",
+}) {
+  return (
+    <div className={`ma-summary-card ${tone}`}>
+      <span className="ma-summary-icon">{icon}</span>
+
+      <div>
+        <strong>{value}</strong>
+        <span>{title}</span>
+
+        {subtitle && <small>{subtitle}</small>}
+      </div>
+    </div>
+  );
+}
+
+// ======================================================
 // HALAMAN UTAMA
-// =====================================================
+// ======================================================
 
 export default function MonitoringAchievementPage() {
   const router = useRouter();
@@ -383,22 +405,35 @@ export default function MonitoringAchievementPage() {
     ? program.peserta[0]
     : program?.peserta;
 
+  const participantName =
+    participant?.full_name || "Peserta OJT";
+
+  const accountName =
+    account?.full_name || "Pengguna";
+
+  const roleName =
+    role === "admin"
+      ? "Administrator"
+      : role === "mentor"
+      ? "Mentor OJT"
+      : "Peserta OJT";
+
   const selectedPeriod = GLOBAL_WEEKS[week - 1];
 
-  const availableWeeks = useMemo(() => {
-    return GLOBAL_WEEKS.filter(
-      (item) => programWeekRange(program, item.week)
-    );
-  }, [program]);
-
-  const selectedParticipantRange = programWeekRange(
-    program,
-    week
+  const availableWeeks = useMemo(
+    () =>
+      GLOBAL_WEEKS.filter(item =>
+        programWeekRange(program, item.week)
+      ),
+    [program]
   );
 
-  // ===================================================
-  // AKSES DAN SUPABASE
-  // ===================================================
+  const selectedProgramRange =
+    programWeekRange(program, week);
+
+  // ====================================================
+  // SUPABASE & VALIDASI AKSES
+  // ====================================================
 
   async function verifyAccess() {
     const {
@@ -502,8 +537,13 @@ export default function MonitoringAchievementPage() {
         .order("activity_date", { ascending: false }),
     ]);
 
-    if (results[0].error) throw results[0].error;
-    if (results[1].error) throw results[1].error;
+    if (results[0].error) {
+      throw results[0].error;
+    }
+
+    if (results[1].error) {
+      throw results[1].error;
+    }
 
     return {
       types: results[0].data || [],
@@ -542,14 +582,16 @@ export default function MonitoringAchievementPage() {
           initialWeek(access.programData, data.records)
         );
       } catch (err) {
-        if (!active) return;
-
-        setError(
-          err?.message ||
-          "Gagal memuat Monitoring Achievement."
-        );
+        if (active) {
+          setError(
+            err?.message ||
+            "Gagal memuat Monitoring Achievement."
+          );
+        }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
@@ -561,7 +603,12 @@ export default function MonitoringAchievementPage() {
   }, [programId]);
 
   async function refresh() {
-    if (!program || !account || refreshing || loading) {
+    if (
+      !program ||
+      !account ||
+      refreshing ||
+      loading
+    ) {
       return;
     }
 
@@ -584,28 +631,28 @@ export default function MonitoringAchievementPage() {
         access.programData.id
       );
 
-      setProgram(access.programData);
       setAccount(access.profile);
+      setProgram(access.programData);
       setTypes(data.types);
       setRecords(data.records);
     } catch (err) {
       setError(
-        err?.message || "Gagal memperbarui monitoring."
+        err?.message ||
+        "Gagal memperbarui monitoring."
       );
     } finally {
       setRefreshing(false);
     }
   }
 
-  // ===================================================
-  // DATA MINGGUAN
-  // ===================================================
+  // ====================================================
+  // DATA ACHIEVEMENT
+  // ====================================================
 
   const validRecords = useMemo(
     () =>
-      records.filter(
-        (record) =>
-          insideProgram(record.activity_date, program)
+      records.filter(item =>
+        insideProgram(item.activity_date, program)
       ),
     [records, program]
   );
@@ -613,8 +660,8 @@ export default function MonitoringAchievementPage() {
   const weeklyRecords = useMemo(
     () =>
       validRecords.filter(
-        (record) =>
-          globalWeekOf(record.activity_date) === week
+        item =>
+          globalWeekOf(item.activity_date) === week
       ),
     [validRecords, week]
   );
@@ -622,7 +669,7 @@ export default function MonitoringAchievementPage() {
   const verified = useMemo(
     () =>
       weeklyRecords.filter(
-        (record) => roleText(record.status) === "verified"
+        item => roleText(item.status) === "verified"
       ),
     [weeklyRecords]
   );
@@ -630,77 +677,69 @@ export default function MonitoringAchievementPage() {
   const pending = useMemo(
     () =>
       weeklyRecords.filter(
-        (record) => roleText(record.status) === "pending"
+        item => roleText(item.status) === "pending"
       ),
     [weeklyRecords]
   );
 
-  const verificationPercent = weeklyRecords.length
-    ? (verified.length / weeklyRecords.length) * 100
-    : 0;
-
   const categories = useMemo(() => {
-    return TARGETS.map((category) => {
-      const related = weeklyRecords.filter(
-        (record) =>
-          categoryFor(record, types)?.name === category.name
+    return TARGETS.map(category => {
+      const matched = weeklyRecords.filter(
+        item =>
+          categoryFor(item, types)?.name === category.name
       );
 
-      const valid = related.filter(
-        (record) =>
-          roleText(record.status) === "verified"
+      const valid = matched.filter(
+        item => roleText(item.status) === "verified"
       );
 
-      const waiting = related.filter(
-        (record) =>
-          roleText(record.status) === "pending"
+      const waiting = matched.filter(
+        item => roleText(item.status) === "pending"
       );
 
       const actual = achievedValue(valid, category);
 
+      const percent = clamp(
+        (actual / category.target) * 100
+      );
+
       return {
         ...category,
         actual,
-        total: related.length,
+        count: valid.length,
         verified: valid.length,
         pending: waiting.length,
-        targetPercent: clamp(
-          (actual / category.target) * 100
-        ),
-        completed: actual >= category.target,
+        percent,
+        achieved: actual >= category.target,
       };
     });
   }, [weeklyRecords, types]);
 
-  const overallWeek = categories.reduce(
-    (sum, item) => sum + item.targetPercent,
-    0
-  ) / TARGETS.length;
+  const weeklyProgress =
+    categories.reduce(
+      (sum, item) => sum + item.percent,
+      0
+    ) / TARGETS.length;
 
-  const achievedCategories = categories.filter(
-    (item) => item.completed
-  ).length;
-
-  // ===================================================
-  // GRAFIK & AKTIVITAS 25 MINGGU
-  // ===================================================
+  const completedCategories =
+    categories.filter(item => item.achieved).length;
 
   const chart = useMemo(() => {
-    return GLOBAL_WEEKS.map((item) => {
-      const matching = validRecords.filter(
-        (record) =>
+    return GLOBAL_WEEKS.map(item => {
+      const matched = validRecords.filter(
+        record =>
           globalWeekOf(record.activity_date) === item.week
       );
 
       return {
         ...item,
-        total: matching.length,
-        verified: matching.filter(
-          (record) =>
+        total: matched.length,
+        verified: matched.filter(
+          record =>
             roleText(record.status) === "verified"
         ).length,
-        pending: matching.filter(
-          (record) =>
+        pending: matched.filter(
+          record =>
             roleText(record.status) === "pending"
         ).length,
         available: Boolean(
@@ -712,15 +751,15 @@ export default function MonitoringAchievementPage() {
 
   const maxChart = Math.max(
     1,
-    ...chart.map((item) => item.verified)
+    ...chart.map(item => item.verified)
   );
 
   const activeWeeks = chart.filter(
-    (item) => item.available && item.total > 0
+    item => item.available && item.total > 0
   ).length;
 
   const activeVerifiedWeeks = chart.filter(
-    (item) => item.available && item.verified > 0
+    item => item.available && item.verified > 0
   ).length;
 
   function changeWeek(value) {
@@ -728,12 +767,12 @@ export default function MonitoringAchievementPage() {
 
     if (!Number.isFinite(number)) return;
 
-    const next = Math.max(
-      1,
-      Math.min(TOTAL_WEEKS, Math.round(number))
+    setWeek(
+      Math.max(
+        1,
+        Math.min(TOTAL_WEEKS, Math.round(number))
+      )
     );
-
-    setWeek(next);
   }
 
   function goBack() {
@@ -744,24 +783,27 @@ export default function MonitoringAchievementPage() {
     );
   }
 
-  // ===================================================
+  // ====================================================
   // LOADING / ERROR
-  // ===================================================
+  // ====================================================
 
   if (loading) {
     return (
-      <main className="am-loading">
-        Memuat Monitoring Achievement OJT...
+      <main className="ma-loading">
+        <h2>OJT MineTrack</h2>
+        <p>Memuat Monitoring Achievement...</p>
       </main>
     );
   }
 
   if (!account || !program) {
     return (
-      <main className="am-loading">
+      <main className="ma-loading">
         <h2>Monitoring Achievement Tidak Tersedia</h2>
 
-        <p>{error || "Akses tidak tersedia."}</p>
+        <p>
+          {error || "Akses tidak tersedia."}
+        </p>
 
         <button onClick={goBack}>
           Kembali
@@ -770,50 +812,81 @@ export default function MonitoringAchievementPage() {
     );
   }
 
-  // ===================================================
-  // UI MONITORING SIMPLIFIED
-  // ===================================================
+  // ====================================================
+  // TAMPILAN BARU
+  // ====================================================
 
   return (
-    <main
-      className={
-        `am-root ${presentation ? "am-presentation" : ""}`
-      }
+    <div
+      className={`ma-app ${
+        presentation ? "ma-presentation" : ""
+      }`}
     >
       <style>{css}</style>
 
-      <header className="am-header">
-        <div className="am-brand">
+      {/* HEADER */}
+
+      <header className="ma-topbar">
+        <button
+          className="ma-brand"
+          onClick={() => router.push("/")}
+        >
           OJT <span>MineTrack</span>
           <small>v2.0</small>
-        </div>
+        </button>
 
-        <div className="am-account">
-          <div>
-            <small>
-              {role === "admin"
-                ? "Administrator"
-                : role === "mentor"
-                ? "Mentor OJT"
-                : "Peserta OJT"}
-            </small>
-
-            <strong>
-              {account.full_name || "Pengguna"}
-            </strong>
-          </div>
-
-          <button onClick={goBack}>
-            ← Kembali
+        <nav className="ma-nav">
+          <button
+            onClick={() => router.push("/")}
+          >
+            ⌂ Dashboard
           </button>
+
+          {canManage && (
+            <button
+              onClick={() =>
+                router.push("/mentor/monitoring-peserta")
+              }
+            >
+              ♙ Peserta OJT
+            </button>
+          )}
+
+          {canManage && (
+            <button
+              onClick={() =>
+                router.push(`/achievement/${programId}`)
+              }
+            >
+              ▤ Input Achievement
+            </button>
+          )}
+
+          <button className="active">
+            ▥ Monitoring
+          </button>
+        </nav>
+
+        <div className="ma-account">
+          <span className="ma-avatar-small">
+            {initials(accountName)}
+          </span>
+
+          <div>
+            <strong>{accountName}</strong>
+            <small>{roleName}</small>
+          </div>
         </div>
       </header>
 
-      <div className="am-container">
-        <section className="am-hero">
+      <main className="ma-content">
+
+        {/* JUDUL */}
+
+        <div className="ma-title-row">
           <div>
             <small>
-              EMERGENCY RESPONSE GROUP · PT BERAU COAL
+              Monitoring Kompetensi dan Evaluasi OJT
             </small>
 
             <h1>
@@ -821,67 +894,12 @@ export default function MonitoringAchievementPage() {
             </h1>
 
             <p>
-              Pantau pencapaian, verifikasi, dan aktivitas
-              berdasarkan Kalender Global 25 minggu.
+              Pantau perkembangan peserta berdasarkan
+              Kalender Global 25 minggu.
             </p>
           </div>
 
-          <div className="am-person">
-            <span className="am-avatar">
-              {initials(participant?.full_name)}
-            </span>
-
-            <div>
-              <strong>
-                {participant?.full_name || "Peserta OJT"}
-              </strong>
-
-              <span>
-                {participant?.department || "—"}
-                {" · "}
-                {program.site || "Site belum diisi"}
-              </span>
-
-              <small>
-                {formatDate(program.start_date)}
-                {" – "}
-                {formatDate(program.end_date)}
-              </small>
-            </div>
-          </div>
-        </section>
-
-        <nav className="am-tabs">
-          {canManage && (
-            <button
-              onClick={() =>
-                router.push(`/achievement/${programId}`)
-              }
-            >
-              ✍️ Input Achievement
-            </button>
-          )}
-
-          <span className="active">
-            📊 Monitoring Achievement
-          </span>
-        </nav>
-
-        {error && (
-          <div className="am-error" role="alert">
-            {error}
-          </div>
-        )}
-
-        <div className="am-toolbar">
-          <div>
-            <strong>Dashboard Monitoring Mingguan</strong>
-            <small>
-              Kalender Global OJT 2026–2027
-            </small>
-          </div>
-
-          <div className="am-actions">
+          <div className="ma-toolbar">
             <button
               onClick={refresh}
               disabled={refreshing}
@@ -892,37 +910,100 @@ export default function MonitoringAchievementPage() {
             </button>
 
             <button
-              className="primary"
               onClick={() =>
-                setPresentation((value) => !value)
+                setPresentation(value => !value)
               }
             >
               {presentation
                 ? "Tampilan Normal"
-                : "▣ Mode Presentasi"}
+                : "Mode Presentasi"}
             </button>
 
             <button onClick={() => window.print()}>
-              🖨 Cetak
+              ⎙ Cetak
             </button>
           </div>
         </div>
 
-        {/* ======================================
-            MONITORING MINGGUAN
-        ====================================== */}
+        {error && (
+          <div className="ma-alert" role="alert">
+            {error}
+          </div>
+        )}
 
-        <section className="am-card">
-          <div className="am-section-head">
-            <div>
-              <h2>Monitoring Mingguan</h2>
+        {/* IDENTITAS PESERTA */}
+
+        <section className="ma-profile">
+          <div className="ma-profile-main">
+            <div className="ma-profile-avatar">
+              {initials(participantName)}
+            </div>
+
+            <div className="ma-profile-copy">
+              <h2>{participantName}</h2>
+
               <p>
-                Ringkasan kegiatan dan verifikasi
-                berdasarkan minggu global.
+                {participant?.department || "—"}
+                {"  |  "}
+                {program.site || "—"}
+              </p>
+
+              <div className="ma-profile-facts">
+                <div>
+                  <span>📅</span>
+
+                  <div>
+                    <small>Periode OJT</small>
+                    <strong>
+                      {formatDate(program.start_date)}
+                      {" – "}
+                      {formatDate(program.end_date)}
+                    </strong>
+                  </div>
+                </div>
+
+                <div>
+                  <span>📊</span>
+
+                  <div>
+                    <small>Kalender Global</small>
+                    <strong>
+                      Week 01–25
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="ma-profile-side">
+            <span className="ma-participant-badge">
+              PESERTA OJT
+            </span>
+
+            <strong>
+              Emergency Response Group
+            </strong>
+
+            <small>PT Berau Coal</small>
+            <span className="ma-accent" />
+          </div>
+        </section>
+
+        {/* SUMMARY MINGGUAN */}
+
+        <section className="ma-card">
+          <div className="ma-section-head">
+            <div>
+              <h2>Capaian Achievement Mingguan</h2>
+
+              <p>
+                Ringkasan kegiatan terverifikasi
+                pada minggu yang dipilih.
               </p>
             </div>
 
-            <div className="am-week-control">
+            <div className="ma-week-control">
               <button
                 disabled={week <= 1}
                 onClick={() => changeWeek(week - 1)}
@@ -932,20 +1013,24 @@ export default function MonitoringAchievementPage() {
               </button>
 
               <select
+                aria-label="Pilih minggu global"
                 value={week}
-                onChange={(event) =>
+                onChange={event =>
                   changeWeek(event.target.value)
                 }
-                aria-label="Pilih minggu global"
               >
-                {GLOBAL_WEEKS.map((item) => (
+                {GLOBAL_WEEKS.map(item => (
                   <option
                     key={item.week}
                     value={item.week}
                   >
                     {weekLabel(item.week)}
+                    {" · "}
+                    {formatDate(item.start)}
+                    {" – "}
+                    {formatDate(item.end)}
                     {!availableWeeks.some(
-                      (available) =>
+                      available =>
                         available.week === item.week
                     )
                       ? " · Di luar periode"
@@ -964,173 +1049,200 @@ export default function MonitoringAchievementPage() {
             </div>
           </div>
 
-          <div className="am-period">
-            <strong>{weekLabel(week)}</strong>
+          <div className="ma-week-overview">
+            <div className="ma-week-heading">
+              <span className="ma-week-icon">
+                📊
+              </span>
 
-            <span>
-              {formatDate(selectedPeriod.start)}
-              {" – "}
-              {formatDate(selectedPeriod.end)}
-            </span>
+              <div>
+                <small>Capaian Achievement</small>
 
-            {!selectedParticipantRange && (
-              <em>Di luar periode OJT peserta</em>
-            )}
+                <h2>
+                  Week {String(week).padStart(2, "0")}
+                </h2>
+
+                <p>
+                  {formatDate(selectedPeriod.start)}
+                  {" – "}
+                  {formatDate(selectedPeriod.end)}
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="ma-donut"
+              style={{
+                "--progress": `${weeklyProgress}%`,
+              }}
+            >
+              <div>
+                <strong>
+                  {num(weeklyProgress)}%
+                </strong>
+
+                <small>
+                  Rata-rata
+                  <br />
+                  Pencapaian
+                </small>
+              </div>
+            </div>
+
+            <SummaryCard
+              icon="✓"
+              value={verified.length}
+              title="Terverifikasi"
+              subtitle="Verified"
+              tone="green"
+            />
+
+            <SummaryCard
+              icon="◷"
+              value={pending.length}
+              title="Menunggu"
+              subtitle="Pending"
+              tone="amber"
+            />
+
+            <SummaryCard
+              icon="▦"
+              value={`${completedCategories}/6`}
+              title="Kategori"
+              subtitle="Target tercapai"
+              tone="blue"
+            />
           </div>
 
-          {selectedParticipantRange && (
-            <p className="am-period-note">
-              Periode peserta pada minggu ini:
+          <div className="ma-range-note">
+            <span>
+              Total kegiatan:
               {" "}
-              {formatDate(selectedParticipantRange.start)}
-              {" – "}
-              {formatDate(selectedParticipantRange.end)}
-            </p>
-          )}
-
-          <div className="am-stats">
-            <div className="am-stat">
-              <span>Total Achievement</span>
               <strong>{weeklyRecords.length}</strong>
-              <small>Kegiatan minggu terpilih</small>
-            </div>
+            </span>
 
-            <div className="am-stat green">
-              <span>Terverifikasi</span>
-              <strong>{verified.length}</strong>
-              <small>Achievement Verified</small>
-            </div>
-
-            <div className="am-stat orange">
-              <span>Menunggu</span>
-              <strong>{pending.length}</strong>
-              <small>Achievement Pending</small>
-            </div>
-
-            <div className="am-stat blue">
-              <span>Persentase Verifikasi</span>
-              <strong>
-                {numberText(verificationPercent, 2)}%
-              </strong>
-              <small>Verified dari total catatan</small>
-            </div>
+            {selectedProgramRange ? (
+              <span>
+                Periode peserta pada minggu ini:
+                {" "}
+                <strong>
+                  {formatDate(selectedProgramRange.start)}
+                  {" – "}
+                  {formatDate(selectedProgramRange.end)}
+                </strong>
+              </span>
+            ) : (
+              <span>
+                Minggu ini di luar periode peserta.
+              </span>
+            )}
           </div>
         </section>
 
-        {/* ======================================
-            ENAM KATEGORI MINGGUAN
-        ====================================== */}
+        {/* ENAM KATEGORI */}
 
-        <section className="am-card">
-          <div className="am-section-head">
+        <section className="ma-card">
+          <div className="ma-section-head">
             <div>
-              <h2>Progres Enam Kategori</h2>
+              <h2>Pencapaian 6 Kategori</h2>
 
               <p>
-                Pencapaian Verified terhadap target
+                Realisasi kegiatan Verified
                 pada {weekLabel(week)}.
               </p>
             </div>
 
-            <div className="am-week-overall">
-              <span>Rata-rata Mingguan</span>
-              <strong>
-                {numberText(overallWeek, 2)}%
-              </strong>
-              <small>
-                {achievedCategories}/6 kategori tercapai
-              </small>
-            </div>
+            <strong className="ma-section-score">
+              {num(weeklyProgress)}%
+            </strong>
           </div>
 
-          <div className="am-category-grid">
-            {categories.map((item) => (
+          <div className="ma-category-grid">
+            {categories.map(item => (
               <article
-                className="am-category"
                 key={item.name}
+                className="ma-category"
               >
-                <div className="am-category-head">
-                  <span className="am-icon">
+                <div className="ma-category-title">
+                  <span className="ma-category-icon">
                     {item.icon}
                   </span>
 
-                  <div>
-                    <strong>{item.name}</strong>
+                  <strong>{item.name}</strong>
+                </div>
 
-                    <small>
-                      Target {item.target} {item.unit}
-                      {" / minggu"}
-                    </small>
+                <div className="ma-category-percent">
+                  {num(item.percent)}%
+                </div>
+
+                <ProgressBar value={item.percent} />
+
+                <div className="ma-category-details">
+                  <div>
+                    <span>Realisasi</span>
+
+                    <strong>
+                      {amountText(item.actual, item)}
+                    </strong>
                   </div>
 
-                  <strong className="am-category-percent">
-                    {numberText(item.targetPercent, 0)}%
-                  </strong>
-                </div>
+                  <div>
+                    <span>Target</span>
 
-                <div className="am-category-actual">
-                  <strong>
-                    {amountText(item.actual, item)}
-                  </strong>
+                    <strong>
+                      {item.target} {item.unit}
+                    </strong>
+                  </div>
 
-                  <span>
-                    dari {item.target} {item.unit}
-                  </span>
-                </div>
+                  <div>
+                    <span>Verified</span>
 
-                <ProgressBar
-                  value={item.targetPercent}
-                />
+                    <strong>
+                      {item.verified}
+                    </strong>
+                  </div>
 
-                <div className="am-category-footer">
-                  <span>
-                    {item.verified} Verified
-                  </span>
+                  <div>
+                    <span>Pending</span>
 
-                  <span>
-                    {item.pending} Pending
-                  </span>
-
-                  <span>
-                    {item.completed
-                      ? "✓ Target tercapai"
-                      : "Belum mencapai target"}
-                  </span>
+                    <strong>
+                      {item.pending}
+                    </strong>
+                  </div>
                 </div>
               </article>
             ))}
           </div>
 
-          <p className="am-note">
-            Realisasi hanya menghitung Achievement Verified.
-            Jarak Fisik dijumlahkan dalam kilometer,
-            sedangkan lima kategori lainnya menggunakan
-            jumlah kegiatan. Persentase dibatasi maksimal
-            100%, tetapi nilai realisasi tetap ditampilkan
-            sesuai data asli.
+          <p className="ma-note">
+            Hanya kegiatan Verified yang dihitung
+            sebagai pencapaian. Realisasi tidak dibatasi,
+            sedangkan persentase maksimal 100%.
           </p>
         </section>
 
-        {/* ======================================
-            GRAFIK & AKTIVITAS GLOBAL
-        ====================================== */}
+        {/* GRAFIK DAN AKTIVITAS */}
 
-        <div className="am-two-columns">
-          <section className="am-card">
-            <div className="am-section-head">
+        <div className="ma-lower-grid">
+          <section className="ma-card">
+            <div className="ma-section-head">
               <div>
                 <h2>Grafik Achievement Mingguan</h2>
 
                 <p>
-                  Jumlah kegiatan Verified pada
-                  Kalender Global Week 01–25.
+                  Jumlah Achievement Verified
+                  Week 01–25.
                 </p>
               </div>
+
+              <strong className="ma-section-score">
+                {verified.length} Verified
+              </strong>
             </div>
 
-            <div className="am-chart-scroll">
-              <div className="am-chart">
-                {chart.map((item) => {
+            <div className="ma-chart-scroll">
+              <div className="ma-chart">
+                {chart.map(item => {
                   const height = item.verified
                     ? Math.max(
                         6,
@@ -1142,7 +1254,7 @@ export default function MonitoringAchievementPage() {
                     <button
                       key={item.week}
                       className={[
-                        "am-chart-column",
+                        "ma-chart-column",
                         item.week === week
                           ? "selected"
                           : "",
@@ -1155,19 +1267,14 @@ export default function MonitoringAchievementPage() {
                       }
                       title={
                         `${weekLabel(item.week)}: ` +
-                        `${item.verified} Verified` +
-                        (
-                          item.available
-                            ? ""
-                            : " · Di luar periode peserta"
-                        )
+                        `${item.verified} Verified`
                       }
                     >
                       <strong>
                         {item.verified}
                       </strong>
 
-                      <span className="am-bar-track">
+                      <span className="ma-chart-track">
                         <i
                           style={{
                             height: `${height}%`,
@@ -1184,36 +1291,33 @@ export default function MonitoringAchievementPage() {
               </div>
             </div>
 
-            <p className="am-note">
-              Pilih batang grafik untuk melihat minggu
-              tertentu. Grafik menunjukkan jumlah kegiatan
-              Verified, bukan jumlah kilometer.
-              Minggu di luar periode peserta ditampilkan
-              lebih redup.
+            <p className="ma-note">
+              Klik batang grafik untuk mengganti
+              minggu monitoring.
             </p>
           </section>
 
-          <section className="am-card">
-            <div className="am-section-head">
+          <section className="ma-card">
+            <div className="ma-section-head">
               <div>
                 <h2>Aktivitas 25 Minggu</h2>
 
                 <p>
-                  Sebaran minggu dengan
-                  Achievement yang tercatat.
+                  Sebaran minggu yang memiliki
+                  catatan Achievement.
                 </p>
               </div>
 
-              <strong className="am-highlight">
+              <strong className="ma-section-score">
                 {activeWeeks}/
                 {availableWeeks.length}
               </strong>
             </div>
 
-            <div className="am-activity-summary">
+            <div className="ma-activity-stats">
               <div>
                 <strong>{activeWeeks}</strong>
-                <span>Minggu dengan kegiatan</span>
+                <span>Minggu memiliki kegiatan</span>
               </div>
 
               <div>
@@ -1222,20 +1326,20 @@ export default function MonitoringAchievementPage() {
               </div>
             </div>
 
-            <div className="am-week-grid">
-              {chart.map((item) => (
+            <div className="ma-week-grid">
+              {chart.map(item => (
                 <button
                   key={item.week}
                   className={[
-                    "am-week",
+                    "ma-week-box",
                     item.total > 0
                       ? "has-data"
                       : "",
-                    item.week === week
-                      ? "selected"
-                      : "",
                     !item.available
                       ? "outside"
+                      : "",
+                    item.week === week
+                      ? "selected"
                       : "",
                   ].join(" ")}
                   onClick={() =>
@@ -1244,8 +1348,7 @@ export default function MonitoringAchievementPage() {
                   title={
                     `${weekLabel(item.week)} · ` +
                     `${formatDate(item.start)} – ` +
-                    `${formatDate(item.end)} · ` +
-                    `${item.total} kegiatan`
+                    `${formatDate(item.end)}`
                   }
                 >
                   W{String(item.week).padStart(2, "0")}
@@ -1253,939 +1356,1059 @@ export default function MonitoringAchievementPage() {
               ))}
             </div>
 
-            <div className="am-legend">
-              <span>
-                <i className="dot has-data" />
-                Ada kegiatan
-              </span>
-
-              <span>
-                <i className="dot empty" />
-                Belum ada
-              </span>
-
-              <span>
-                <i className="dot outside" />
-                Di luar periode
-              </span>
+            <div className="ma-legend">
+              <span>🟢 Ada kegiatan</span>
+              <span>⚪ Belum ada</span>
+              <span>◻ Di luar periode</span>
             </div>
-
-            <p className="am-note">
-              Jumlah minggu aktif mengikuti rentang
-              Kalender Global yang beririsan dengan
-              periode OJT peserta.
-            </p>
           </section>
         </div>
 
-        {/* ======================================
-            AKSES CEPAT
-        ====================================== */}
+        {/* TOMBOL NAVIGASI */}
 
-        <section className="am-card am-access-card">
-          <div>
-            <h2>Detail dan Pengelolaan Achievement</h2>
+        <div className="ma-bottom-actions">
+          <button onClick={goBack}>
+            ← {isParticipant
+              ? "Dashboard Peserta"
+              : "Detail Peserta"}
+          </button>
 
-            <p>
-              Riwayat kegiatan, pencarian data,
-              serta fungsi edit dan hapus tersedia
-              di halaman Input Achievement.
-            </p>
-          </div>
-
-          <div className="am-access-actions">
-            {canManage && (
-              <button
-                className="primary"
-                onClick={() =>
-                  router.push(
-                    `/achievement/${programId}`
-                  )
-                }
-              >
-                ✍️ Buka Input Achievement
-              </button>
-            )}
-
-            <button onClick={goBack}>
-              ← {isParticipant
-                ? "Dashboard Peserta"
-                : "Detail Peserta"}
+          {canManage && (
+            <button
+              className="primary"
+              onClick={() =>
+                router.push(`/achievement/${programId}`)
+              }
+            >
+              ✍️ Input Achievement
             </button>
-          </div>
-        </section>
+          )}
+        </div>
 
-        <footer className="am-footer">
+        <footer className="ma-footer">
           OJT MineTrack v2.0 · Emergency Response Group
           {" · "}
           PT Berau Coal
         </footer>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }
 
-// =====================================================
-// CSS — PROFESSIONAL MINIMAL
-// =====================================================
+// ======================================================
+// CSS - CLEAN ENTERPRISE DESIGN
+// ======================================================
 
 const css = `
-  * {
-    box-sizing: border-box;
-  }
+.ma-app,
+.ma-app * {
+  box-sizing: border-box;
+}
 
-  .am-root {
-    min-height: 100vh;
-    background: #f4f8f9;
-    color: #183348;
-    font-family: Arial, Helvetica, sans-serif;
-  }
+.ma-app {
+  min-height: 100vh;
+  background: #f5f8fa;
+  color: #142c41;
+  font-family: Arial, Helvetica, sans-serif;
+}
 
-  .am-root button,
-  .am-root select {
-    font: inherit;
-  }
+.ma-app button,
+.ma-app select {
+  font: inherit;
+}
 
-  .am-root button {
-    cursor: pointer;
-  }
+.ma-app button {
+  cursor: pointer;
+}
 
-  .am-root button:disabled {
-    opacity: .45;
-    cursor: not-allowed;
-  }
+.ma-app button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
 
-  .am-loading {
-    min-height: 100vh;
-    padding: 35px;
-    background: #f4f8f9;
-    color: #183348;
-    font-family: Arial, sans-serif;
-  }
+.ma-loading {
+  min-height: 100vh;
+  padding: 40px;
+  background: #f5f8fa;
+  color: #142c41;
+  font-family: Arial, sans-serif;
+}
 
-  .am-loading button {
-    border: none;
-    border-radius: 9px;
-    padding: 12px 16px;
-    background: #0b8b61;
-    color: #fff;
-  }
+.ma-loading button {
+  margin-top: 15px;
+  border: none;
+  padding: 12px 16px;
+  background: #0b8b61;
+  color: white;
+  border-radius: 9px;
+}
 
-  .am-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 15px;
-    padding: 15px 27px;
-    color: white;
-    background: #071e27;
-  }
+/* HEADER */
 
-  .am-brand {
-    font-size: 24px;
-    font-weight: 900;
-  }
+.ma-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: 69px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 0 27px;
+  background: #fff;
+  border-bottom: 1px solid #e4ebef;
+}
 
-  .am-brand span {
-    color: #30c996;
-  }
+.ma-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #142b40;
+  font-size: 23px;
+  font-weight: 900;
+  white-space: nowrap;
+}
 
-  .am-brand small {
-    margin-left: 7px;
-    color: #b8c9d1;
-    font-size: 10px;
-  }
+.ma-brand span {
+  color: #07865e;
+}
 
-  .am-account {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-  }
+.ma-brand small {
+  margin-left: 4px;
+  color: #8393a2;
+  font-size: 10px;
+}
 
-  .am-account small,
-  .am-account strong {
-    display: block;
-    text-align: right;
-  }
+.ma-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+}
 
-  .am-account small {
-    color: #afc9c1;
-    font-size: 10px;
-    margin-bottom: 5px;
-  }
+.ma-nav button {
+  border: 0;
+  padding: 12px 15px;
+  border-radius: 10px;
+  background: transparent;
+  color: #526579;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
 
-  .am-account strong {
-    font-size: 12px;
-  }
+.ma-nav button:hover,
+.ma-nav button.active {
+  background: #e8f6ef;
+  color: #087c58;
+}
 
-  .am-account button {
-    border: 1px solid #ffffff40;
-    background: #ffffff14;
-    color: white;
-    padding: 10px 13px;
-    border-radius: 9px;
-    font-size: 12px;
-    font-weight: 800;
-  }
+.ma-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
 
-  .am-container {
-    max-width: 1480px;
-    margin: auto;
-    padding: 20px;
-  }
+.ma-avatar-small {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #ddf4e9;
+  color: #077d58;
+  font-size: 12px;
+  font-weight: 900;
+}
 
-  .am-hero {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 20px;
-    padding: 28px;
-    border-radius: 16px;
-    color: white;
-    background:
-      linear-gradient(
-        100deg,
-        rgba(5,25,34,.97),
-        rgba(5,70,60,.80)
-      ),
-      url("/background-erg.png.PNG");
-    background-position: center;
-    background-size: cover;
-  }
+.ma-account strong,
+.ma-account small {
+  display: block;
+}
 
-  .am-hero > div:first-child > small {
-    color: #efcb7c;
-    font-size: 10px;
-    letter-spacing: 1px;
-    font-weight: 900;
-  }
+.ma-account strong {
+  font-size: 11px;
+}
 
-  .am-hero h1 {
-    font-size: clamp(27px,3vw,38px);
-    line-height: 1.2;
-    margin: 12px 0 9px;
-  }
+.ma-account small {
+  color: #8493a3;
+  font-size: 10px;
+  margin-top: 4px;
+}
 
-  .am-hero h1 span {
-    color: #42d7a1;
-  }
+/* CONTENT */
 
-  .am-hero p {
-    max-width: 510px;
-    margin: 0;
-    color: #d8ebe5;
-    line-height: 1.7;
-    font-size: 13px;
-  }
+.ma-content {
+  max-width: 1510px;
+  margin: 0 auto;
+  padding: 25px;
+}
 
-  .am-person {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-    padding: 13px;
-    background: #082c30c9;
-    border: 1px solid #ffffff35;
-    border-radius: 12px;
-  }
+.ma-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-bottom: 19px;
+}
 
-  .am-avatar {
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 48px;
-    height: 48px;
-    border-radius: 11px;
-    color: #087656;
-    background: #d9f4e7;
-    font-size: 17px;
-    font-weight: 900;
-  }
+.ma-title-row small {
+  color: #788b9c;
+  font-size: 12px;
+}
 
-  .am-person strong,
-  .am-person span,
-  .am-person small {
-    display: block;
-  }
+.ma-title-row h1 {
+  margin: 6px 0;
+  font-size: clamp(25px, 3vw, 34px);
+  letter-spacing: -.6px;
+}
 
-  .am-person strong {
-    font-size: 13px;
-  }
+.ma-title-row h1 span {
+  color: #07865e;
+}
 
-  .am-person span,
-  .am-person small {
-    color: #c8e0d8;
-    font-size: 10px;
-    margin-top: 6px;
-  }
+.ma-title-row p {
+  margin: 0;
+  font-size: 12px;
+  color: #8090a1;
+  line-height: 1.6;
+}
 
-  .am-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 15px 0;
-  }
+.ma-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
 
-  .am-tabs button,
-  .am-tabs span {
-    border: 1px solid #dce8e3;
-    background: white;
-    color: #347057;
-    border-radius: 10px;
-    padding: 12px 15px;
-    font-size: 12px;
-    font-weight: 800;
-  }
+.ma-toolbar button,
+.ma-bottom-actions button {
+  padding: 11px 14px;
+  border: 1px solid #dde7e9;
+  border-radius: 9px;
+  background: white;
+  color: #29674f;
+  font-size: 11px;
+  font-weight: 800;
+}
 
-  .am-tabs .active {
-    background: #0b8d64;
-    border-color: #0b8d64;
-    color: white;
-  }
+.ma-toolbar button:hover {
+  background: #edf8f2;
+}
 
-  .am-error {
-    padding: 14px;
-    margin-bottom: 15px;
-    background: #fff0f0;
-    border: 1px solid #fecaca;
-    border-radius: 10px;
-    color: #b91c1c;
-    font-size: 12px;
-  }
+.ma-alert {
+  padding: 13px;
+  margin-bottom: 15px;
+  background: #fff0f0;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #b91c1c;
+  font-size: 12px;
+}
 
-  .am-toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 14px;
-  }
+/* PROFILE */
 
-  .am-toolbar > div:first-child > strong,
-  .am-toolbar > div:first-child > small {
-    display: block;
-  }
+.ma-profile {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.5fr)
+    minmax(220px, .7fr);
+  margin-bottom: 15px;
+  background: white;
+  border: 1px solid #e4ebf0;
+  border-radius: 15px;
+  overflow: hidden;
+  box-shadow: 0 4px 15px #14304b08;
+}
 
-  .am-toolbar > div:first-child > strong {
-    font-size: 15px;
-  }
+.ma-profile-main {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 22px;
+  min-width: 0;
+}
 
-  .am-toolbar > div:first-child > small {
-    margin-top: 6px;
-    color: #8395a0;
-    font-size: 11px;
-  }
+.ma-profile-avatar {
+  width: 92px;
+  height: 92px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: #ddf4e8;
+  color: #087b58;
+  border-radius: 14px;
+  font-size: 35px;
+  font-weight: 900;
+}
 
-  .am-actions,
-  .am-access-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
+.ma-profile-copy {
+  min-width: 0;
+}
 
-  .am-actions button,
-  .am-access-actions button {
-    padding: 11px 15px;
-    border: 1px solid #d9e7df;
-    border-radius: 9px;
-    background: white;
-    color: #175f49;
-    font-size: 12px;
-    font-weight: 800;
-  }
+.ma-profile-copy h2 {
+  margin: 0 0 8px;
+  font-size: 25px;
+  overflow-wrap: anywhere;
+}
 
-  .am-actions .primary,
-  .am-access-actions .primary {
-    background: #0b8b61;
-    border-color: #0b8b61;
-    color: white;
-  }
+.ma-profile-copy > p {
+  margin: 0;
+  color: #74879a;
+  font-size: 12px;
+  font-weight: 700;
+}
 
-  .am-card {
-    padding: 21px;
-    margin-bottom: 15px;
-    background: white;
-    border: 1px solid #e2eaf0;
-    border-radius: 15px;
-    min-width: 0;
-    box-shadow: 0 4px 16px #14304b08;
-  }
+.ma-profile-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  margin-top: 18px;
+}
 
-  .am-section-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 17px;
-  }
+.ma-profile-facts > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
 
-  .am-section-head h2,
-  .am-access-card h2 {
-    margin: 0;
-    font-size: 18px;
-    color: #173047;
-  }
+.ma-profile-facts > div > span {
+  font-size: 19px;
+}
 
-  .am-section-head p,
-  .am-access-card p {
-    margin: 7px 0 0;
-    color: #8192a2;
-    font-size: 12px;
-    line-height: 1.6;
-  }
+.ma-profile-facts small,
+.ma-profile-facts strong {
+  display: block;
+}
 
-  .am-week-control {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
+.ma-profile-facts small {
+  color: #8798a7;
+  font-size: 10px;
+}
 
-  .am-week-control button,
-  .am-week-control select {
-    border: 1px solid #dbe8e0;
-    background: #f8fbf9;
-    border-radius: 9px;
-    padding: 10px;
-    color: #11684e;
-    font-size: 12px;
-    font-weight: 800;
-  }
+.ma-profile-facts strong {
+  margin-top: 5px;
+  font-size: 11px;
+}
 
-  .am-week-control select {
-    max-width: 205px;
-  }
+.ma-profile-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 22px;
+  background:
+    linear-gradient(
+      90deg,
+      #ffffff 0%,
+      #ffffffe8 25%,
+      #ffffff60 100%
+    ),
+    url("/background-erg.png.PNG") center/cover;
+}
 
-  .am-period {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
-    padding: 12px;
-    border-radius: 10px;
-    background: #eef8f2;
-    margin-bottom: 8px;
-    font-size: 12px;
-  }
+.ma-participant-badge {
+  display: inline-block;
+  margin-bottom: 13px;
+  padding: 7px 11px;
+  border-radius: 6px;
+  background: #07835b;
+  color: white;
+  font-size: 10px;
+  font-weight: 900;
+}
 
-  .am-period strong {
-    color: #087d58;
-  }
+.ma-profile-side strong {
+  font-size: 12px;
+}
 
-  .am-period span {
-    color: #668176;
-  }
+.ma-profile-side small {
+  margin-top: 5px;
+  color: #526679;
+  font-size: 11px;
+}
 
-  .am-period em {
-    color: #b17b22;
-    font-size: 11px;
-    font-style: normal;
-    font-weight: 800;
-  }
+.ma-accent {
+  width: 43px;
+  height: 4px;
+  margin-top: 13px;
+  border-radius: 10px;
+  background: #087f58;
+}
 
-  .am-period-note {
-    margin: 9px 0 14px;
-    color: #8295a0;
-    font-size: 11px;
-  }
+/* CARDS */
 
-  .am-stats {
-    display: grid;
-    grid-template-columns: repeat(4,minmax(0,1fr));
-    gap: 11px;
-    margin-top: 14px;
-  }
+.ma-card {
+  margin-bottom: 15px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #e4ebf0;
+  border-radius: 15px;
+  box-shadow: 0 4px 15px #14304b07;
+  min-width: 0;
+}
 
-  .am-stat {
-    padding: 16px;
-    background: #f5f8fa;
-    border: 1px solid #e7eef1;
-    border-radius: 11px;
-    min-width: 0;
-  }
+.ma-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 13px;
+  margin-bottom: 16px;
+}
 
-  .am-stat.green {
-    background: #e9f8f0;
-  }
+.ma-section-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
 
-  .am-stat.orange {
-    background: #fff6e8;
-  }
+.ma-section-head p {
+  margin: 6px 0 0;
+  color: #8594a4;
+  font-size: 11px;
+  line-height: 1.6;
+}
 
-  .am-stat.blue {
-    background: #ecf5ff;
-  }
+.ma-section-score {
+  color: #088c62;
+  font-size: 21px;
+}
 
-  .am-stat span,
-  .am-stat small {
-    display: block;
-    color: #748999;
-    font-size: 11px;
-  }
+/* WEEK CONTROL */
 
-  .am-stat strong {
-    display: block;
-    margin: 9px 0;
-    color: #173047;
-    font-size: 28px;
-  }
+.ma-week-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
 
-  .am-week-overall {
-    text-align: right;
-  }
+.ma-week-control button,
+.ma-week-control select {
+  border: 1px solid #dfe8e7;
+  background: #f8fbfa;
+  border-radius: 8px;
+  color: #12684c;
+  padding: 10px;
+  font-size: 11px;
+  font-weight: 800;
+}
 
-  .am-week-overall span,
-  .am-week-overall small {
-    display: block;
-    color: #8094a2;
-    font-size: 11px;
-  }
+.ma-week-control select {
+  max-width: 315px;
+}
 
-  .am-week-overall strong {
-    display: block;
-    margin: 5px 0;
-    font-size: 26px;
-    color: #0a986e;
-  }
+/* WEEK OVERVIEW */
 
-  .am-category-grid {
-    display: grid;
+.ma-week-overview {
+  display: grid;
+  grid-template-columns:
+    minmax(170px,1.5fr)
+    135px
+    repeat(3,minmax(90px,1fr));
+  gap: 12px;
+  align-items: center;
+  padding: 15px;
+  background: #f0faf5;
+  border-radius: 12px;
+}
+
+.ma-week-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ma-week-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: #ddf3e6;
+  font-size: 25px;
+}
+
+.ma-week-heading small {
+  font-size: 11px;
+  color: #078259;
+  font-weight: 800;
+}
+
+.ma-week-heading h2 {
+  margin: 6px 0;
+  font-size: 22px;
+}
+
+.ma-week-heading p {
+  margin: 0;
+  color: #8290a0;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.ma-donut {
+  --progress: 0%;
+  width: 115px;
+  height: 115px;
+  margin: auto;
+  padding: 11px;
+  border-radius: 50%;
+  background: conic-gradient(
+    #0ab67c var(--progress),
+    #dcebe5 var(--progress)
+  );
+  display: grid;
+  place-items: center;
+}
+
+.ma-donut > div {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.ma-donut strong {
+  font-size: 21px;
+}
+
+.ma-donut small {
+  font-size: 9px;
+  line-height: 1.5;
+  text-align: center;
+  color: #8492a0;
+}
+
+.ma-summary-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 105px;
+  padding: 12px;
+  border-radius: 11px;
+}
+
+.ma-summary-card.green {
+  background: #e2f6ec;
+  color: #087d58;
+}
+
+.ma-summary-card.amber {
+  background: #fff4e5;
+  color: #b77c12;
+}
+
+.ma-summary-card.blue {
+  background: #e9f3ff;
+  color: #2571bd;
+}
+
+.ma-summary-icon {
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.ma-summary-card > div strong,
+.ma-summary-card > div span,
+.ma-summary-card > div small {
+  display: block;
+}
+
+.ma-summary-card > div strong {
+  font-size: 25px;
+}
+
+.ma-summary-card > div span {
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.ma-summary-card > div small {
+  font-size: 9px;
+  margin-top: 5px;
+  opacity: .75;
+}
+
+.ma-range-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  margin-top: 13px;
+  color: #8294a3;
+  font-size: 11px;
+}
+
+/* CATEGORIES */
+
+.ma-category-grid {
+  display: grid;
+  grid-template-columns: repeat(6,minmax(0,1fr));
+  gap: 10px;
+}
+
+.ma-category {
+  min-width: 0;
+  padding: 14px 12px;
+  border: 1px solid #e3ebf0;
+  border-radius: 11px;
+  background: white;
+}
+
+.ma-category-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 35px;
+}
+
+.ma-category-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: #edf8f2;
+  font-size: 18px;
+}
+
+.ma-category-title strong {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.ma-category-percent {
+  margin: 13px 0 9px;
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.ma-progress {
+  width: 100%;
+  height: 9px;
+  overflow: hidden;
+  background: #e2e9ec;
+  border-radius: 20px;
+}
+
+.ma-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    #12b680,
+    #09855f
+  );
+}
+
+.ma-category-details {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ma-category-details > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.ma-category-details span {
+  color: #8392a2;
+}
+
+.ma-category-details strong {
+  color: #293e50;
+  text-align: right;
+}
+
+.ma-note {
+  margin: 13px 0 0;
+  color: #8696a4;
+  line-height: 1.7;
+  font-size: 11px;
+}
+
+/* LOWER GRID */
+
+.ma-lower-grid {
+  display: grid;
+  grid-template-columns: 1.15fr .85fr;
+  gap: 15px;
+  align-items: start;
+}
+
+.ma-chart-scroll {
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 9px;
+}
+
+.ma-chart {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  width: max-content;
+  height: 205px;
+  border-bottom: 1px solid #dce5e9;
+}
+
+.ma-chart-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  width: 29px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #8293a0;
+}
+
+.ma-chart-column strong,
+.ma-chart-column small {
+  font-size: 10px;
+}
+
+.ma-chart-track {
+  display: flex;
+  align-items: flex-end;
+  width: 19px;
+  height: 145px;
+}
+
+.ma-chart-track i {
+  display: block;
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: #49ca9f;
+}
+
+.ma-chart-column.selected .ma-chart-track i {
+  background: #2487d7;
+}
+
+.ma-chart-column.selected {
+  color: #1671bd;
+  font-weight: 900;
+}
+
+.ma-chart-column.outside {
+  opacity: .4;
+}
+
+.ma-chart-column.outside.selected {
+  opacity: .85;
+}
+
+.ma-activity-stats {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 9px;
+  margin-bottom: 15px;
+}
+
+.ma-activity-stats > div {
+  padding: 12px;
+  background: #f1faf5;
+  border-radius: 10px;
+}
+
+.ma-activity-stats strong,
+.ma-activity-stats span {
+  display: block;
+}
+
+.ma-activity-stats strong {
+  color: #08855d;
+  font-size: 25px;
+}
+
+.ma-activity-stats span {
+  margin-top: 6px;
+  color: #8294a3;
+  font-size: 10px;
+}
+
+.ma-week-grid {
+  display: grid;
+  grid-template-columns: repeat(5,minmax(0,1fr));
+  gap: 6px;
+}
+
+.ma-week-box {
+  border: 1px solid #dfe8eb;
+  background: #f4f7f9;
+  color: #687d8d;
+  border-radius: 7px;
+  padding: 10px 3px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.ma-week-box.has-data {
+  background: #dbf5e9;
+  color: #087d58;
+  border-color: #b8e7d1;
+}
+
+.ma-week-box.outside {
+  opacity: .4;
+}
+
+.ma-week-box.selected {
+  opacity: 1;
+  background: #088c63;
+  color: white;
+  border-color: #088c63;
+}
+
+.ma-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 13px;
+  color: #8293a2;
+  font-size: 10px;
+}
+
+/* BOTTOM */
+
+.ma-bottom-actions {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ma-bottom-actions button.primary {
+  color: white;
+  background: #08885f;
+  border-color: #08885f;
+}
+
+.ma-footer {
+  padding: 25px 0;
+  text-align: center;
+  color: #98a5b0;
+  font-size: 10px;
+}
+
+/* PRESENTATION */
+
+.ma-presentation .ma-topbar {
+  display: none;
+}
+
+.ma-presentation .ma-content {
+  max-width: 1900px;
+}
+
+/* RESPONSIVE */
+
+@media(max-width:1400px) {
+  .ma-category-grid {
     grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+}
+
+@media(max-width:1150px) {
+  .ma-topbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 13px;
+  }
+
+  .ma-nav {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .ma-week-overview {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+
+  .ma-week-heading {
+    grid-column: span 2;
+  }
+
+  .ma-donut {
+    grid-column: span 1;
+  }
+
+  .ma-lower-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media(max-width:850px) {
+  .ma-profile {
+    grid-template-columns: 1fr;
+  }
+
+  .ma-profile-side {
+    min-height: 110px;
+  }
+
+  .ma-category-grid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+}
+
+@media(max-width:650px) {
+  .ma-content {
+    padding: 13px;
+  }
+
+  .ma-title-row h1 {
+    font-size: 26px;
+  }
+
+  .ma-profile-main {
+    padding: 15px;
     gap: 12px;
   }
 
-  .am-category {
-    min-width: 0;
-    border: 1px solid #e3ebef;
-    border-radius: 12px;
-    padding: 16px;
-    background: #fbfdfc;
+  .ma-profile-avatar {
+    width: 66px;
+    height: 66px;
+    font-size: 25px;
   }
 
-  .am-category-head {
-    display: flex;
-    align-items: center;
-    gap: 11px;
+  .ma-profile-copy h2 {
+    font-size: 19px;
   }
 
-  .am-icon {
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-    background: #e5f6ed;
-    border-radius: 10px;
-    font-size: 20px;
+  .ma-profile-facts {
+    gap: 12px;
   }
 
-  .am-category-head > div {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .am-category-head > div strong,
-  .am-category-head > div small {
-    display: block;
-  }
-
-  .am-category-head > div strong {
-    font-size: 13px;
-  }
-
-  .am-category-head > div small {
-    margin-top: 5px;
-    font-size: 10px;
-    color: #8697a3;
-  }
-
-  .am-category-percent {
-    font-size: 15px;
-    color: #07855d;
-  }
-
-  .am-category-actual {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 9px;
-    margin: 17px 0 10px;
-  }
-
-  .am-category-actual strong {
-    font-size: 21px;
-    color: #087d5a;
-  }
-
-  .am-category-actual span {
-    color: #8295a0;
-    font-size: 11px;
-  }
-
-  .am-progress {
-    width: 100%;
-    height: 9px;
-    background: #e2ece8;
-    border-radius: 20px;
-    overflow: hidden;
-  }
-
-  .am-progress span {
-    display: block;
-    height: 100%;
-    background: linear-gradient(
-      90deg,#2dc491,#0a9268
-    );
-    border-radius: inherit;
-  }
-
-  .am-category-footer {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 7px;
-    margin-top: 13px;
-    font-size: 10px;
-    color: #788e9b;
-  }
-
-  .am-note {
-    margin: 14px 0 0;
-    color: #8295a0;
-    font-size: 11px;
-    line-height: 1.8;
-  }
-
-  .am-two-columns {
-    display: grid;
-    grid-template-columns: 1.15fr .85fr;
-    gap: 15px;
-    align-items: start;
-  }
-
-  .am-chart-scroll {
-    width: 100%;
-    overflow-x: auto;
-    padding-bottom: 9px;
-  }
-
-  .am-chart {
-    display: flex;
-    align-items: stretch;
-    gap: 7px;
-    min-width: max-content;
-    height: 220px;
-    border-bottom: 1px solid #dce6ea;
-  }
-
-  .am-chart-column {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    width: 29px;
-    gap: 7px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: #7e929d;
-  }
-
-  .am-chart-column strong,
-  .am-chart-column small {
-    font-size: 10px;
-  }
-
-  .am-bar-track {
-    display: flex;
-    align-items: flex-end;
-    width: 19px;
-    height: 155px;
-  }
-
-  .am-bar-track i {
-    display: block;
-    width: 100%;
-    background: #45c99e;
-    border-radius: 5px 5px 0 0;
-  }
-
-  .am-chart-column.selected .am-bar-track i {
-    background: #2485dd;
-  }
-
-  .am-chart-column.selected {
-    color: #126dbd;
-    font-weight: 900;
-  }
-
-  .am-chart-column.outside {
-    opacity: .36;
-  }
-
-  .am-chart-column.selected.outside {
-    opacity: .8;
-  }
-
-  .am-highlight {
-    font-size: 23px;
-    color: #08875e;
-  }
-
-  .am-activity-summary {
-    display: grid;
-    grid-template-columns: repeat(2,minmax(0,1fr));
-    gap: 10px;
-    margin-bottom: 16px;
-  }
-
-  .am-activity-summary > div {
+  .ma-card {
     padding: 13px;
-    border-radius: 10px;
-    background: #f3faf6;
   }
 
-  .am-activity-summary strong {
-    display: block;
-    font-size: 24px;
-    color: #087f59;
+  .ma-week-overview {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+    gap: 8px;
+    padding: 10px;
   }
 
-  .am-activity-summary span {
-    display: block;
-    margin-top: 6px;
-    color: #82939e;
-    font-size: 10px;
+  .ma-week-heading {
+    grid-column: 1 / -1;
   }
 
-  .am-week-grid {
-    display: grid;
-    grid-template-columns: repeat(5,minmax(0,1fr));
-    gap: 7px;
+  .ma-donut {
+    grid-column: 1 / -1;
+    margin: 8px auto;
   }
 
-  .am-week {
-    padding: 11px 3px;
-    border: 1px solid #e1e9ed;
-    background: #f4f7f9;
-    color: #61798a;
-    border-radius: 8px;
-    font-size: 11px;
-    font-weight: 800;
+  .ma-summary-card {
+    padding: 10px 5px;
+    gap: 4px;
+    min-height: 95px;
   }
 
-  .am-week.has-data {
-    background: #daf5e8;
-    color: #087e59;
-    border-color: #b6e7d0;
+  .ma-summary-icon {
+    font-size: 16px;
   }
 
-  .am-week.outside {
-    opacity: .38;
+  .ma-summary-card > div strong {
+    font-size: 22px;
   }
 
-  .am-week.selected {
-    background: #0a8b62;
-    border-color: #0a8b62;
-    color: white;
-    opacity: 1;
+  .ma-summary-card > div span {
+    font-size: 9px;
   }
 
-  .am-legend {
-    display: flex;
+  .ma-category-grid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 8px;
+  }
+
+  .ma-category {
+    padding: 11px;
+  }
+
+  .ma-category-title {
     flex-wrap: wrap;
-    gap: 13px;
-    margin-top: 14px;
-    color: #8193a0;
-    font-size: 10px;
   }
 
-  .am-legend span {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .ma-week-control {
+    width: 100%;
   }
 
-  .am-legend .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
-    display: inline-block;
+  .ma-week-control select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
   }
 
-  .am-legend .dot.has-data {
-    background: #19a675;
+  .ma-account {
+    max-width: 150px;
   }
 
-  .am-legend .dot.empty {
-    background: #dce6e9;
+  .ma-account > div {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media(max-width:390px) {
+  .ma-category-grid {
+    grid-template-columns: 1fr;
   }
 
-  .am-legend .dot.outside {
-    background: #b3c0cb;
-    opacity: .5;
-  }
-
-  .am-access-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+  .ma-profile-main {
     flex-wrap: wrap;
-    gap: 17px;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 9mm;
   }
 
-  .am-access-card > div:first-child {
-    max-width: 560px;
+  .ma-topbar,
+  .ma-toolbar,
+  .ma-week-control,
+  .ma-bottom-actions {
+    display: none !important;
   }
 
-  .am-footer {
-    padding: 20px 0;
-    color: #899ca6;
-    text-align: center;
-    font-size: 11px;
+  .ma-content {
+    max-width: none;
+    padding: 0;
   }
 
-  .am-presentation .am-header,
-  .am-presentation .am-tabs {
-    display: none;
+  .ma-card,
+  .ma-profile {
+    box-shadow: none;
+    break-inside: avoid;
   }
 
-  .am-presentation .am-container {
-    max-width: 1900px;
+  .ma-app {
+    background: white;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
-
-  @media(max-width:1100px) {
-    .am-two-columns {
-      grid-template-columns: 1fr;
-    }
-
-    .am-category-grid {
-      grid-template-columns: repeat(2,minmax(0,1fr));
-    }
-  }
-
-  @media(max-width:700px) {
-    .am-header {
-      padding: 13px;
-    }
-
-    .am-brand {
-      font-size: 19px;
-    }
-
-    .am-account {
-      gap: 8px;
-    }
-
-    .am-account strong {
-      font-size: 10px;
-    }
-
-    .am-account button {
-      padding: 9px;
-      font-size: 10px;
-    }
-
-    .am-container {
-      padding: 12px;
-    }
-
-    .am-hero {
-      padding: 19px;
-    }
-
-    .am-hero h1 {
-      font-size: 25px;
-    }
-
-    .am-person {
-      width: 100%;
-    }
-
-    .am-card {
-      padding: 15px;
-    }
-
-    .am-stats {
-      grid-template-columns: repeat(2,minmax(0,1fr));
-      gap: 8px;
-    }
-
-    .am-stat {
-      padding: 12px;
-    }
-
-    .am-stat strong {
-      font-size: 23px;
-    }
-
-    .am-category-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .am-week-overall {
-      text-align: left;
-    }
-
-    .am-section-head h2 {
-      font-size: 16px;
-    }
-
-    .am-week-grid {
-      gap: 5px;
-    }
-
-    .am-week {
-      padding: 10px 2px;
-      font-size: 10px;
-    }
-
-    .am-actions,
-    .am-access-actions {
-      width: 100%;
-    }
-
-    .am-actions button,
-    .am-access-actions button {
-      flex: 1;
-    }
-  }
-
-  @media print {
-    @page {
-      size: A4 landscape;
-      margin: 9mm;
-    }
-
-    .am-header,
-    .am-tabs,
-    .am-actions,
-    .am-week-control,
-    .am-access-card {
-      display: none !important;
-    }
-
-    .am-root {
-      background: white;
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-
-    .am-container {
-      max-width: none;
-      padding: 0;
-    }
-
-    .am-card {
-      box-shadow: none;
-      break-inside: avoid;
-    }
-
-    .am-hero {
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-  }
+}
 `;
