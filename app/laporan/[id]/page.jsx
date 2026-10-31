@@ -6,30 +6,78 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { useParams, useRouter } from "next/navigation";
+import {
+  useParams,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// =====================================================
+// ======================================================
 // OJT MINETRACK V2.0
-// RAPOR TERINTEGRASI — TEMPLATE 3
-// EARTH TONE PROFESSIONAL
+// RAPOR OJT TERINTEGRASI
+// TEMPLATE 3 — EARTH TONE PROFESSIONAL
 // A4 PORTRAIT | WEEK 01–25
-// =====================================================
+//
+// DIPERTAHANKAN:
+// - Akses Admin, Mentor, Peserta
+// - Query Supabase
+// - Rumus Achievement
+// - Rumus Post-Test dan Praktik
+// - Validasi SIMPER
+// - Kalender Global 25 Minggu
+//
+// TIDAK MENAMPILKAN SAMAPTA
+// ======================================================
 
 const TOTAL_WEEKS = 25;
 const POSITION = "Junior OJT";
 
 const TARGETS = [
-  { key: "Fisik", label: "Fisik", target: 25, unit: "km" },
-  { key: "Training", label: "Internal Training", target: 4, unit: "kegiatan" },
-  { key: "Sosialisasi", label: "Sosialisasi", target: 3, unit: "kegiatan" },
-  { key: "Orientasi Area", label: "Orientasi Area", target: 2, unit: "kegiatan" },
-  { key: "Coaching", label: "Coaching", target: 1, unit: "kegiatan" },
-  { key: "Hazard", label: "Hazard", target: 2, unit: "kegiatan" },
+  {
+    key: "Fisik",
+    label: "Fisik",
+    target: 25,
+    unit: "km",
+  },
+  {
+    key: "Training",
+    label: "Internal Training",
+    target: 4,
+    unit: "kegiatan",
+  },
+  {
+    key: "Sosialisasi",
+    label: "Sosialisasi",
+    target: 3,
+    unit: "kegiatan",
+  },
+  {
+    key: "Orientasi Area",
+    label: "Orientasi Area",
+    target: 2,
+    unit: "kegiatan",
+  },
+  {
+    key: "Coaching",
+    label: "Coaching",
+    target: 1,
+    unit: "kegiatan",
+  },
+  {
+    key: "Hazard",
+    label: "Hazard",
+    target: 2,
+    unit: "kegiatan",
+  },
 ];
 
 const SIMPER_START = "[[SIMPER_V2]]";
 const SIMPER_END = "[[/SIMPER_V2]]";
+
+// ======================================================
+// HELPERS
+// ======================================================
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -46,9 +94,14 @@ function roleOf(value) {
 }
 
 function number(value) {
-  if (value === null || value === undefined || value === "") {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
     return null;
   }
+
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -56,6 +109,7 @@ function number(value) {
 function fmt(value, digits = 0) {
   const n = number(value);
   if (n === null) return "—";
+
   return n.toLocaleString("id-ID", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
@@ -91,6 +145,7 @@ function parseDate(value) {
 function addDays(value, count) {
   const date = parseDate(value);
   if (!date) return null;
+
   date.setUTCDate(date.getUTCDate() + count);
   return date.toISOString().slice(0, 10);
 }
@@ -116,27 +171,53 @@ function currentDate() {
   });
 }
 
+function todayISO() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Makassar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const item = (type) =>
+    parts.find((part) => part.type === type)?.value || "";
+
+  return `${item("year")}-${item("month")}-${item("day")}`;
+}
+
 function average(items) {
   if (!items.length) return 0;
-  return items.reduce((a, b) => a + b, 0) / items.length;
+
+  return items.reduce(
+    (sum, value) => sum + value,
+    0
+  ) / items.length;
 }
 
 function percent(realized, target) {
   if (!(target > 0)) return 0;
-  return Math.min(100, Math.max(0, (realized / target) * 100));
+
+  return Math.min(
+    100,
+    Math.max(0, (realized / target) * 100)
+  );
 }
 
 function gradeOf(score) {
-  if (score === null) return ["—", "BELUM ADA NILAI"];
+  if (score === null) {
+    return ["—", "BELUM ADA NILAI"];
+  }
+
   if (score >= 85) return ["A", "SANGAT BAIK"];
   if (score >= 75) return ["B", "BAIK"];
   if (score >= 60) return ["C", "CUKUP"];
+
   return ["D", "KURANG"];
 }
 
-// =====================================================
-// KALENDER GLOBAL — TIDAK BERUBAH
-// =====================================================
+// ======================================================
+// KALENDER GLOBAL
+// ======================================================
 
 const GLOBAL_WEEKS = Array.from(
   { length: TOTAL_WEEKS },
@@ -156,11 +237,14 @@ const GLOBAL_WEEKS = Array.from(
 
 function globalWeekOf(value) {
   const date = String(value ?? "").slice(0, 10);
+
   if (!parseDate(date)) return null;
 
   return (
     GLOBAL_WEEKS.find(
-      (week) => date >= week.start && date <= week.end
+      (week) =>
+        date >= week.start &&
+        date <= week.end
     )?.week ?? null
   );
 }
@@ -177,9 +261,16 @@ function weekLabel(week) {
 
 function programWeekRange(week, program) {
   const global = weekByNumber(week);
-  if (!global || !parseDate(program?.start_date)) return null;
 
-  const programStart = String(program.start_date).slice(0, 10);
+  if (
+    !global ||
+    !parseDate(program?.start_date)
+  ) {
+    return null;
+  }
+
+  const programStart =
+    String(program.start_date).slice(0, 10);
 
   const programEnd = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
@@ -195,53 +286,69 @@ function programWeekRange(week, program) {
       ? programEnd
       : global.end;
 
-  return start <= end ? { start, end } : null;
+  return start <= end
+    ? { start, end }
+    : null;
 }
 
 function defaultWeek(program) {
-  const today = new Date().toLocaleDateString("en-CA", {
-    timeZone: "Asia/Makassar",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  const today = todayISO();
 
-  const available = GLOBAL_WEEKS.filter((week) =>
-    programWeekRange(week.week, program)
+  const available = GLOBAL_WEEKS.filter(
+    (week) =>
+      programWeekRange(week.week, program)
   );
 
   if (!available.length) return 1;
 
   const active = available.find((week) => {
-    const range = programWeekRange(week.week, program);
-    return today >= range.start && today <= range.end;
+    const range = programWeekRange(
+      week.week,
+      program
+    );
+
+    return (
+      today >= range.start &&
+      today <= range.end
+    );
   });
 
   if (active) return active.week;
 
-  const next = available.find(
-    (week) => programWeekRange(week.week, program).start > today
-  );
+  const next = available.find((week) => {
+    const range = programWeekRange(
+      week.week,
+      program
+    );
+
+    return range.start > today;
+  });
 
   return next
     ? next.week
     : available[available.length - 1].week;
 }
 
-// =====================================================
-// SIMPER — PERHITUNGAN ASLI DIPERTAHANKAN
-// =====================================================
+// ======================================================
+// SIMPER
+// ======================================================
 
 function parseSimper(notes) {
   const text = String(notes ?? "");
+
   const start = text.lastIndexOf(SIMPER_START);
   const end = text.lastIndexOf(SIMPER_END);
 
-  if (start < 0 || end <= start) return null;
+  if (start < 0 || end <= start) {
+    return null;
+  }
 
   try {
     const meta = JSON.parse(
-      text.slice(start + SIMPER_START.length, end)
+      text.slice(
+        start + SIMPER_START.length,
+        end
+      )
     );
 
     return meta &&
@@ -264,7 +371,8 @@ function calculateSimper(record) {
     roleOf(record?.practice_status) === "passed";
 
   const orientasi =
-    roleOf(meta?.orientation_status) === "completed";
+    roleOf(meta?.orientation_status) ===
+    "completed";
 
   const completed = [
     kmkop,
@@ -277,24 +385,51 @@ function calculateSimper(record) {
     praktik,
     orientasi,
     completed,
-    percentage: [0, 33, 67, 100][completed],
+
+    percentage: [
+      0,
+      33,
+      67,
+      100,
+    ][completed],
+
     passed: completed === 3,
-    kmkopStatus: record?.theory_status || null,
-    practiceStatus: record?.practice_status || null,
-    orientationStatus: meta?.orientation_status || null,
+
+    kmkopStatus:
+      record?.theory_status || null,
+
+    practiceStatus:
+      record?.practice_status || null,
+
+    orientationStatus:
+      meta?.orientation_status || null,
+
     issuanceStatus:
-      roleOf(meta?.issuance_status) || "not_issued",
-    orientationDate: meta?.orientation_date || null,
-    issuanceDate: record?.graduation_date || null,
-    issuanceNumber: meta?.issuance_number || "",
+      roleOf(meta?.issuance_status) ||
+      "not_issued",
+
+    orientationDate:
+      meta?.orientation_date || null,
+
+    issuanceDate:
+      record?.graduation_date || null,
+
+    issuanceNumber:
+      meta?.issuance_number || "",
+
     kmkopValidation:
       meta?.theory_validation_status ??
       meta?.kmkop_validation_status ??
       null,
+
     practiceValidation:
-      meta?.practice_validation_status ?? null,
+      meta?.practice_validation_status ??
+      null,
+
     legacy:
-      !!record && !meta && record.status === "passed",
+      !!record &&
+      !meta &&
+      record.status === "passed",
   };
 }
 
@@ -304,12 +439,14 @@ function simperStatus(status, type) {
   if (type === "orientation") {
     if (value === "completed") return "SELESAI";
     if (value === "scheduled") return "DIJADWALKAN";
+
     if (
       value === "in_progress" ||
       value === "ongoing"
     ) {
       return "DALAM PROSES";
     }
+
     return "BELUM SELESAI";
   }
 
@@ -323,8 +460,10 @@ function simperStatus(status, type) {
 
 function issuanceText(status) {
   const value = roleOf(status);
+
   if (value === "issued") return "TERBIT";
   if (value === "processing") return "DALAM PROSES";
+
   return "BELUM TERBIT";
 }
 
@@ -340,17 +479,25 @@ function validationText(status) {
   const value = roleOf(status);
 
   if (
-    ["validated", "verified", "approved", "completed"]
-      .includes(value)
+    [
+      "validated",
+      "verified",
+      "approved",
+      "completed",
+    ].includes(value)
   ) {
     return "TERVALIDASI";
   }
 
-  if (["pending", "waiting"].includes(value)) {
+  if (
+    ["pending", "waiting"].includes(value)
+  ) {
     return "MENUNGGU";
   }
 
-  if (["rejected", "failed"].includes(value)) {
+  if (
+    ["rejected", "failed"].includes(value)
+  ) {
     return "BELUM TERVALIDASI";
   }
 
@@ -359,9 +506,9 @@ function validationText(status) {
     .toUpperCase();
 }
 
-// =====================================================
-// AKSES — ASLI DIPERTAHANKAN
-// =====================================================
+// ======================================================
+// VERIFIKASI AKSES
+// ======================================================
 
 async function verifyAccess(programId) {
   const {
@@ -384,16 +531,22 @@ async function verifyAccess(programId) {
     .eq("id", user.id)
     .maybeSingle();
 
-  if (profileError) throw profileError;
+  if (profileError) {
+    throw profileError;
+  }
 
   if (!profile) {
-    throw new Error("Profil akun tidak ditemukan.");
+    throw new Error(
+      "Profil akun tidak ditemukan."
+    );
   }
 
   const role = roleOf(profile.role);
 
-  const isParticipant =
-    ["participant", "peserta"].includes(role);
+  const isParticipant = [
+    "participant",
+    "peserta",
+  ].includes(role);
 
   if (
     !isParticipant &&
@@ -433,7 +586,9 @@ async function verifyAccess(programId) {
     error: programError,
   } = await query.maybeSingle();
 
-  if (programError) throw programError;
+  if (programError) {
+    throw programError;
+  }
 
   if (!program) {
     throw new Error(
@@ -442,31 +597,41 @@ async function verifyAccess(programId) {
   }
 
   if (!parseDate(program.start_date)) {
-    throw new Error("Tanggal mulai OJT tidak valid.");
+    throw new Error(
+      "Tanggal mulai OJT tidak valid."
+    );
   }
 
   if (isParticipant) {
-    const [request, registration] =
-      await Promise.all([
-        supabase
-          .from("ojt_registration_requests")
-          .select("status")
-          .eq("participant_id", user.id),
+    const [
+      request,
+      registration,
+    ] = await Promise.all([
+      supabase
+        .from("ojt_registration_requests")
+        .select("status")
+        .eq("participant_id", user.id),
 
-        supabase
-          .from("participant_registrations")
-          .select("status")
-          .eq("user_id", user.id),
-      ]);
+      supabase
+        .from("participant_registrations")
+        .select("status")
+        .eq("user_id", user.id),
+    ]);
 
-    if (request.error) throw request.error;
-    if (registration.error) throw registration.error;
+    if (request.error) {
+      throw request.error;
+    }
+
+    if (registration.error) {
+      throw registration.error;
+    }
 
     const approved = [
       ...(request.data || []),
       ...(registration.data || []),
     ].some(
-      (item) => roleOf(item.status) === "approved"
+      (item) =>
+        roleOf(item.status) === "approved"
     );
 
     if (
@@ -497,7 +662,8 @@ async function verifyAccess(programId) {
     role === "mentor" &&
     profile.id === program.mentor_id
   ) {
-    mentorName = profile.full_name || "";
+    mentorName =
+      profile.full_name || "";
   }
 
   return {
@@ -508,9 +674,9 @@ async function verifyAccess(programId) {
   };
 }
 
-// =====================================================
-// DATABASE — QUERY ASLI DIPERTAHANKAN
-// =====================================================
+// ======================================================
+// DATABASE RAPOR
+// ======================================================
 
 async function fetchReportData(programId) {
   const results = await Promise.all([
@@ -527,7 +693,9 @@ async function fetchReportData(programId) {
 
     supabase
       .from("post_test_scores")
-      .select("id,test_date,score,notes")
+      .select(
+        "id,test_date,score,notes"
+      )
       .eq("program_id", programId),
 
     supabase
@@ -557,7 +725,11 @@ async function fetchReportData(programId) {
     "SIMPER",
   ];
 
-  for (let index = 0; index < results.length; index++) {
+  for (
+    let index = 0;
+    index < results.length;
+    index++
+  ) {
     if (results[index].error) {
       throw new Error(
         `${labels[index]}: ${results[index].error.message}`
@@ -574,30 +746,21 @@ async function fetchReportData(programId) {
   };
 }
 
-// =====================================================
-// KOMPONEN TAMPILAN
-// =====================================================
+// ======================================================
+// KOMPONEN
+// ======================================================
 
 function Icon({ name, size = 18 }) {
   const paths = {
-    report: (
-      <>
-        <rect x="5" y="3" width="14" height="18" rx="2" />
-        <path d="M9 8h6M9 12h6M9 16h4" />
-      </>
-    ),
-    calendar: (
-      <>
-        <rect x="3" y="5" width="18" height="16" rx="2" />
-        <path d="M7 3v4M17 3v4M3 10h18" />
-      </>
-    ),
-    check: <path d="m4 12 5 5L20 6" />,
     print: (
       <>
-        <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-        <path d="M6 14h12v7H6zM18 12h.01" />
+        <path d="M6 9V3h12v6" />
+        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+        <path d="M6 14h12v7H6z" />
       </>
+    ),
+    back: (
+      <path d="M19 12H5m6-6-6 6 6 6" />
     ),
     refresh: (
       <>
@@ -605,17 +768,10 @@ function Icon({ name, size = 18 }) {
         <path d="M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />
       </>
     ),
-    back: <path d="M19 12H5m6-6-6 6 6 6" />,
     shield: (
       <>
         <path d="m12 2 9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z" />
         <path d="m8 12 3 3 5-6" />
-      </>
-    ),
-    info: (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 11v5M12 8h.01" />
       </>
     ),
   };
@@ -632,20 +788,16 @@ function Icon({ name, size = 18 }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {paths[name] || paths.report}
+      {paths[name] || paths.shield}
     </svg>
   );
 }
 
-function SectionTitle({ number, children }) {
+function SectionTitle({ number, title }) {
   return (
-    <div className="report-section-title">
-      {number && (
-        <span className="report-section-number">
-          {number}
-        </span>
-      )}
-      <strong>{children}</strong>
+    <div className="r3-section-title">
+      <span>{number}</span>
+      <strong>{title}</strong>
     </div>
   );
 }
@@ -653,7 +805,7 @@ function SectionTitle({ number, children }) {
 function WeekSelect({ weeks, value, onChange }) {
   return (
     <select
-      className="report-select"
+      className="r3-select"
       value={value}
       onChange={(event) =>
         onChange(Number(event.target.value))
@@ -665,7 +817,8 @@ function WeekSelect({ weeks, value, onChange }) {
           value={week.week}
         >
           {weekLabel(week.week)} ·{" "}
-          {dateText(week.start)} –{" "}
+          {dateText(week.start)}
+          {" – "}
           {dateText(week.end)}
         </option>
       ))}
@@ -673,9 +826,21 @@ function WeekSelect({ weeks, value, onChange }) {
   );
 }
 
+function orderByDate(items, field) {
+  return [...items].sort(
+    (a, b) =>
+      String(a[field] ?? "").localeCompare(
+        String(b[field] ?? "")
+      ) ||
+      String(a.id ?? "").localeCompare(
+        String(b.id ?? "")
+      )
+  );
+}
+
 function WeeklyTable({ weeks }) {
   return (
-    <table className="report-week-table">
+    <table className="r3-week-table">
       <thead>
         <tr>
           <th>WEEK</th>
@@ -687,30 +852,33 @@ function WeeklyTable({ weeks }) {
 
       <tbody>
         {weeks.map((week) => {
-          const theory = [...week.theory].sort(
-            (a, b) =>
-              String(a.test_date).localeCompare(
-                String(b.test_date)
-              ) ||
-              String(a.id).localeCompare(String(b.id))
+          const theory = orderByDate(
+            week.theory,
+            "test_date"
           );
 
-          const practices = [...week.practices].sort(
-            (a, b) =>
-              String(a.practice_date).localeCompare(
-                String(b.practice_date)
-              ) ||
-              String(a.id).localeCompare(String(b.id))
+          const practices = orderByDate(
+            week.practices,
+            "practice_date"
           );
 
           return (
             <tr key={week.week}>
-              <td className="report-week-label">
+              <td className="r3-week-number">
                 W{pad(week.week)}
               </td>
-              <td>{fmt(theory[0]?.score, 2)}</td>
-              <td>{fmt(theory[1]?.score, 2)}</td>
-              <td>{fmt(practices[0]?.score, 2)}</td>
+
+              <td>
+                {fmt(theory[0]?.score, 2)}
+              </td>
+
+              <td>
+                {fmt(theory[1]?.score, 2)}
+              </td>
+
+              <td>
+                {fmt(practices[0]?.score, 2)}
+              </td>
             </tr>
           );
         })}
@@ -726,35 +894,42 @@ function SimperBox({
   detail,
 }) {
   return (
-    <div className="report-simper-box">
+    <div className="r3-simper-item">
       <strong>{label}</strong>
+
       <span
         className={
           positive
-            ? "report-simper-good"
-            : "report-simper-wait"
+            ? "r3-positive"
+            : "r3-warning"
         }
       >
         {status}
       </span>
+
       <small>{detail}</small>
     </div>
   );
 }
 
-// =====================================================
-// HALAMAN UTAMA
-// =====================================================
+// ======================================================
+// HALAMAN RAPOR
+// ======================================================
 
 export default function RaporOJTPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const programId = Array.isArray(params?.id)
     ? params.id[0]
     : params?.id;
 
+  const urlWeekFrom = searchParams.get("weekFrom");
+  const urlWeekTo = searchParams.get("weekTo");
+
   const [data, setData] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -767,7 +942,7 @@ export default function RaporOJTPage() {
   const [preview, setPreview] = useState(true);
 
   // ===================================================
-  // LOAD DATA + PARAMETER PUSAT RAPOR
+  // MEMUAT DATA
   // ===================================================
 
   useEffect(() => {
@@ -785,7 +960,9 @@ export default function RaporOJTPage() {
       setData(null);
 
       try {
-        const access = await verifyAccess(programId);
+        const access = await verifyAccess(
+          programId
+        );
 
         if (!active) return;
 
@@ -794,7 +971,9 @@ export default function RaporOJTPage() {
           return;
         }
 
-        const records = await fetchReportData(programId);
+        const records = await fetchReportData(
+          programId
+        );
 
         if (!active) return;
 
@@ -803,31 +982,25 @@ export default function RaporOJTPage() {
           ...records,
         });
 
-        const available = GLOBAL_WEEKS.filter(
-          (week) =>
+        const available = GLOBAL_WEEKS
+          .filter((week) =>
             programWeekRange(
               week.week,
               access.program
             )
-        ).map((week) => week.week);
+          )
+          .map((week) => week.week);
 
-        const initial = defaultWeek(access.program);
-
-        const params = new URLSearchParams(
-          window.location.search
+        const initial = defaultWeek(
+          access.program
         );
 
-        const urlFrom = Number(
-          params.get("weekFrom")
-        );
-
-        const urlTo = Number(
-          params.get("weekTo")
-        );
+        const urlFrom = Number(urlWeekFrom);
+        const urlTo = Number(urlWeekTo);
 
         const validRange =
-          params.has("weekFrom") &&
-          params.has("weekTo") &&
+          urlWeekFrom !== null &&
+          urlWeekTo !== null &&
           Number.isInteger(urlFrom) &&
           Number.isInteger(urlTo) &&
           urlFrom >= 1 &&
@@ -867,11 +1040,13 @@ export default function RaporOJTPage() {
         if (active) {
           setError(
             err?.message ||
-              "Gagal memuat Rapor OJT."
+            "Gagal memuat Rapor OJT."
           );
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
@@ -880,16 +1055,29 @@ export default function RaporOJTPage() {
     return () => {
       active = false;
     };
-  }, [programId, router]);
+  }, [
+    programId,
+    router,
+    urlWeekFrom,
+    urlWeekTo,
+  ]);
 
   async function refresh() {
-    if (refreshing || !programId || !data) return;
+    if (
+      refreshing ||
+      !programId ||
+      !data
+    ) {
+      return;
+    }
 
     setRefreshing(true);
     setError("");
 
     try {
-      const access = await verifyAccess(programId);
+      const access = await verifyAccess(
+        programId
+      );
 
       if (access.redirect) {
         setData(null);
@@ -903,7 +1091,9 @@ export default function RaporOJTPage() {
         );
       }
 
-      const records = await fetchReportData(programId);
+      const records = await fetchReportData(
+        programId
+      );
 
       setData({
         ...access,
@@ -912,29 +1102,34 @@ export default function RaporOJTPage() {
     } catch (err) {
       setError(
         err?.message ||
-          "Gagal memperbarui Rapor."
+        "Gagal memperbarui Rapor."
       );
     } finally {
       setRefreshing(false);
     }
   }
 
+  // ===================================================
+  // PEMILIHAN MINGGU
+  // ===================================================
+
   const availableWeeks = useMemo(() => {
     if (!data?.program) return [];
 
-    return GLOBAL_WEEKS.filter(
-      (week) =>
-        programWeekRange(
-          week.week,
-          data.program
-        )
+    return GLOBAL_WEEKS.filter((week) =>
+      programWeekRange(
+        week.week,
+        data.program
+      )
     );
   }, [data]);
 
   const availableSet = useMemo(
     () =>
       new Set(
-        availableWeeks.map((week) => week.week)
+        availableWeeks.map(
+          (week) => week.week
+        )
       ),
     [availableWeeks]
   );
@@ -975,18 +1170,41 @@ export default function RaporOJTPage() {
   function toggleCustomWeek(week) {
     setCustomWeeks((old) =>
       old.includes(week)
-        ? old.filter((value) => value !== week)
+        ? old.filter(
+            (value) => value !== week
+          )
         : [...old, week]
     );
   }
 
   function changeFromWeek(week) {
     setFromWeek(week);
-    if (toWeek < week) setToWeek(week);
+
+    if (toWeek < week) {
+      setToWeek(week);
+    }
+  }
+
+  function quickSelect(count) {
+    const available = availableWeeks
+      .map((week) => week.week)
+      .filter(
+        (week) =>
+          week >= 1 &&
+          week <= count
+      );
+
+    if (!available.length) return;
+
+    setMode("range");
+    setFromWeek(available[0]);
+    setToWeek(
+      available[available.length - 1]
+    );
   }
 
   // ===================================================
-  // PERHITUNGAN ASLI — TIDAK DIUBAH
+  // PERHITUNGAN PENILAIAN — RUMUS LAMA
   // ===================================================
 
   const report = useMemo(() => {
@@ -995,8 +1213,15 @@ export default function RaporOJTPage() {
     const typeMap = new Map();
 
     data.types.forEach((type) => {
-      typeMap.set(norm(type.code), type.code);
-      typeMap.set(norm(type.name), type.code);
+      typeMap.set(
+        norm(type.code),
+        type.code
+      );
+
+      typeMap.set(
+        norm(type.name),
+        type.code
+      );
     });
 
     function findType(key) {
@@ -1006,6 +1231,7 @@ export default function RaporOJTPage() {
           typeMap.get("internaltraining")
         );
       }
+
       return typeMap.get(norm(key));
     }
 
@@ -1014,13 +1240,16 @@ export default function RaporOJTPage() {
         const achievementRecords =
           data.achievements.filter(
             (item) =>
-              globalWeekOf(item.activity_date) ===
-              weekNumber
+              globalWeekOf(
+                item.activity_date
+              ) === weekNumber
           );
 
         const competencies = TARGETS.map(
           (target) => {
-            const code = findType(target.key);
+            const code = findType(
+              target.key
+            );
 
             const matching = code
               ? achievementRecords.filter(
@@ -1029,36 +1258,46 @@ export default function RaporOJTPage() {
                 )
               : [];
 
-            const verified = matching.filter(
-              (item) =>
-                roleOf(item.status) ===
-                "verified"
-            );
+            const verified =
+              matching.filter(
+                (item) =>
+                  roleOf(
+                    item.status
+                  ) === "verified"
+              );
 
             let realized = 0;
 
-            if (target.key === "Fisik") {
+            if (
+              target.key === "Fisik"
+            ) {
               realized =
                 verified.reduce(
                   (sum, item) =>
                     sum +
                     Math.round(
-                      (number(item.distance_km) ?? 0) *
-                        1000
+                      (
+                        number(
+                          item.distance_km
+                        ) ?? 0
+                      ) * 1000
                     ),
                   0
                 ) / 1000;
             } else {
-              realized = verified.length;
+              realized =
+                verified.length;
             }
 
             return {
               ...target,
               realized,
+
               percentage: percent(
                 realized,
                 target.target
               ),
+
               achieved:
                 realized >= target.target,
             };
@@ -1068,121 +1307,169 @@ export default function RaporOJTPage() {
         return {
           week: weekNumber,
           competencies,
+
           theory: data.theory.filter(
             (item) =>
-              globalWeekOf(item.test_date) ===
-              weekNumber
+              globalWeekOf(
+                item.test_date
+              ) === weekNumber
           ),
-          practices: data.practices.filter(
-            (item) =>
-              globalWeekOf(item.practice_date) ===
-              weekNumber
-          ),
+
+          practices:
+            data.practices.filter(
+              (item) =>
+                globalWeekOf(
+                  item.practice_date
+                ) === weekNumber
+            ),
         };
       }
     );
 
-    const summary = TARGETS.map((target) => {
-      const entries = weekly
-        .map((week) =>
-          week.competencies.find(
-            (item) => item.key === target.key
+    const summary = TARGETS.map(
+      (target) => {
+        const entries = weekly
+          .map((week) =>
+            week.competencies.find(
+              (item) =>
+                item.key === target.key
+            )
           )
-        )
-        .filter(Boolean);
+          .filter(Boolean);
 
-      let realized;
+        let realized;
 
-      if (target.key === "Fisik") {
-        realized =
-          entries.reduce(
+        if (
+          target.key === "Fisik"
+        ) {
+          realized =
+            entries.reduce(
+              (sum, item) =>
+                sum +
+                Math.round(
+                  item.realized * 1000
+                ),
+              0
+            ) / 1000;
+        } else {
+          realized = entries.reduce(
             (sum, item) =>
-              sum +
-              Math.round(
-                item.realized * 1000
-              ),
+              sum + item.realized,
             0
-          ) / 1000;
-      } else {
-        realized = entries.reduce(
-          (sum, item) =>
-            sum + item.realized,
-          0
-        );
-      }
+          );
+        }
 
-      return {
-        ...target,
-        realized,
-        totalTarget:
-          target.target * selectedWeeks.length,
-        percentage: average(
-          entries.map(
-            (item) => item.percentage
-          )
-        ),
-        achieved:
-          entries.length > 0 &&
-          entries.every(
-            (item) => item.achieved
+        return {
+          ...target,
+          realized,
+
+          totalTarget:
+            target.target *
+            selectedWeeks.length,
+
+          percentage: average(
+            entries.map(
+              (item) =>
+                item.percentage
+            )
           ),
-      };
-    });
 
-    const allTheory = weekly.flatMap(
-      (week) => week.theory
+          achieved:
+            entries.length > 0 &&
+            entries.every(
+              (item) =>
+                item.achieved
+            ),
+        };
+      }
     );
 
-    const allPractices = weekly.flatMap(
-      (week) => week.practices
-    );
+    const allTheory =
+      weekly.flatMap(
+        (week) =>
+          week.theory
+      );
+
+    const allPractices =
+      weekly.flatMap(
+        (week) =>
+          week.practices
+      );
 
     const scores = [
       ...allTheory,
       ...allPractices,
     ]
-      .map((item) => number(item.score))
-      .filter((item) => item !== null);
-
-    const totalScore = scores.reduce(
-      (sum, item) => sum + item,
-      0
-    );
-
-    const avgScore = scores.length
-      ? totalScore / scores.length
-      : null;
-
-    const competencyAverage = average(
-      summary.map(
-        (item) => item.percentage
+      .map(
+        (item) =>
+          number(item.score)
       )
-    );
+      .filter(
+        (item) =>
+          item !== null
+      );
+
+    const totalScore =
+      scores.reduce(
+        (sum, item) =>
+          sum + item,
+        0
+      );
+
+    const avgScore =
+      scores.length
+        ? totalScore /
+          scores.length
+        : null;
+
+    const competencyAverage =
+      average(
+        summary.map(
+          (item) =>
+            item.percentage
+        )
+      );
 
     return {
       weekly,
       summary,
       allTheory,
       allPractices,
-      scoreCount: scores.length,
+
+      scoreCount:
+        scores.length,
+
       totalScore,
       avgScore,
-      grade: gradeOf(avgScore),
+
+      grade:
+        gradeOf(avgScore),
+
       competencyAverage,
-      incomplete: summary.filter(
-        (item) => !item.achieved
-      ),
-      simper: calculateSimper(data.simper),
+
+      incomplete:
+        summary.filter(
+          (item) =>
+            !item.achieved
+        ),
+
+      simper:
+        calculateSimper(
+          data.simper
+        ),
     };
-  }, [data, selectedWeeks]);
+  }, [
+    data,
+    selectedWeeks,
+  ]);
 
   // ===================================================
-  // LOADING & ERROR
+  // LOADING
   // ===================================================
 
   if (loading) {
     return (
-      <main className="report-loading">
+      <main className="r3-loading">
         Memuat Rapor OJT...
       </main>
     );
@@ -1190,16 +1477,18 @@ export default function RaporOJTPage() {
 
   if (!data || !report) {
     return (
-      <main className="report-loading">
+      <main className="r3-loading">
         <h2>
           Rapor Tidak Dapat Ditampilkan
         </h2>
 
         <p>
-          {error || "Data tidak tersedia."}
+          {error ||
+            "Data tidak tersedia."}
         </p>
 
         <button
+          type="button"
           onClick={() => router.back()}
         >
           Kembali
@@ -1214,75 +1503,100 @@ export default function RaporOJTPage() {
     mentorName,
   } = data;
 
-  const participant = Array.isArray(
-    program.peserta
-  )
-    ? program.peserta[0]
-    : program.peserta;
+  const participant =
+    Array.isArray(
+      program.peserta
+    )
+      ? program.peserta[0]
+      : program.peserta;
 
   const participantName =
     participant?.full_name?.trim() ||
     "Peserta OJT";
 
-  const site = program.site || "—";
-
   const department =
-    participant?.department || "—";
+    participant?.department ||
+    "—";
 
-  const accountRole = roleOf(
-    profile.role
-  );
+  const site =
+    program.site || "—";
 
-  const isManager = [
-    "admin",
-    "mentor",
-  ].includes(accountRole);
+  const accountRole =
+    roleOf(profile.role);
+
+  const isManager =
+    ["admin", "mentor"].includes(
+      accountRole
+    );
 
   const selectedLabel =
-    selectedWeeks.length === 1
-      ? weekLabel(selectedWeeks[0])
-      : selectedWeeks.length
-        ? `Week ${pad(selectedWeeks[0])} – ${pad(
-            selectedWeeks[selectedWeeks.length - 1]
-          )}`
-        : "Belum dipilih";
+    selectedWeeks.length === 0
+      ? "Belum dipilih"
+      : selectedWeeks.length === 1
+      ? weekLabel(
+          selectedWeeks[0]
+        )
+      : `Week ${pad(
+          selectedWeeks[0]
+        )} – ${pad(
+          selectedWeeks[
+            selectedWeeks.length - 1
+          ]
+        )}`;
 
-  const ranges = selectedWeeks.map(
-    (week) => {
-      const global = weekByNumber(week);
+  const ranges =
+    selectedWeeks.map(
+      (week) => {
+        const global =
+          weekByNumber(week);
 
-      const participantRange =
-        programWeekRange(week, program);
+        const participantRange =
+          programWeekRange(
+            week,
+            program
+          );
 
-      return {
-        week,
-        start:
-          participantRange?.start ||
-          global?.start,
-        end:
-          participantRange?.end ||
-          global?.end,
-      };
-    }
-  );
+        return {
+          week,
 
-  const periodStart = ranges[0]?.start;
+          start:
+            participantRange?.start ||
+            global?.start,
+
+          end:
+            participantRange?.end ||
+            global?.end,
+        };
+      }
+    );
+
+  const periodStart =
+    ranges[0]?.start;
+
   const periodEnd =
-    ranges[ranges.length - 1]?.end;
+    ranges[
+      ranges.length - 1
+    ]?.end;
 
   const backPath = isManager
     ? `/peserta/${programId}`
     : "/dashboard-peserta";
 
-  const splitIndex = Math.ceil(
-    report.weekly.length / 2
-  );
+  const splitIndex =
+    Math.ceil(
+      report.weekly.length / 2
+    );
 
   const leftWeeks =
-    report.weekly.slice(0, splitIndex);
+    report.weekly.slice(
+      0,
+      splitIndex
+    );
 
   const rightWeeks =
-    report.weekly.slice(splitIndex);
+    report.weekly.slice(
+      splitIndex
+    );
 
   const targetTheory =
     selectedWeeks.length * 2;
@@ -1290,98 +1604,148 @@ export default function RaporOJTPage() {
   const targetPractice =
     selectedWeeks.length;
 
+  const fullReport =
+    selectedWeeks.length >= 20;
+
+  const densityClass =
+    fullReport
+      ? "r3-density-full"
+      : selectedWeeks.length >= 10
+      ? "r3-density-medium"
+      : "r3-density-short";
+
+  // ===================================================
+  // RENDER
+  // ===================================================
+
   return (
-    <main className="report-root">
+    <main className="r3-root">
       <style>{css}</style>
 
-      {/* NAVIGASI APLIKASI */}
+      {/* TOPBAR */}
 
-      <header className="report-topbar">
-        <div className="report-brand">
+      <header className="r3-topbar">
+        <div className="r3-brand">
           OJT <span>MineTrack</span>
           <small>v2.0</small>
         </div>
 
-        <div className="report-account">
+        <div className="r3-account">
           <small>
             {accountRole === "admin"
               ? "Administrator"
               : accountRole === "mentor"
-                ? "Mentor OJT"
-                : "Peserta OJT"}
+              ? "Mentor OJT"
+              : "Peserta OJT"}
           </small>
 
           <strong>
-            {profile.full_name || "Pengguna"}
+            {profile.full_name ||
+              "Pengguna"}
           </strong>
         </div>
 
         <button
           type="button"
-          onClick={() => router.push(backPath)}
-          className="report-back"
+          className="r3-back"
+          onClick={() =>
+            router.push(backPath)
+          }
         >
-          <Icon name="back" size={17} />
+          <Icon
+            name="back"
+            size={17}
+          />
           Kembali
         </button>
       </header>
 
-      <div className="report-container">
+      <div className="r3-container">
 
-        {/* PENGATURAN RAPOR */}
+        {/* PENGATURAN */}
 
-        <section className="report-controls">
-          <div className="report-control-head">
+        <section className="r3-controls">
+          <div className="r3-controls-heading">
             <div>
-              <span className="report-control-kicker">
+              <small>
                 OJT MINETRACK · REPORT GENERATOR
-              </span>
+              </small>
 
-              <h2>Pengaturan Rapor OJT</h2>
+              <h2>
+                Pengaturan Rapor OJT
+              </h2>
 
               <p>
-                Pilih periode penilaian dan cetak
-                dengan Template 3 Earth Tone Professional.
+                Pilih minggu penilaian.
+                Dokumen akan mengikuti format
+                A4 Portrait Template 3.
               </p>
             </div>
 
-            <span className="report-template-tag">
+            <span className="r3-template-tag">
               TEMPLATE 3 · A4 PORTRAIT
             </span>
           </div>
 
-          <div className="report-modes">
+          <div className="r3-modes">
             {[
-              ["single", "Satu Minggu"],
-              ["range", "Rentang Minggu"],
-              ["custom", "Minggu Tertentu"],
-            ].map(([key, label]) => (
-              <label
-                key={key}
-                className={
-                  mode === key ? "chosen" : ""
-                }
-              >
-                <input
-                  type="radio"
-                  name="reportMode"
-                  checked={mode === key}
-                  onChange={() => setMode(key)}
-                />
-                {label}
-              </label>
-            ))}
+              [
+                "single",
+                "Satu Minggu",
+              ],
+              [
+                "range",
+                "Rentang Minggu",
+              ],
+              [
+                "custom",
+                "Minggu Tertentu",
+              ],
+            ].map(
+              ([key, label]) => (
+                <label
+                  key={key}
+                  className={
+                    mode === key
+                      ? "chosen"
+                      : ""
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="reportMode"
+                    checked={
+                      mode === key
+                    }
+                    onChange={() =>
+                      setMode(key)
+                    }
+                  />
+
+                  {label}
+                </label>
+              )
+            )}
           </div>
 
           {mode === "single" &&
             availableWeeks.length > 0 && (
-              <div className="report-selectors">
+              <div className="r3-selectors">
                 <div>
-                  <label>Pilih Minggu</label>
+                  <label>
+                    Pilih Minggu
+                  </label>
+
                   <WeekSelect
-                    weeks={availableWeeks}
-                    value={singleWeek}
-                    onChange={setSingleWeek}
+                    weeks={
+                      availableWeeks
+                    }
+                    value={
+                      singleWeek
+                    }
+                    onChange={
+                      setSingleWeek
+                    }
                   />
                 </div>
               </div>
@@ -1389,121 +1753,169 @@ export default function RaporOJTPage() {
 
           {mode === "range" &&
             availableWeeks.length > 0 && (
-              <div className="report-selectors">
+              <div className="r3-selectors">
                 <div>
-                  <label>Dari Minggu</label>
+                  <label>
+                    Dari Minggu
+                  </label>
+
                   <WeekSelect
-                    weeks={availableWeeks}
-                    value={fromWeek}
-                    onChange={changeFromWeek}
+                    weeks={
+                      availableWeeks
+                    }
+                    value={
+                      fromWeek
+                    }
+                    onChange={
+                      changeFromWeek
+                    }
                   />
                 </div>
 
                 <div>
-                  <label>Sampai Minggu</label>
+                  <label>
+                    Sampai Minggu
+                  </label>
+
                   <WeekSelect
-                    weeks={availableWeeks.filter(
-                      (week) =>
-                        week.week >= fromWeek
-                    )}
-                    value={toWeek}
-                    onChange={setToWeek}
+                    weeks={
+                      availableWeeks.filter(
+                        (week) =>
+                          week.week >=
+                          fromWeek
+                      )
+                    }
+                    value={
+                      toWeek
+                    }
+                    onChange={
+                      setToWeek
+                    }
                   />
                 </div>
               </div>
             )}
 
           {mode === "custom" && (
-            <div className="report-week-picker">
-              {GLOBAL_WEEKS.map((week) => (
-                <button
-                  key={week.week}
-                  type="button"
-                  disabled={
-                    !availableSet.has(week.week)
-                  }
-                  className={
-                    customWeeks.includes(week.week)
-                      ? "selected"
-                      : ""
-                  }
-                  onClick={() =>
-                    toggleCustomWeek(week.week)
-                  }
-                >
-                  {pad(week.week)}
-                </button>
-              ))}
+            <div className="r3-week-picker">
+              {GLOBAL_WEEKS.map(
+                (week) => (
+                  <button
+                    type="button"
+                    key={
+                      week.week
+                    }
+                    disabled={
+                      !availableSet.has(
+                        week.week
+                      )
+                    }
+                    className={
+                      customWeeks.includes(
+                        week.week
+                      )
+                        ? "selected"
+                        : ""
+                    }
+                    onClick={() =>
+                      toggleCustomWeek(
+                        week.week
+                      )
+                    }
+                  >
+                    {pad(
+                      week.week
+                    )}
+                  </button>
+                )
+              )}
             </div>
           )}
 
-          <div className="report-selected">
+          <div className="r3-quick">
+            <span>
+              Pilihan cepat:
+            </span>
+
+            <button
+              type="button"
+              onClick={() =>
+                quickSelect(2)
+              }
+            >
+              2 Minggu
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                quickSelect(12)
+              }
+            >
+              12 Minggu
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                quickSelect(25)
+              }
+            >
+              25 Minggu
+            </button>
+          </div>
+
+          <div className="r3-selected">
             <strong>
-              {selectedWeeks.length} Minggu Dipilih
+              {
+                selectedWeeks.length
+              }{" "}
+              Minggu Dipilih
             </strong>
 
-            <span>{selectedLabel}</span>
+            <span>
+              {
+                selectedLabel
+              }
+            </span>
 
             {selectedWeeks.length > 0 && (
               <small>
-                {dateText(periodStart)}
+                {dateText(
+                  periodStart
+                )}
                 {" – "}
-                {dateText(periodEnd)}
+                {dateText(
+                  periodEnd
+                )}
               </small>
             )}
           </div>
 
-          <div className="report-quick-picks">
-            {[
-              [2, "2 Minggu"],
-              [12, "12 Minggu"],
-              [25, "25 Minggu"],
-            ].map(([count, label]) => (
-              <button
-                type="button"
-                key={count}
-                onClick={() => {
-                  const available = availableWeeks
-                    .map((week) => week.week)
-                    .filter(
-                      (week) =>
-                        week >= 1 &&
-                        week <= count
-                    );
-
-                  if (!available.length) return;
-
-                  setMode("range");
-                  setFromWeek(available[0]);
-                  setToWeek(
-                    available[
-                      available.length - 1
-                    ]
-                  );
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
           {error && (
             <div
-              className="report-error"
+              className="r3-error"
               role="alert"
             >
               {error}
             </div>
           )}
 
-          <div className="report-actions">
+          <div className="r3-actions">
             <button
               type="button"
               className="secondary"
-              onClick={refresh}
-              disabled={refreshing}
+              disabled={
+                refreshing
+              }
+              onClick={
+                refresh
+              }
             >
-              <Icon name="refresh" size={17} />
+              <Icon
+                name="refresh"
+              />
+
               {refreshing
                 ? "Memuat..."
                 : "Refresh Data"}
@@ -1513,7 +1925,9 @@ export default function RaporOJTPage() {
               type="button"
               className="secondary"
               onClick={() =>
-                setPreview((old) => !old)
+                setPreview(
+                  (old) => !old
+                )
               }
             >
               {preview
@@ -1528,112 +1942,176 @@ export default function RaporOJTPage() {
                 !selectedWeeks.length ||
                 refreshing
               }
-              onClick={() => window.print()}
+              onClick={() =>
+                window.print()
+              }
             >
-              <Icon name="print" size={18} />
+              <Icon
+                name="print"
+              />
+
               Cetak / Simpan PDF
             </button>
           </div>
         </section>
 
-        {/* DOKUMEN RAPOR */}
+        {/* DOKUMEN */}
 
         {selectedWeeks.length > 0 && (
           <article
             className={
-              "report-paper " +
+              `r3-paper ${densityClass} ` +
               (!preview
-                ? "report-preview-hidden"
+                ? "r3-preview-hidden"
                 : "")
             }
           >
             {/* HEADER */}
 
-            <header className="report-document-header">
-              <div className="report-header-top">
-                <div className="report-company">
+            <header className="r3-document-header">
+              <div className="r3-header-main">
+                <div className="r3-company">
                   <strong>
-                    BERAU<span>COAL</span>
+                    BERAU
+                    <span>
+                      COAL
+                    </span>
                   </strong>
-                  <small>PT BERAU COAL</small>
+
+                  <small>
+                    PT BERAU COAL
+                  </small>
                 </div>
 
-                <div className="report-document-title">
+                <div className="r3-title">
                   <small>
                     EMERGENCY RESPONSE GROUP
                   </small>
-                  <h1>RAPOR OJT</h1>
+
+                  <h1>
+                    RAPOR OJT
+                  </h1>
+
                   <p>
-                    ON THE JOB TRAINING · JUNIOR OJT
+                    ON THE JOB TRAINING
                   </p>
                 </div>
 
-                <div className="report-header-mark">
-                  <Icon name="shield" size={26} />
-                  <span>OJT</span>
+                <div className="r3-seal">
+                  <Icon
+                    name="shield"
+                    size={24}
+                  />
+                  <strong>
+                    OJT
+                  </strong>
                 </div>
               </div>
 
-              <div className="report-header-strip">
-                <span>MINETRACK V2.0</span>
-                <span>PERIODE {selectedLabel.toUpperCase()}</span>
-                <span>2026–2027</span>
+              <div className="r3-header-band">
+                <span>
+                  MINETRACK V2.0
+                </span>
+
+                <span>
+                  {
+                    selectedLabel.toUpperCase()
+                  }
+                </span>
+
+                <span>
+                  PROGRAM 2026–2027
+                </span>
               </div>
             </header>
 
             {/* IDENTITAS */}
 
-            <section className="report-identity-section">
-              <SectionTitle number="01">
-                DATA PESERTA
-              </SectionTitle>
+            <section className="r3-section">
+              <SectionTitle
+                number="01"
+                title="DATA PESERTA OJT"
+              />
 
-              <div className="report-identity-grid">
+              <div className="r3-identity">
                 <div>
-                  <span>Nama Peserta</span>
-                  <strong>{participantName}</strong>
-                </div>
-
-                <div>
-                  <span>Jabatan</span>
-                  <strong>{POSITION}</strong>
-                </div>
-
-                <div>
-                  <span>Departemen</span>
-                  <strong>{department}</strong>
-                </div>
-
-                <div>
-                  <span>Site Penempatan</span>
-                  <strong>{site}</strong>
-                </div>
-
-                <div>
-                  <span>Periode Program</span>
+                  <span>
+                    Nama Peserta
+                  </span>
                   <strong>
-                    {dateText(program.start_date)}
-                    {" – "}
-                    {dateText(program.end_date)}
+                    {
+                      participantName
+                    }
                   </strong>
                 </div>
 
                 <div>
-                  <span>Periode Rapor</span>
+                  <span>
+                    Jabatan
+                  </span>
                   <strong>
-                    {dateText(periodStart)}
+                    {POSITION}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Departemen
+                  </span>
+                  <strong>
+                    {department}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Site
+                  </span>
+                  <strong>
+                    {site}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Periode OJT
+                  </span>
+                  <strong>
+                    {dateText(
+                      program.start_date
+                    )}
                     {" – "}
-                    {dateText(periodEnd)}
+                    {dateText(
+                      program.end_date
+                    )}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Periode Rapor
+                  </span>
+                  <strong>
+                    {dateText(
+                      periodStart
+                    )}
+                    {" – "}
+                    {dateText(
+                      periodEnd
+                    )}
                   </strong>
                 </div>
               </div>
             </section>
 
-            {/* RINGKASAN NILAI */}
+            {/* KPI */}
 
-            <div className="report-summary-strip">
+            <div className="r3-kpis">
               <div>
-                <span>RATA-RATA KOMPETENSI</span>
+                <span>
+                  RATA-RATA KOMPETENSI
+                </span>
+
                 <strong>
                   {fmt(
                     report.competencyAverage,
@@ -1643,50 +2121,82 @@ export default function RaporOJTPage() {
               </div>
 
               <div>
-                <span>RATA-RATA NILAI</span>
+                <span>
+                  RATA-RATA NILAI
+                </span>
+
                 <strong>
-                  {fmt(report.avgScore, 2)}
+                  {fmt(
+                    report.avgScore,
+                    2
+                  )}
                 </strong>
               </div>
 
               <div>
-                <span>PREDIKAT</span>
+                <span>
+                  PREDIKAT
+                </span>
+
                 <strong>
                   {report.grade[0]}
                   {" · "}
-                  {report.grade[1]}
+                  {
+                    report.grade[1]
+                  }
                 </strong>
               </div>
             </div>
 
             {/* KOMPETENSI */}
 
-            <section className="report-section">
-              <SectionTitle number="02">
-                PENILAIAN KOMPETENSI UTAMA
-              </SectionTitle>
+            <section className="r3-section">
+              <SectionTitle
+                number="02"
+                title="PENILAIAN KOMPETENSI UTAMA"
+              />
 
-              <table className="report-competency-table">
+              <table className="r3-competency-table">
                 <thead>
                   <tr>
-                    <th>NO</th>
-                    <th>KOMPETENSI</th>
-                    <th>TARGET</th>
-                    <th>REALISASI</th>
-                    <th>CAPAIAN</th>
-                    <th>STATUS</th>
+                    <th>
+                      NO
+                    </th>
+                    <th>
+                      KOMPETENSI
+                    </th>
+                    <th>
+                      TARGET
+                    </th>
+                    <th>
+                      REALISASI
+                    </th>
+                    <th>
+                      CAPAIAN
+                    </th>
+                    <th>
+                      STATUS
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {report.summary.map(
                     (item, index) => (
-                      <tr key={item.key}>
-                        <td>{index + 1}</td>
+                      <tr
+                        key={
+                          item.key
+                        }
+                      >
+                        <td>
+                          {index + 1}
+                        </td>
 
                         <td>
                           <strong>
-                            {item.label}
+                            {
+                              item.label
+                            }
                           </strong>
                         </td>
 
@@ -1709,7 +2219,7 @@ export default function RaporOJTPage() {
                         </td>
 
                         <td>
-                          <div className="report-progress">
+                          <div className="r3-progress">
                             <div
                               style={{
                                 width:
@@ -1718,25 +2228,25 @@ export default function RaporOJTPage() {
                             />
                           </div>
 
-                          <span>
+                          <small>
                             {fmt(
                               item.percentage,
                               1
                             )}%
-                          </span>
+                          </small>
                         </td>
 
                         <td>
                           <span
                             className={
                               item.achieved
-                                ? "report-status good"
-                                : "report-status pending"
+                                ? "r3-achieved"
+                                : "r3-incomplete"
                             }
                           >
                             {item.achieved
                               ? "TERCAPAI"
-                              : "BELUM TERCAPAI"}
+                              : "BELUM"}
                           </span>
                         </td>
                       </tr>
@@ -1746,53 +2256,77 @@ export default function RaporOJTPage() {
               </table>
             </section>
 
-            {/* PENILAIAN MINGGUAN */}
+            {/* TABEL WEEK 01–25 */}
 
-            <section className="report-section">
-              <SectionTitle number="03">
-                PENILAIAN PEMBELAJARAN DAN PRAKTIK MINGGUAN
-              </SectionTitle>
+            <section className="r3-section">
+              <SectionTitle
+                number="03"
+                title="PENILAIAN PEMBELAJARAN & PRAKTIK MINGGUAN"
+              />
 
-              <div className="report-week-heading">
+              <div className="r3-week-heading">
                 <span>
-                  2 Post-Test + 1 Praktik per Minggu
+                  2 Post-Test dan 1 Praktik
+                  per minggu
                 </span>
 
                 <strong>
-                  {selectedWeeks.length} Minggu
+                  {
+                    selectedWeeks.length
+                  }{" "}
+                  Minggu
                 </strong>
               </div>
 
-              <div className="report-week-columns">
+              <div className="r3-week-grid">
                 <div>
-                  <WeeklyTable weeks={leftWeeks} />
+                  <WeeklyTable
+                    weeks={
+                      leftWeeks
+                    }
+                  />
                 </div>
 
                 <div>
-                  {rightWeeks.length > 0 ? (
-                    <WeeklyTable weeks={rightWeeks} />
+                  {rightWeeks.length ? (
+                    <WeeklyTable
+                      weeks={
+                        rightWeeks
+                      }
+                    />
                   ) : (
-                    <div className="report-week-empty">
-                      Ringkasan Penilaian
+                    <div className="r3-week-placeholder">
+                      Ringkasan
+                      Penilaian
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="report-week-footer">
+              <div className="r3-week-summary">
                 <span>
                   Post-Test:{" "}
                   <strong>
-                    {report.allTheory.length}
-                    /{targetTheory}
+                    {
+                      report.allTheory.length
+                    }
+                    /
+                    {
+                      targetTheory
+                    }
                   </strong>
                 </span>
 
                 <span>
                   Praktik:{" "}
                   <strong>
-                    {report.allPractices.length}
-                    /{targetPractice}
+                    {
+                      report.allPractices.length
+                    }
+                    /
+                    {
+                      targetPractice
+                    }
                   </strong>
                 </span>
 
@@ -1822,19 +2356,22 @@ export default function RaporOJTPage() {
 
             {/* SIMPER */}
 
-            <section className="report-section">
-              <SectionTitle number="04">
-                VALIDASI DAN STATUS SIMPER
-              </SectionTitle>
+            <section className="r3-section">
+              <SectionTitle
+                number="04"
+                title="VALIDASI DAN STATUS SIMPER"
+              />
 
-              <div className="report-simper-grid">
+              <div className="r3-simper-grid">
                 <SimperBox
                   label="KMKOP"
                   status={simperStatus(
                     report.simper.kmkopStatus,
                     "kmkop"
                   )}
-                  positive={report.simper.kmkop}
+                  positive={
+                    report.simper.kmkop
+                  }
                   detail={validationText(
                     report.simper.kmkopValidation
                   )}
@@ -1846,7 +2383,9 @@ export default function RaporOJTPage() {
                     report.simper.practiceStatus,
                     "practice"
                   )}
-                  positive={report.simper.praktik}
+                  positive={
+                    report.simper.praktik
+                  }
                   detail={validationText(
                     report.simper.practiceValidation
                   )}
@@ -1858,7 +2397,9 @@ export default function RaporOJTPage() {
                     report.simper.orientationStatus,
                     "orientation"
                   )}
-                  positive={report.simper.orientasi}
+                  positive={
+                    report.simper.orientasi
+                  }
                   detail={dateText(
                     report.simper.orientationDate
                   )}
@@ -1879,18 +2420,22 @@ export default function RaporOJTPage() {
                 />
               </div>
 
-              <div className="report-simper-summary">
+              <div className="r3-simper-summary">
                 <span>
                   Progres SIMPER:{" "}
                   <strong>
-                    {report.simper.percentage}%
+                    {
+                      report.simper.percentage
+                    }%
                   </strong>
                 </span>
 
                 <span>
                   Persyaratan:{" "}
                   <strong>
-                    {report.simper.completed}/3
+                    {
+                      report.simper.completed
+                    }/3
                   </strong>
                 </span>
 
@@ -1902,83 +2447,121 @@ export default function RaporOJTPage() {
                       : "BELUM LULUS"}
                   </strong>
                 </span>
+
+                <span>
+                  Penerbitan:{" "}
+                  <strong>
+                    {issuanceText(
+                      report.simper.issuanceStatus
+                    )}
+                  </strong>
+                </span>
               </div>
+
+              {report.simper.legacy && (
+                <p className="r3-small-note">
+                  Data SIMPER lama terdeteksi.
+                  Validasi komponen perlu diperiksa.
+                </p>
+              )}
+
+              {report.simper.issuanceNumber && (
+                <p className="r3-small-note">
+                  Nomor SIMPER:{" "}
+                  {
+                    report.simper.issuanceNumber
+                  }
+                </p>
+              )}
             </section>
 
             {/* EVALUASI */}
 
-            <section className="report-section report-evaluation">
-              <SectionTitle number="05">
-                CATATAN EVALUASI
-              </SectionTitle>
+            <section className="r3-section">
+              <SectionTitle
+                number="05"
+                title="CATATAN EVALUASI"
+              />
 
-              <p>
-                {report.incomplete.length
-                  ? (
+              <div className="r3-evaluation">
+                <p>
+                  {report.incomplete.length ? (
                     <>
-                      Kompetensi yang belum mencapai
-                      target pada seluruh minggu pilihan:{" "}
+                      Kompetensi yang belum
+                      mencapai target pada seluruh
+                      minggu pilihan:{" "}
                       <strong>
                         {report.incomplete
                           .map(
-                            (item) => item.label
+                            (item) =>
+                              item.label
                           )
                           .join(", ")}
                       </strong>.
                     </>
-                  )
-                  : (
+                  ) : (
                     "Seluruh kompetensi utama mencapai target pada setiap minggu yang dipilih."
                   )}
-              </p>
+                </p>
 
-              <p>
-                Nilai Post-Test dan Praktik dihitung
-                berdasarkan data aktual yang tersedia.
-                Nilai yang belum tercatat ditampilkan
-                sebagai tanda (—), bukan dianggap nol.
-              </p>
+                <p>
+                  Penilaian yang belum tercatat
+                  ditampilkan sebagai (—).
+                  Rata-rata dihitung dari nilai
+                  teori dan praktik yang tersedia.
+                </p>
 
-              <p>
-                Predikat nilai merupakan ringkasan
-                hasil teori dan praktik, bukan keputusan
-                kelulusan resmi.
-              </p>
+                <p>
+                  Predikat merupakan alat bantu
+                  evaluasi, bukan penetapan
+                  kelulusan resmi.
+                </p>
+              </div>
             </section>
 
             {/* PENGESAHAN */}
 
-            <footer className="report-document-footer">
-              <div className="report-footer-meta">
+            <footer className="r3-footer">
+              <div className="r3-footer-info">
                 <strong>
                   OJT MineTrack v2.0
                 </strong>
 
                 <span>
-                  Emergency Response Group · PT Berau Coal
+                  Emergency Response Group
+                  · PT Berau Coal
                 </span>
 
                 <span>
-                  Tanggal Cetak: {currentDate()}
+                  Tanggal Cetak:
+                  {" "}
+                  {
+                    currentDate()
+                  }
                 </span>
               </div>
 
-              <div className="report-signature">
-                <span>Mengetahui,</span>
+              <div className="r3-signature">
+                <span>
+                  Mengetahui,
+                </span>
 
                 <strong>
                   Mentor / Penanggung Jawab
                 </strong>
 
-                <div className="report-sign-space" />
+                <div className="r3-sign-space" />
 
-                <div className="report-sign-name">
-                  {mentorName || "Mentor OJT"}
+                <div className="r3-sign-name">
+                  {
+                    mentorName ||
+                    "Mentor OJT"
+                  }
                 </div>
               </div>
             </footer>
 
-            <div className="report-bottom-line" />
+            <div className="r3-bottom-accent" />
           </article>
         )}
       </div>
@@ -1986,291 +2569,294 @@ export default function RaporOJTPage() {
   );
 }
 
-// =====================================================
-// CSS — TEMPLATE 3 EARTH TONE PROFESSIONAL
-// =====================================================
+// ======================================================
+// CSS TEMPLATE 3
+// ======================================================
 
 const css = `
 :root {
-  --r-navy: #203d4a;
-  --r-deep: #152e37;
-  --r-earth: #ac8050;
-  --r-gold: #c99a5f;
-  --r-cream: #f7f1e7;
-  --r-paper: #fffdf9;
-  --r-green: #227b5a;
-  --r-border: #ded9ce;
+  --r3-navy: #28454d;
+  --r3-dark: #17363d;
+  --r3-earth: #a87d4d;
+  --r3-gold: #c79a62;
+  --r3-cream: #f8f3e9;
+  --r3-green: #287a59;
+  --r3-border: #e3ddd2;
 }
 
-.report-root,
-.report-root * {
+.r3-root,
+.r3-root * {
   box-sizing: border-box;
 }
 
-.report-root {
+.r3-root {
   min-height: 100vh;
   background: #edf1f1;
-  color: #263c44;
+  color: #2e4547;
   font-family: Arial, Helvetica, sans-serif;
   font-size: 12px;
 }
 
-.report-root button,
-.report-root select {
+.r3-root button,
+.r3-root select {
   font-family: inherit;
 }
 
-.report-root button {
+.r3-root button {
   cursor: pointer;
 }
 
-.report-root button:disabled {
+.r3-root button:disabled {
   opacity: .5;
   cursor: not-allowed;
 }
 
-/* NAVIGATION */
+/* NAVBAR */
 
-.report-topbar {
+.r3-topbar {
+  min-height: 66px;
   display: flex;
   align-items: center;
-  gap: 17px;
-  min-height: 65px;
-  padding: 13px 23px;
-  background: #193943;
-  color: #fff;
+  gap: 16px;
+  padding: 13px 24px;
+  background: #183a42;
+  color: white;
 }
 
-.report-brand {
+.r3-brand {
   font-size: 21px;
   font-weight: 900;
-  white-space: nowrap;
 }
 
-.report-brand span {
-  color: #69d5a5;
+.r3-brand span {
+  color: #66d7a3;
 }
 
-.report-brand small {
-  margin-left: 6px;
+.r3-brand small {
+  margin-left: 7px;
+  color: #a4c9bb;
   font-size: 10px;
-  color: #b3d1c4;
 }
 
-.report-account {
+.r3-account {
   margin-left: auto;
   text-align: right;
 }
 
-.report-account small {
+.r3-account small {
   display: block;
-  color: #b6d0ca;
+  color: #bed6cc;
   font-size: 10px;
 }
 
-.report-account strong {
+.r3-account strong {
   display: block;
-  margin-top: 5px;
+  margin-top: 4px;
   font-size: 12px;
 }
 
-.report-back {
+.r3-back {
   display: flex;
   align-items: center;
-  gap: 7px;
-  border: 1px solid #ffffff55;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid #ffffff40;
   border-radius: 8px;
-  padding: 10px 13px;
-  background: #ffffff14;
-  color: #fff;
-  font-size: 12px;
+  background: #ffffff12;
+  color: white;
   font-weight: 800;
 }
 
 /* CONTAINER */
 
-.report-container {
-  max-width: 1250px;
+.r3-container {
+  max-width: 1320px;
   margin: auto;
   padding: 20px;
 }
 
 /* CONTROLS */
 
-.report-controls {
-  padding: 20px;
+.r3-controls {
   margin-bottom: 20px;
-  background: white;
-  border: 1px solid #dce5e5;
+  padding: 21px;
+  border: 1px solid #dae4e1;
   border-radius: 13px;
-  box-shadow: 0 5px 19px #1738470b;
+  background: white;
+  box-shadow: 0 5px 19px #1738470c;
 }
 
-.report-control-head {
+.r3-controls-heading {
   display: flex;
-  align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 15px;
 }
 
-.report-control-kicker {
+.r3-controls-heading small {
+  color: #b08550;
   font-size: 10px;
   font-weight: 900;
-  color: #ad824e;
   letter-spacing: 1px;
 }
 
-.report-controls h2 {
+.r3-controls h2 {
   margin: 9px 0;
   font-size: 22px;
 }
 
-.report-controls p {
+.r3-controls p {
   margin: 0;
-  color: #788a8d;
+  color: #7c8e8a;
   font-size: 12px;
   line-height: 1.7;
 }
 
-.report-template-tag {
+.r3-template-tag {
   padding: 9px 12px;
-  border: 1px solid #e9d5b5;
+  border: 1px solid #e4d1b7;
   border-radius: 20px;
-  background: #fff8eb;
-  color: #986e35;
+  background: #fff8ed;
+  color: #97703d;
   font-size: 10px;
   font-weight: 900;
   white-space: nowrap;
 }
 
-.report-modes {
+.r3-modes {
   display: flex;
-  gap: 9px;
   flex-wrap: wrap;
-  margin: 21px 0 17px;
+  gap: 9px;
+  margin: 20px 0 17px;
 }
 
-.report-modes label {
+.r3-modes label {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   padding: 11px 13px;
-  border: 1px solid #e0e6e5;
+  border: 1px solid #dde4df;
   border-radius: 9px;
-  font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
 
-.report-modes label.chosen {
-  border-color: #c79a62;
+.r3-modes label.chosen {
+  border-color: #c49b68;
   background: #fcf5e9;
-  color: #99703e;
+  color: #96703e;
 }
 
-.report-modes input {
+.r3-modes input {
   accent-color: #ac8050;
 }
 
-.report-selectors {
+.r3-selectors {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 13px;
   max-width: 850px;
+  gap: 13px;
 }
 
-.report-selectors label {
+.r3-selectors label {
   display: block;
   margin-bottom: 8px;
-  font-size: 12px;
   font-weight: 800;
 }
 
-.report-select {
+.r3-select {
   width: 100%;
   min-height: 43px;
-  padding: 10px 12px;
-  border: 1px solid #d7e0df;
-  border-radius: 9px;
+  padding: 11px 12px;
+  border: 1px solid #d6dfda;
+  border-radius: 8px;
   background: #fff;
-  color: #29454b;
-  font-size: 12px;
+  color: #2b4845;
 }
 
-.report-week-picker {
+.r3-week-picker {
   display: grid;
   grid-template-columns: repeat(13,minmax(0,1fr));
   gap: 7px;
 }
 
-.report-week-picker button {
-  min-height: 38px;
-  border: 1px solid #dfded8;
+.r3-week-picker button {
+  padding: 10px 3px;
+  border: 1px solid #e2ddd4;
   border-radius: 7px;
-  background: #fff;
-  color: #3b5356;
+  background: white;
+  color: #3f5450;
 }
 
-.report-week-picker button.selected {
-  background: #ab8052;
-  border-color: #ab8052;
-  color: #fff;
+.r3-week-picker button.selected {
+  background: #ad8352;
+  border-color: #ad8352;
+  color: white;
   font-weight: 900;
 }
 
-.report-selected {
+.r3-quick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 15px;
+}
+
+.r3-quick span {
+  margin-right: 5px;
+  color: #849089;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.r3-quick button {
+  padding: 9px 12px;
+  border: 1px solid #e5d7bd;
+  border-radius: 8px;
+  background: #fff9ee;
+  color: #967340;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.r3-selected {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 15px;
-  padding: 12px 14px;
-  border: 1px solid #e8dbc6;
+  padding: 13px;
+  border: 1px solid #eadac3;
   border-radius: 9px;
-  background: #fcf7ed;
+  background: #fcf6ea;
 }
 
-.report-selected strong {
-  color: #91683b;
+.r3-selected strong {
+  color: #976d3a;
 }
 
-.report-selected span {
-  color: #4e645f;
+.r3-selected span {
+  color: #4f665a;
 }
 
-.report-selected small {
-  color: #8a897d;
+.r3-selected small {
+  color: #887e6f;
 }
 
-.report-quick-picks {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.report-quick-picks button {
-  padding: 8px 12px;
-  border: 1px solid #dfd1bd;
-  border-radius: 7px;
-  background: #fffaf2;
-  color: #92703f;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.report-actions {
+.r3-actions {
   display: flex;
   gap: 9px;
   flex-wrap: wrap;
-  margin-top: 18px;
+  margin-top: 17px;
 }
 
-.report-actions button {
+.r3-actions button {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 43px;
+  min-height: 42px;
   padding: 11px 14px;
   border: 0;
   border-radius: 8px;
@@ -2278,584 +2864,599 @@ const css = `
   font-weight: 850;
 }
 
-.report-actions .secondary {
-  background: #eaf0ee;
-  color: #315b53;
+.r3-actions .secondary {
+  background: #ebf1ee;
+  color: #315d54;
 }
 
-.report-actions .primary {
-  background: #a67d4e;
+.r3-actions .primary {
+  background: #a67b4b;
   color: white;
 }
 
-.report-error {
-  padding: 12px;
+.r3-error {
   margin-top: 13px;
-  background: #fff0f0;
+  padding: 12px;
   border-radius: 8px;
-  color: #b12c2c;
+  background: #fff0f0;
+  color: #ac2626;
 }
 
-/* PAPER */
+/* A4 SCREEN PREVIEW */
 
-.report-paper {
+.r3-paper {
   width: 210mm;
   max-width: 100%;
   min-height: 297mm;
   margin: 0 auto;
-  padding: 9mm;
-  background: var(--r-paper);
-  color: #263c44;
-  box-shadow: 0 10px 30px #1738471e;
+  padding: 8mm;
+  background: #fffdfa;
+  box-shadow: 0 8px 28px #17384724;
+  color: #30474a;
 }
 
-.report-preview-hidden {
+.r3-preview-hidden {
   display: none;
 }
 
-/* DOCUMENT HEADER */
+/* REPORT HEADER */
 
-.report-document-header {
-  background: #fffdf9;
+.r3-document-header {
+  background: #fffdfa;
 }
 
-.report-header-top {
+.r3-header-main {
   display: grid;
   grid-template-columns: 1fr 1.7fr .45fr;
   align-items: center;
-  gap: 10px;
-  padding-bottom: 12px;
+  gap: 9px;
+  padding-bottom: 10px;
 }
 
-.report-company strong {
+.r3-company strong {
   display: block;
-  font-size: 22px;
-  color: #204051;
+  color: #224853;
+  font-size: 21px;
+  font-weight: 900;
   letter-spacing: -1px;
   white-space: nowrap;
 }
 
-.report-company strong span {
-  color: #308354;
+.r3-company strong span {
+  color: #287c53;
 }
 
-.report-company small {
+.r3-company small {
   display: block;
   margin-top: 5px;
-  color: #917b5e;
+  color: #987c59;
   font-size: 9px;
-  letter-spacing: 1px;
 }
 
-.report-document-title {
+.r3-title {
   text-align: center;
 }
 
-.report-document-title small {
-  display: block;
-  color: #a47a49;
+.r3-title small {
+  color: #a67d4e;
   font-size: 9px;
   font-weight: 900;
-  letter-spacing: .9px;
 }
 
-.report-document-title h1 {
+.r3-title h1 {
   margin: 4px 0;
-  color: #193b4b;
-  font-size: 26px;
+  color: #21434c;
+  font-size: 27px;
   font-weight: 900;
 }
 
-.report-document-title p {
+.r3-title p {
   margin: 0;
+  color: #907753;
   font-size: 9px;
-  color: #8e744f;
   font-weight: 800;
 }
 
-.report-header-mark {
+.r3-seal {
   display: grid;
   justify-items: center;
-  gap: 4px;
-  padding: 8px;
-  border: 2px solid #c39a63;
+  gap: 3px;
+  padding: 8px 5px;
+  border: 2px solid #c8a16c;
   border-radius: 10px;
-  color: #9e7646;
+  color: #a17c47;
 }
 
-.report-header-mark span {
+.r3-seal strong {
   font-size: 10px;
-  font-weight: 900;
 }
 
-.report-header-strip {
+.r3-header-band {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 9px 12px;
-  background: #244553;
+  padding: 9px 11px;
+  border-bottom: 4px solid #c49a64;
+  background: #284951;
   color: white;
   font-size: 9px;
-  font-weight: 800;
-  border-bottom: 4px solid #c79a61;
+  font-weight: 850;
 }
 
-/* SECTION */
+/* SECTIONS */
 
-.report-section {
-  margin-top: 14px;
+.r3-section {
+  margin-top: 13px;
 }
 
-.report-section-title {
+.r3-section-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 9px;
   padding-bottom: 7px;
-  border-bottom: 1px solid #d8c6aa;
-  color: #244553;
-  font-size: 11px;
+  border-bottom: 1px solid #ddcaac;
+  color: #294c50;
+  font-size: 10px;
   font-weight: 900;
-  letter-spacing: .3px;
 }
 
-.report-section-number {
+.r3-section-title > span {
   display: grid;
   place-items: center;
-  width: 23px;
-  height: 23px;
+  width: 22px;
+  height: 22px;
   border-radius: 5px;
-  background: #b58a55;
+  background: #b28b5c;
   color: white;
-  font-size: 10px;
 }
 
-.report-identity-section {
-  margin-top: 15px;
-}
+/* IDENTITY */
 
-.report-identity-grid {
+.r3-identity {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 6px 13px;
+  gap: 6px 11px;
 }
 
-.report-identity-grid > div {
+.r3-identity > div {
   display: grid;
-  grid-template-columns: 100px minmax(0,1fr);
+  grid-template-columns: 95px minmax(0,1fr);
   gap: 7px;
+  align-items: center;
+  min-width: 0;
   padding: 6px 8px;
-  background: #f9f5ed;
-  border: 1px solid #e8e0d3;
-  border-radius: 4px;
-  font-size: 10px;
+  border: 1px solid #e8dfd0;
+  border-radius: 5px;
+  background: #faf6ed;
+  font-size: 9px;
 }
 
-.report-identity-grid span {
-  color: #8d7f6b;
+.r3-identity span {
+  color: #8b7e6d;
 }
 
-.report-identity-grid strong {
+.r3-identity strong {
   overflow-wrap: anywhere;
 }
 
-/* SUMMARY STRIP */
+/* KPI */
 
-.report-summary-strip {
+.r3-kpis {
   display: grid;
   grid-template-columns: repeat(3,minmax(0,1fr));
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 13px;
 }
 
-.report-summary-strip > div {
-  padding: 11px;
+.r3-kpis > div {
+  padding: 10px;
+  border: 1px solid #e6d5b9;
   border-radius: 6px;
-  background: #f3eadb;
-  border: 1px solid #e4d2b5;
+  background: #f5ecde;
   text-align: center;
 }
 
-.report-summary-strip span {
+.r3-kpis span {
   display: block;
+  color: #907149;
   font-size: 9px;
-  font-weight: 800;
-  color: #91744d;
+  font-weight: 850;
 }
 
-.report-summary-strip strong {
+.r3-kpis strong {
   display: block;
-  margin-top: 5px;
-  color: #294a4a;
+  margin-top: 6px;
+  color: #2f4c4b;
   font-size: 17px;
 }
 
 /* COMPETENCY */
 
-.report-competency-table,
-.report-week-table {
+.r3-competency-table,
+.r3-week-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
-.report-competency-table th,
-.report-competency-table td,
-.report-week-table th,
-.report-week-table td {
-  border: 1px solid #ddd9d1;
-  padding: 7px 6px;
-  text-align: center;
+.r3-competency-table th,
+.r3-competency-table td {
+  padding: 7px 5px;
+  border: 1px solid #e2ddd3;
   font-size: 9px;
+  text-align: center;
+  vertical-align: middle;
 }
 
-.report-competency-table th,
-.report-week-table th {
-  background: #e8eee9;
-  color: #37564e;
-  font-size: 9px;
+.r3-competency-table th {
+  background: #eaf0e9;
+  color: #3c5a4f;
   font-weight: 900;
 }
 
-.report-competency-table td:nth-child(2) {
+.r3-competency-table td:nth-child(2) {
   text-align: left;
 }
 
-.report-competency-table th:nth-child(1) {
+.r3-competency-table th:nth-child(1) {
   width: 7%;
 }
 
-.report-competency-table th:nth-child(2) {
+.r3-competency-table th:nth-child(2) {
   width: 30%;
 }
 
-.report-competency-table th:nth-child(3),
-.report-competency-table th:nth-child(4) {
+.r3-competency-table th:nth-child(3),
+.r3-competency-table th:nth-child(4) {
   width: 13%;
 }
 
-.report-competency-table th:nth-child(5) {
+.r3-competency-table th:nth-child(5) {
   width: 20%;
 }
 
-.report-competency-table th:nth-child(6) {
+.r3-competency-table th:nth-child(6) {
   width: 17%;
 }
 
-.report-progress {
+.r3-progress {
   height: 6px;
   overflow: hidden;
   border-radius: 20px;
-  background: #e4e8e5;
+  background: #e1e7e0;
 }
 
-.report-progress > div {
+.r3-progress > div {
   height: 100%;
-  background: #4b9c75;
+  background: #4d9d76;
 }
 
-.report-competency-table td:nth-child(5) span {
+.r3-competency-table small {
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 8px;
 }
 
-.report-status {
+.r3-achieved,
+.r3-incomplete {
   display: inline-block;
-  padding: 5px 6px;
+  padding: 4px 6px;
   border-radius: 5px;
   font-size: 8px;
   font-weight: 900;
 }
 
-.report-status.good {
-  background: #e1f2e7;
-  color: #227a53;
+.r3-achieved {
+  color: #287a53;
+  background: #e3f3e7;
 }
 
-.report-status.pending {
-  background: #fff0df;
-  color: #a77536;
+.r3-incomplete {
+  color: #a67939;
+  background: #fff0de;
 }
 
 /* WEEKLY */
 
-.report-week-heading {
+.r3-week-heading {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 8px;
-  color: #8b7757;
+  margin-bottom: 7px;
+  color: #8f795c;
   font-size: 9px;
 }
 
-.report-week-columns {
+.r3-week-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 9px;
   align-items: start;
 }
 
-.report-week-table th,
-.report-week-table td {
+.r3-week-grid > div {
+  min-width: 0;
+}
+
+.r3-week-table th,
+.r3-week-table td {
+  border: 1px solid #e2ddd3;
   padding: 5px 4px;
+  text-align: center;
   font-size: 9px;
+  line-height: 1.2;
 }
 
-.report-week-table tbody tr:nth-child(even) {
-  background: #faf7f0;
-}
-
-.report-week-label {
-  color: #9b7549;
+.r3-week-table th {
+  background: #eaf0e9;
+  color: #466152;
   font-weight: 900;
 }
 
-.report-week-empty {
-  display: grid;
-  place-items: center;
-  min-height: 70px;
-  color: #b3a38c;
-  border: 1px dashed #dfd3bd;
-  font-size: 11px;
+.r3-week-table tbody tr:nth-child(even) {
+  background: #faf7f1;
 }
 
-.report-week-footer {
+.r3-week-number {
+  color: #a27b4a;
+  font-weight: 900;
+}
+
+.r3-week-placeholder {
+  min-height: 70px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed #e0d2bb;
+  color: #b0a08a;
+  font-size: 10px;
+}
+
+.r3-week-summary {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 9px;
-  padding: 9px;
-  background: #f7f1e6;
-  color: #83745e;
+  gap: 7px;
+  padding: 8px;
+  margin-top: 8px;
+  background: #f8f1e6;
+  color: #85715a;
   font-size: 9px;
 }
 
-.report-week-footer strong {
-  color: #304c47;
+.r3-week-summary strong {
+  color: #31554b;
 }
 
 /* SIMPER */
 
-.report-simper-grid {
+.r3-simper-grid {
   display: grid;
   grid-template-columns: repeat(4,minmax(0,1fr));
   gap: 7px;
 }
 
-.report-simper-box {
-  display: grid;
-  justify-items: center;
+.r3-simper-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 10px 5px;
-  border: 1px solid #e2d9cb;
-  border-radius: 5px;
+  padding: 9px 5px;
+  border: 1px solid #e4d9c8;
+  border-radius: 6px;
   background: #faf8f3;
   text-align: center;
 }
 
-.report-simper-box > strong {
+.r3-simper-item > strong {
+  color: #496356;
   font-size: 9px;
-  color: #4c645b;
 }
 
-.report-simper-box > span {
+.r3-simper-item > span {
   font-size: 10px;
   font-weight: 900;
 }
 
-.report-simper-good {
-  color: #25845a;
+.r3-positive {
+  color: #2a8559;
 }
 
-.report-simper-wait {
-  color: #ae7d3d;
+.r3-warning {
+  color: #ad7d39;
 }
 
-.report-simper-box small {
+.r3-simper-item small {
+  color: #938674;
   font-size: 8px;
-  color: #998b77;
   overflow-wrap: anywhere;
 }
 
-.report-simper-summary {
+.r3-simper-summary {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 9px;
-  padding: 9px;
-  background: #edf4ec;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 8px;
+  margin-top: 8px;
+  background: #edf4ed;
+  color: #718676;
   font-size: 9px;
-  color: #69806f;
 }
 
-.report-simper-summary strong {
-  color: #2c7255;
+.r3-simper-summary strong {
+  color: #317854;
+}
+
+.r3-small-note {
+  margin: 6px 0 0;
+  color: #887b68;
+  font-size: 8px;
 }
 
 /* EVALUATION */
 
-.report-evaluation p {
+.r3-evaluation p {
   margin: 5px 0;
-  color: #65756d;
-  font-size: 10px;
-  line-height: 1.6;
+  color: #65776d;
+  font-size: 9px;
+  line-height: 1.55;
 }
 
 /* FOOTER */
 
-.report-document-footer {
+.r3-footer {
   display: flex;
-  align-items: flex-end;
   justify-content: space-between;
+  align-items: flex-end;
   gap: 12px;
-  margin-top: 16px;
+  margin-top: 15px;
 }
 
-.report-footer-meta {
+.r3-footer-info {
   display: grid;
   gap: 5px;
-  color: #8b968d;
+  color: #88978b;
   font-size: 9px;
 }
 
-.report-footer-meta strong {
-  color: #315348;
+.r3-footer-info strong {
+  color: #2d564a;
 }
 
-.report-signature {
-  width: 210px;
+.r3-signature {
+  width: 205px;
   text-align: center;
-  font-size: 10px;
+  font-size: 9px;
 }
 
-.report-signature > span,
-.report-signature > strong {
+.r3-signature > span,
+.r3-signature > strong {
   display: block;
 }
 
-.report-signature > strong {
+.r3-signature > strong {
   margin-top: 5px;
 }
 
-.report-sign-space {
+.r3-sign-space {
   height: 35px;
 }
 
-.report-sign-name {
+.r3-sign-name {
   padding-top: 6px;
   border-top: 1px solid #9c9d91;
-  font-size: 10px;
   font-weight: 900;
 }
 
-.report-bottom-line {
+.r3-bottom-accent {
   height: 5px;
-  margin-top: 13px;
+  margin-top: 12px;
   background: linear-gradient(
     90deg,
-    #254b4e 75%,
-    #b58c56 75%
+    #284951 75%,
+    #c3965a 75%
   );
 }
 
-.report-loading {
-  display: grid;
-  place-items: center;
-  min-height: 100vh;
-  padding: 25px;
-  background: #f1f4f3;
-  font-family: Arial, Helvetica, sans-serif;
-  color: #28464a;
-  text-align: center;
+/* SCREEN DENSITY */
+
+.r3-density-full .r3-week-table th,
+.r3-density-full .r3-week-table td {
+  padding: 3px 3px;
+  font-size: 8px;
+}
+
+.r3-density-full .r3-section {
+  margin-top: 10px;
+}
+
+.r3-density-medium .r3-week-table th,
+.r3-density-medium .r3-week-table td {
+  padding: 4px;
 }
 
 /* RESPONSIVE SCREEN */
 
 @media(max-width:800px) {
-  .report-container {
+  .r3-container {
     padding: 12px;
   }
 
-  .report-control-head {
+  .r3-controls-heading {
     flex-direction: column;
   }
 
-  .report-modes {
+  .r3-modes {
     flex-direction: column;
   }
 
-  .report-selectors {
+  .r3-selectors {
     grid-template-columns: 1fr;
   }
 
-  .report-week-picker {
+  .r3-week-picker {
     grid-template-columns: repeat(5,1fr);
   }
 
-  .report-paper {
+  .r3-paper {
     width: 100%;
     min-height: 0;
     padding: 12px;
   }
 
-  .report-header-top {
-    grid-template-columns: 1fr 1.7fr;
+  .r3-header-main {
+    grid-template-columns: 1fr 1.6fr;
   }
 
-  .report-header-mark {
+  .r3-seal {
     display: none;
   }
 
-  .report-company strong {
+  .r3-company strong {
     font-size: 15px;
   }
 
-  .report-document-title h1 {
-    font-size: 19px;
+  .r3-title h1 {
+    font-size: 20px;
   }
 
-  .report-identity-grid {
+  .r3-identity {
     grid-template-columns: 1fr;
   }
 
-  .report-identity-grid > div {
-    grid-template-columns: 110px 1fr;
+  .r3-kpis strong {
+    font-size: 13px;
   }
 
-  .report-summary-strip strong {
-    font-size: 14px;
-  }
-
-  .report-competency-table th,
-  .report-competency-table td {
-    padding: 5px 3px;
-    font-size: 8px;
-  }
-
-  .report-status {
-    font-size: 7px;
-  }
-
-  .report-week-columns {
-    gap: 5px;
-  }
-
-  .report-week-table th,
-  .report-week-table td {
+  .r3-competency-table th,
+  .r3-competency-table td {
     padding: 5px 2px;
     font-size: 8px;
   }
 
-  .report-simper-grid {
+  .r3-week-grid {
+    gap: 5px;
+  }
+
+  .r3-week-table th,
+  .r3-week-table td {
+    padding: 4px 2px;
+    font-size: 8px;
+  }
+
+  .r3-simper-grid {
     grid-template-columns: repeat(2,1fr);
   }
 }
 
-/* A4 PORTRAIT PRINT */
+/* ====================================================
+   PRINT A4 PORTRAIT — COMPACT
+   ==================================================== */
 
 @page {
   size: A4 portrait;
@@ -2870,203 +3471,249 @@ const css = `
     background: white !important;
   }
 
-  .report-root {
+  .r3-root {
     min-height: 0 !important;
     background: white !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 
-  .report-topbar,
-  .report-controls {
+  .r3-topbar,
+  .r3-controls {
     display: none !important;
   }
 
-  .report-container {
+  .r3-container {
     width: 100% !important;
     max-width: none !important;
     padding: 0 !important;
     margin: 0 !important;
   }
 
-  .report-paper,
-  .report-preview-hidden {
+  .r3-paper,
+  .r3-preview-hidden {
     display: block !important;
+    box-sizing: border-box !important;
     width: 210mm !important;
-    max-width: none !important;
-    min-height: 297mm !important;
-    padding: 8mm !important;
+    max-width: 210mm !important;
+
+    /* Jangan pakai min-height 297mm + padding
+       yang dapat memicu halaman tambahan. */
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 7mm !important;
     margin: 0 !important;
+
     border: 0 !important;
     box-shadow: none !important;
   }
 
-  .report-header-top {
+  .r3-header-main {
     grid-template-columns: 1fr 1.7fr .45fr !important;
-    padding-bottom: 7px !important;
+    padding-bottom: 6px !important;
   }
 
-  .report-company strong {
+  .r3-company strong {
     font-size: 17px !important;
   }
 
-  .report-document-title h1 {
-    font-size: 22px !important;
+  .r3-title h1 {
+    margin: 2px 0 !important;
+    font-size: 21px !important;
   }
 
-  .report-header-mark {
+  .r3-title small,
+  .r3-title p {
+    font-size: 8px !important;
+  }
+
+  .r3-seal {
     display: grid !important;
+    padding: 4px !important;
   }
 
-  .report-header-strip {
-    padding: 6px 9px !important;
-    font-size: 8px !important;
+  .r3-header-band {
+    padding: 5px 9px !important;
+    border-bottom-width: 3px !important;
+    font-size: 7px !important;
   }
 
-  .report-section,
-  .report-identity-section {
-    margin-top: 10px !important;
+  .r3-section,
+  .r3-density-full .r3-section {
+    margin-top: 8px !important;
   }
 
-  .report-section-title {
-    margin-bottom: 6px !important;
-    padding-bottom: 4px !important;
-    font-size: 9px !important;
-  }
-
-  .report-section-number {
-    width: 19px !important;
-    height: 19px !important;
-    font-size: 9px !important;
-  }
-
-  .report-identity-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr)) !important;
-    gap: 4px 8px !important;
-  }
-
-  .report-identity-grid > div {
-    grid-template-columns: 82px minmax(0,1fr) !important;
-    padding: 4px 6px !important;
-    font-size: 8px !important;
-  }
-
-  .report-summary-strip {
-    margin-top: 9px !important;
+  .r3-section-title {
     gap: 6px !important;
-  }
-
-  .report-summary-strip > div {
-    padding: 7px !important;
-  }
-
-  .report-summary-strip span {
+    margin-bottom: 5px !important;
+    padding-bottom: 4px !important;
     font-size: 8px !important;
   }
 
-  .report-summary-strip strong {
-    margin-top: 3px !important;
-    font-size: 14px !important;
+  .r3-section-title > span {
+    width: 18px !important;
+    height: 18px !important;
+    font-size: 8px !important;
   }
 
-  .report-competency-table th,
-  .report-competency-table td {
+  .r3-identity {
+    grid-template-columns: repeat(2,minmax(0,1fr)) !important;
+    gap: 3px 7px !important;
+  }
+
+  .r3-identity > div {
+    grid-template-columns: 75px minmax(0,1fr) !important;
+    gap: 4px !important;
+    padding: 4px 5px !important;
+    font-size: 8px !important;
+  }
+
+  .r3-kpis {
+    gap: 6px !important;
+    margin-top: 8px !important;
+  }
+
+  .r3-kpis > div {
+    padding: 6px !important;
+  }
+
+  .r3-kpis span {
+    font-size: 7px !important;
+  }
+
+  .r3-kpis strong {
+    margin-top: 3px !important;
+    font-size: 13px !important;
+  }
+
+  .r3-competency-table th,
+  .r3-competency-table td {
     padding: 4px 3px !important;
     font-size: 8px !important;
   }
 
-  .report-status {
+  .r3-progress {
+    height: 4px !important;
+  }
+
+  .r3-competency-table small {
+    margin-top: 2px !important;
+    font-size: 7px !important;
+  }
+
+  .r3-achieved,
+  .r3-incomplete {
     padding: 3px !important;
     font-size: 7px !important;
   }
 
-  .report-week-heading {
+  .r3-week-heading {
     margin-bottom: 5px !important;
     font-size: 8px !important;
   }
 
-  .report-week-columns {
+  .r3-week-grid {
     grid-template-columns: 1fr 1fr !important;
     gap: 7px !important;
   }
 
-  .report-week-table th,
-  .report-week-table td {
+  .r3-week-table th,
+  .r3-week-table td,
+  .r3-density-full .r3-week-table th,
+  .r3-density-full .r3-week-table td {
     padding: 3px 2px !important;
     font-size: 7.5px !important;
+    line-height: 1.05 !important;
     height: 17px !important;
   }
 
-  .report-week-footer {
+  .r3-week-summary {
     margin-top: 5px !important;
-    padding: 6px !important;
-    font-size: 8px !important;
+    padding: 5px !important;
+    font-size: 7px !important;
   }
 
-  .report-simper-grid {
+  .r3-simper-grid {
     grid-template-columns: repeat(4,minmax(0,1fr)) !important;
     gap: 5px !important;
   }
 
-  .report-simper-box {
-    padding: 6px 3px !important;
-    gap: 4px !important;
+  .r3-simper-item {
+    gap: 3px !important;
+    padding: 5px 3px !important;
   }
 
-  .report-simper-box strong,
-  .report-simper-box span {
+  .r3-simper-item strong,
+  .r3-simper-item span {
     font-size: 8px !important;
   }
 
-  .report-simper-box small {
+  .r3-simper-item small {
     font-size: 7px !important;
   }
 
-  .report-simper-summary {
+  .r3-simper-summary {
+    gap: 5px !important;
     margin-top: 5px !important;
     padding: 5px !important;
-    font-size: 8px !important;
+    font-size: 7px !important;
   }
 
-  .report-evaluation p {
+  .r3-evaluation p {
     margin: 3px 0 !important;
     font-size: 8px !important;
-    line-height: 1.35 !important;
+    line-height: 1.3 !important;
   }
 
-  .report-document-footer {
-    margin-top: 10px !important;
-  }
-
-  .report-footer-meta,
-  .report-signature {
-    font-size: 8px !important;
-  }
-
-  .report-signature {
-    width: 170px !important;
-  }
-
-  .report-sign-space {
-    height: 24px !important;
-  }
-
-  .report-bottom-line {
+  .r3-footer {
     margin-top: 8px !important;
   }
 
-  .report-identity-section,
-  .report-summary-strip,
-  .report-section,
-  .report-document-footer {
+  .r3-footer-info,
+  .r3-signature {
+    font-size: 8px !important;
+  }
+
+  .r3-footer-info {
+    gap: 3px !important;
+  }
+
+  .r3-signature {
+    width: 165px !important;
+  }
+
+  .r3-sign-space {
+    height: 21px !important;
+  }
+
+  .r3-bottom-accent {
+    height: 4px !important;
+    margin-top: 7px !important;
+  }
+
+  .r3-document-header,
+  .r3-identity,
+  .r3-kpis,
+  .r3-simper-grid,
+  .r3-footer {
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  .report-week-table tr,
-  .report-simper-box {
+  .r3-week-grid {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .r3-week-table tr,
+  .r3-competency-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .r3-root,
+  .r3-paper {
+    overflow: visible !important;
   }
 }
 `;
