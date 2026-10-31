@@ -1,13 +1,32 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
+// =====================================================
+// OJT MINETRACK V2.0
+// PUSAT RAPOR OJT TERINTEGRASI
+// WEEK 01–25 | ADMIN & MENTOR
+// TANPA BIWEEKLY / QUARTERLY
+// =====================================================
+
 const SITES = [
-  "LMO", "SMO", "GMO NORTH", "GMO SOUTH",
-  "BMO 1", "BMO 2", "BMO 3", "SRN", "HO",
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
 ];
 
 const CATEGORIES = [
@@ -19,8 +38,77 @@ const CATEGORIES = [
   "Hazard",
 ];
 
+const TOTAL_WEEKS = 25;
+
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function toDateString(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date, days) {
+  const result = new Date(date);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+function buildGlobalWeeks() {
+  const weeks = [];
+
+  // Week 01 adalah minggu khusus.
+  weeks.push({
+    number: 1,
+    label: "Week 01",
+    start_date: "2026-09-12",
+    end_date: "2026-09-18",
+  });
+
+  // 19 September tidak masuk minggu program.
+  // Week 02 dimulai 20 September 2026.
+  const weekTwo = new Date("2026-09-20T00:00:00Z");
+
+  for (let number = 2; number <= TOTAL_WEEKS; number++) {
+    const start = addDays(weekTwo, (number - 2) * 7);
+    const end = addDays(start, 6);
+
+    weeks.push({
+      number,
+      label: `Week ${String(number).padStart(2, "0")}`,
+      start_date: toDateString(start),
+      end_date: toDateString(end),
+    });
+  }
+
+  return weeks;
+}
+
+const GLOBAL_WEEKS = buildGlobalWeeks();
+
+function getCurrentWeek() {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Makassar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+  const current = GLOBAL_WEEKS.find(
+    (week) =>
+      today >= week.start_date &&
+      today <= week.end_date
+  );
+
+  if (current) return current.number;
+
+  if (today < GLOBAL_WEEKS[0].start_date) return 1;
+
+  const previous = [...GLOBAL_WEEKS]
+    .reverse()
+    .find((week) => today >= week.end_date);
+
+  return previous?.number || 1;
 }
 
 function formatDate(value) {
@@ -33,21 +121,6 @@ function formatDate(value) {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-function formatNumber(value, digits = 0) {
-  if (value === null || value === undefined || value === "") {
-    return "—";
-  }
-
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) return "—";
-
-  return number.toLocaleString("id-ID", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-}
-
 function initials(value) {
   return String(value || "Peserta OJT")
     .trim()
@@ -58,7 +131,7 @@ function initials(value) {
     .toUpperCase();
 }
 
-function Icon({ name, size = 20 }) {
+function Icon({ name, size = 19 }) {
   const paths = {
     back: <path d="m15 18-6-6 6-6" />,
     report: (
@@ -76,7 +149,7 @@ function Icon({ name, size = 20 }) {
     users: (
       <>
         <circle cx="9" cy="8" r="3" />
-        <path d="M3 20v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5" />
+        <path d="M3 20v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 4 5" />
       </>
     ),
     search: (
@@ -92,11 +165,42 @@ function Icon({ name, size = 20 }) {
       </>
     ),
     check: <path d="m4 12 5 5L20 6" />,
-    arrow: <path d="m9 5 7 7-7 7" />,
+    arrow: <path d="m5 12h14m-6-6 6 6-6 6" />,
     shield: (
       <>
         <path d="m12 2 9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z" />
         <path d="m8 12 3 3 5-6" />
+      </>
+    ),
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l4 2" />
+      </>
+    ),
+    book: (
+      <>
+        <path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1" />
+        <path d="M12 6c3-2 6-2 9-1v14c-3-1-6-1-9 1" />
+        <path d="M12 6v14" />
+      </>
+    ),
+    activity: (
+      <path d="M2 12h5l3-8 4 16 3-8h5" />
+    ),
+    award: (
+      <>
+        <circle cx="12" cy="9" r="6" />
+        <path d="m8 14-2 8 6-3 6 3-2-8" />
+      </>
+    ),
+    filter: (
+      <path d="M4 5h16l-6 7v6l-4 2v-8z" />
+    ),
+    info: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v5M12 8h.01" />
       </>
     ),
   };
@@ -108,7 +212,7 @@ function Icon({ name, size = 20 }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.9"
+      strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -118,22 +222,26 @@ function Icon({ name, size = 20 }) {
   );
 }
 
-function StatusBadge({ status }) {
-  const isFinal = status === "final";
-  const isDraft = status === "draft";
-
+function StatCard({ icon, label, value, description }) {
   return (
-    <span
-      className={
-        "rp-status " +
-        (isFinal ? "final" : isDraft ? "draft" : "empty")
-      }
-    >
-      {isFinal
-        ? "Final"
-        : isDraft
-        ? "Draft"
-        : "Belum dibuat"}
+    <div className="rpt-stat">
+      <span className="rpt-stat-icon">
+        <Icon name={icon} size={23} />
+      </span>
+
+      <div>
+        <span className="rpt-stat-label">{label}</span>
+        <strong>{value}</strong>
+        <small>{description}</small>
+      </div>
+    </div>
+  );
+}
+
+function CategoryTag({ name, index }) {
+  return (
+    <span className={`rpt-category cat-${index}`}>
+      {name}
     </span>
   );
 }
@@ -143,11 +251,10 @@ export default function PusatRaporOJT() {
 
   const [profile, setProfile] = useState(null);
   const [programs, setPrograms] = useState([]);
-  const [periods, setPeriods] = useState([]);
-  const [reports, setReports] = useState([]);
 
-  const [reportType, setReportType] = useState("biweekly");
-  const [selectedPeriod, setSelectedPeriod] = useState("");
+  const [startWeek, setStartWeek] = useState(1);
+  const [endWeek, setEndWeek] = useState(null);
+
   const [site, setSite] = useState("ALL");
   const [search, setSearch] = useState("");
 
@@ -157,20 +264,25 @@ export default function PusatRaporOJT() {
 
   const isAdmin = normalize(profile?.role) === "admin";
 
-  async function loadData() {
-    const auth = await supabase.auth.getUser();
+  // ===================================================
+  // PEMERIKSAAN AKSES + MEMBACA PROGRAM OJT
+  // ===================================================
 
-    if (auth.error || !auth.data?.user) {
+  const loadData = useCallback(async () => {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
       router.replace("/login");
       return null;
     }
 
-    const userId = auth.data.user.id;
-
     const profileResult = await supabase
       .from("profiles")
       .select("id,full_name,role")
-      .eq("id", userId)
+      .eq("id", user.id)
       .single();
 
     if (profileResult.error) {
@@ -187,87 +299,46 @@ export default function PusatRaporOJT() {
 
     if (role !== "admin" && role !== "mentor") {
       throw new Error(
-        "Akses ditolak. Halaman rapor hanya untuk Admin dan Mentor."
+        "Akses ditolak. Pusat Rapor hanya untuk Admin dan Mentor."
       );
     }
 
-    const [programRes, periodRes, reportRes] =
-      await Promise.all([
-        supabase
-          .from("ojt_programs")
-          .select(`
-            id,
-            participant_id,
-            mentor_id,
-            start_date,
-            end_date,
-            status,
-            site,
-            peserta:profiles!ojt_programs_participant_id_fkey(
-              full_name,
-              department
-            )
-          `)
-          .order("start_date", { ascending: false }),
+    // Tidak lagi membaca ojt_report_periods.
+    // Pusat rapor memakai Kalender Global Week 01–25.
+    // Data program tetap mengikuti RLS Supabase.
 
-        supabase
-          .from("ojt_report_periods")
-          .select(`
-            id,
-            report_type,
-            period_label,
-            start_date,
-            end_date
-          `)
-          .order("start_date", { ascending: false }),
-
-        supabase
-          .from("ojt_reports")
-          .select(`
-            id,
-            period_id,
-            program_id,
-            status,
-            mentor_notes,
-            recommendation,
-            finalized_at
-          `),
-      ]);
+    const programRes = await supabase
+      .from("ojt_programs")
+      .select(`
+        id,
+        participant_id,
+        mentor_id,
+        start_date,
+        end_date,
+        status,
+        site,
+        peserta:profiles!ojt_programs_participant_id_fkey(
+          full_name,
+          department
+        )
+      `)
+      .order("start_date", { ascending: false });
 
     if (programRes.error) {
       throw new Error(
-        "Program OJT: " + programRes.error.message
-      );
-    }
-
-    if (periodRes.error) {
-      throw new Error(
-        "Periode Rapor: " + periodRes.error.message
-      );
-    }
-
-    if (reportRes.error) {
-      throw new Error(
-        "Data Rapor: " + reportRes.error.message
+        "Gagal membaca program OJT: " +
+          programRes.error.message
       );
     }
 
     return {
-      profile: { ...currentProfile, role },
+      profile: {
+        ...currentProfile,
+        role,
+      },
       programs: programRes.data || [],
-      periods: periodRes.data || [],
-      reports: reportRes.data || [],
     };
-  }
-
-  function applyData(next) {
-    if (!next) return;
-
-    setProfile(next.profile);
-    setPrograms(next.programs);
-    setPeriods(next.periods);
-    setReports(next.reports);
-  }
+  }, [router]);
 
   useEffect(() => {
     let active = true;
@@ -279,7 +350,10 @@ export default function PusatRaporOJT() {
       try {
         const next = await loadData();
 
-        if (active) applyData(next);
+        if (!active || !next) return;
+
+        setProfile(next.profile);
+        setPrograms(next.programs);
       } catch (err) {
         if (active) {
           setError(
@@ -296,7 +370,11 @@ export default function PusatRaporOJT() {
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [loadData]);
+
+  useEffect(() => {
+    setEndWeek(getCurrentWeek());
+  }, []);
 
   async function refreshData() {
     if (loading || refreshing) return;
@@ -306,7 +384,11 @@ export default function PusatRaporOJT() {
 
     try {
       const next = await loadData();
-      applyData(next);
+
+      if (next) {
+        setProfile(next.profile);
+        setPrograms(next.programs);
+      }
     } catch (err) {
       setError(
         err?.message || "Gagal memperbarui data rapor."
@@ -316,37 +398,57 @@ export default function PusatRaporOJT() {
     }
   }
 
-  const typePeriods = useMemo(
-    () =>
-      periods.filter(
-        (item) => item.report_type === reportType
-      ),
-    [periods, reportType]
-  );
+  // ===================================================
+  // PEMILIHAN RENTANG MINGGU
+  // ===================================================
 
-  const activePeriodId = useMemo(() => {
-    if (
-      selectedPeriod &&
-      typePeriods.some((p) => p.id === selectedPeriod)
-    ) {
-      return selectedPeriod;
+  const selectedEndWeek = endWeek ?? getCurrentWeek();
+
+  const selectedStart = GLOBAL_WEEKS[startWeek - 1];
+  const selectedEnd = GLOBAL_WEEKS[selectedEndWeek - 1];
+
+  const selectedRange = useMemo(() => {
+    if (!selectedStart || !selectedEnd) return null;
+
+    return {
+      start_date: selectedStart.start_date,
+      end_date: selectedEnd.end_date,
+      total_weeks: selectedEndWeek - startWeek + 1,
+    };
+  }, [selectedStart, selectedEnd, selectedEndWeek, startWeek]);
+
+  function updateStartWeek(value) {
+    const next = Number(value);
+
+    if (!Number.isInteger(next)) return;
+
+    setStartWeek(next);
+
+    if (next > selectedEndWeek) {
+      setEndWeek(next);
     }
+  }
 
-    const today = new Date().toLocaleDateString("en-CA", {
-      timeZone: "Asia/Makassar",
-    });
+  function updateEndWeek(value) {
+    const next = Number(value);
 
-    const current = typePeriods.find(
-      (p) => p.start_date <= today && p.end_date >= today
-    );
+    if (!Number.isInteger(next)) return;
 
-    return current?.id || typePeriods[0]?.id || "";
-  }, [selectedPeriod, typePeriods]);
+    setEndWeek(next);
 
-  const activePeriod = useMemo(
-    () => typePeriods.find((p) => p.id === activePeriodId),
-    [typePeriods, activePeriodId]
-  );
+    if (next < startWeek) {
+      setStartWeek(next);
+    }
+  }
+
+  function selectRange(from, to) {
+    setStartWeek(from);
+    setEndWeek(to);
+  }
+
+  // ===================================================
+  // FILTER PROGRAM
+  // ===================================================
 
   const filteredPrograms = useMemo(() => {
     const keyword = normalize(search);
@@ -365,759 +467,1423 @@ export default function PusatRaporOJT() {
         normalize(person?.department).includes(keyword) ||
         normalize(program.site).includes(keyword);
 
+      // Kalender global hanya untuk memilih rentang.
+      // Tanggal program masing-masing peserta
+      // tidak diubah.
       const matchPeriod =
-        Boolean(activePeriod) &&
+        Boolean(selectedRange) &&
         Boolean(program.start_date) &&
-        program.start_date <= activePeriod.end_date &&
+        program.start_date <= selectedRange.end_date &&
         (!program.end_date ||
-          program.end_date >= activePeriod.start_date);
+          program.end_date >= selectedRange.start_date);
 
       return matchSite && matchSearch && matchPeriod;
     });
-  }, [programs, search, site, activePeriod]);
-
-  const reportByProgram = useMemo(() => {
-    const map = new Map();
-
-    reports
-      .filter((r) => r.period_id === activePeriodId)
-      .forEach((r) => map.set(r.program_id, r));
-
-    return map;
-  }, [reports, activePeriodId]);
+  }, [programs, search, site, selectedRange]);
 
   const summary = useMemo(() => {
-    let final = 0;
-    let draft = 0;
-
-    filteredPrograms.forEach((program) => {
-      const status = reportByProgram.get(program.id)?.status;
-
-      if (status === "final") final++;
-      if (status === "draft") draft++;
-    });
-
     return {
-      total: filteredPrograms.length,
-      final,
-      draft,
-      pending: filteredPrograms.length - final - draft,
+      participants: filteredPrograms.length,
+      weeks: selectedRange?.total_weeks || 0,
+      theoryTarget: (selectedRange?.total_weeks || 0) * 2,
+      practiceTarget: selectedRange?.total_weeks || 0,
     };
-  }, [filteredPrograms, reportByProgram]);
+  }, [filteredPrograms, selectedRange]);
+
+  // ===================================================
+  // MENUJU RAPOR TERINTEGRASI
+  // ===================================================
 
   function openReport(program) {
-    if (!activePeriod) return;
+    if (!program?.id || !selectedRange) return;
 
-    const report = reportByProgram.get(program.id);
-
-    if (report?.id) {
-      router.push(
-        `/rapor/${reportType}/${program.id}?period=${activePeriod.id}`
-      );
-      return;
-    }
+    const query = new URLSearchParams({
+      weekFrom: String(startWeek),
+      weekTo: String(selectedEndWeek),
+    });
 
     router.push(
-      `/rapor/${reportType}/${program.id}?period=${activePeriod.id}`
+      `/laporan/${program.id}?${query.toString()}`
     );
   }
 
   return (
-    <div className="rp-root">
-      <style>{`
-        * { box-sizing: border-box; }
+    <div className="rpt-root">
+      <style>{css}</style>
 
-        .rp-root {
-          min-height: 100vh;
-          background: #f2f6f8;
-          color: #16332c;
-          font-family: Arial, Helvetica, sans-serif;
-        }
+      {/* HEADER */}
 
-        .rp-topbar {
-          background: linear-gradient(100deg,#07141c,#073c30);
-          color: white;
-          padding: 18px 25px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-        }
+      <header className="rpt-topbar">
+        <div className="rpt-brand">
+          <span className="rpt-brand-mark">◆</span>
 
-        .rp-brand {
-          font-size: 22px;
-          font-weight: 900;
-        }
-
-        .rp-brand span { color: #2cca95; }
-
-        .rp-top-actions {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .rp-top-button {
-          display: flex;
-          align-items: center;
-          gap: 7px;
-          padding: 10px 13px;
-          border: 1px solid #ffffff44;
-          border-radius: 9px;
-          background: #ffffff12;
-          color: white;
-          font-size: 12px;
-          font-weight: 800;
-          cursor: pointer;
-        }
-
-        .rp-content {
-          max-width: 1350px;
-          margin: auto;
-          padding: 24px;
-        }
-
-        .rp-heading {
-          margin-bottom: 22px;
-        }
-
-        .rp-heading h1 {
-          margin: 0 0 8px;
-          font-size: 30px;
-          font-weight: 900;
-          color: #102b30;
-        }
-
-        .rp-heading p {
-          margin: 0;
-          color: #73878c;
-          font-size: 13px;
-          line-height: 1.6;
-        }
-
-        .rp-type-grid {
-          display: grid;
-          grid-template-columns: repeat(2,minmax(0,1fr));
-          gap: 14px;
-          margin-bottom: 20px;
-        }
-
-        .rp-type-card {
-          width: 100%;
-          display: flex;
-          align-items: flex-start;
-          gap: 15px;
-          text-align: left;
-          padding: 21px;
-          border: 2px solid #e3e9ed;
-          border-radius: 16px;
-          background: white;
-          cursor: pointer;
-          box-shadow: 0 5px 20px #17384708;
-        }
-
-        .rp-type-card.active {
-          border-color: #10966a;
-          background: #f0fbf6;
-        }
-
-        .rp-type-icon {
-          width: 49px;
-          height: 49px;
-          flex-shrink: 0;
-          display: grid;
-          place-items: center;
-          border-radius: 12px;
-          background: #dff5eb;
-          color: #0c9467;
-        }
-
-        .rp-type-title {
-          font-size: 16px;
-          font-weight: 900;
-          color: #16332c;
-        }
-
-        .rp-type-description {
-          margin-top: 7px;
-          color: #6f8587;
-          font-size: 12px;
-          line-height: 1.6;
-        }
-
-        .rp-card {
-          padding: 20px;
-          margin-bottom: 17px;
-          border: 1px solid #e2eaee;
-          border-radius: 16px;
-          background: white;
-          box-shadow: 0 5px 20px #17384708;
-        }
-
-        .rp-card h2 {
-          margin: 0 0 15px;
-          font-size: 17px;
-          font-weight: 900;
-        }
-
-        .rp-period-row {
-          display: flex;
-          align-items: end;
-          flex-wrap: wrap;
-          gap: 13px;
-        }
-
-        .rp-field {
-          flex: 1;
-          min-width: 190px;
-        }
-
-        .rp-field label {
-          display: block;
-          margin-bottom: 7px;
-          font-size: 12px;
-          font-weight: 800;
-        }
-
-        .rp-input {
-          width: 100%;
-          border: 1px solid #d5e2e5;
-          border-radius: 9px;
-          background: white;
-          color: #16332c;
-          padding: 12px;
-          font-size: 13px;
-        }
-
-        .rp-period-note {
-          margin-top: 12px;
-          color: #778b90;
-          font-size: 12px;
-        }
-
-        .rp-stats {
-          display: grid;
-          grid-template-columns: repeat(4,minmax(0,1fr));
-          gap: 12px;
-          margin-bottom: 18px;
-        }
-
-        .rp-stat {
-          padding: 19px;
-          background: white;
-          border: 1px solid #e2eaee;
-          border-radius: 14px;
-        }
-
-        .rp-stat-label {
-          font-size: 12px;
-          color: #74888b;
-          font-weight: 700;
-        }
-
-        .rp-stat-value {
-          display: block;
-          margin-top: 10px;
-          font-size: 29px;
-          font-weight: 900;
-          color: #10392d;
-        }
-
-        .rp-stat.final .rp-stat-value { color: #098458; }
-        .rp-stat.draft .rp-stat-value { color: #a36a0c; }
-        .rp-stat.pending .rp-stat-value { color: #6c7d88; }
-
-        .rp-list-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 15px;
-        }
-
-        .rp-list-head h2 { margin: 0; }
-
-        .rp-filters {
-          display: flex;
-          gap: 9px;
-          flex-wrap: wrap;
-        }
-
-        .rp-search {
-          position: relative;
-        }
-
-        .rp-search input {
-          padding-left: 35px;
-          min-width: 230px;
-        }
-
-        .rp-search svg {
-          position: absolute;
-          left: 11px;
-          top: 11px;
-          color: #8a9b9d;
-        }
-
-        .rp-table-wrap { overflow-x: auto; }
-
-        .rp-table {
-          width: 100%;
-          border-collapse: collapse;
-          min-width: 720px;
-          text-align: left;
-          font-size: 12px;
-        }
-
-        .rp-table th {
-          padding: 13px;
-          background: #f3f7f8;
-          color: #718489;
-          font-size: 11px;
-        }
-
-        .rp-table td {
-          padding: 14px 13px;
-          border-bottom: 1px solid #e9eff1;
-        }
-
-        .rp-person {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .rp-avatar {
-          width: 38px;
-          height: 38px;
-          border-radius: 50%;
-          display: grid;
-          place-items: center;
-          background: #dff5eb;
-          color: #087e58;
-          font-weight: 900;
-        }
-
-        .rp-person-name {
-          font-weight: 900;
-          color: #17362e;
-        }
-
-        .rp-person-dept {
-          margin-top: 4px;
-          color: #84959a;
-          font-size: 11px;
-        }
-
-        .rp-status {
-          display: inline-block;
-          border-radius: 20px;
-          padding: 6px 11px;
-          font-size: 11px;
-          font-weight: 900;
-          white-space: nowrap;
-        }
-
-        .rp-status.final {
-          background: #ddf6e9;
-          color: #087e56;
-        }
-
-        .rp-status.draft {
-          background: #fff2d9;
-          color: #a66c09;
-        }
-
-        .rp-status.empty {
-          background: #edf1f3;
-          color: #6f7e87;
-        }
-
-        .rp-open {
-          border: 0;
-          border-radius: 9px;
-          padding: 10px 13px;
-          background: #087d58;
-          color: white;
-          font-weight: 800;
-          font-size: 12px;
-          cursor: pointer;
-        }
-
-        .rp-empty {
-          padding: 24px;
-          text-align: center;
-          color: #81939a;
-          font-size: 13px;
-        }
-
-        .rp-alert {
-          padding: 14px;
-          margin-bottom: 15px;
-          background: #fff0f0;
-          border: 1px solid #ffc7c7;
-          border-radius: 10px;
-          color: #b91c1c;
-          overflow-wrap: anywhere;
-        }
-
-        .rp-footer {
-          padding: 20px;
-          color: #87989c;
-          text-align: center;
-          font-size: 11px;
-        }
-
-        @media (max-width:760px) {
-          .rp-topbar { padding: 14px; }
-          .rp-brand { font-size: 18px; }
-          .rp-top-button { padding: 9px; font-size: 11px; }
-          .rp-content { padding: 15px 11px; }
-          .rp-heading h1 { font-size: 25px; }
-          .rp-type-grid { grid-template-columns: 1fr; }
-          .rp-type-card { padding: 16px; }
-          .rp-card { padding: 15px 12px; }
-          .rp-stats { grid-template-columns: repeat(2,1fr); }
-          .rp-stat { padding: 14px; }
-          .rp-stat-value { font-size: 25px; }
-          .rp-filters { width: 100%; }
-          .rp-search { flex: 1; min-width: 0; }
-          .rp-search input { min-width: 0; }
-          .rp-filters select { width: 115px; }
-        }
-      `}</style>
-
-      <header className="rp-topbar">
-        <div className="rp-brand">
-          OJT <span>MineTrack</span>
+          <div>
+            <strong>
+              OJT <span>MineTrack</span>
+            </strong>
+            <small>EMERGENCY RESPONSE GROUP · PT BERAU COAL</small>
+          </div>
         </div>
 
-        <div className="rp-top-actions">
+        <div className="rpt-top-actions">
           <button
             type="button"
-            className="rp-top-button"
             onClick={refreshData}
             disabled={loading || refreshing}
           >
-            <Icon name="refresh" size={16} />
-            {refreshing ? "Memuat..." : "Refresh"}
+            <Icon name="refresh" size={17} />
+            <span>{refreshing ? "Memuat..." : "Refresh"}</span>
           </button>
 
           <button
             type="button"
-            className="rp-top-button"
             onClick={() => router.push("/")}
           >
             <Icon name="back" size={17} />
-            Dashboard
+            <span>Dashboard</span>
           </button>
         </div>
       </header>
 
-      <main className="rp-content">
-        <div className="rp-heading">
-          <h1>Pusat Rapor OJT</h1>
-          <p>
-            Monitoring dan evaluasi On Job Training
-            berdasarkan periode kalender perusahaan.
-          </p>
+      <main className="rpt-content">
+
+        {/* HERO */}
+
+        <section className="rpt-hero">
+          <div className="rpt-hero-text">
+            <span className="rpt-eyebrow">
+              OJT MINETRACK V2.0 · PROGRAM 2026–2027
+            </span>
+
+            <h1>
+              Pusat <span>Rapor OJT</span>
+            </h1>
+
+            <p>
+              Kelola laporan perkembangan peserta
+              berdasarkan kalender global program OJT
+              dengan pilihan rentang Week 01–25.
+            </p>
+
+            <div className="rpt-hero-tags">
+              <span>
+                <Icon name="shield" size={15} />
+                {isAdmin ? "Administrator" : "Mentor OJT"}
+              </span>
+
+              <span>
+                <Icon name="calendar" size={15} />
+                25 Minggu Program
+              </span>
+            </div>
+          </div>
+
+          <div className="rpt-hero-right">
+            <div className="rpt-hero-number">25</div>
+            <strong>WEEK PROGRAM</strong>
+            <small>12 Sep 2026 – 6 Mar 2027</small>
+          </div>
+        </section>
+
+        {/* IDENTITAS */}
+
+        <div className="rpt-breadcrumb">
+          Dashboard / Monitoring OJT /{" "}
+          <strong>Pusat Rapor</strong>
         </div>
 
         {error && (
-          <div className="rp-alert" role="alert">
+          <div className="rpt-alert" role="alert">
+            <Icon name="info" size={20} />
             {error}
           </div>
         )}
 
         {loading ? (
-          <section className="rp-card">
-            Memuat data rapor...
+          <section className="rpt-card rpt-loading">
+            Memuat data program dan peserta OJT...
           </section>
         ) : !profile ? (
-          <section className="rp-card">
+          <section className="rpt-card">
             Data pengguna tidak tersedia.
           </section>
         ) : (
           <>
-            <div className="rp-type-grid">
-              <button
-                type="button"
-                className={
-                  "rp-type-card " +
-                  (reportType === "biweekly" ? "active" : "")
-                }
-                onClick={() => {
-                  setReportType("biweekly");
-                  setSelectedPeriod("");
-                }}
-              >
-                <div className="rp-type-icon">
-                  <Icon name="calendar" size={25} />
-                </div>
+            {/* PEMILIHAN MINGGU */}
+
+            <section className="rpt-card">
+              <div className="rpt-section-heading">
+                <span className="rpt-section-icon">
+                  <Icon name="calendar" size={21} />
+                </span>
 
                 <div>
-                  <div className="rp-type-title">
-                    Rapor Pencapaian 2 Mingguan
-                  </div>
-
-                  <div className="rp-type-description">
-                    Evaluasi enam kategori pencapaian:
-                    Fisik, Training, Sosialisasi,
-                    Coaching, Orientasi Area, dan Hazard.
-                  </div>
+                  <h2>Periode Rapor OJT</h2>
+                  <p>
+                    Pilih minggu awal dan minggu akhir yang
+                    akan digunakan pada laporan.
+                  </p>
                 </div>
-              </button>
+              </div>
 
-              <button
-                type="button"
-                className={
-                  "rp-type-card " +
-                  (reportType === "quarterly" ? "active" : "")
-                }
-                onClick={() => {
-                  setReportType("quarterly");
-                  setSelectedPeriod("");
-                }}
-              >
-                <div className="rp-type-icon">
-                  <Icon name="report" size={25} />
-                </div>
-
-                <div>
-                  <div className="rp-type-title">
-                    Rapor Evaluasi 3 Bulanan
-                  </div>
-
-                  <div className="rp-type-description">
-                    Evaluasi praktik, post-test, Samapta,
-                    SIMPER, konsistensi, dan penilaian Mentor.
-                  </div>
-                </div>
-              </button>
-            </div>
-
-            <section className="rp-card">
-              <h2>Periode Penilaian</h2>
-
-              <div className="rp-period-row">
-                <div className="rp-field">
-                  <label htmlFor="rp-period">
-                    Pilih Periode
+              <div className="rpt-range-grid">
+                <div className="rpt-field">
+                  <label htmlFor="rpt-from">
+                    Dari Minggu
                   </label>
 
                   <select
-                    id="rp-period"
-                    className="rp-input"
-                    value={activePeriodId}
+                    id="rpt-from"
+                    value={startWeek}
                     onChange={(event) =>
-                      setSelectedPeriod(event.target.value)
+                      updateStartWeek(event.target.value)
                     }
                   >
-                    {typePeriods.map((period) => (
+                    {GLOBAL_WEEKS.map((week) => (
                       <option
-                        value={period.id}
-                        key={period.id}
+                        key={week.number}
+                        value={week.number}
                       >
-                        {period.period_label}
+                        {week.label} · {formatDate(week.start_date)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="rpt-field">
+                  <label htmlFor="rpt-to">
+                    Sampai Minggu
+                  </label>
+
+                  <select
+                    id="rpt-to"
+                    value={selectedEndWeek}
+                    onChange={(event) =>
+                      updateEndWeek(event.target.value)
+                    }
+                  >
+                    {GLOBAL_WEEKS.map((week) => (
+                      <option
+                        key={week.number}
+                        value={week.number}
+                      >
+                        {week.label} · {formatDate(week.end_date)}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div className="rp-period-note">
-                {activePeriod
-                  ? `Tanggal ${formatDate(activePeriod.start_date)} sampai ${formatDate(activePeriod.end_date)}`
-                  : "Belum tersedia periode penilaian."}
+              <div className="rpt-presets">
+                <span>Pilihan Cepat:</span>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = getCurrentWeek();
+                    selectRange(current, current);
+                  }}
+                >
+                  Minggu Saat Ini
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => selectRange(1, 2)}
+                >
+                  2 Minggu
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => selectRange(1, 12)}
+                >
+                  12 Minggu
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => selectRange(1, 25)}
+                >
+                  25 Minggu
+                </button>
+              </div>
+
+              {selectedRange && (
+                <div className="rpt-range-info">
+                  <Icon name="info" size={18} />
+
+                  <span>
+                    <strong>
+                      Week {String(startWeek).padStart(2, "0")}
+                      {" – "}
+                      Week {String(selectedEndWeek).padStart(2, "0")}
+                    </strong>
+                    {" · "}
+                    {formatDate(selectedRange.start_date)}
+                    {" sampai "}
+                    {formatDate(selectedRange.end_date)}
+                  </span>
+                </div>
+              )}
+            </section>
+
+            {/* RINGKASAN */}
+
+            <div className="rpt-stats">
+              <StatCard
+                icon="users"
+                label="Peserta dalam Rentang"
+                value={summary.participants}
+                description="Sesuai filter dan periode"
+              />
+
+              <StatCard
+                icon="calendar"
+                label="Durasi Laporan"
+                value={summary.weeks}
+                description="Minggu terpilih"
+              />
+
+              <StatCard
+                icon="book"
+                label="Target Post-Test"
+                value={summary.theoryTarget}
+                description="2 sesi per minggu / peserta"
+              />
+
+              <StatCard
+                icon="activity"
+                label="Target Praktik"
+                value={summary.practiceTarget}
+                description="1 sesi per minggu / peserta"
+              />
+            </div>
+
+            {/* KATEGORI */}
+
+            <section className="rpt-card rpt-category-card">
+              <div className="rpt-section-heading">
+                <span className="rpt-section-icon">
+                  <Icon name="award" size={21} />
+                </span>
+
+                <div>
+                  <h2>Enam Kategori Achievement</h2>
+                  <p>
+                    Kategori kompetensi yang tetap digunakan
+                    pada sistem monitoring peserta.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rpt-category-list">
+                {CATEGORIES.map((category, index) => (
+                  <CategoryTag
+                    key={category}
+                    name={category}
+                    index={index}
+                  />
+                ))}
               </div>
             </section>
 
-            <div className="rp-stats">
-              {[
-                {
-                  label: "Peserta dalam Periode",
-                  value: summary.total,
-                  className: "",
-                },
-                {
-                  label: "Rapor Final",
-                  value: summary.final,
-                  className: "final",
-                },
-                {
-                  label: "Rapor Draft",
-                  value: summary.draft,
-                  className: "draft",
-                },
-                {
-                  label: "Belum Dibuat",
-                  value: summary.pending,
-                  className: "pending",
-                },
-              ].map((item) => (
-                <div
-                  className={"rp-stat " + item.className}
-                  key={item.label}
-                >
-                  <div className="rp-stat-label">
-                    {item.label}
+            {/* DAFTAR PESERTA */}
+
+            <section className="rpt-card">
+              <div className="rpt-list-header">
+                <div className="rpt-section-heading">
+                  <span className="rpt-section-icon">
+                    <Icon name="users" size={21} />
+                  </span>
+
+                  <div>
+                    <h2>Daftar Peserta OJT</h2>
+                    <p>
+                      Pilih peserta untuk membuka rapor
+                      sesuai rentang minggu terpilih.
+                    </p>
                   </div>
-
-                  <strong className="rp-stat-value">
-                    {item.value}
-                  </strong>
                 </div>
-              ))}
-            </div>
 
-            <section className="rp-card">
-              <div className="rp-list-head">
-                <h2>
-                  Daftar Peserta OJT
-                  {isAdmin ? " · Administrator" : ""}
-                </h2>
-
-                <div className="rp-filters">
-                  <div className="rp-search">
+                <div className="rpt-filters">
+                  <label className="rpt-search">
                     <Icon name="search" size={17} />
 
                     <input
-                      className="rp-input"
                       type="search"
-                      placeholder="Cari peserta..."
+                      placeholder="Cari nama, departemen..."
                       value={search}
                       onChange={(event) =>
                         setSearch(event.target.value)
                       }
                     />
-                  </div>
+                  </label>
 
-                  <select
-                    className="rp-input"
-                    value={site}
-                    onChange={(event) =>
-                      setSite(event.target.value)
-                    }
-                  >
-                    <option value="ALL">
-                      Semua Site
-                    </option>
+                  <label className="rpt-site">
+                    <Icon name="filter" size={17} />
 
-                    {SITES.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
+                    <select
+                      value={site}
+                      onChange={(event) =>
+                        setSite(event.target.value)
+                      }
+                      aria-label="Filter Site"
+                    >
+                      <option value="ALL">
+                        Semua Site
                       </option>
-                    ))}
-                  </select>
+
+                      {SITES.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
               </div>
 
-              <div className="rp-table-wrap">
-                <table className="rp-table">
-                  <thead>
-                    <tr>
-                      <th>No</th>
-                      <th>Peserta OJT</th>
-                      <th>Site</th>
-                      <th>Periode OJT</th>
-                      <th>Status Rapor</th>
-                      <th>Aksi</th>
-                    </tr>
-                  </thead>
+              <p className="rpt-count">
+                Menampilkan{" "}
+                <strong>{filteredPrograms.length}</strong>
+                {" "}peserta dalam rentang terpilih.
+              </p>
 
-                  <tbody>
-                    {filteredPrograms.map((program, index) => {
-                      const person = Array.isArray(program.peserta)
-                        ? program.peserta[0]
-                        : program.peserta;
+              {filteredPrograms.length === 0 ? (
+                <div className="rpt-empty">
+                  <Icon name="report" size={35} />
+                  <strong>Belum Ada Peserta</strong>
+                  <p>
+                    Tidak ditemukan program peserta OJT
+                    yang sesuai dengan periode dan filter.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="rpt-table-wrap">
+                    <table className="rpt-table">
+                      <thead>
+                        <tr>
+                          <th>No</th>
+                          <th>Nama Peserta</th>
+                          <th>Departemen</th>
+                          <th>Site</th>
+                          <th>Periode Program</th>
+                          <th>Status Program</th>
+                          <th>Aksi</th>
+                        </tr>
+                      </thead>
 
-                      const report = reportByProgram.get(program.id);
+                      <tbody>
+                        {filteredPrograms.map(
+                          (program, index) => {
+                            const person =
+                              Array.isArray(program.peserta)
+                                ? program.peserta[0]
+                                : program.peserta;
+
+                            return (
+                              <tr key={program.id}>
+                                <td>{index + 1}</td>
+
+                                <td>
+                                  <div className="rpt-person">
+                                    <span className="rpt-avatar">
+                                      {initials(person?.full_name)}
+                                    </span>
+
+                                    <strong>
+                                      {person?.full_name ||
+                                        "Peserta OJT"}
+                                    </strong>
+                                  </div>
+                                </td>
+
+                                <td>
+                                  {person?.department || "—"}
+                                </td>
+
+                                <td>
+                                  <span className="rpt-site-badge">
+                                    {program.site || "—"}
+                                  </span>
+                                </td>
+
+                                <td>
+                                  {formatDate(program.start_date)}
+                                  {" – "}
+                                  {formatDate(program.end_date)}
+                                </td>
+
+                                <td>
+                                  <span className="rpt-program-status">
+                                    {program.status || "—"}
+                                  </span>
+                                </td>
+
+                                <td>
+                                  <button
+                                    type="button"
+                                    className="rpt-open"
+                                    onClick={() =>
+                                      openReport(program)
+                                    }
+                                  >
+                                    Buka Rapor
+                                    <Icon name="arrow" size={16} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          }
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="rpt-mobile-list">
+                    {filteredPrograms.map((program) => {
+                      const person =
+                        Array.isArray(program.peserta)
+                          ? program.peserta[0]
+                          : program.peserta;
 
                       return (
-                        <tr key={program.id}>
-                          <td>{index + 1}</td>
+                        <div
+                          className="rpt-mobile-item"
+                          key={program.id}
+                        >
+                          <div className="rpt-person">
+                            <span className="rpt-avatar">
+                              {initials(person?.full_name)}
+                            </span>
 
-                          <td>
-                            <div className="rp-person">
-                              <div className="rp-avatar">
-                                {initials(person?.full_name)}
-                              </div>
-
-                              <div>
-                                <div className="rp-person-name">
-                                  {person?.full_name || "Peserta OJT"}
-                                </div>
-
-                                <div className="rp-person-dept">
-                                  {person?.department || "—"}
-                                </div>
-                              </div>
+                            <div>
+                              <strong>
+                                {person?.full_name || "Peserta OJT"}
+                              </strong>
+                              <small>
+                                {person?.department || "—"}
+                              </small>
                             </div>
-                          </td>
+                          </div>
 
-                          <td>{program.site || "—"}</td>
+                          <div className="rpt-mobile-meta">
+                            <span>Site</span>
+                            <strong>
+                              {program.site || "—"}
+                            </strong>
+                          </div>
 
-                          <td>
-                            {formatDate(program.start_date)}
-                            {" – "}
-                            {formatDate(program.end_date)}
-                          </td>
+                          <div className="rpt-mobile-meta">
+                            <span>Periode OJT</span>
+                            <strong>
+                              {formatDate(program.start_date)}
+                              {" – "}
+                              {formatDate(program.end_date)}
+                            </strong>
+                          </div>
 
-                          <td>
-                            <StatusBadge status={report?.status} />
-                          </td>
+                          <div className="rpt-mobile-meta">
+                            <span>Status Program</span>
+                            <strong>
+                              {program.status || "—"}
+                            </strong>
+                          </div>
 
-                          <td>
-                            <button
-                              type="button"
-                              className="rp-open"
-                              onClick={() => openReport(program)}
-                            >
-                              Buka Rapor
-                            </button>
-                          </td>
-                        </tr>
+                          <button
+                            type="button"
+                            className="rpt-open"
+                            onClick={() => openReport(program)}
+                          >
+                            Buka Rapor
+                            <Icon name="arrow" size={16} />
+                          </button>
+                        </div>
                       );
                     })}
-                  </tbody>
-                </table>
-
-                {!filteredPrograms.length && (
-                  <div className="rp-empty">
-                    Tidak ada peserta OJT pada periode
-                    dan filter yang dipilih.
                   </div>
-                )}
-              </div>
+                </>
+              )}
             </section>
 
-            <section className="rp-card">
-              <h2>Informasi Sistem Rapor</h2>
+            {/* INFORMASI */}
 
-              <p className="rp-period-note">
-                Periode penilaian berlaku sama untuk
-                seluruh peserta. Data pencapaian dan
-                evaluasi berasal dari sistem OJT MineTrack.
-                Status Final hanya muncul setelah rapor
-                disahkan melalui proses finalisasi.
-              </p>
+            <section className="rpt-information">
+              <Icon name="info" size={21} />
 
-              <p className="rp-period-note">
-                Tahap ini hanya menampilkan data.
-                Penyimpanan evaluasi Mentor dan
-                finalisasi rapor akan ditambahkan
-                pada tahap berikutnya.
-              </p>
+              <div>
+                <strong>Informasi Rapor Terintegrasi</strong>
+
+                <p>
+                  Rapor menggunakan rentang Kalender Global
+                  Week 01–25. Jadwal per minggu terdiri dari
+                  dua Post-Test dan satu Praktik.
+                </p>
+
+                <p>
+                  Jumlah penilaian di atas adalah target
+                  jadwal, bukan nilai aktual. Nilai teori,
+                  praktik, Achievement, Samapta, dan SIMPER
+                  tetap mengikuti data yang tercatat
+                  pada masing-masing modul.
+                </p>
+
+                <p>
+                  Halaman ini tidak menghapus atau mengubah
+                  data rapor periode lama di Supabase.
+                </p>
+              </div>
             </section>
           </>
         )}
 
-        <footer className="rp-footer">
+        <footer className="rpt-footer">
           OJT MineTrack v2.0 · Emergency Response Group ·
-          PT Berau Coal
+          PT Berau Coal · Program 2026–2027
         </footer>
       </main>
     </div>
   );
 }
+
+// =====================================================
+// STYLE — CORPORATE MINING / RAPOR TERINTEGRASI
+// =====================================================
+
+const css = `
+.rpt-root,
+.rpt-root * {
+  box-sizing: border-box;
+}
+
+.rpt-root {
+  min-height: 100vh;
+  color: #193b38;
+  background: #f3f7f7;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.rpt-root button,
+.rpt-root select,
+.rpt-root input {
+  font-family: inherit;
+}
+
+.rpt-root button {
+  cursor: pointer;
+}
+
+.rpt-root button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.rpt-root button:focus-visible,
+.rpt-root select:focus-visible,
+.rpt-root input:focus-visible {
+  outline: 3px solid #75cba8;
+  outline-offset: 2px;
+}
+
+/* HEADER */
+
+.rpt-topbar {
+  min-height: 73px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 13px 28px;
+  background: linear-gradient(
+    105deg,
+    #061e26,
+    #06473e
+  );
+  color: white;
+}
+
+.rpt-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rpt-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: #ffffff15;
+  color: #59deb1;
+  font-size: 27px;
+}
+
+.rpt-brand strong {
+  display: block;
+  font-size: 21px;
+  font-weight: 900;
+}
+
+.rpt-brand strong span {
+  color: #42d2a4;
+}
+
+.rpt-brand small {
+  display: block;
+  margin-top: 5px;
+  color: #b1d3c9;
+  font-size: 9px;
+  letter-spacing: .8px;
+}
+
+.rpt-top-actions {
+  display: flex;
+  gap: 9px;
+}
+
+.rpt-top-actions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border: 1px solid #ffffff40;
+  border-radius: 9px;
+  background: #ffffff12;
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* MAIN */
+
+.rpt-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 23px;
+}
+
+/* HERO */
+
+.rpt-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 25px;
+  min-height: 207px;
+  padding: 30px;
+  border-radius: 17px;
+  background:
+    linear-gradient(
+      100deg,
+      #071e2af7,
+      #10463ff0 55%,
+      #17473ebb
+    ),
+    url("/background-erg.png.PNG")
+      center/cover;
+  color: white;
+}
+
+.rpt-hero-text {
+  max-width: 730px;
+}
+
+.rpt-eyebrow {
+  color: #edca85;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1.3px;
+}
+
+.rpt-hero h1 {
+  margin: 14px 0 10px;
+  font-size: clamp(28px,3.3vw,43px);
+  letter-spacing: -.8px;
+}
+
+.rpt-hero h1 span {
+  color: #50e1af;
+}
+
+.rpt-hero p {
+  margin: 0;
+  color: #d7ece6;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.rpt-hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+  margin-top: 19px;
+}
+
+.rpt-hero-tags span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid #ffffff2b;
+  border-radius: 8px;
+  background: #ffffff12;
+  color: #e1f6ee;
+  font-size: 11px;
+}
+
+.rpt-hero-tags svg {
+  color: #e9c87f;
+}
+
+.rpt-hero-right {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-width: 180px;
+  padding: 20px;
+  border: 1px solid #ffffff40;
+  border-radius: 13px;
+  background: #082a2bb5;
+  text-align: center;
+}
+
+.rpt-hero-number {
+  font-size: 52px;
+  font-weight: 900;
+}
+
+.rpt-hero-right strong {
+  color: #e9c87f;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.rpt-hero-right small {
+  font-size: 11px;
+  color: #c8e3db;
+}
+
+/* BREADCRUMB */
+
+.rpt-breadcrumb {
+  padding: 16px 3px;
+  color: #92a5a6;
+  font-size: 11px;
+}
+
+.rpt-breadcrumb strong {
+  color: #0a805b;
+}
+
+/* CARD */
+
+.rpt-card {
+  padding: 21px;
+  margin-bottom: 16px;
+  border: 1px solid #e1eaea;
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 5px 17px #0f323909;
+}
+
+.rpt-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.rpt-section-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #e3f5eb;
+  color: #0a8662;
+}
+
+.rpt-section-heading h2 {
+  margin: 0;
+  color: #153e37;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.rpt-section-heading p {
+  margin: 6px 0 0;
+  color: #819695;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* WEEK RANGE */
+
+.rpt-range-grid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 15px;
+}
+
+.rpt-field label {
+  display: block;
+  margin-bottom: 8px;
+  color: #48655f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rpt-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 13px;
+  border: 1px solid #d8e6e3;
+  border-radius: 9px;
+  background: #fbfdfc;
+  color: #1e403b;
+  font-size: 12px;
+}
+
+.rpt-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 17px;
+}
+
+.rpt-presets > span {
+  margin-right: 4px;
+  color: #768e89;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.rpt-presets button {
+  padding: 9px 12px;
+  border: 1px solid #d7e6e0;
+  border-radius: 8px;
+  background: #f5faf7;
+  color: #168060;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rpt-presets button:hover {
+  background: #e2f5eb;
+}
+
+.rpt-range-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 17px;
+  padding: 13px;
+  border: 1px solid #d1e9da;
+  border-radius: 9px;
+  background: #eef9f2;
+  color: #247451;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.rpt-range-info svg {
+  flex-shrink: 0;
+}
+
+/* STATS */
+
+.rpt-stats {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.rpt-stat {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 105px;
+  padding: 17px;
+  border: 1px solid #e0eae8;
+  border-radius: 13px;
+  background: white;
+}
+
+.rpt-stat-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border-radius: 11px;
+  background: #e1f5e8;
+  color: #0a8661;
+}
+
+.rpt-stat > div {
+  display: grid;
+  gap: 5px;
+}
+
+.rpt-stat-label {
+  color: #70847f;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rpt-stat strong {
+  color: #173b34;
+  font-size: 29px;
+}
+
+.rpt-stat small {
+  color: #8a9c99;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+/* CATEGORIES */
+
+.rpt-category-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.rpt-category {
+  padding: 10px 13px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.rpt-category.cat-0 {
+  color: #b74141;
+  background: #fcebea;
+}
+
+.rpt-category.cat-1 {
+  color: #a96b19;
+  background: #fff1da;
+}
+
+.rpt-category.cat-2 {
+  color: #9f7d00;
+  background: #fff8d2;
+}
+
+.rpt-category.cat-3 {
+  color: #147d54;
+  background: #e3f5e8;
+}
+
+.rpt-category.cat-4 {
+  color: #207ba4;
+  background: #e2f3fb;
+}
+
+.rpt-category.cat-5 {
+  color: #6d53b4;
+  background: #eee9fc;
+}
+
+/* LIST */
+
+.rpt-list-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.rpt-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.rpt-search,
+.rpt-site {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #dbe6e4;
+  border-radius: 9px;
+  background: #fbfdfc;
+  color: #829791;
+}
+
+.rpt-search input,
+.rpt-site select {
+  min-height: 39px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #24493f;
+  font-size: 12px;
+}
+
+.rpt-search input {
+  width: 210px;
+}
+
+.rpt-site select {
+  max-width: 150px;
+}
+
+.rpt-count {
+  margin: 0 0 15px;
+  color: #839792;
+  font-size: 11px;
+}
+
+.rpt-count strong {
+  color: #087e59;
+}
+
+/* DESKTOP TABLE */
+
+.rpt-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.rpt-table {
+  width: 100%;
+  min-width: 910px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.rpt-table th {
+  padding: 13px 12px;
+  background: #edf4f1;
+  color: #5b756c;
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.rpt-table td {
+  padding: 15px 12px;
+  border-bottom: 1px solid #ebf0ee;
+  color: #426058;
+}
+
+.rpt-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rpt-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 39px;
+  height: 39px;
+  border-radius: 10px;
+  background: #e0f4e9;
+  color: #09835d;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.rpt-person strong {
+  color: #1b4237;
+  font-size: 12px;
+}
+
+.rpt-site-badge {
+  display: inline-block;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: #eef3f2;
+  color: #526d65;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rpt-program-status {
+  display: inline-block;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #f1f4f1;
+  color: #627c71;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.rpt-open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #08875f;
+  color: white;
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.rpt-open:hover {
+  background: #076a4d;
+}
+
+.rpt-mobile-list {
+  display: none;
+}
+
+.rpt-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 40px 15px;
+  color: #899a94;
+  text-align: center;
+}
+
+.rpt-empty strong {
+  color: #4b675f;
+  font-size: 13px;
+}
+
+.rpt-empty p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* INFORMATION */
+
+.rpt-information {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 17px;
+  border: 1px solid #d8e8e1;
+  border-radius: 12px;
+  background: #edf8f1;
+  color: #287452;
+}
+
+.rpt-information > svg {
+  flex-shrink: 0;
+}
+
+.rpt-information strong {
+  font-size: 13px;
+}
+
+.rpt-information p {
+  margin: 8px 0 0;
+  color: #597d6d;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.rpt-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #fac6c6;
+  border-radius: 10px;
+  background: #fff2f2;
+  color: #b22323;
+  font-size: 12px;
+}
+
+.rpt-loading {
+  padding: 35px;
+  text-align: center;
+  color: #708d82;
+}
+
+.rpt-footer {
+  padding: 25px 0 10px;
+  color: #98a8a1;
+  font-size: 10px;
+  text-align: center;
+}
+
+/* RESPONSIVE */
+
+@media(max-width:1100px) {
+  .rpt-stats {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+
+  .rpt-list-header {
+    flex-direction: column;
+  }
+}
+
+@media(max-width:700px) {
+  .rpt-topbar {
+    min-height: 62px;
+    padding: 11px 13px;
+  }
+
+  .rpt-brand strong {
+    font-size: 17px;
+  }
+
+  .rpt-brand small {
+    font-size: 8px;
+  }
+
+  .rpt-top-actions button {
+    padding: 9px;
+  }
+
+  .rpt-top-actions button span {
+    display: none;
+  }
+
+  .rpt-content {
+    padding: 12px;
+  }
+
+  .rpt-hero {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 24px 18px;
+  }
+
+  .rpt-hero h1 {
+    font-size: 30px;
+  }
+
+  .rpt-hero-right {
+    min-width: 0;
+    padding: 13px;
+  }
+
+  .rpt-hero-number {
+    font-size: 35px;
+  }
+
+  .rpt-card {
+    padding: 15px;
+  }
+
+  .rpt-range-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rpt-section-heading h2 {
+    font-size: 15px;
+  }
+
+  .rpt-stats {
+    gap: 9px;
+  }
+
+  .rpt-stat {
+    padding: 12px;
+    min-height: 100px;
+    gap: 9px;
+  }
+
+  .rpt-stat-icon {
+    width: 35px;
+    height: 35px;
+  }
+
+  .rpt-stat strong {
+    font-size: 25px;
+  }
+
+  .rpt-stat-label {
+    font-size: 10px;
+  }
+
+  .rpt-filters,
+  .rpt-search {
+    width: 100%;
+  }
+
+  .rpt-search input {
+    width: 100%;
+  }
+
+  .rpt-site {
+    flex: 1;
+  }
+
+  .rpt-site select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .rpt-table-wrap {
+    display: none;
+  }
+
+  .rpt-mobile-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .rpt-mobile-item {
+    padding: 15px;
+    border: 1px solid #e2eae6;
+    border-radius: 10px;
+  }
+
+  .rpt-mobile-item .rpt-person {
+    margin-bottom: 14px;
+  }
+
+  .rpt-mobile-item .rpt-person strong,
+  .rpt-mobile-item .rpt-person small {
+    display: block;
+  }
+
+  .rpt-mobile-item .rpt-person small {
+    margin-top: 5px;
+    color: #849b91;
+    font-size: 11px;
+  }
+
+  .rpt-mobile-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid #edf2ee;
+    font-size: 11px;
+  }
+
+  .rpt-mobile-meta span {
+    color: #81968d;
+  }
+
+  .rpt-mobile-meta strong {
+    color: #385b4d;
+    text-align: right;
+  }
+
+  .rpt-mobile-item .rpt-open {
+    width: 100%;
+    margin-top: 13px;
+  }
+}
+`;
