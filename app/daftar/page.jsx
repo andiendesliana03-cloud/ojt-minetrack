@@ -7,15 +7,14 @@ import { useRouter } from "next/navigation";
 // ======================================================
 // OJT MINETRACK V2.0
 // DASHBOARD PENDAFTARAN PESERTA OJT
-// CORPORATE NAVY / EMERALD / ERG BACKGROUND
-// DESAIN SESUAI DASHBOARD MENTOR & ADMIN
+// CORPORATE NAVY & EMERALD
 //
-// CATATAN:
-// Proses submit perlu dihubungkan ke fungsi registrasi
-// lama agar mekanisme Supabase dan persetujuan tidak berubah.
+// FRONTEND TERHUBUNG KE /api/register
+// SERVER REGISTRATION LOCK TETAP DIHORMATI
 // ======================================================
 
 const BACKGROUND = "/background-erg.png.PNG";
+const REGISTER_API = "/api/register";
 
 const PROGRAM_START = "2026-09-12";
 const PROGRAM_END = "2027-03-06";
@@ -43,6 +42,19 @@ const DEPARTMENTS = [
   "Human Resources",
   "Lainnya",
 ];
+
+const EMPTY_FORM = {
+  fullName: "",
+  email: "",
+  password: "",
+  confirmPassword: "",
+  department: "",
+  site: "",
+};
+
+// ======================================================
+// ICON
+// ======================================================
 
 function Icon({ name, size = 19 }) {
   const icons = {
@@ -107,18 +119,9 @@ function Icon({ name, size = 19 }) {
         <path d="M9 3v15M15 6v15" />
       </>
     ),
-    phone: (
-      <path d="M22 16.9v3a2 2 0 0 1-2.2 2A19 19 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7l.4 3a2 2 0 0 1-.6 1.8L7 10.4a16 16 0 0 0 6.6 6.6l1.9-1.9a2 2 0 0 1 1.8-.6l3 .4a2 2 0 0 1 1.7 2z" />
-    ),
-    arrow: (
-      <path d="M5 12h14m-6-6 6 6-6 6" />
-    ),
-    back: (
-      <path d="M19 12H5m6-6-6 6 6 6" />
-    ),
-    check: (
-      <path d="m4 12 5 5L20 6" />
-    ),
+    arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
+    back: <path d="M19 12H5m6-6-6 6 6 6" />,
+    check: <path d="m4 12 5 5L20 6" />,
     info: (
       <>
         <circle cx="12" cy="12" r="9" />
@@ -165,14 +168,25 @@ function Icon({ name, size = 19 }) {
   );
 }
 
-function InfoCard({ icon, label, title, children, color }) {
+// ======================================================
+// COMPONENTS
+// ======================================================
+
+function InfoCard({
+  icon,
+  label,
+  title,
+  children,
+  color,
+}) {
   return (
     <div className="reg-info-card">
-      <div className={"reg-info-icon " + color}>
-        <Icon name={icon} size={24} />
+      <div className={`reg-info-icon ${color}`}>
+        <Icon name={icon} size={23} />
       </div>
+
       <div>
-        <span className="reg-info-label">{label}</span>
+        <span>{label}</span>
         <strong>{title}</strong>
         <p>{children}</p>
       </div>
@@ -183,15 +197,14 @@ function InfoCard({ icon, label, title, children, color }) {
 function FormField({
   label,
   icon,
-  required = false,
   children,
 }) {
   return (
     <div className="reg-field">
-      <label>
-        {label}
-        {required && <em> *</em>}
+      <label className="reg-field-label">
+        {label} <em>*</em>
       </label>
+
       <div className="reg-field-control">
         <Icon name={icon} size={18} />
         {children}
@@ -200,114 +213,225 @@ function FormField({
   );
 }
 
-function getInitialForm() {
-  return {
-    fullName: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    department: "",
-    site: "",
-    phone: "",
-  };
-}
+// ======================================================
+// MAIN PAGE
+// ======================================================
 
 export default function DaftarPesertaOJT() {
   const router = useRouter();
 
-  const [form, setForm] = useState(getInitialForm);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+
+  const [showPassword, setShowPassword] =
+    useState(false);
+
+  const [showConfirm, setShowConfirm] =
+    useState(false);
+
   const [agreed, setAgreed] = useState(false);
+
+  const [loading, setLoading] = useState(false);
+
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  // ====================================================
+  // FORM HELPERS
+  // ====================================================
 
   function update(name, value) {
     setForm((previous) => ({
       ...previous,
       [name]: value,
     }));
+
     setError("");
     setNotice("");
   }
 
-  const passwordValid = useMemo(
-    () => form.password.length >= 8,
-    [form.password]
-  );
+  const passwordValid = useMemo(() => {
+    return (
+      form.password.length >= 8 &&
+      form.password.length <= 128
+    );
+  }, [form.password]);
+
+  // ====================================================
+  // VALIDATION
+  // ====================================================
+
+  function validateForm() {
+    const fullName = form.fullName
+      .trim()
+      .replace(/\s+/g, " ");
+
+    const email = form.email
+      .trim()
+      .toLowerCase();
+
+    if (
+      fullName.length < 3 ||
+      fullName.length > 120
+    ) {
+      return "Nama lengkap harus 3–120 karakter.";
+    }
+
+    if (
+      email.length > 254 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ) {
+      return "Masukkan email yang valid.";
+    }
+
+    if (!passwordValid) {
+      return "Password harus 8–128 karakter.";
+    }
+
+    if (form.password !== form.confirmPassword) {
+      return "Konfirmasi password tidak sesuai.";
+    }
+
+    if (
+      !form.department ||
+      form.department.length > 100
+    ) {
+      return "Departemen wajib dipilih.";
+    }
+
+    if (!SITES.includes(form.site)) {
+      return "Pilih site penempatan OJT.";
+    }
+
+    if (!agreed) {
+      return "Anda harus menyetujui ketentuan pendaftaran.";
+    }
+
+    return "";
+  }
+
+  // ====================================================
+  // REGISTRATION SUBMIT
+  //
+  // MENGGUNAKAN ENDPOINT SERVER YANG SUDAH ADA.
+  // TIDAK MENGGUNAKAN auth.signUp LANGSUNG.
+  //
+  // SERVER MENENTUKAN APAKAH PENDAFTARAN AKTIF.
+  // ====================================================
 
   async function handleSubmit(event) {
     event.preventDefault();
 
+    if (loading || success) return;
+
     setError("");
     setNotice("");
 
-    const fullName = form.fullName.trim();
-    const email = form.email.trim().toLowerCase();
-    const phone = form.phone.replace(/\s/g, "");
+    const validationError = validateForm();
 
-    if (fullName.length < 3) {
-      setError("Nama lengkap minimal 3 karakter.");
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Masukkan email yang valid.");
-      return;
-    }
+    const payload = {
+      full_name: form.fullName
+        .trim()
+        .replace(/\s+/g, " "),
 
-    if (!passwordValid) {
-      setError("Password minimal 8 karakter.");
-      return;
-    }
+      email: form.email
+        .trim()
+        .toLowerCase(),
 
-    if (form.password !== form.confirmPassword) {
-      setError("Konfirmasi password tidak sama.");
-      return;
-    }
+      password: form.password,
 
-    if (!form.department || !form.site) {
-      setError("Departemen dan site wajib dipilih.");
-      return;
-    }
+      department: form.department,
 
-    if (!/^\+?[0-9]{9,15}$/.test(phone)) {
-      setError("Masukkan nomor HP yang valid, 9–15 digit.");
-      return;
-    }
+      site: form.site,
 
-    if (!agreed) {
-      setError(
-        "Anda harus menyetujui ketentuan pendaftaran."
+      // Periode global ditampilkan pada UI.
+      // Endpoint saat ini belum menerima tanggal.
+    };
+
+    setLoading(true);
+
+    try {
+      const response = await fetch(REGISTER_API, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+        body: JSON.stringify(payload),
+      });
+
+      let result = null;
+
+      try {
+        result = await response.json();
+      } catch {
+        throw new Error(
+          "Server tidak memberikan respons yang valid."
+        );
+      }
+
+      // SERVER REGISTRATION LOCK
+      if (response.status === 503) {
+        throw new Error(
+          result?.error ||
+          "Pendaftaran peserta belum diaktifkan oleh Administrator."
+        );
+      }
+
+      if (response.status === 409) {
+        throw new Error(
+          result?.error ||
+          "Email sudah terdaftar. Silakan login."
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ||
+          "Pendaftaran gagal diproses."
+        );
+      }
+
+      // HANYA RESPONS SUKSES SERVER
+      // YANG BOLEH MENANDAI PENDAFTARAN BERHASIL.
+
+      if (result?.success !== true) {
+        throw new Error(
+          "Server belum mengonfirmasi pendaftaran."
+        );
+      }
+
+      setSuccess(true);
+
+      setNotice(
+        result.message ||
+        "Pengajuan pendaftaran berhasil tersimpan."
       );
-      return;
+
+      // Kosongkan password dari state.
+      setForm((previous) => ({
+        ...previous,
+        password: "",
+        confirmPassword: "",
+      }));
+    } catch (err) {
+      setError(
+        err?.message ||
+        "Terjadi kesalahan saat mendaftar."
+      );
+    } finally {
+      setLoading(false);
     }
-
-    // ==================================================
-    // INTEGRASI DATABASE
-    //
-    // Sambungkan di sini ke handleSubmit pendaftaran
-    // asli setelah memeriksa app/daftar/page.jsx lama.
-    //
-    // Data yang sudah tervalidasi:
-    // fullName, email, form.password,
-    // form.department, form.site, phone
-    //
-    // Periode tetap:
-    // PROGRAM_START dan PROGRAM_END
-    //
-    // Jangan langsung memanggil auth.signUp lalu
-    // menganggap pendaftaran berhasil, karena
-    // pembuatan user dan pengajuan ke Mentor/Admin
-    // harus mengikuti transaksi/alur lama.
-    // ==================================================
-
-    setNotice(
-      "Formulir sudah valid. Pengiriman belum diaktifkan " +
-      "karena fungsi registrasi Supabase yang lama perlu " +
-      "dihubungkan agar persetujuan Mentor/Admin tetap aman."
-    );
   }
+
+  // ====================================================
+  // UI
+  // ====================================================
 
   return (
     <main className="reg-root">
@@ -323,19 +447,24 @@ export default function DaftarPesertaOJT() {
       <div className="reg-overlay" />
 
       <div className="reg-container">
-        {/* HEADER NAVIGASI */}
+
+        {/* HEADER */}
 
         <header className="reg-topbar">
           <div className="reg-brand">
             <div className="reg-logo">
-              <Icon name="shield" size={25} />
+              <Icon name="shield" size={24} />
             </div>
+
             <div>
               <strong>
                 OJT <span>MineTrack</span>
                 <small>v2.0</small>
               </strong>
-              <p>ON THE JOB TRAINING MANAGEMENT SYSTEM</p>
+
+              <p>
+                ON THE JOB TRAINING MANAGEMENT SYSTEM
+              </p>
             </div>
           </div>
 
@@ -347,10 +476,12 @@ export default function DaftarPesertaOJT() {
               <Icon name="home" size={16} />
               Beranda
             </button>
+
             <span className="active">
               <Icon name="file" size={16} />
               Pendaftaran
             </span>
+
             <a href="#informasi-program">
               <Icon name="calendar" size={16} />
               Informasi Program
@@ -359,6 +490,7 @@ export default function DaftarPesertaOJT() {
 
           <div className="reg-company">
             <Icon name="shield" size={23} />
+
             <span>
               EMERGENCY RESPONSE GROUP
               <small>PT BERAU COAL</small>
@@ -369,35 +501,35 @@ export default function DaftarPesertaOJT() {
         {/* HERO */}
 
         <section className="reg-hero">
-          <div className="reg-hero-copy">
-            <div className="reg-eyebrow">
-              EMERGENCY RESPONSE GROUP · PT BERAU COAL
-            </div>
+          <div className="reg-eyebrow">
+            EMERGENCY RESPONSE GROUP · PT BERAU COAL
+          </div>
 
-            <h1>
-              Dashboard <span>Pendaftaran OJT</span>
-            </h1>
+          <h1>
+            Dashboard <span>Pendaftaran OJT</span>
+          </h1>
 
-            <p>
-              Daftarkan diri Anda untuk mengikuti program
-              On The Job Training (OJT) di lingkungan
-              Emergency Response Group PT Berau Coal.
-              Lengkapi data dengan benar dan ikuti
-              proses persetujuan.
-            </p>
+          <p>
+            Daftarkan diri Anda untuk mengikuti program
+            On The Job Training (OJT) di lingkungan
+            Emergency Response Group PT Berau Coal.
+            Lengkapi data dengan benar dan ikuti
+            proses persetujuan.
+          </p>
 
-            <div className="reg-hero-tags">
-              <span>
-                <Icon name="shield" size={15} />
-                Safe People
-              </span>
-              <span>Safe Operation</span>
-              <span>Sustainable Mining</span>
-            </div>
+          <div className="reg-hero-tags">
+            <span>
+              <Icon name="shield" size={15} />
+              Safe People
+            </span>
+
+            <span>Safe Operation</span>
+
+            <span>Sustainable Mining</span>
           </div>
         </section>
 
-        {/* EMPAT KARTU INFORMASI */}
+        {/* SUMMARY INFORMATION */}
 
         <section className="reg-info-grid">
           <InfoCard
@@ -406,27 +538,27 @@ export default function DaftarPesertaOJT() {
             title="Pendaftaran Peserta OJT"
             color="green"
           >
-            Lengkapi formulir satu kali. Status pengajuan
-            ditentukan oleh sistem setelah dikirim.
+            Pengajuan disimpan setelah server
+            menerima dan memvalidasi pendaftaran.
           </InfoCard>
 
           <InfoCard
             icon="calendar"
-            label="Periode Program"
+            label="Periode Kalender Global"
             title="12 Sep 2026 – 06 Mar 2027"
             color="blue"
           >
-            Mengikuti Kalender Global OJT Week 01–25.
+            Kalender Global OJT Week 01–25.
           </InfoCard>
 
           <InfoCard
             icon="users"
             label="Alur Persetujuan"
-            title="Peserta → Mentor → Admin"
+            title="Peserta → Mentor"
             color="gold"
           >
-            Pengajuan diperiksa melalui mekanisme
-            persetujuan yang sudah berlaku.
+            Pengajuan menunggu persetujuan Mentor
+            sesuai mekanisme sistem.
           </InfoCard>
 
           <InfoCard
@@ -435,15 +567,16 @@ export default function DaftarPesertaOJT() {
             title="Week 01 – Week 25"
             color="teal"
           >
-            Program monitoring dan evaluasi terstruktur
-            selama 25 minggu.
+            Program monitoring dan evaluasi
+            selama 25 minggu kalender global.
           </InfoCard>
         </section>
 
-        {/* AREA UTAMA */}
+        {/* MAIN CONTENT */}
 
         <div className="reg-main-grid">
-          {/* FORMULIR KIRI */}
+
+          {/* REGISTRATION FORM */}
 
           <section className="reg-card reg-form-card">
             <div className="reg-card-heading">
@@ -452,7 +585,10 @@ export default function DaftarPesertaOJT() {
               </div>
 
               <div>
-                <h2>Formulir Pendaftaran Peserta OJT</h2>
+                <h2>
+                  Formulir Pendaftaran Peserta OJT
+                </h2>
+
                 <p>
                   Lengkapi data sesuai identitas resmi.
                   Seluruh kolom bertanda * wajib diisi.
@@ -460,272 +596,381 @@ export default function DaftarPesertaOJT() {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit}>
-              <div className="reg-form-grid">
-                <FormField
-                  label="Nama Lengkap"
-                  icon="user"
-                  required
-                >
-                  <input
-                    required
-                    type="text"
-                    autoComplete="name"
-                    placeholder="Nama lengkap peserta"
-                    value={form.fullName}
-                    onChange={(e) =>
-                      update("fullName", e.target.value)
-                    }
-                  />
-                </FormField>
-
-                <FormField
-                  label="Email"
-                  icon="mail"
-                  required
-                >
-                  <input
-                    required
-                    type="email"
-                    autoComplete="email"
-                    placeholder="Alamat email aktif"
-                    value={form.email}
-                    onChange={(e) =>
-                      update("email", e.target.value)
-                    }
-                  />
-                </FormField>
-
-                <FormField
-                  label="Password"
-                  icon="lock"
-                  required
-                >
-                  <input
-                    required
-                    type={showPassword ? "text" : "password"}
-                    minLength={8}
-                    autoComplete="new-password"
-                    placeholder="Minimal 8 karakter"
-                    value={form.password}
-                    onChange={(e) =>
-                      update("password", e.target.value)
-                    }
-                  />
-
-                  <button
-                    type="button"
-                    className="reg-eye-button"
-                    aria-label={
-                      showPassword
-                        ? "Sembunyikan password"
-                        : "Tampilkan password"
-                    }
-                    onClick={() =>
-                      setShowPassword((old) => !old)
-                    }
-                  >
-                    <Icon
-                      name={showPassword ? "eyeOff" : "eye"}
-                      size={18}
-                    />
-                  </button>
-                </FormField>
-
-                <FormField
-                  label="Konfirmasi Password"
-                  icon="lock"
-                  required
-                >
-                  <input
-                    required
-                    type={showConfirm ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder="Ulangi password"
-                    value={form.confirmPassword}
-                    onChange={(e) =>
-                      update("confirmPassword", e.target.value)
-                    }
-                  />
-
-                  <button
-                    type="button"
-                    className="reg-eye-button"
-                    aria-label={
-                      showConfirm
-                        ? "Sembunyikan konfirmasi password"
-                        : "Tampilkan konfirmasi password"
-                    }
-                    onClick={() =>
-                      setShowConfirm((old) => !old)
-                    }
-                  >
-                    <Icon
-                      name={showConfirm ? "eyeOff" : "eye"}
-                      size={18}
-                    />
-                  </button>
-                </FormField>
-
-                <FormField
-                  label="Departemen"
-                  icon="users"
-                  required
-                >
-                  <select
-                    required
-                    value={form.department}
-                    onChange={(e) =>
-                      update("department", e.target.value)
-                    }
-                  >
-                    <option value="">
-                      Pilih departemen
-                    </option>
-
-                    {DEPARTMENTS.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-
-                <FormField
-                  label="Site Penempatan"
-                  icon="map"
-                  required
-                >
-                  <select
-                    required
-                    value={form.site}
-                    onChange={(e) =>
-                      update("site", e.target.value)
-                    }
-                  >
-                    <option value="">
-                      Pilih site penempatan
-                    </option>
-
-                    {SITES.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-
-                <div className="reg-span-full">
-                  <FormField
-                    label="Nomor HP"
-                    icon="phone"
-                    required
-                  >
-                    <input
-                      required
-                      type="tel"
-                      autoComplete="tel"
-                      placeholder="Contoh: 0812 3456 7890"
-                      value={form.phone}
-                      onChange={(e) =>
-                        update("phone", e.target.value)
-                      }
-                    />
-                  </FormField>
+            {success ? (
+              <div
+                className="reg-success-card"
+                role="status"
+              >
+                <div className="reg-success-icon">
+                  <Icon name="check" size={32} />
                 </div>
-              </div>
 
-              {/* JADWAL TERKUNCI */}
+                <h2>Pendaftaran Tersimpan</h2>
 
-              <div className="reg-fixed-program">
-                <h3>
-                  <Icon name="calendar" size={19} />
-                  Jadwal Program OJT (Otomatis)
-                </h3>
+                <p>{notice}</p>
 
-                <div className="reg-fixed-grid">
-                  <div>
-                    <Icon name="calendar" size={21} />
-                    <div>
-                      <span>Tanggal Mulai OJT</span>
-                      <strong>12 September 2026</strong>
-                      <small>Week 01 · Sabtu</small>
-                    </div>
-                    <Icon name="lock" size={15} />
-                  </div>
+                <div className="reg-success-detail">
+                  <strong>
+                    {form.fullName.trim()}
+                  </strong>
 
-                  <div>
-                    <Icon name="flag" size={21} />
-                    <div>
-                      <span>Tanggal Selesai Program</span>
-                      <strong>6 Maret 2027</strong>
-                      <small>Week 25 · Sabtu</small>
-                    </div>
-                    <Icon name="lock" size={15} />
-                  </div>
+                  <span>
+                    {form.email.trim().toLowerCase()}
+                  </span>
+
+                  <span>
+                    {form.department} · {form.site}
+                  </span>
                 </div>
 
                 <p>
-                  <Icon name="info" size={16} />
-                  Tanggal mengikuti Kalender Global OJT
-                  Week 01–25 dan tidak dapat diubah peserta.
+                  Status pengajuan menunggu keputusan
+                  sesuai alur yang berlaku. Pendaftaran
+                  belum berarti program telah aktif.
                 </p>
-              </div>
-
-              <label className="reg-agreement">
-                <input
-                  type="checkbox"
-                  checked={agreed}
-                  onChange={(e) =>
-                    setAgreed(e.target.checked)
-                  }
-                />
-                <span>
-                  Saya menyatakan seluruh data yang diisi
-                  adalah benar dan bersedia mengikuti
-                  ketentuan program OJT MineTrack PT Berau Coal.
-                </span>
-              </label>
-
-              {error && (
-                <div className="reg-error" role="alert">
-                  <Icon name="info" size={18} />
-                  {error}
-                </div>
-              )}
-
-              {notice && (
-                <div className="reg-notice" role="status">
-                  <Icon name="info" size={18} />
-                  {notice}
-                </div>
-              )}
-
-              <div className="reg-actions">
-                <button
-                  type="submit"
-                  className="reg-primary-button"
-                >
-                  <Icon name="send" size={18} />
-                  Daftar Sekarang
-                  <Icon name="arrow" size={17} />
-                </button>
 
                 <button
                   type="button"
-                  className="reg-secondary-button"
                   onClick={() => router.push("/login")}
+                  className="reg-primary-button"
                 >
-                  <Icon name="back" size={17} />
                   Kembali ke Login
+                  <Icon name="arrow" size={17} />
                 </button>
               </div>
-            </form>
+            ) : (
+              <form onSubmit={handleSubmit}>
+                <div className="reg-form-grid">
+
+                  <FormField
+                    label="Nama Lengkap"
+                    icon="user"
+                  >
+                    <input
+                      required
+                      type="text"
+                      minLength={3}
+                      maxLength={120}
+                      autoComplete="name"
+                      placeholder="Nama lengkap peserta"
+                      value={form.fullName}
+                      disabled={loading}
+                      onChange={(event) =>
+                        update(
+                          "fullName",
+                          event.target.value
+                        )
+                      }
+                    />
+                  </FormField>
+
+                  <FormField
+                    label="Email"
+                    icon="mail"
+                  >
+                    <input
+                      required
+                      type="email"
+                      maxLength={254}
+                      autoComplete="email"
+                      placeholder="Alamat email aktif"
+                      value={form.email}
+                      disabled={loading}
+                      onChange={(event) =>
+                        update(
+                          "email",
+                          event.target.value
+                        )
+                      }
+                    />
+                  </FormField>
+
+                  <FormField
+                    label="Password"
+                    icon="lock"
+                  >
+                    <input
+                      required
+                      type={
+                        showPassword
+                          ? "text"
+                          : "password"
+                      }
+                      minLength={8}
+                      maxLength={128}
+                      autoComplete="new-password"
+                      placeholder="Minimal 8 karakter"
+                      value={form.password}
+                      disabled={loading}
+                      onChange={(event) =>
+                        update(
+                          "password",
+                          event.target.value
+                        )
+                      }
+                    />
+
+                    <button
+                      type="button"
+                      className="reg-eye-button"
+                      disabled={loading}
+                      onClick={() =>
+                        setShowPassword((old) => !old)
+                      }
+                      aria-label="Tampilkan atau sembunyikan password"
+                    >
+                      <Icon
+                        name={
+                          showPassword
+                            ? "eyeOff"
+                            : "eye"
+                        }
+                        size={18}
+                      />
+                    </button>
+                  </FormField>
+
+                  <FormField
+                    label="Konfirmasi Password"
+                    icon="lock"
+                  >
+                    <input
+                      required
+                      type={
+                        showConfirm
+                          ? "text"
+                          : "password"
+                      }
+                      minLength={8}
+                      maxLength={128}
+                      autoComplete="new-password"
+                      placeholder="Ulangi password"
+                      value={form.confirmPassword}
+                      disabled={loading}
+                      onChange={(event) =>
+                        update(
+                          "confirmPassword",
+                          event.target.value
+                        )
+                      }
+                    />
+
+                    <button
+                      type="button"
+                      className="reg-eye-button"
+                      disabled={loading}
+                      onClick={() =>
+                        setShowConfirm((old) => !old)
+                      }
+                      aria-label="Tampilkan atau sembunyikan konfirmasi password"
+                    >
+                      <Icon
+                        name={
+                          showConfirm
+                            ? "eyeOff"
+                            : "eye"
+                        }
+                        size={18}
+                      />
+                    </button>
+                  </FormField>
+
+                  <FormField
+                    label="Departemen"
+                    icon="users"
+                  >
+                    <select
+                      required
+                      value={form.department}
+                      disabled={loading}
+                      onChange={(event) =>
+                        update(
+                          "department",
+                          event.target.value
+                        )
+                      }
+                    >
+                      <option value="">
+                        Pilih departemen
+                      </option>
+
+                      {DEPARTMENTS.map((item) => (
+                        <option
+                          key={item}
+                          value={item}
+                        >
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+
+                  <FormField
+                    label="Site Penempatan"
+                    icon="map"
+                  >
+                    <select
+                      required
+                      value={form.site}
+                      disabled={loading}
+                      onChange={(event) =>
+                        update(
+                          "site",
+                          event.target.value
+                        )
+                      }
+                    >
+                      <option value="">
+                        Pilih site penempatan
+                      </option>
+
+                      {SITES.map((item) => (
+                        <option
+                          key={item}
+                          value={item}
+                        >
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+
+                {/* FIXED GLOBAL CALENDAR */}
+
+                <div className="reg-fixed-program">
+                  <h3>
+                    <Icon name="calendar" size={19} />
+                    Kalender Global Program OJT
+                  </h3>
+
+                  <div className="reg-fixed-grid">
+                    <div>
+                      <Icon name="calendar" size={21} />
+                      <div>
+                        <span>Awal Kalender OJT</span>
+                        <strong>
+                          12 September 2026
+                        </strong>
+                        <small>
+                          Week 01 · Sabtu
+                        </small>
+                      </div>
+                      <Icon name="lock" size={15} />
+                    </div>
+
+                    <div>
+                      <Icon name="flag" size={21} />
+                      <div>
+                        <span>Akhir Kalender OJT</span>
+                        <strong>
+                          6 Maret 2027
+                        </strong>
+                        <small>
+                          Week 25 · Sabtu
+                        </small>
+                      </div>
+                      <Icon name="lock" size={15} />
+                    </div>
+                  </div>
+
+                  <p>
+                    <Icon name="info" size={16} />
+                    Kalender global bersifat tetap.
+                    Tanggal individual program peserta
+                    belum disimpan oleh endpoint
+                    pendaftaran ini.
+                  </p>
+                </div>
+
+                {/* AGREEMENT */}
+
+                <label className="reg-agreement">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={agreed}
+                    disabled={loading}
+                    onChange={(event) =>
+                      setAgreed(event.target.checked)
+                    }
+                  />
+
+                  <span>
+                    Saya menyatakan seluruh data yang
+                    diisi adalah benar dan bersedia
+                    mengikuti ketentuan program OJT
+                    MineTrack PT Berau Coal.
+                  </span>
+                </label>
+
+                {/* ERROR */}
+
+                {error && (
+                  <div
+                    className="reg-error"
+                    role="alert"
+                  >
+                    <Icon name="info" size={18} />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                {notice && (
+                  <div
+                    className="reg-notice"
+                    role="status"
+                  >
+                    <Icon name="info" size={18} />
+                    <span>{notice}</span>
+                  </div>
+                )}
+
+                {/* ACTIONS */}
+
+                <div className="reg-actions">
+                  <button
+                    type="submit"
+                    className="reg-primary-button"
+                    disabled={loading}
+                  >
+                    <Icon name="send" size={18} />
+
+                    {loading
+                      ? "Memproses Pendaftaran..."
+                      : "Daftar Sekarang"}
+
+                    {!loading && (
+                      <Icon name="arrow" size={17} />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="reg-secondary-button"
+                    disabled={loading}
+                    onClick={() =>
+                      router.push("/login")
+                    }
+                  >
+                    <Icon name="back" size={17} />
+                    Kembali ke Login
+                  </button>
+                </div>
+
+                <p className="reg-form-footnote">
+                  Pengajuan hanya berhasil apabila
+                  server mengonfirmasi bahwa data
+                  telah tersimpan.
+                </p>
+              </form>
+            )}
           </section>
 
-          {/* PANEL KANAN */}
+          {/* RIGHT SIDE */}
 
           <aside className="reg-right-column">
+
             <section
               className="reg-card reg-timeline-card"
               id="informasi-program"
@@ -734,6 +979,7 @@ export default function DaftarPesertaOJT() {
                 <div className="reg-heading-icon">
                   <Icon name="calendar" size={22} />
                 </div>
+
                 <div>
                   <h2>Program OJT 2026–2027</h2>
                   <p>
@@ -762,7 +1008,12 @@ export default function DaftarPesertaOJT() {
                       key={index}
                     >
                       <div className="reg-timeline-dot" />
-                      <small>{String(index + 1).padStart(2, "0")}</small>
+                      <small>
+                        {String(index + 1).padStart(
+                          2,
+                          "0"
+                        )}
+                      </small>
                     </div>
                   )
                 )}
@@ -782,7 +1033,7 @@ export default function DaftarPesertaOJT() {
                 <div>
                   <h2>Ketentuan Pendaftaran</h2>
                   <p>
-                    Tahapan pengajuan dan persetujuan peserta.
+                    Tahapan pengajuan peserta.
                   </p>
                 </div>
               </div>
@@ -790,50 +1041,54 @@ export default function DaftarPesertaOJT() {
               <div className="reg-steps">
                 {[
                   [
-                    "Pendaftaran dilakukan satu kali",
-                    "Peserta mengisi formulir dengan identitas yang benar.",
+                    "Mengisi Formulir",
+                    "Peserta mengisi data diri sesuai identitas.",
                   ],
                   [
-                    "Data akan diverifikasi",
-                    "Pengajuan diperiksa sesuai aturan sistem.",
+                    "Validasi Server",
+                    "Sistem memeriksa data dan status pendaftaran.",
+                  ],
+                  [
+                    "Pengajuan Tersimpan",
+                    "Pengajuan yang berhasil diterima berstatus menunggu.",
                   ],
                   [
                     "Persetujuan Mentor",
-                    "Mentor meninjau pengajuan peserta.",
+                    "Mentor meninjau pengajuan melalui dashboard.",
                   ],
                   [
-                    "Persetujuan Admin",
-                    "Administrator memverifikasi pengajuan sesuai kewenangannya.",
+                    "Program OJT",
+                    "Aktivasi program mengikuti proses persetujuan sistem.",
                   ],
-                  [
-                    "Hasil pendaftaran",
-                    "Peserta mengetahui status pengajuan melalui mekanisme sistem.",
-                  ],
-                ].map(([title, description], index) => (
-                  <div className="reg-step" key={index}>
-                    <span className={"reg-step-number step-" + index}>
-                      {index + 1}
-                    </span>
+                ].map(
+                  ([title, description], index) => (
+                    <div
+                      className="reg-step"
+                      key={title}
+                    >
+                      <span>{index + 1}</span>
 
-                    <div>
-                      <strong>{title}</strong>
-                      <p>{description}</p>
+                      <div>
+                        <strong>{title}</strong>
+                        <p>{description}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                )}
               </div>
             </section>
 
             <section className="reg-card reg-help-card">
               <div className="reg-help-icon">
-                <Icon name="help" size={27} />
+                <Icon name="help" size={26} />
               </div>
 
               <div>
                 <h3>Butuh Bantuan?</h3>
+
                 <p>
                   Jika mengalami kendala pendaftaran,
-                  hubungi tim Administrator Emergency
+                  hubungi Administrator Emergency
                   Response Group PT Berau Coal.
                 </p>
               </div>
@@ -841,10 +1096,13 @@ export default function DaftarPesertaOJT() {
           </aside>
         </div>
 
+        {/* FOOTER */}
+
         <footer className="reg-footer">
           <span>
             OJT MineTrack v2.0 · Emergency Response Group
           </span>
+
           <span>
             PT Berau Coal · Program 2026–2027
           </span>
@@ -855,7 +1113,7 @@ export default function DaftarPesertaOJT() {
 }
 
 // ======================================================
-// CSS CORPORATE DASHBOARD
+// CSS
 // ======================================================
 
 const css = `
@@ -880,6 +1138,11 @@ const css = `
 
 .reg-root button {
   cursor: pointer;
+}
+
+.reg-root button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
 }
 
 .reg-root button:focus-visible,
@@ -915,6 +1178,7 @@ const css = `
       #edf4f8 0%,
       transparent 52%
     );
+  pointer-events: none;
 }
 
 .reg-container {
@@ -925,7 +1189,7 @@ const css = `
   padding: 0 24px 24px;
 }
 
-/* TOPBAR */
+/* HEADER */
 
 .reg-topbar {
   display: flex;
@@ -974,10 +1238,10 @@ const css = `
 
 .reg-brand p {
   margin: 5px 0 0;
+  color: #d4e4e8;
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 1px;
-  color: #d4e4e8;
 }
 
 .reg-navigation {
@@ -1031,22 +1295,19 @@ const css = `
 .reg-company small {
   display: block;
   margin-top: 4px;
-  font-size: 9px;
   color: #c9dfeb;
+  font-size: 9px;
 }
 
 /* HERO */
 
 .reg-hero {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
   min-height: 195px;
   padding: 22px 9px;
   color: white;
-}
-
-.reg-hero-copy {
-  max-width: 700px;
 }
 
 .reg-eyebrow {
@@ -1070,6 +1331,7 @@ const css = `
 
 .reg-hero p {
   max-width: 590px;
+  margin: 0;
   font-size: 13px;
   line-height: 1.75;
   color: #edf5f8;
@@ -1095,7 +1357,7 @@ const css = `
   font-weight: 750;
 }
 
-/* SUMMARY CARDS */
+/* INFORMATION */
 
 .reg-info-grid {
   display: grid;
@@ -1145,7 +1407,11 @@ const css = `
   color: #0a9b91;
 }
 
-.reg-info-label {
+.reg-info-card > div:last-child {
+  min-width: 0;
+}
+
+.reg-info-card span {
   display: block;
   color: #698095;
   font-size: 10px;
@@ -1167,7 +1433,7 @@ const css = `
   line-height: 1.5;
 }
 
-/* MAIN AREA */
+/* CONTENT */
 
 .reg-main-grid {
   display: grid;
@@ -1202,7 +1468,9 @@ const css = `
   height: 40px;
   flex-shrink: 0;
   border-radius: 8px;
-  background: linear-gradient(135deg,#0b437d,#1683ca);
+  background: linear-gradient(
+    135deg,#0b437d,#1683ca
+  );
   color: white;
 }
 
@@ -1228,15 +1496,11 @@ const css = `
   gap: 15px 13px;
 }
 
-.reg-span-full {
-  grid-column: 1 / -1;
-}
-
 .reg-field {
   min-width: 0;
 }
 
-.reg-field > label {
+.reg-field-label {
   display: block;
   margin-bottom: 7px;
   color: #213b5e;
@@ -1244,7 +1508,7 @@ const css = `
   font-weight: 900;
 }
 
-.reg-field em {
+.reg-field-label em {
   color: #d33f46;
   font-style: normal;
 }
@@ -1296,7 +1560,7 @@ const css = `
   color: #7893a9;
 }
 
-/* FIXED PROGRAM */
+/* FIXED CALENDAR */
 
 .reg-fixed-program {
   margin-top: 18px;
@@ -1350,7 +1614,7 @@ const css = `
 
 .reg-fixed-program > p {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 7px;
   margin: 11px 0 0;
   color: #3973a2;
@@ -1358,7 +1622,7 @@ const css = `
   line-height: 1.6;
 }
 
-/* CHECKBOX AND BUTTONS */
+/* AGREEMENT */
 
 .reg-agreement {
   display: flex;
@@ -1379,6 +1643,8 @@ const css = `
   accent-color: #078879;
 }
 
+/* ACTIONS */
+
 .reg-actions {
   display: grid;
   grid-template-columns: 1.3fr 1fr;
@@ -1386,12 +1652,14 @@ const css = `
   margin-top: 16px;
 }
 
-.reg-actions button {
+.reg-actions button,
+.reg-success-card button {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
   min-height: 44px;
+  padding: 10px 12px;
   border-radius: 7px;
   font-size: 12px;
   font-weight: 900;
@@ -1399,7 +1667,9 @@ const css = `
 
 .reg-primary-button {
   border: 0;
-  background: linear-gradient(100deg,#086f66,#08a096);
+  background: linear-gradient(
+    100deg,#086f66,#08a096
+  );
   color: white;
 }
 
@@ -1408,6 +1678,16 @@ const css = `
   background: white;
   color: #14538a;
 }
+
+.reg-form-footnote {
+  margin: 12px 0 0;
+  color: #7c90a0;
+  font-size: 10px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* MESSAGES */
 
 .reg-error,
 .reg-notice {
@@ -1433,7 +1713,65 @@ const css = `
   color: #255e80;
 }
 
-/* RIGHT COLUMN */
+/* SUCCESS */
+
+.reg-success-card {
+  padding: 25px 15px;
+  text-align: center;
+  background: #f0faf6;
+  border: 1px solid #c1e9d7;
+  border-radius: 10px;
+}
+
+.reg-success-icon {
+  display: grid;
+  place-items: center;
+  width: 65px;
+  height: 65px;
+  margin: 0 auto 15px;
+  border-radius: 50%;
+  background: #dbf6e8;
+  color: #087d58;
+}
+
+.reg-success-card h2 {
+  margin: 0 0 9px;
+  color: #087b5b;
+  font-size: 21px;
+}
+
+.reg-success-card p {
+  margin: 10px 0;
+  color: #4e796a;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.reg-success-detail {
+  display: grid;
+  gap: 7px;
+  margin: 18px auto;
+  padding: 15px;
+  border: 1px solid #d4ecdf;
+  border-radius: 9px;
+  background: white;
+  overflow-wrap: anywhere;
+}
+
+.reg-success-detail strong {
+  color: #173c51;
+}
+
+.reg-success-detail span {
+  color: #6d8895;
+  font-size: 11px;
+}
+
+.reg-success-card button {
+  margin: 20px auto 0;
+}
+
+/* RIGHT SIDE */
 
 .reg-right-column {
   display: grid;
@@ -1446,10 +1784,10 @@ const css = `
   padding: 18px;
 }
 
-/* TIMELINE */
-
 .reg-timeline-card {
-  background: linear-gradient(135deg,#ffffff,#eaf5fe);
+  background: linear-gradient(
+    135deg,#ffffff,#eaf5fe
+  );
 }
 
 .reg-timeline-dates {
@@ -1464,7 +1802,6 @@ const css = `
 .reg-timeline {
   position: relative;
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
   margin-top: 17px;
 }
@@ -1482,9 +1819,9 @@ const css = `
 .reg-timeline-week {
   position: relative;
   z-index: 1;
+  flex: 1;
   min-width: 0;
   text-align: center;
-  flex: 1;
 }
 
 .reg-timeline-dot {
@@ -1518,10 +1855,10 @@ const css = `
   font-size: 11px;
 }
 
-/* GUIDELINES */
-
 .reg-guidelines-card {
-  background: linear-gradient(130deg,#fff 60%,#edf7ff);
+  background: linear-gradient(
+    130deg,#fff 60%,#edf7ff
+  );
 }
 
 .reg-steps {
@@ -1535,7 +1872,7 @@ const css = `
   gap: 12px;
 }
 
-.reg-step-number {
+.reg-step > span {
   display: grid;
   place-items: center;
   width: 29px;
@@ -1548,17 +1885,13 @@ const css = `
   font-size: 12px;
 }
 
-.reg-step-number.step-1,
-.reg-step-number.step-4 {
+.reg-step:nth-child(2) > span,
+.reg-step:nth-child(5) > span {
   background: #08a78d;
 }
 
-.reg-step-number.step-2 {
+.reg-step:nth-child(3) > span {
   background: #dba02c;
-}
-
-.reg-step-number.step-3 {
-  background: #2c78dc;
 }
 
 .reg-step strong {
@@ -1573,8 +1906,6 @@ const css = `
   font-size: 10px;
   line-height: 1.5;
 }
-
-/* HELP */
 
 .reg-help-card {
   display: flex;
@@ -1636,7 +1967,8 @@ const css = `
   }
 
   .reg-info-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr));
+    grid-template-columns:
+      repeat(2,minmax(0,1fr));
   }
 }
 
