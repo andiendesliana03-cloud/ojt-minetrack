@@ -1,725 +1,347 @@
 
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// ======================================================
-// OJT MINETRACK V2.0
-// DETAIL PESERTA - ADMIN / MENTOR
-// KALENDER GLOBAL WEEK 01-25
-// INPUT ACHIEVEMENT TANPA VERIFIKASI MANUAL
-// ======================================================
-
-const TOTAL_WEEKS = 25;
+// ===============================================
+// OJT MINETRACK V2.0 — DETAIL PESERTA
+// CLEAN ENTERPRISE DESIGN
+// GLOBAL CALENDAR WEEK 01–25
+// ===============================================
 
 const TARGETS = [
-  {
-    name: "Fisik",
-    target: 25,
-    unit: "km",
-    icon: "🏃",
-  },
-  {
-    name: "Training",
-    target: 4,
-    unit: "kegiatan",
-    icon: "🎓",
-  },
-  {
-    name: "Sosialisasi",
-    target: 3,
-    unit: "kegiatan",
-    icon: "📣",
-  },
-  {
-    name: "Coaching",
-    target: 1,
-    unit: "kegiatan",
-    icon: "👥",
-  },
-  {
-    name: "Orientasi Area",
-    target: 2,
-    unit: "kegiatan",
-    icon: "🗺️",
-  },
-  {
-    name: "Hazard",
-    target: 2,
-    unit: "kegiatan",
-    icon: "⚠️",
-  },
+  { name: "Fisik", target: 25, unit: "km", icon: "🏃" },
+  { name: "Training", target: 4, unit: "kegiatan", icon: "🎓" },
+  { name: "Sosialisasi", target: 3, unit: "kegiatan", icon: "👥" },
+  { name: "Coaching", target: 1, unit: "kegiatan", icon: "💬" },
+  { name: "Orientasi Area", target: 2, unit: "kegiatan", icon: "📍" },
+  { name: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
 ];
 
-// ======================================================
-// UTILITIES
-// ======================================================
-
-function normalize(value) {
-  return String(value ?? "")
+function normalize(v) {
+  return String(v ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
 }
 
-function roleOf(value) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase();
+function roleOf(v) {
+  return String(v ?? "").trim().toLowerCase();
 }
 
-function parseDate(value) {
-  const match = String(value ?? "")
+function parseDate(v) {
+  const m = String(v ?? "")
     .slice(0, 10)
     .match(/^(\d{4})-(\d{2})-(\d{2})$/);
 
-  if (!match) return null;
+  if (!m) return null;
 
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-
-  const date = new Date(
-    Date.UTC(year, month - 1, day)
+  const d = new Date(
+    Date.UTC(+m[1], +m[2] - 1, +m[3])
   );
-
-  if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  return date;
-}
-
-function addDays(value, days) {
-  const date = parseDate(value);
-
-  if (!date) return null;
-
-  date.setUTCDate(
-    date.getUTCDate() + days
-  );
-
-  return date.toISOString().slice(0, 10);
-}
-
-function today() {
-  const parts = new Intl.DateTimeFormat(
-    "en-US",
-    {
-      timeZone: "Asia/Makassar",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }
-  ).formatToParts(new Date());
-
-  const get = (type) =>
-    parts.find(
-      (item) => item.type === type
-    )?.value || "";
 
   return (
-    `${get("year")}-${get("month")}-${get("day")}`
-  );
+    d.getUTCFullYear() === +m[1] &&
+    d.getUTCMonth() === +m[2] - 1 &&
+    d.getUTCDate() === +m[3]
+  ) ? d : null;
 }
 
-function formatDate(value) {
-  const date = parseDate(value);
-
-  if (!date) return "—";
-
-  return new Intl.DateTimeFormat(
-    "id-ID",
-    {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      timeZone: "UTC",
-    }
-  ).format(date);
+function addDays(v, days) {
+  const d = parseDate(v);
+  if (!d) return null;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
-
-function formatNumber(value, digits = 1) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return "0";
-  }
-
-  return number.toLocaleString(
-    "id-ID",
-    {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: digits,
-    }
-  );
-}
-
-function formatScore(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return "—";
-  }
-
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return "—";
-  }
-
-  return formatNumber(number, 2);
-}
-
-function initials(name) {
-  return String(name || "Peserta OJT")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join("")
-    .toUpperCase();
-}
-
-function averageScores(rows) {
-  const values = rows
-    .map((row) => row.score)
-    .filter(
-      (value) =>
-        value !== null &&
-        value !== undefined &&
-        value !== ""
-    )
-    .map(Number)
-    .filter(Number.isFinite);
-
-  if (!values.length) return null;
-
-  return (
-    values.reduce(
-      (sum, value) => sum + value,
-      0
-    ) / values.length
-  );
-}
-
-function cappedPercent(actual, target) {
-  if (!(target > 0)) return 0;
-
-  return Math.min(
-    100,
-    Math.max(
-      0,
-      (actual / target) * 100
-    )
-  );
-}
-
-// ======================================================
-// KALENDER GLOBAL 25 MINGGU
-//
-// WEEK 01: 12 - 18 SEP 2026
-// 19 SEP 2026 TIDAK TERMASUK WEEK
-// WEEK 02: 20 - 26 SEP 2026
-// WEEK 07: 25 - 31 OKT 2026
-// WEEK 08: 01 - 07 NOV 2026
-// WEEK 25: 28 FEB - 06 MAR 2027
-// ======================================================
 
 const GLOBAL_WEEKS = Array.from(
-  { length: TOTAL_WEEKS },
-  (_, index) => {
-    const start =
-      index === 0
-        ? "2026-09-12"
-        : addDays(
-            "2026-09-20",
-            (index - 1) * 7
-          );
+  { length: 25 },
+  (_, i) => {
+    const start = i === 0
+      ? "2026-09-12"
+      : addDays("2026-09-20", (i - 1) * 7);
 
     return {
-      week: index + 1,
+      week: i + 1,
       start,
       end: addDays(start, 6),
     };
   }
 );
 
-function globalWeekOf(dateValue) {
-  const date = String(dateValue ?? "")
-    .slice(0, 10);
+function globalWeekOf(v) {
+  const date = String(v ?? "").slice(0, 10);
+  if (!parseDate(date)) return null;
 
-  if (!parseDate(date)) {
+  return GLOBAL_WEEKS.find(
+    w => date >= w.start && date <= w.end
+  )?.week ?? null;
+}
+
+function programWeekRange(program, week) {
+  const global = GLOBAL_WEEKS[week - 1];
+
+  if (!global || !parseDate(program?.start_date)) {
     return null;
   }
 
-  const found = GLOBAL_WEEKS.find(
-    (item) =>
-      date >= item.start &&
-      date <= item.end
-  );
-
-  return found?.week ?? null;
-}
-
-function getGlobalWeek(weekNumber) {
-  return (
-    GLOBAL_WEEKS.find(
-      (item) =>
-        item.week === Number(weekNumber)
-    ) || null
-  );
-}
-
-function getProgramWeekRange(
-  weekNumber,
-  program
-) {
-  const global = getGlobalWeek(
-    weekNumber
-  );
-
-  if (
-    !global ||
-    !parseDate(program?.start_date)
-  ) {
-    return null;
-  }
-
-  const programStart = String(
-    program.start_date
-  ).slice(0, 10);
-
-  const programEnd = parseDate(
-    program.end_date
-  )
+  const begin = String(program.start_date).slice(0, 10);
+  const finish = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
 
-  const start =
-    global.start > programStart
-      ? global.start
-      : programStart;
+  const start = global.start > begin
+    ? global.start
+    : begin;
 
-  const end =
-    programEnd &&
-    programEnd < global.end
-      ? programEnd
-      : global.end;
+  const end = finish && finish < global.end
+    ? finish
+    : global.end;
 
-  if (start > end) return null;
-
-  return {
-    start,
-    end,
-  };
+  return start <= end ? { start, end } : null;
 }
 
-function getAvailableWeeks(program) {
-  if (!program) return [];
+function insideProgram(v, program) {
+  const date = String(v ?? "").slice(0, 10);
 
-  return GLOBAL_WEEKS.filter(
-    (item) =>
-      getProgramWeekRange(
-        item.week,
-        program
-      )
+  if (!parseDate(date) || !parseDate(program?.start_date)) {
+    return false;
+  }
+
+  return (
+    date >= String(program.start_date).slice(0, 10) &&
+    (
+      !parseDate(program.end_date) ||
+      date <= String(program.end_date).slice(0, 10)
+    ) &&
+    globalWeekOf(date) !== null
   );
 }
 
-function determineInitialWeek(
-  program,
-  records = []
-) {
-  const available =
-    getAvailableWeeks(program);
+function todayWITA() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Makassar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
-  if (!available.length) return 1;
+  const get = t =>
+    parts.find(p => p.type === t)?.value || "";
 
-  const now = today();
-
-  // Jika tanggal sekarang berada
-  // dalam Week Global program,
-  // langsung pilih minggu tersebut.
-
-  const current = available.find(
-    (item) => {
-      const range =
-        getProgramWeekRange(
-          item.week,
-          program
-        );
-
-      return (
-        range &&
-        now >= range.start &&
-        now <= range.end
-      );
-    }
-  );
-
-  if (current) return current.week;
-
-  // Bila program sudah selesai,
-  // tampilkan minggu dengan data terbaru.
-
-  const recordedWeeks = records
-    .map(
-      (item) =>
-        globalWeekOf(
-          item.activity_date
-        )
-    )
-    .filter(
-      (week) =>
-        week !== null &&
-        available.some(
-          (item) =>
-            item.week === week
-        )
-    );
-
-  if (recordedWeeks.length) {
-    return Math.max(
-      ...recordedWeeks
-    );
-  }
-
-  const upcoming = available.find(
-    (item) => {
-      const range =
-        getProgramWeekRange(
-          item.week,
-          program
-        );
-
-      return (
-        range &&
-        range.start > now
-      );
-    }
-  );
-
-  return upcoming
-    ? upcoming.week
-    : available[
-        available.length - 1
-      ].week;
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-// ======================================================
-// PEMETAAN KATEGORI DATABASE
-//
-// training / internaltraining
-// orientasi / orientasiarea
-// fisik / physical
-// ======================================================
+function formatDate(v) {
+  const d = parseDate(v);
+  if (!d) return "—";
 
-function categoryFromType(value) {
-  const key = normalize(value);
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(d);
+}
 
-  if (
-    [
-      "fisik",
-      "physical",
-    ].includes(key)
-  ) {
-    return "Fisik";
-  }
+function num(v, digits = 2) {
+  const n = Number(v);
+  return Number.isFinite(n)
+    ? n.toLocaleString("id-ID", {
+        maximumFractionDigits: digits,
+      })
+    : "—";
+}
 
-  if (
-    [
-      "training",
-      "internaltraining",
-      "pelatihan",
-    ].includes(key)
-  ) {
-    return "Training";
-  }
+function scoreText(v) {
+  return v === null || v === undefined || v === ""
+    ? "—"
+    : num(v, 2);
+}
 
-  if (
-    [
-      "sosialisasi",
-      "socialization",
-    ].includes(key)
-  ) {
-    return "Sosialisasi";
-  }
+function initials(v) {
+  return String(v || "Peserta OJT")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(w => w[0] || "")
+    .join("")
+    .toUpperCase();
+}
 
-  if (
-    [
-      "coaching",
-      "pembinaan",
-    ].includes(key)
-  ) {
-    return "Coaching";
-  }
+function categoryOf(v) {
+  const key = normalize(v);
 
-  if (
-    [
-      "orientasi",
-      "orientasiarea",
-      "areaorientation",
-    ].includes(key)
-  ) {
-    return "Orientasi Area";
-  }
-
-  if (
-    [
-      "hazard",
-      "hazardidentification",
-      "identifikasibahaya",
-    ].includes(key)
-  ) {
-    return "Hazard";
-  }
+  if (["fisik", "physical"].includes(key)) return "Fisik";
+  if (["training", "internaltraining", "pelatihan"].includes(key)) return "Training";
+  if (["sosialisasi", "socialization"].includes(key)) return "Sosialisasi";
+  if (["coaching", "pembinaan"].includes(key)) return "Coaching";
+  if (["orientasi", "orientasiarea", "areaorientation"].includes(key)) return "Orientasi Area";
+  if (["hazard", "hazardidentification", "identifikasibahaya"].includes(key)) return "Hazard";
 
   return null;
 }
 
-function ProgressBar({ value }) {
-  const percentage = Math.min(
-    100,
-    Math.max(
-      0,
-      Number(value) || 0
-    )
+function initialWeek(program, records) {
+  const available = GLOBAL_WEEKS.filter(
+    w => programWeekRange(program, w.week)
   );
+
+  if (!available.length) return 1;
+
+  const today = todayWITA();
+
+  const current = available.find(w => {
+    const range = programWeekRange(program, w.week);
+    return (
+      range &&
+      today >= range.start &&
+      today <= range.end
+    );
+  });
+
+  if (current) return current.week;
+
+  const recorded = records
+    .filter(r => insideProgram(r.activity_date, program))
+    .map(r => globalWeekOf(r.activity_date))
+    .filter(w => available.some(a => a.week === w));
+
+  if (recorded.length) return Math.max(...recorded);
+
+  return available.find(w => w.start > today)?.week ||
+    available[available.length - 1].week;
+}
+
+function averageScore(rows) {
+  const numbers = rows
+    .map(r => r.score)
+    .filter(v => v !== null && v !== undefined && v !== "")
+    .map(Number)
+    .filter(Number.isFinite);
+
+  return numbers.length
+    ? numbers.reduce((a, b) => a + b, 0) / numbers.length
+    : null;
+}
+
+function ProgressBar({ value }) {
+  const safe = Math.max(0, Math.min(100, Number(value) || 0));
 
   return (
     <div
-      className="mt-progress"
+      className="dp-progress"
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={percentage}
+      aria-valuenow={safe}
     >
-      <span
-        style={{
-          width: `${percentage}%`,
-        }}
-      />
+      <span style={{ width: `${safe}%` }} />
     </div>
   );
 }
 
-function AchievementMenu({
+function ModuleCard({
   icon,
   title,
-  description,
-  detail,
-  variant,
+  subtitle,
+  tone = "green",
   onClick,
 }) {
   return (
     <button
       type="button"
-      className={
-        `mt-ach-menu ${variant || ""}`
-      }
+      className="dp-module"
       onClick={onClick}
     >
-      <div className="mt-ach-menu-top">
-        <div className="mt-ach-menu-icon">
-          {icon}
-        </div>
+      <span className={`dp-module-icon ${tone}`}>
+        {icon}
+      </span>
 
-        <span className="mt-ach-menu-arrow">
-          ↗
-        </span>
-      </div>
+      <span className="dp-module-text">
+        <strong>{title}</strong>
+        <small>{subtitle}</small>
+      </span>
 
-      <h3>{title}</h3>
-
-      <p>{description}</p>
-
-      <div className="mt-ach-menu-bottom">
-        <span>{detail}</span>
-        <strong>Buka Menu →</strong>
-      </div>
+      <span className="dp-chevron">›</span>
     </button>
   );
 }
 
-// ======================================================
-// HALAMAN DETAIL PESERTA
-// ======================================================
+// ===============================================
+// HALAMAN UTAMA
+// ===============================================
 
 export default function DetailPeserta() {
   const router = useRouter();
   const params = useParams();
 
-  const programId = Array.isArray(
-    params?.id
-  )
+  const programId = Array.isArray(params?.id)
     ? params.id[0]
     : params?.id;
 
-  const [mentor, setMentor] =
-    useState(null);
+  const [manager, setManager] = useState(null);
+  const [program, setProgram] = useState(null);
+  const [types, setTypes] = useState([]);
+  const [achievements, setAchievements] = useState([]);
+  const [postTests, setPostTests] = useState([]);
+  const [practice, setPractice] = useState([]);
+  const [samapta, setSamapta] = useState([]);
+  const [simper, setSimper] = useState(null);
 
-  const [program, setProgram] =
-    useState(null);
+  const [week, setWeek] = useState(1);
+  const [panel, setPanel] = useState("dashboard");
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  const [types, setTypes] =
-    useState([]);
+  const [testDate, setTestDate] = useState(todayWITA());
+  const [testScore, setTestScore] = useState("");
+  const [testNotes, setTestNotes] = useState("");
+  const [editTestId, setEditTestId] = useState(null);
 
-  const [
-    achievements,
-    setAchievements,
-  ] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingTest, setSavingTest] = useState(false);
+  const [testActionId, setTestActionId] = useState(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  const [postTests, setPostTests] =
-    useState([]);
+  const isAdmin = roleOf(manager?.role) === "admin";
 
-  const [practice, setPractice] =
-    useState([]);
+  // =============================================
+  // SUPABASE
+  // =============================================
 
-  const [samapta, setSamapta] =
-    useState([]);
+  async function fetchRecords(id) {
+    const results = await Promise.all([
+      supabase
+        .from("achievement_records")
+        .select("id,type_code,activity_date,distance_km,status")
+        .eq("program_id", id)
+        .order("activity_date", { ascending: false }),
 
-  const [simper, setSimper] =
-    useState(null);
+      supabase
+        .from("post_test_scores")
+        .select("id,test_date,score,notes,created_at")
+        .eq("program_id", id)
+        .order("test_date", { ascending: false }),
 
-  const [week, setWeek] =
-    useState(1);
+      supabase
+        .from("weekly_practice_scores")
+        .select("id,practice_date,practice_name,score")
+        .eq("program_id", id),
 
-  const [panel, setPanel] =
-    useState("dashboard");
+      supabase
+        .from("samapta_records")
+        .select("id,test_date,test_type,score,outcome,result_value")
+        .eq("program_id", id),
 
-  // POST TEST
-
-  const [testDate, setTestDate] =
-    useState(today());
-
-  const [testScore, setTestScore] =
-    useState("");
-
-  const [testNotes, setTestNotes] =
-    useState("");
-
-  const [editTestId, setEditTestId] =
-    useState(null);
-
-  // STATUS
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [savingTest, setSavingTest] =
-    useState(false);
-
-  const [testActionId, setTestActionId] =
-    useState(null);
-
-  const [error, setError] =
-    useState("");
-
-  const [message, setMessage] =
-    useState("");
-
-  const role = roleOf(
-    mentor?.role
-  );
-
-  const isAdmin = role === "admin";
-  const isMentor = role === "mentor";
-
-  // ====================================================
-  // AMBIL RECORD SUPABASE
-  // ====================================================
-
-  async function fetchRecords() {
-    const results =
-      await Promise.all([
-        supabase
-          .from(
-            "achievement_records"
-          )
-          .select(
-            "id,type_code,activity_date,distance_km,status"
-          )
-          .eq(
-            "program_id",
-            programId
-          )
-          .order(
-            "activity_date",
-            {
-              ascending: false,
-            }
-          ),
-
-        supabase
-          .from(
-            "post_test_scores"
-          )
-          .select(
-            "id,test_date,score,notes,created_at"
-          )
-          .eq(
-            "program_id",
-            programId
-          )
-          .order(
-            "test_date",
-            {
-              ascending: false,
-            }
-          ),
-
-        supabase
-          .from(
-            "weekly_practice_scores"
-          )
-          .select(
-            "id,practice_date,practice_name,score"
-          )
-          .eq(
-            "program_id",
-            programId
-          ),
-
-        supabase
-          .from(
-            "samapta_records"
-          )
-          .select(
-            "id,test_date,test_type,score,outcome,result_value"
-          )
-          .eq(
-            "program_id",
-            programId
-          ),
-
-        supabase
-          .from(
-            "simper_records"
-          )
-          .select(
-            "id,administration_status,theory_status,practice_status,status,graduation_date,notes"
-          )
-          .eq(
-            "program_id",
-            programId
-          )
-          .maybeSingle(),
-      ]);
+      supabase
+        .from("simper_records")
+        .select("id,administration_status,theory_status,practice_status,status,graduation_date,notes")
+        .eq("program_id", id)
+        .maybeSingle(),
+    ]);
 
     const labels = [
       "Achievement",
@@ -729,66 +351,34 @@ export default function DetailPeserta() {
       "SIMPER",
     ];
 
-    results.forEach(
-      (result, index) => {
-        if (result.error) {
-          throw new Error(
-            `${labels[index]}: ${result.error.message}`
-          );
-        }
+    results.forEach((result, index) => {
+      if (result.error) {
+        throw new Error(
+          `${labels[index]}: ${result.error.message}`
+        );
       }
-    );
+    });
 
     return {
-      achievements:
-        results[0].data || [],
-
-      postTests:
-        results[1].data || [],
-
-      practice:
-        results[2].data || [],
-
-      samapta:
-        results[3].data || [],
-
-      simper:
-        results[4].data || null,
+      achievements: results[0].data || [],
+      postTests: results[1].data || [],
+      practice: results[2].data || [],
+      samapta: results[3].data || [],
+      simper: results[4].data || null,
     };
   }
 
-  function applyRecords(records) {
-    setAchievements(
-      records.achievements
-    );
-
-    setPostTests(
-      records.postTests
-    );
-
-    setPractice(
-      records.practice
-    );
-
-    setSamapta(
-      records.samapta
-    );
-
-    setSimper(
-      records.simper
-    );
+  function applyRecords(data) {
+    setAchievements(data.achievements);
+    setPostTests(data.postTests);
+    setPractice(data.practice);
+    setSamapta(data.samapta);
+    setSimper(data.simper);
   }
-
-  // ====================================================
-  // LOAD AWAL
-  // ====================================================
 
   useEffect(() => {
     if (!programId) {
-      setError(
-        "ID program tidak tersedia."
-      );
-
+      setError("ID program tidak tersedia.");
       setLoading(false);
       return;
     }
@@ -803,16 +393,10 @@ export default function DetailPeserta() {
         const {
           data: { user },
           error: authError,
-        } =
-          await supabase.auth.getUser();
+        } = await supabase.auth.getUser();
 
-        if (
-          authError ||
-          !user
-        ) {
-          router.replace(
-            "/login"
-          );
+        if (authError || !user) {
+          router.replace("/login");
           return;
         }
 
@@ -821,162 +405,82 @@ export default function DetailPeserta() {
           error: profileError,
         } = await supabase
           .from("profiles")
-          .select(
-            "id,full_name,role"
-          )
-          .eq(
-            "id",
-            user.id
-          )
+          .select("id,full_name,role")
+          .eq("id", user.id)
           .single();
 
-        if (profileError) {
-          throw profileError;
-        }
+        if (profileError) throw profileError;
 
-        const currentRole =
-          roleOf(
-            profile?.role
-          );
+        const role = roleOf(profile?.role);
 
-        if (
-          [
-            "participant",
-            "peserta",
-          ].includes(currentRole)
-        ) {
-          router.replace(
-            "/dashboard-peserta"
-          );
+        if (["participant", "peserta"].includes(role)) {
+          router.replace("/dashboard-peserta");
           return;
         }
 
-        if (
-          ![
-            "admin",
-            "mentor",
-          ].includes(currentRole)
-        ) {
+        if (!["admin", "mentor"].includes(role)) {
           throw new Error(
-            "Halaman ini hanya untuk Admin atau Mentor."
+            "Halaman hanya tersedia untuk Admin dan Mentor."
           );
         }
 
-        const programResult =
-          await supabase
-            .from(
-              "ojt_programs"
+        let query = supabase
+          .from("ojt_programs")
+          .select(`
+            id,
+            site,
+            mentor_id,
+            start_date,
+            end_date,
+            status,
+            peserta:profiles!ojt_programs_participant_id_fkey(
+              full_name,
+              department
             )
-            .select(`
-              id,
-              site,
-              mentor_id,
-              start_date,
-              end_date,
-              status,
-              peserta:profiles!ojt_programs_participant_id_fkey(
-                full_name,
-                department
-              )
-            `)
-            .eq(
-              "id",
-              programId
-            )
-            .maybeSingle();
+          `)
+          .eq("id", programId);
 
-        if (
-          programResult.error
-        ) {
-          throw programResult.error;
+        if (role === "mentor") {
+          query = query.eq("mentor_id", user.id);
         }
 
-        if (
-          !programResult.data
-        ) {
+        const {
+          data: programData,
+          error: programError,
+        } = await query.maybeSingle();
+
+        if (programError) throw programError;
+
+        if (!programData || !parseDate(programData.start_date)) {
           throw new Error(
-            "Program OJT tidak ditemukan atau akses tidak tersedia."
+            "Program tidak ditemukan, akses ditolak, atau tanggal mulai tidak valid."
           );
         }
 
-        if (
-          !parseDate(
-            programResult.data
-              .start_date
-          )
-        ) {
-          throw new Error(
-            "Tanggal mulai program OJT tidak valid."
-          );
-        }
-
-        const [
-          typesResult,
-          records,
-        ] = await Promise.all([
+        const [typeResult, records] = await Promise.all([
           supabase
-            .from(
-              "achievement_types"
-            )
-            .select(
-              "code,name"
-            )
-            .order(
-              "name"
-            ),
-
-          fetchRecords(),
+            .from("achievement_types")
+            .select("code,name")
+            .order("name"),
+          fetchRecords(programId),
         ]);
 
-        if (
-          typesResult.error
-        ) {
-          throw typesResult.error;
-        }
+        if (typeResult.error) throw typeResult.error;
 
         if (!active) return;
 
-        setMentor(
-          profile
-        );
+        setManager(profile);
+        setProgram(programData);
+        setTypes(typeResult.data || []);
+        applyRecords(records);
+        setWeek(initialWeek(programData, records.achievements));
 
-        setProgram(
-          programResult.data
-        );
-
-        setTypes(
-          typesResult.data || []
-        );
-
-        applyRecords(
-          records
-        );
-
-        // PERBAIKAN UTAMA:
-        // Week dipilih berdasarkan
-        // Kalender Global, bukan
-        // tanggal mulai peserta.
-
-        const initialWeek =
-          determineInitialWeek(
-            programResult.data,
-            records.achievements
-          );
-
-        setWeek(
-          initialWeek
-        );
       } catch (err) {
         if (active) {
-          setError(
-            err?.message ||
-              "Gagal memuat data peserta."
-          );
+          setError(err?.message || "Gagal memuat data peserta.");
         }
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     }
 
@@ -987,37 +491,17 @@ export default function DetailPeserta() {
     };
   }, [programId, router]);
 
-  // ====================================================
-  // REFRESH
-  // ====================================================
-
   async function refresh() {
-    if (
-      refreshing ||
-      loading ||
-      !programId ||
-      !mentor ||
-      !program
-    ) {
-      return;
-    }
+    if (refreshing || loading || !manager || !program) return;
 
     setRefreshing(true);
     setError("");
     setMessage("");
 
     try {
-      const records =
-        await fetchRecords();
-
-      applyRecords(
-        records
-      );
+      applyRecords(await fetchRecords(programId));
     } catch (err) {
-      setError(
-        err?.message ||
-          "Gagal memperbarui data."
-      );
+      setError(err?.message || "Gagal memperbarui data.");
     } finally {
       setRefreshing(false);
     }
@@ -1027,6 +511,7 @@ export default function DetailPeserta() {
     setPanel(name);
     setError("");
     setMessage("");
+    setMobileOpen(false);
 
     window.scrollTo({
       top: 0,
@@ -1034,42 +519,25 @@ export default function DetailPeserta() {
     });
   }
 
-  // ====================================================
-  // POST TEST - TETAP DIPERTAHANKAN
-  // ====================================================
+  // =============================================
+  // POST TEST CRUD
+  // =============================================
 
   async function reloadTests() {
-    const {
-      data,
-      error: err,
-    } = await supabase
-      .from(
-        "post_test_scores"
-      )
-      .select(
-        "id,test_date,score,notes,created_at"
-      )
-      .eq(
-        "program_id",
-        programId
-      )
-      .order(
-        "test_date",
-        {
-          ascending: false,
-        }
-      );
+    const { data, error: err } = await supabase
+      .from("post_test_scores")
+      .select("id,test_date,score,notes,created_at")
+      .eq("program_id", programId)
+      .order("test_date", { ascending: false });
 
     if (err) throw err;
 
-    setPostTests(
-      data || []
-    );
+    setPostTests(data || []);
   }
 
   function resetTest() {
     setEditTestId(null);
-    setTestDate(today());
+    setTestDate(todayWITA());
     setTestScore("");
     setTestNotes("");
   }
@@ -1077,69 +545,28 @@ export default function DetailPeserta() {
   async function saveTest(event) {
     event.preventDefault();
 
-    if (
-      !mentor ||
-      !program ||
-      savingTest ||
-      testActionId
-    ) {
+    if (!manager || !program || savingTest || testActionId) {
       return;
     }
 
-    const numericScore =
-      Number(testScore);
+    const score = Number(testScore);
 
     if (
-      !testDate ||
       !parseDate(testDate) ||
       testScore.trim() === "" ||
-      !Number.isFinite(
-        numericScore
-      ) ||
-      numericScore < 0 ||
-      numericScore > 100
+      !Number.isFinite(score) ||
+      score < 0 ||
+      score > 100
     ) {
       setError(
-        "Nilai Post-Test harus antara 0–100 dan tanggal harus valid."
+        "Tanggal dan nilai Post-Test harus valid (0–100)."
       );
       return;
     }
 
-    // Pastikan tanggal penilaian
-    // berada dalam periode OJT
-    // dan Kalender Global.
-
-    const globalWeek =
-      globalWeekOf(
-        testDate
-      );
-
-    if (
-      globalWeek === null ||
-      !getProgramWeekRange(
-        globalWeek,
-        program
-      )
-    ) {
+    if (!insideProgram(testDate, program)) {
       setError(
-        "Tanggal Post-Test harus berada pada Week Global dalam periode OJT peserta."
-      );
-      return;
-    }
-
-    if (
-      testDate <
-        program.start_date ||
-      (
-        parseDate(
-          program.end_date
-        ) &&
-        testDate >
-          program.end_date
-      )
-    ) {
-      setError(
-        "Tanggal Post-Test berada di luar periode OJT peserta."
+        "Tanggal Post-Test harus termasuk Kalender Global dan periode OJT peserta."
       );
       return;
     }
@@ -1150,2246 +577,2063 @@ export default function DetailPeserta() {
 
     try {
       const payload = {
-        test_date:
-          testDate,
-
-        score:
-          numericScore,
-
-        notes:
-          testNotes.trim() ||
-          null,
+        test_date: testDate,
+        score,
+        notes: testNotes.trim() || null,
       };
 
-      const result =
-        editTestId
-          ? await supabase
-              .from(
-                "post_test_scores"
-              )
-              .update(
-                payload
-              )
-              .eq(
-                "id",
-                editTestId
-              )
-              .eq(
-                "program_id",
-                programId
-              )
-              .select("id")
-          : await supabase
-              .from(
-                "post_test_scores"
-              )
-              .insert({
-                ...payload,
+      const result = editTestId
+        ? await supabase
+            .from("post_test_scores")
+            .update(payload)
+            .eq("id", editTestId)
+            .eq("program_id", programId)
+            .select("id")
+        : await supabase
+            .from("post_test_scores")
+            .insert({
+              ...payload,
+              program_id: programId,
+              created_by: manager.id,
+            })
+            .select("id");
 
-                program_id:
-                  programId,
+      if (result.error) throw result.error;
 
-                created_by:
-                  mentor.id,
-              })
-              .select("id");
-
-      if (
-        result.error
-      ) {
-        throw result.error;
-      }
-
-      if (
-        !result.data?.length
-      ) {
+      if (!result.data?.length) {
         throw new Error(
-          "Nilai tidak berhasil disimpan. Periksa izin database."
+          "Post-Test tidak tersimpan. Periksa izin database."
         );
       }
 
       await reloadTests();
-
       resetTest();
+      setMessage("Post-Test berhasil disimpan.");
 
-      setMessage(
-        "Nilai Post-Test berhasil disimpan."
-      );
     } catch (err) {
-      setError(
-        err?.message ||
-          "Gagal menyimpan Post-Test."
-      );
+      setError(err?.message || "Gagal menyimpan Post-Test.");
     } finally {
       setSavingTest(false);
     }
   }
 
   function editTest(item) {
-    setEditTestId(
-      item.id
-    );
-
-    setTestDate(
-      item.test_date
-    );
-
-    setTestScore(
-      String(item.score)
-    );
-
-    setTestNotes(
-      item.notes || ""
-    );
-
-    openPanel(
-      "posttest"
-    );
+    setEditTestId(item.id);
+    setTestDate(item.test_date);
+    setTestScore(String(item.score));
+    setTestNotes(item.notes || "");
+    openPanel("posttest");
   }
 
   async function deleteTest(item) {
     if (
-      !mentor ||
+      !manager ||
       !program ||
       savingTest ||
-      testActionId
+      testActionId ||
+      !window.confirm("Hapus nilai Post-Test ini?")
     ) {
       return;
     }
 
-    if (
-      !window.confirm(
-        "Hapus nilai Post-Test ini?"
-      )
-    ) {
-      return;
-    }
-
-    setTestActionId(
-      item.id
-    );
-
+    setTestActionId(item.id);
     setError("");
     setMessage("");
 
     try {
-      const {
-        data,
-        error: err,
-      } = await supabase
-        .from(
-          "post_test_scores"
-        )
+      const { data, error: err } = await supabase
+        .from("post_test_scores")
         .delete()
-        .eq(
-          "id",
-          item.id
-        )
-        .eq(
-          "program_id",
-          programId
-        )
+        .eq("id", item.id)
+        .eq("program_id", programId)
         .select("id");
 
       if (err) throw err;
 
-      if (
-        !data?.length
-      ) {
+      if (!data?.length) {
         throw new Error(
-          "Nilai tidak terhapus. Periksa izin database."
+          "Post-Test tidak terhapus. Periksa izin database."
         );
       }
 
-      if (
-        editTestId === item.id
-      ) {
-        resetTest();
-      }
+      if (editTestId === item.id) resetTest();
 
       await reloadTests();
+      setMessage("Post-Test berhasil dihapus.");
 
-      setMessage(
-        "Nilai Post-Test berhasil dihapus."
-      );
     } catch (err) {
-      setError(
-        err?.message ||
-          "Gagal menghapus Post-Test."
-      );
+      setError(err?.message || "Gagal menghapus Post-Test.");
     } finally {
       setTestActionId(null);
     }
   }
 
-  // ====================================================
-  // WEEK GLOBAL YANG DIIZINKAN
-  // ====================================================
+  // =============================================
+  // WEEKLY ACHIEVEMENT
+  // =============================================
 
-  const availableWeeks =
-    useMemo(
-      () =>
-        getAvailableWeeks(
-          program
-        ),
-      [program]
-    );
+  const availableWeeks = useMemo(
+    () => GLOBAL_WEEKS.filter(
+      w => programWeekRange(program, w.week)
+    ),
+    [program]
+  );
 
-  const selectedGlobalWeek =
-    getGlobalWeek(
-      week
-    );
-
-  const selectedProgramRange =
-    getProgramWeekRange(
-      week,
-      program
-    );
-
-  const weekStart =
-    selectedGlobalWeek?.start ||
-    null;
-
-  const weekEnd =
-    selectedGlobalWeek?.end ||
-    null;
-
-  // ====================================================
-  // REKAP ACHIEVEMENT MINGGU GLOBAL
-  // ====================================================
+  const selectedGlobalWeek = GLOBAL_WEEKS[week - 1];
+  const selectedProgramRange = programWeekRange(program, week);
 
   const weekly = useMemo(() => {
-    const rows =
-      achievements.filter(
-        (item) => {
-          const activityDate =
-            String(
-              item.activity_date ??
-                ""
-            ).slice(0, 10);
-
-          const withinProgram =
-            program &&
-            activityDate >=
-              String(
-                program.start_date
-              ).slice(0, 10) &&
-            (
-              !parseDate(
-                program.end_date
-              ) ||
-              activityDate <=
-                String(
-                  program.end_date
-                ).slice(0, 10)
-            );
-
-          return (
-            withinProgram &&
-            globalWeekOf(
-              activityDate
-            ) === week
-          );
-        }
-      );
-
-    const verified =
-      rows.filter(
-        (item) =>
-          roleOf(
-            item.status
-          ) === "verified"
-      );
-
-    const pending =
-      rows.filter(
-        (item) =>
-          roleOf(
-            item.status
-          ) === "pending"
-      );
-
-    // Pemetaan tipe database
-    // dan kategori standar.
-
-    const typeMap =
-      new Map();
-
-    types.forEach(
-      (item) => {
-        const category =
-          categoryFromType(
-            item.code
-          ) ||
-          categoryFromType(
-            item.name
-          );
-
-        if (category) {
-          typeMap.set(
-            String(item.code),
-            category
-          );
-        }
-      }
+    const rows = achievements.filter(item =>
+      insideProgram(item.activity_date, program) &&
+      globalWeekOf(item.activity_date) === week
     );
 
-    const categories =
-      TARGETS.map(
-        (target) => {
-          const matched =
-            verified.filter(
-              (item) => {
-                const category =
-                  typeMap.get(
-                    String(
-                      item.type_code
-                    )
-                  ) ||
-                  categoryFromType(
-                    item.type_code
-                  );
+    const verified = rows.filter(
+      item => roleOf(item.status) === "verified"
+    );
 
-                return (
-                  category ===
-                  target.name
-                );
-              }
+    const pending = rows.filter(
+      item => roleOf(item.status) === "pending"
+    );
+
+    const typeMap = new Map(
+      types.map(item => [
+        normalize(item.code),
+        categoryOf(item.code) || categoryOf(item.name),
+      ])
+    );
+
+    const categories = TARGETS.map(target => {
+      const matched = verified.filter(item => {
+        const name =
+          typeMap.get(normalize(item.type_code)) ||
+          categoryOf(item.type_code);
+
+        return name === target.name;
+      });
+
+      const actual = target.name === "Fisik"
+        ? matched.reduce((sum, item) => {
+            const distance = Number(item.distance_km);
+
+            return sum + (
+              Number.isFinite(distance) && distance > 0
+                ? Math.round(distance * 1000)
+                : 0
             );
+          }, 0) / 1000
+        : matched.length;
 
-          let actual = 0;
-
-          if (
-            target.name ===
-            "Fisik"
-          ) {
-            const meters =
-              matched.reduce(
-                (sum, item) => {
-                  const distance =
-                    Number(
-                      item.distance_km
-                    );
-
-                  if (
-                    !Number.isFinite(
-                      distance
-                    ) ||
-                    distance <= 0
-                  ) {
-                    return sum;
-                  }
-
-                  return (
-                    sum +
-                    Math.round(
-                      distance *
-                        1000
-                    )
-                  );
-                },
-                0
-              );
-
-            actual =
-              meters / 1000;
-          } else {
-            actual =
-              matched.length;
-          }
-
-          const rawPercent =
-            target.target > 0
-              ? (
-                  actual /
-                  target.target
-                ) * 100
-              : 0;
-
-          const capped =
-            cappedPercent(
-              actual,
-              target.target
-            );
-
-          return {
-            ...target,
-            actual,
-            percent:
-              rawPercent,
-            capped,
-            achieved:
-              actual >=
-              target.target,
-          };
-        }
+      const percent = Math.min(
+        100,
+        Math.max(0, (actual / target.target) * 100)
       );
 
-    const overall =
-      categories.length
-        ? categories.reduce(
-            (sum, item) =>
-              sum +
-              item.capped,
-            0
-          ) /
-          categories.length
-        : 0;
+      return {
+        ...target,
+        actual,
+        count: matched.length,
+        percent,
+        achieved: actual >= target.target,
+      };
+    });
 
     return {
       categories,
-      overall,
-
-      achieved:
-        categories.filter(
-          (item) =>
-            item.achieved
-        ).length,
-
-      verified:
-        verified.length,
-
-      pending:
-        pending.length,
-
-      total:
-        rows.length,
+      overall: categories.reduce(
+        (sum, item) => sum + item.percent,
+        0
+      ) / categories.length,
+      achieved: categories.filter(item => item.achieved).length,
+      verified: verified.length,
+      pending: pending.length,
+      total: rows.length,
     };
-  }, [
-    achievements,
-    types,
-    program,
-    week,
-  ]);
+  }, [achievements, types, program, week]);
 
-  // ====================================================
-  // PROFIL PESERTA
-  // ====================================================
-
-  const participant =
-    Array.isArray(
-      program?.peserta
-    )
-      ? program.peserta[0]
-      : program?.peserta;
+  const participant = Array.isArray(program?.peserta)
+    ? program.peserta[0]
+    : program?.peserta;
 
   const participantName =
-    participant?.full_name ||
-    "Peserta OJT";
+    participant?.full_name || "Peserta OJT";
 
-  // ====================================================
-  // MENU
-  // ====================================================
+  const roleName = isAdmin
+    ? "Administrator"
+    : "Mentor OJT";
+
+  const accountName =
+    manager?.full_name || roleName;
+
+  // =============================================
+  // QUICK ACCESS MENUS
+  // SESUAI GAMBAR KEDUA
+  // =============================================
 
   const menus = [
     {
-      title:
-        "Monitoring OJT",
+      title: "Monitoring OJT",
+      subtitle: "Seluruh kegiatan pelaksanaan OJT",
       icon: "📊",
-      desc:
-        "Seluruh kategori penilaian",
-      route:
-        `/monitoring/${programId}`,
+      tone: "green",
+      route: `/monitoring/${programId}`,
     },
     {
-      title:
-        "Post-Test",
-      icon: "📚",
-      desc:
-        `${postTests.length} nilai tercatat`,
-      panel:
-        "posttest",
+      title: "Samapta",
+      subtitle: `${samapta.length} data tes`,
+      icon: "🏃",
+      tone: "amber",
+      route: `/samapta/${programId}`,
     },
     {
-      title:
-        "Praktik Mingguan",
-      icon: "🛠️",
-      desc:
-        `${practice.length} penilaian`,
-      route:
-        `/praktik/${programId}`,
+      title: "Post-Test",
+      subtitle: `${postTests.length} nilai tercatat`,
+      icon: "📘",
+      tone: "blue",
+      panel: "posttest",
     },
     {
-      title:
-        "Samapta",
-      icon: "🏋️",
-      desc:
-        `${samapta.length} hasil tes`,
-      route:
-        `/samapta/${programId}`,
-    },
-    {
-      title:
-        "SIMPER",
+      title: "SIMPER",
+      subtitle: simper ? "Data tersedia" : "Belum ada data",
       icon: "🪪",
-      desc:
-        simper
-          ? "Data tersedia"
-          : "Belum ada data",
-      route:
-        `/simper/${programId}`,
+      tone: "purple",
+      route: `/simper/${programId}`,
     },
     {
-      title:
-        "Evaluasi Mingguan",
+      title: "Praktik Mingguan",
+      subtitle: `${practice.length} penilaian`,
+      icon: "🛠️",
+      tone: "rose",
+      route: `/praktik/${programId}`,
+    },
+    {
+      title: "Evaluasi Mingguan",
+      subtitle: `Week ${String(week).padStart(2, "0")} · ${num(weekly.overall)}%`,
       icon: "📅",
-      desc:
-        "Week Global 01–25",
-      route:
-        `/mingguan/${programId}`,
+      tone: "teal",
+      route: `/mingguan/${programId}`,
     },
     {
-      title:
-        "Grafik Perkembangan",
-      icon: "📈",
-      desc:
-        "Analisis perkembangan",
-      route:
-        `/analisis/${programId}`,
-    },
-    {
-      title:
-        "Evaluasi Kesiapan",
-      icon: "✅",
-      desc:
-        "Kelengkapan indikator",
-      route:
-        `/evaluasi/${programId}`,
-    },
-    {
-      title:
-        "Rapor OJT",
+      title: "Rapor OJT",
+      subtitle: "Laporan dan cetak PDF",
       icon: "📄",
-      desc:
-        "Laporan dan cetak PDF",
-      route:
-        `/laporan/${programId}`,
+      tone: "blue",
+      route: `/laporan/${programId}`,
+    },
+    {
+      title: "Grafik Perkembangan",
+      subtitle: "Analisis perkembangan",
+      icon: "📈",
+      tone: "purple",
+      route: `/analisis/${programId}`,
+    },
+    {
+      title: "Evaluasi Kesiapan",
+      subtitle: "Kelengkapan indikator",
+      icon: "✅",
+      tone: "green",
+      route: `/evaluasi/${programId}`,
     },
   ];
 
-  // ====================================================
-  // LOADING
-  // ====================================================
+  const sidebar = [
+    {
+      title: "Dashboard",
+      icon: "⌂",
+      route: "/",
+    },
+    {
+      title: "Peserta OJT",
+      icon: "♙",
+      route: "/mentor/monitoring-peserta",
+    },
+    {
+      title: "Input Achievement",
+      icon: "▤",
+      route: `/achievement/${programId}`,
+    },
+    {
+      title: "Monitoring & Penilaian",
+      icon: "▥",
+      anchor: "dp-modules",
+    },
+    {
+      title: "Evaluasi Kesiapan",
+      icon: "✓",
+      route: `/evaluasi/${programId}`,
+    },
+    {
+      title: "Rapor OJT",
+      icon: "▤",
+      route: `/laporan/${programId}`,
+    },
+    {
+      title: "Grafik Perkembangan",
+      icon: "▥",
+      route: `/analisis/${programId}`,
+    },
+  ];
+
+  function navigate(item) {
+    setMobileOpen(false);
+
+    if (item.route) {
+      router.push(item.route);
+    } else if (item.anchor) {
+      openPanel("dashboard");
+
+      requestAnimationFrame(() => {
+        document.getElementById(item.anchor)?.scrollIntoView({
+          behavior: "smooth",
+        });
+      });
+    }
+  }
+
+  // =============================================
+  // LOADING / ERROR
+  // =============================================
 
   if (loading) {
     return (
-      <main
-        style={{
-          padding: 30,
-          fontFamily: "Arial",
-        }}
-      >
+      <main className="dp-loading">
         <h2>OJT MineTrack</h2>
-        <p>
-          Memuat data peserta...
-        </p>
+        <p>Memuat data Detail Peserta...</p>
       </main>
     );
   }
 
-  if (
-    !mentor ||
-    !program
-  ) {
+  if (!manager || !program) {
     return (
-      <main
-        style={{
-          padding: 30,
-          fontFamily: "Arial",
-        }}
-      >
-        <h2>
-          Data Tidak Dapat
-          Ditampilkan
-        </h2>
+      <main className="dp-loading">
+        <h2>Detail Peserta Tidak Dapat Ditampilkan</h2>
+        <p>{error || "Akses tidak tersedia."}</p>
 
-        <p>
-          {error ||
-            "Akses tidak tersedia."}
-        </p>
-
-        <button
-          type="button"
-          onClick={() =>
-            router.push("/")
-          }
-        >
+        <button onClick={() => router.push("/")}>
           Kembali ke Dashboard
         </button>
       </main>
     );
   }
 
-  // ====================================================
-  // TAMPILAN HALAMAN
-  // ====================================================
+  // =============================================
+  // MAIN UI
+  // =============================================
 
   return (
-    <main className="mt-root">
+    <div className="dp-app">
       <style>{css}</style>
 
-      {/* HEADER */}
+      {/* MOBILE OVERLAY */}
 
-      <header className="mt-header">
-        <div className="mt-brand">
-          OJT{" "}
-          <span>
-            MineTrack
-          </span>
+      {mobileOpen && (
+        <button
+          className="dp-overlay"
+          aria-label="Tutup navigasi"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* SIDEBAR */}
+
+      <aside className={`dp-sidebar ${mobileOpen ? "open" : ""}`}>
+        <div className="dp-brand">
+          <strong>
+            OJT <span>MineTrack</span>
+          </strong>
+          <small>v2.0</small>
         </div>
 
-        <div className="mt-header-right">
-          <div className="mt-account">
-            <span>
-              {isAdmin
-                ? "Administrator"
-                : "Mentor OJT"}
-            </span>
-
-            <strong>
-              {mentor.full_name ||
-                "Pengelola OJT"}
-            </strong>
-          </div>
-
-          <button
-            type="button"
-            className="mt-back"
-            onClick={() =>
-              panel ===
-              "dashboard"
-                ? router.push(
-                    "/"
-                  )
-                : openPanel(
-                    "dashboard"
-                  )
-            }
-          >
-            ←{" "}
-            {panel ===
-            "dashboard"
-              ? "Dashboard"
-              : "Menu Peserta"}
-          </button>
-        </div>
-      </header>
-
-      <div className="mt-container">
-
-        {/* BANNER */}
-
-        <section className="mt-banner">
-          <small>
-            EMERGENCY RESPONSE GROUP
-            {" · "}
-            PT BERAU COAL
-          </small>
-
-          <h1>
-            Detail Peserta OJT
-          </h1>
-
-          <p>
-            Monitoring Kompetensi
-            dan Evaluasi OJT
-          </p>
-        </section>
-
-        {/* PROFIL */}
-
-        <section className="mt-card">
-          <div className="mt-profile">
-            <div className="mt-avatar">
-              {initials(
-                participantName
-              )}
-            </div>
-
-            <div className="mt-profile-main">
-              <div className="mt-profile-name">
-                {participantName}
-              </div>
-
-              <div className="mt-profile-meta">
-                {participant?.department ||
-                  "—"}
-                {" · "}
-                {program.site ||
-                  "Site belum diisi"}
-              </div>
-            </div>
-
-            <span className="mt-status">
-              {program.status ===
-              "active"
-                ? "Aktif"
-                : program.status ||
-                  "—"}
-            </span>
-          </div>
-
-          <hr className="mt-divider" />
-
-          <div className="mt-profile-details">
-            <div>
-              <span className="mt-info-label">
-                Periode OJT
-              </span>
-
-              <div className="mt-info-value">
-                {formatDate(
-                  program.start_date
-                )}
-                {" – "}
-                {formatDate(
-                  program.end_date
-                )}
-              </div>
-            </div>
-
-            <div>
-              <span className="mt-info-label">
-                Akses Pengelola
-              </span>
-
-              <div className="mt-info-value">
-                {isAdmin
-                  ? "Administrator"
-                  : isMentor
-                  ? "Mentor"
-                  : "—"}
-                {" · "}
-                {mentor.full_name ||
-                  "—"}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* NOTIFIKASI */}
-
-        {error && (
-          <div
-            className="mt-alert error"
-            role="alert"
-          >
-            {error}
-          </div>
-        )}
-
-        {message && (
-          <div
-            className="mt-alert success"
-            role="status"
-          >
-            ✓ {message}
-          </div>
-        )}
-
-        {/* DASHBOARD */}
-
-        {panel ===
-          "dashboard" && (
-          <>
-
-            {/* RINGKASAN ACHIEVEMENT */}
-
-            <section className="mt-card">
-              <div className="mt-section-head">
-                <div>
-                  <h2 className="mt-title">
-                    Ringkasan Achievement
-                    OJT
-                  </h2>
-
-                  <p className="mt-subtitle">
-                    Ringkasan pencapaian
-                    berdasarkan Kalender
-                    Global Week 01–25.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  className="mt-refresh"
-                  onClick={refresh}
-                  disabled={
-                    refreshing
-                  }
-                >
-                  {refreshing
-                    ? "Memuat..."
-                    : "↻ Refresh"}
-                </button>
-              </div>
-
-              <div className="mt-section-head">
-                <div>
-                  <div className="mt-overall-label">
-                    Progress Week{" "}
-                    {String(
-                      week
-                    ).padStart(
-                      2,
-                      "0"
-                    )}
-                  </div>
-
-                  <div className="mt-overall-note">
-                    {weekStart &&
-                    weekEnd
-                      ? `${formatDate(
-                          weekStart
-                        )} – ${formatDate(
-                          weekEnd
-                        )}`
-                      : "Periode belum tersedia"}
-                  </div>
-
-                  {selectedProgramRange && (
-                    <div className="mt-week-active-range">
-                      Periode peserta:
-                      {" "}
-                      {formatDate(
-                        selectedProgramRange.start
-                      )}
-                      {" – "}
-                      {formatDate(
-                        selectedProgramRange.end
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <select
-                  className="mt-week-select"
-                  aria-label="Pilih Minggu Global Achievement"
-                  value={
-                    availableWeeks.some(
-                      (item) =>
-                        item.week ===
-                        week
-                    )
-                      ? week
-                      : ""
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setWeek(
-                      Number(
-                        event.target.value
-                      )
-                    )
-                  }
-                >
-                  {!availableWeeks.length && (
-                    <option value="">
-                      Tidak ada minggu
-                    </option>
-                  )}
-
-                  {availableWeeks.map(
-                    (item) => (
-                      <option
-                        key={
-                          item.week
-                        }
-                        value={
-                          item.week
-                        }
-                      >
-                        Week{" "}
-                        {String(
-                          item.week
-                        ).padStart(
-                          2,
-                          "0"
-                        )}
-                        {" · "}
-                        {formatDate(
-                          item.start
-                        )}
-                        {" – "}
-                        {formatDate(
-                          item.end
-                        )}
-                      </option>
-                    )
-                  )}
-                </select>
-              </div>
-
-              {availableWeeks.length ? (
-                <>
-                  <div className="mt-overall">
-                    <div className="mt-overall-note">
-                      Rata-rata pencapaian
-                      enam kategori
-                      terverifikasi pada
-                      Week Global terpilih.
-                    </div>
-
-                    <div className="mt-overall-value">
-                      {formatNumber(
-                        weekly.overall,
-                        2
-                      )}
-                      %
-                    </div>
-                  </div>
-
-                  <ProgressBar
-                    value={
-                      weekly.overall
-                    }
-                  />
-
-                  <div className="mt-stats">
-                    <div className="mt-stat">
-                      <small>
-                        Kategori Tercapai
-                      </small>
-
-                      <strong>
-                        {weekly.achieved}
-                        /6
-                      </strong>
-                    </div>
-
-                    <div className="mt-stat">
-                      <small>
-                        Terverifikasi
-                      </small>
-
-                      <strong>
-                        {weekly.verified}
-                      </strong>
-                    </div>
-
-                    <div className="mt-stat">
-                      <small>
-                        Menunggu
-                      </small>
-
-                      <strong>
-                        {weekly.pending}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <div className="mt-category-head">
-                    <h3>
-                      Pencapaian 6 Kategori
-                    </h3>
-
-                    <small>
-                      Target mingguan
-                      tetap
-                    </small>
-                  </div>
-
-                  <div className="mt-category-grid">
-                    {weekly.categories.map(
-                      (item) => (
-                        <div
-                          className="mt-category-card"
-                          key={
-                            item.name
-                          }
-                        >
-                          <div className="mt-category-top">
-                            <span>
-                              {item.icon}
-                              {" "}
-                              {item.name}
-                            </span>
-
-                            <strong>
-                              {formatNumber(
-                                item.capped,
-                                2
-                              )}
-                              %
-                            </strong>
-                          </div>
-
-                          <ProgressBar
-                            value={
-                              item.capped
-                            }
-                          />
-
-                          <div className="mt-category-bottom">
-                            <span>
-                              Realisasi:
-                              {" "}
-                              <strong>
-                                {formatNumber(
-                                  item.actual,
-                                  item.name ===
-                                    "Fisik"
-                                    ? 3
-                                    : 0
-                                )}
-                                {" "}
-                                {item.unit}
-                              </strong>
-                            </span>
-
-                            <span>
-                              Target:
-                              {" "}
-                              {item.target}
-                              {" "}
-                              {item.unit}
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
-
-                  <p className="mt-category-note">
-                    Realisasi asli tidak
-                    dibatasi. Persentase
-                    setiap kategori
-                    maksimal 100%.
-                    Status Pending
-                    tidak dihitung
-                    sebagai pencapaian.
-                  </p>
-                </>
-              ) : (
-                <div className="mt-alert error">
-                  Periode OJT peserta
-                  tidak beririsan dengan
-                  Kalender Global
-                  Week 01–25.
-                </div>
-              )}
-            </section>
-
-            {/* ACHIEVEMENT MENU */}
-
-            <section className="mt-card">
-              <div className="mt-section-head">
-                <div>
-                  <h2 className="mt-title">
-                    Achievement OJT
-                  </h2>
-
-                  <p className="mt-subtitle">
-                    Input kegiatan
-                    dan Monitoring
-                    Achievement tersedia
-                    pada halaman terpisah.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-ach-navigation">
-                <AchievementMenu
-                  icon="📝"
-                  title="Input Achievement"
-                  description="Catat dan perbarui kegiatan peserta. Kegiatan baru langsung tersimpan sebagai Verified tanpa verifikasi manual."
-                  detail="Input · Edit · Verified Otomatis"
-                  onClick={() =>
-                    router.push(
-                      `/achievement/${programId}`
-                    )
-                  }
-                />
-
-                <AchievementMenu
-                  icon="📊"
-                  title="Monitoring Achievement"
-                  description="Pantau enam kategori, target, grafik, dan riwayat kegiatan pada Kalender Global 25 minggu."
-                  detail="Monitoring · Grafik · Riwayat"
-                  variant="monitoring"
-                  onClick={() =>
-                    router.push(
-                      `/achievement/${programId}/monitoring`
-                    )
-                  }
-                />
-              </div>
-            </section>
-
-            {/* MENU LAIN */}
-
-            <section className="mt-card">
-              <div className="mt-section-head">
-                <h2 className="mt-title">
-                  Monitoring & Penilaian
-                </h2>
-              </div>
-
-              <div className="mt-menu-grid">
-                {menus.map(
-                  (item) => (
-                    <button
-                      key={
-                        item.title
-                      }
-                      type="button"
-                      className="mt-menu"
-                      onClick={() =>
-                        item.route
-                          ? router.push(
-                              item.route
-                            )
-                          : openPanel(
-                              item.panel
-                            )
-                      }
-                    >
-                      <span className="mt-menu-icon">
-                        {item.icon}
-                      </span>
-
-                      <div className="mt-menu-content">
-                        <div className="mt-menu-name">
-                          {item.title}
-                        </div>
-
-                        <div className="mt-menu-desc">
-                          {item.desc}
-                        </div>
-                      </div>
-
-                      <span className="mt-menu-arrow">
-                        ›
-                      </span>
-                    </button>
-                  )
-                )}
-              </div>
-            </section>
-
+        <nav>
+          {sidebar.map((item, index) => (
             <button
               type="button"
-              className="mt-bottom-back"
-              onClick={() =>
-                router.push("/")
-              }
+              key={item.title}
+              className={`dp-nav ${index === 0 ? "active" : ""}`}
+              onClick={() => navigate(item)}
             >
-              ← Kembali ke Dashboard
+              <span className="dp-nav-icon">
+                {item.icon}
+              </span>
+              {item.title}
             </button>
-          </>
-        )}
+          ))}
+        </nav>
 
-        {/* POST TEST */}
+        <div className="dp-side-bottom">
+          <div className="dp-side-company">
+            <strong>Emergency Response Group</strong>
+            <span>PT Berau Coal</span>
+          </div>
 
-        {panel ===
-          "posttest" && (
-          <>
-            <section className="mt-card">
-              <div className="mt-section-head">
-                <h2 className="mt-title">
-                  Monitoring Post-Test
-                </h2>
+          <small>
+            OJT MineTrack v2.0
+            {" · "}
+            © 2026
+          </small>
+        </div>
+      </aside>
 
-                <button
-                  type="button"
-                  className="mt-button outline"
-                  onClick={() =>
-                    openPanel(
-                      "dashboard"
-                    )
-                  }
-                >
-                  Kembali
-                </button>
+      {/* RIGHT AREA */}
+
+      <div className="dp-right">
+
+        {/* HEADER */}
+
+        <header className="dp-topbar">
+          <button
+            className="dp-mobile-menu"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Buka menu"
+          >
+            ☰
+          </button>
+
+          <div className="dp-top-spacer" />
+
+          <div className="dp-top-account">
+            <span className="dp-top-avatar">
+              {initials(accountName)}
+            </span>
+
+            <div>
+              <strong>{accountName}</strong>
+              <small>{roleName}</small>
+            </div>
+
+            <span className="dp-top-arrow">⌄</span>
+          </div>
+        </header>
+
+        <main className="dp-content">
+
+          {/* PAGE TITLE */}
+
+          <div className="dp-title-row">
+            <div>
+              <small>Selamat datang di</small>
+              <h1>
+                OJT <span>MineTrack</span>
+              </h1>
+              <p>
+                Pantau, catat, dan evaluasi perkembangan
+                peserta OJT dengan lebih mudah dan terstruktur.
+              </p>
+            </div>
+
+            <div className="dp-week-select">
+              <span>📅</span>
+
+              <select
+                aria-label="Pilih Week Global"
+                value={
+                  availableWeeks.some(w => w.week === week)
+                    ? week
+                    : ""
+                }
+                onChange={event =>
+                  setWeek(Number(event.target.value))
+                }
+              >
+                {!availableWeeks.length && (
+                  <option value="">
+                    Tidak ada Week Global
+                  </option>
+                )}
+
+                {availableWeeks.map(item => (
+                  <option
+                    key={item.week}
+                    value={item.week}
+                  >
+                    Week {String(item.week).padStart(2, "0")}
+                    {" · "}
+                    {formatDate(item.start)}
+                    {" – "}
+                    {formatDate(item.end)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* NOTIFICATION */}
+
+          {error && (
+            <div className="dp-alert error" role="alert">
+              {error}
+            </div>
+          )}
+
+          {message && (
+            <div className="dp-alert success">
+              ✓ {message}
+            </div>
+          )}
+
+          {/* PROFILE BANNER */}
+
+          <section className="dp-profile">
+            <div className="dp-profile-info">
+              <div className="dp-big-avatar">
+                {initials(participantName)}
               </div>
 
-              <div className="mt-stats mt-stats-two">
-                <div className="mt-stat">
-                  <small>
-                    Total Post-Test
-                  </small>
+              <div className="dp-profile-copy">
+                <h2>{participantName}</h2>
 
-                  <strong>
-                    {postTests.length}
-                  </strong>
-                </div>
+                <p>
+                  {participant?.department || "—"}
+                  {"  |  "}
+                  {program.site || "—"}
+                </p>
 
-                <div className="mt-stat">
-                  <small>
-                    Rata-rata Nilai
-                  </small>
+                <div className="dp-profile-facts">
+                  <div>
+                    <span className="dp-fact-icon">📅</span>
 
-                  <strong>
-                    {formatScore(
-                      averageScores(
-                        postTests
-                      )
-                    )}
-                  </strong>
+                    <div>
+                      <small>Periode OJT</small>
+                      <strong>
+                        {formatDate(program.start_date)}
+                        {" – "}
+                        {formatDate(program.end_date)}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="dp-fact-icon">♙</span>
+
+                    <div>
+                      <small>Mentor</small>
+                      <strong>
+                        {isAdmin
+                          ? "Mentor OJT"
+                          : accountName}
+                      </strong>
+                    </div>
+                  </div>
                 </div>
               </div>
+            </div>
 
-              <h3 className="mt-form-heading">
-                {editTestId
-                  ? "Edit Nilai Post-Test"
-                  : "Input Nilai Post-Test"}
-              </h3>
+            <div className="dp-profile-image">
+              <span className="dp-profile-badge">
+                PESERTA OJT
+              </span>
 
-              <form onSubmit={saveTest}>
-                <div className="mt-field-group">
-                  <label htmlFor="mt-test-date">
-                    Tanggal Pelaksanaan
-                  </label>
+              <p>
+                Emergency Response Group
+                <br />
+                PT Berau Coal
+              </p>
 
-                  <input
-                    id="mt-test-date"
-                    className="mt-field"
-                    type="date"
-                    value={
-                      testDate
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setTestDate(
-                        event.target.value
-                      )
-                    }
-                    required
-                  />
+              <span className="dp-profile-accent" />
+            </div>
+          </section>
+
+          {panel === "dashboard" ? (
+            <>
+              {/* ACHIEVEMENT SUMMARY */}
+
+              <section className="dp-achievement">
+                <div className="dp-achievement-overview">
+                  <div className="dp-week-heading">
+                    <span className="dp-big-icon">
+                      📊
+                    </span>
+
+                    <div>
+                      <small>Capaian Achievement</small>
+                      <h2>
+                        Week {String(week).padStart(2, "0")}
+                      </h2>
+
+                      <p>
+                        {formatDate(selectedGlobalWeek?.start)}
+                        {" – "}
+                        {formatDate(selectedGlobalWeek?.end)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div
+                    className="dp-donut"
+                    style={{
+                      "--progress": `${weekly.overall}%`,
+                    }}
+                  >
+                    <div>
+                      <strong>
+                        {num(weekly.overall)}%
+                      </strong>
+                      <small>
+                        Rata-rata
+                        <br />
+                        Pencapaian
+                      </small>
+                    </div>
+                  </div>
+
+                  <div className="dp-summary green">
+                    <span>✅</span>
+                    <strong>{weekly.verified}</strong>
+                    <small>Terverifikasi</small>
+                  </div>
+
+                  <div className="dp-summary amber">
+                    <span>◷</span>
+                    <strong>{weekly.pending}</strong>
+                    <small>Menunggu</small>
+                  </div>
+
+                  <div className="dp-summary blue">
+                    <span>▦</span>
+                    <strong>{weekly.achieved}/6</strong>
+                    <small>Kategori</small>
+                  </div>
                 </div>
 
-                <div className="mt-field-group">
-                  <label htmlFor="mt-test-score">
-                    Nilai Post-Test
-                    (0–100)
-                  </label>
+                {selectedProgramRange && (
+                  <div className="dp-participant-range">
+                    Periode peserta pada Week ini:
+                    {" "}
+                    {formatDate(selectedProgramRange.start)}
+                    {" – "}
+                    {formatDate(selectedProgramRange.end)}
+                  </div>
+                )}
 
-                  <input
-                    id="mt-test-score"
-                    className="mt-field"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    value={
-                      testScore
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setTestScore(
-                        event.target.value
-                      )
-                    }
-                    required
-                  />
+                <div className="dp-category-grid">
+                  {weekly.categories.map(item => (
+                    <div
+                      key={item.name}
+                      className="dp-category"
+                    >
+                      <div className="dp-category-title">
+                        <span className="dp-category-icon">
+                          {item.icon}
+                        </span>
+                        <strong>{item.name}</strong>
+                      </div>
+
+                      <div className="dp-category-value">
+                        {num(item.percent)}%
+                      </div>
+
+                      <ProgressBar value={item.percent} />
+
+                      <div className="dp-category-footer">
+                        <span>
+                          Realisasi:
+                          <strong>
+                            {num(
+                              item.actual,
+                              item.name === "Fisik" ? 3 : 0
+                            )}
+                            {" "}
+                            {item.unit}
+                          </strong>
+                        </span>
+
+                        <span>
+                          Target:
+                          <strong>
+                            {item.target} {item.unit}
+                          </strong>
+                        </span>
+
+                        <span>
+                          Kegiatan:
+                          <strong>
+                            {item.count}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                <div className="mt-field-group">
-                  <label htmlFor="mt-test-notes">
-                    Catatan Evaluasi
-                  </label>
+                <p className="dp-note">
+                  Hanya kegiatan Verified yang dihitung.
+                  Realisasi asli tidak dibatasi,
+                  tetapi persentase maksimal 100%.
+                  Week mengikuti Kalender Global 01–25.
+                </p>
+              </section>
 
-                  <textarea
-                    id="mt-test-notes"
-                    className="mt-field"
-                    rows={3}
-                    value={
-                      testNotes
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setTestNotes(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Catatan evaluasi peserta..."
-                  />
-                </div>
+              {/* QUICK ACCESS */}
 
-                <div className="mt-actions">
+              <section
+                id="dp-modules"
+                className="dp-card"
+              >
+                <div className="dp-section-heading">
+                  <div>
+                    <h2>
+                      <span className="dp-heading-symbol">
+                        ▦
+                      </span>
+                      Menu & Akses Cepat
+                    </h2>
+
+                    <p>
+                      Kelola kegiatan, monitoring,
+                      penilaian, dan laporan OJT.
+                    </p>
+                  </div>
+
                   <button
-                    type="submit"
-                    className="mt-button"
-                    disabled={
-                      savingTest ||
-                      Boolean(
-                        testActionId
-                      )
+                    className="dp-refresh"
+                    onClick={refresh}
+                    disabled={refreshing}
+                  >
+                    {refreshing
+                      ? "Memperbarui..."
+                      : "↻ Refresh"}
+                  </button>
+                </div>
+
+                <div className="dp-menu-grid">
+                  {menus.map(item => (
+                    <ModuleCard
+                      key={item.title}
+                      icon={item.icon}
+                      title={item.title}
+                      subtitle={item.subtitle}
+                      tone={item.tone}
+                      onClick={() =>
+                        item.route
+                          ? router.push(item.route)
+                          : openPanel(item.panel)
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+
+              {/* ACHIEVEMENT INPUT */}
+
+              <section className="dp-card">
+                <div className="dp-section-heading">
+                  <div>
+                    <h2>Achievement OJT</h2>
+                    <p>
+                      Input kegiatan dan monitoring
+                      Achievement secara terpisah.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="dp-ach-actions">
+                  <button
+                    onClick={() =>
+                      router.push(`/achievement/${programId}`)
                     }
                   >
-                    {savingTest
-                      ? "Menyimpan..."
-                      : editTestId
-                      ? "Simpan Perubahan Nilai"
-                      : "Simpan Nilai Post-Test"}
+                    📝 Input Achievement
+                    <span>›</span>
                   </button>
 
-                  {editTestId && (
-                    <button
-                      type="button"
-                      className="mt-button gray"
-                      onClick={resetTest}
-                      disabled={
-                        savingTest
-                      }
-                    >
-                      Batal Edit
-                    </button>
-                  )}
-                </div>
-              </form>
-            </section>
-
-            <section className="mt-card">
-              <h2 className="mt-title mt-history-heading">
-                Riwayat Nilai
-                Post-Test
-              </h2>
-
-              {!postTests.length && (
-                <p className="mt-subtitle">
-                  Belum ada nilai
-                  Post-Test.
-                </p>
-              )}
-
-              {postTests.map(
-                (item) => (
-                  <div
-                    className="mt-history"
-                    key={
-                      item.id
+                  <button
+                    onClick={() =>
+                      router.push(
+                        `/achievement/${programId}/monitoring`
+                      )
                     }
                   >
-                    <div className="mt-history-title">
-                      Nilai:{" "}
-                      {formatScore(
-                        item.score
-                      )}
-                    </div>
+                    📊 Monitoring Achievement
+                    <span>›</span>
+                  </button>
+                </div>
+              </section>
 
-                    <div className="mt-history-meta">
-                      Tanggal:
-                      {" "}
-                      {formatDate(
-                        item.test_date
-                      )}
+              <button
+                className="dp-bottom-back"
+                onClick={() => router.push("/")}
+              >
+                ← Kembali ke Dashboard
+              </button>
+            </>
+          ) : (
+            <>
+              {/* POST-TEST */}
 
-                      {" · "}
-                      {globalWeekOf(
-                        item.test_date
-                      )
-                        ? `Week ${String(
-                            globalWeekOf(
-                              item.test_date
-                            )
-                          ).padStart(
-                            2,
-                            "0"
-                          )}`
-                        : "Di luar Kalender Global"}
-                    </div>
-
-                    <p className="mt-history-desc">
-                      {item.notes ||
-                        "Tidak ada catatan."}
+              <section className="dp-card">
+                <div className="dp-section-heading">
+                  <div>
+                    <h2>Monitoring Post-Test</h2>
+                    <p>
+                      Input, edit, dan hapus nilai Post-Test.
                     </p>
+                  </div>
 
-                    <div className="mt-history-actions">
+                  <button
+                    className="dp-refresh"
+                    onClick={() => openPanel("dashboard")}
+                  >
+                    ← Menu Peserta
+                  </button>
+                </div>
+
+                <div className="dp-post-stats">
+                  <div>
+                    Total Post-Test
+                    <strong>
+                      {postTests.length}
+                    </strong>
+                  </div>
+
+                  <div>
+                    Rata-rata Nilai
+                    <strong>
+                      {scoreText(averageScore(postTests))}
+                    </strong>
+                  </div>
+                </div>
+
+                <h3>
+                  {editTestId
+                    ? "Edit Nilai Post-Test"
+                    : "Input Nilai Post-Test"}
+                </h3>
+
+                <form
+                  onSubmit={saveTest}
+                  className="dp-form"
+                >
+                  <label>
+                    Tanggal Pelaksanaan
+                    <input
+                      type="date"
+                      value={testDate}
+                      onChange={event =>
+                        setTestDate(event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    Nilai Post-Test (0–100)
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={testScore}
+                      onChange={event =>
+                        setTestScore(event.target.value)
+                      }
+                      required
+                    />
+                  </label>
+
+                  <label>
+                    Catatan Evaluasi
+                    <textarea
+                      rows={4}
+                      value={testNotes}
+                      onChange={event =>
+                        setTestNotes(event.target.value)
+                      }
+                      placeholder="Catatan evaluasi..."
+                    />
+                  </label>
+
+                  <div className="dp-form-actions">
+                    <button
+                      className="dp-primary"
+                      type="submit"
+                      disabled={savingTest || Boolean(testActionId)}
+                    >
+                      {savingTest
+                        ? "Menyimpan..."
+                        : editTestId
+                        ? "Simpan Perubahan"
+                        : "Simpan Post-Test"}
+                    </button>
+
+                    {editTestId && (
                       <button
                         type="button"
-                        className="mt-button blue"
-                        disabled={
-                          Boolean(
-                            testActionId
-                          ) ||
-                          savingTest
-                        }
-                        onClick={() =>
-                          editTest(
-                            item
-                          )
-                        }
+                        className="dp-secondary"
+                        onClick={resetTest}
+                      >
+                        Batal Edit
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </section>
+
+              <section className="dp-card">
+                <h2>Riwayat Post-Test</h2>
+
+                {!postTests.length && (
+                  <p className="dp-note">
+                    Belum ada Post-Test.
+                  </p>
+                )}
+
+                {postTests.map(item => (
+                  <div
+                    className="dp-history"
+                    key={item.id}
+                  >
+                    <div>
+                      <strong>
+                        Nilai: {scoreText(item.score)}
+                      </strong>
+
+                      <small>
+                        {formatDate(item.test_date)}
+                        {" · "}
+                        {globalWeekOf(item.test_date)
+                          ? `Week ${String(
+                              globalWeekOf(item.test_date)
+                            ).padStart(2, "0")}`
+                          : "Di luar Kalender Global"}
+                      </small>
+
+                      <p>
+                        {item.notes || "Tidak ada catatan."}
+                      </p>
+                    </div>
+
+                    <div className="dp-history-actions">
+                      <button
+                        className="dp-edit"
+                        onClick={() => editTest(item)}
+                        disabled={savingTest || Boolean(testActionId)}
                       >
                         Edit
                       </button>
 
                       <button
-                        type="button"
-                        className="mt-button red"
-                        disabled={
-                          Boolean(
-                            testActionId
-                          ) ||
-                          savingTest
-                        }
-                        onClick={() =>
-                          deleteTest(
-                            item
-                          )
-                        }
+                        className="dp-delete"
+                        onClick={() => deleteTest(item)}
+                        disabled={savingTest || Boolean(testActionId)}
                       >
-                        {testActionId ===
-                        item.id
+                        {testActionId === item.id
                           ? "Menghapus..."
                           : "Hapus"}
                       </button>
                     </div>
                   </div>
-                )
-              )}
-            </section>
-          </>
-        )}
+                ))}
+              </section>
+            </>
+          )}
 
-        <footer className="mt-footer">
-          OJT MineTrack v2.0
-          {" · "}
-          Emergency Response Group
-          {" · "}
-          PT Berau Coal
-        </footer>
+          <footer className="dp-footer">
+            OJT MineTrack v2.0 · Emergency Response Group
+            {" · "}
+            PT Berau Coal
+          </footer>
+        </main>
       </div>
-    </main>
+    </div>
   );
 }
 
-// ======================================================
-// CSS - MEMPERTAHANKAN GAYA HALAMAN LAMA
-// DENGAN TAMBAHAN REKAP KATEGORI GLOBAL
-// ======================================================
+// ===============================================
+// STYLE — CLEAN ENTERPRISE
+// ===============================================
 
 const css = `
-.mt-root {
-  min-height: 100vh;
-  background: #f1f6f5;
-  color: #172e2a;
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-.mt-root * {
+.dp-app,
+.dp-app * {
   box-sizing: border-box;
 }
 
-.mt-header {
-  background: #071e25;
-  color: white;
-  padding: 17px 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
+.dp-app {
+  --green: #07875e;
+  --dark: #10243b;
+  --muted: #74849a;
+  min-height: 100vh;
+  background: #f5f8fa;
+  color: var(--dark);
+  font-family: Arial, Helvetica, sans-serif;
 }
 
-.mt-brand {
-  font-size: 21px;
-  font-weight: 900;
+.dp-app button,
+.dp-app input,
+.dp-app select,
+.dp-app textarea {
+  font-family: inherit;
 }
 
-.mt-brand span {
-  color: #27c991;
-}
-
-.mt-header-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.mt-account {
-  text-align: right;
-}
-
-.mt-account span,
-.mt-account strong {
-  display: block;
-}
-
-.mt-account span {
-  font-size: 10px;
-  color: #bad5ca;
-}
-
-.mt-account strong {
-  font-size: 12px;
-  margin-top: 4px;
-  color: white;
-  overflow-wrap: anywhere;
-}
-
-.mt-back {
-  background: #ffffff18;
-  border: 1px solid #ffffff30;
-  border-radius: 10px;
-  color: white;
-  padding: 10px 14px;
-  font-weight: 800;
+.dp-app button {
   cursor: pointer;
 }
 
-.mt-container {
-  max-width: 1200px;
-  margin: auto;
-  padding: 22px;
+.dp-app button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
 }
 
-.mt-banner {
-  border-radius: 18px;
-  background:
-    linear-gradient(
-      90deg,
-      #061d23ee,
-      #07352dcc 68%,
-      #07352d70
-    ),
-    url("/background-erg.png.PNG");
-  background-size: cover;
-  background-position: center;
-  padding: 28px;
-  color: white;
-  margin-bottom: 16px;
-}
+/* SIDEBAR */
 
-.mt-banner small {
-  color: #e7bd69;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 1.2px;
-}
-
-.mt-banner h1 {
-  font-size: 28px;
-  margin: 12px 0 8px;
-}
-
-.mt-banner p {
-  color: #d5e9e0;
-  font-size: 12px;
-  margin: 0;
-}
-
-.mt-card {
-  background: white;
-  border: 1px solid #e3ebea;
-  border-radius: 16px;
-  padding: 20px;
-  margin-bottom: 16px;
-  box-shadow: 0 5px 18px #102e2710;
-}
-
-.mt-profile {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.mt-avatar {
-  width: 60px;
-  height: 60px;
-  flex-shrink: 0;
-  border-radius: 16px;
-  background: #e1f7ea;
-  color: #098861;
-  display: grid;
-  place-items: center;
-  font-size: 20px;
-  font-weight: 900;
-}
-
-.mt-profile-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.mt-profile-name {
-  font-size: 19px;
-  font-weight: 900;
-  overflow-wrap: anywhere;
-}
-
-.mt-profile-meta {
-  font-size: 12px;
-  color: #71857b;
-  margin-top: 6px;
-  line-height: 1.6;
-}
-
-.mt-status {
-  background: #dff6e9;
-  color: #09784d;
-  padding: 7px 10px;
-  border-radius: 30px;
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.mt-divider {
-  border: 0;
-  border-top: 1px solid #e9efeb;
-  margin: 17px 0;
-}
-
-.mt-profile-details {
-  display: grid;
-  grid-template-columns:
-    repeat(2,minmax(0,1fr));
-  gap: 12px;
-}
-
-.mt-info-label {
-  display: block;
-  color: #819188;
-  font-size: 11px;
-  margin-bottom: 6px;
-}
-
-.mt-info-value {
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.5;
-}
-
-.mt-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.mt-title {
-  font-size: 18px;
-  font-weight: 900;
-  color: #17352b;
-  margin: 0;
-}
-
-.mt-subtitle {
-  font-size: 12px;
-  color: #819188;
-  line-height: 1.6;
-  margin: 7px 0 0;
-}
-
-.mt-refresh {
-  border: 0;
-  border-radius: 9px;
-  background: #e8f6ed;
-  color: #08784d;
-  padding: 10px 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.mt-refresh:disabled {
-  opacity: .6;
-}
-
-.mt-overall {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.mt-overall-label {
-  font-size: 14px;
-  font-weight: 900;
-}
-
-.mt-overall-note {
-  color: #819188;
-  font-size: 11px;
-  margin-top: 7px;
-  line-height: 1.5;
-}
-
-.mt-overall-value {
-  font-size: 34px;
-  color: #087d59;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.mt-progress {
-  width: 100%;
-  height: 9px;
-  background: #e5eeea;
-  border-radius: 30px;
-  overflow: hidden;
-}
-
-.mt-progress span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    #25bc87,
-    #0c815c
-  );
-  transition: width .2s;
-}
-
-.mt-stats {
-  display: grid;
-  grid-template-columns:
-    repeat(3,minmax(0,1fr));
-  gap: 10px;
-  margin-top: 17px;
-}
-
-.mt-stats-two {
-  grid-template-columns:
-    repeat(2,minmax(0,1fr));
-}
-
-.mt-stat {
-  background: #f7faf8;
-  border: 1px solid #eaf0eb;
-  border-radius: 11px;
-  padding: 12px 7px;
-  text-align: center;
-  min-width: 0;
-}
-
-.mt-stat small {
-  display: block;
-  color: #71877b;
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.mt-stat strong {
-  display: block;
-  color: #193e30;
-  font-size: 21px;
-  font-weight: 900;
-  margin-top: 7px;
-}
-
-.mt-week-select {
-  border: 1px solid #c8e7d6;
-  border-radius: 10px;
-  background: #eaf8f0;
-  color: #08784f;
-  padding: 11px;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-  max-width: 100%;
-}
-
-.mt-week-active-range {
-  display: inline-block;
-  margin-top: 7px;
-  padding: 6px 9px;
-  border-radius: 7px;
-  background: #f0f8f2;
-  color: #327955;
-  font-size: 11px;
-}
-
-.mt-category-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 21px;
-  margin-bottom: 12px;
-}
-
-.mt-category-head h3 {
-  font-size: 14px;
-  font-weight: 900;
-  margin: 0;
-}
-
-.mt-category-head small {
-  color: #789185;
-}
-
-.mt-category-grid {
-  display: grid;
-  grid-template-columns:
-    repeat(2,minmax(0,1fr));
-  gap: 10px;
-}
-
-.mt-category-card {
-  padding: 14px;
-  background: #fbfefd;
-  border: 1px solid #e3ece6;
-  border-radius: 12px;
-  min-width: 0;
-}
-
-.mt-category-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 11px;
-}
-
-.mt-category-top span {
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.mt-category-top strong {
-  font-size: 14px;
-  color: #087d59;
-}
-
-.mt-category-bottom {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 11px;
-  color: #75887d;
-  font-size: 11px;
-}
-
-.mt-category-bottom strong {
-  color: #23483a;
-}
-
-.mt-category-note {
-  margin: 12px 0 0;
-  font-size: 11px;
-  line-height: 1.6;
-  color: #789185;
-}
-
-.mt-ach-navigation {
-  display: grid;
-  grid-template-columns:
-    repeat(2,minmax(0,1fr));
-  gap: 14px;
-}
-
-.mt-ach-menu {
+.dp-sidebar {
+  position: fixed;
+  z-index: 50;
+  inset: 0 auto 0 0;
+  width: 250px;
+  background: #fff;
+  border-right: 1px solid #e2e9ee;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  text-align: left;
-  border: 1px solid #dcebe3;
-  border-radius: 15px;
-  padding: 22px;
-  background: #fbfefd;
-  color: #193b30;
-  cursor: pointer;
-  min-width: 0;
-  min-height: 192px;
+  padding: 22px 15px;
 }
 
-.mt-ach-menu:hover {
-  border-color: #37b988;
-  box-shadow: 0 6px 20px #08784d12;
-  transform: translateY(-1px);
+.dp-brand {
+  padding: 0 8px 28px;
+  white-space: nowrap;
 }
 
-.mt-ach-menu.monitoring {
-  background: #f5fafc;
-  border-color: #dce8ed;
+.dp-brand strong {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -.7px;
 }
 
-.mt-ach-menu-top {
+.dp-brand strong span {
+  color: var(--green);
+}
+
+.dp-brand small {
+  margin-left: 6px;
+  color: #81909c;
+  font-size: 11px;
+}
+
+.dp-sidebar nav {
+  display: grid;
+  gap: 6px;
+}
+
+.dp-nav {
+  width: 100%;
   display: flex;
-  justify-content: space-between;
+  gap: 14px;
   align-items: center;
+  border: 0;
+  background: transparent;
+  color: #495a6e;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
 }
 
-.mt-ach-menu-icon {
-  width: 50px;
-  height: 50px;
+.dp-nav:hover,
+.dp-nav.active {
+  background: linear-gradient(90deg,#067f59,#049465);
+  color: #fff;
+}
+
+.dp-nav-icon {
+  width: 21px;
+  text-align: center;
+  font-size: 19px;
+}
+
+.dp-side-bottom {
+  margin-top: auto;
+  padding: 20px 9px 0;
+  border-top: 1px solid #e8edf2;
+}
+
+.dp-side-company strong,
+.dp-side-company span {
+  display: block;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.dp-side-company span {
+  color: #718198;
+}
+
+.dp-side-bottom > small {
+  display: block;
+  margin-top: 19px;
+  color: #8492a2;
+  font-size: 10px;
+}
+
+/* HEADER */
+
+.dp-right {
+  margin-left: 250px;
+  min-width: 0;
+}
+
+.dp-topbar {
+  height: 66px;
+  display: flex;
+  align-items: center;
+  padding: 0 26px;
+  background: #fff;
+  border-bottom: 1px solid #e2e9ef;
+}
+
+.dp-top-spacer {
+  flex: 1;
+}
+
+.dp-top-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dp-top-avatar {
+  width: 37px;
+  height: 37px;
+  border-radius: 50%;
+  background: #e0f4e9;
+  color: #067d59;
   display: grid;
   place-items: center;
-  border-radius: 13px;
-  background: #e0f6e9;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.dp-top-account strong {
+  display: block;
+  font-size: 12px;
+}
+
+.dp-top-account small {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.dp-top-arrow {
+  font-size: 17px;
+  color: #8393a3;
+}
+
+.dp-mobile-menu {
+  display: none;
+  border: 0;
+  background: transparent;
   font-size: 24px;
 }
 
-.mt-ach-menu.monitoring
-.mt-ach-menu-icon {
-  background: #e1eef7;
+.dp-content {
+  max-width: 1600px;
+  margin: auto;
+  padding: 25px;
 }
 
-.mt-ach-menu-arrow {
-  font-size: 22px;
-  color: #0c8760;
-}
+/* TITLE */
 
-.mt-ach-menu h3 {
-  font-size: 17px;
-  font-weight: 900;
-  margin: 4px 0 0;
-}
-
-.mt-ach-menu p {
-  color: #788e81;
-  font-size: 12px;
-  line-height: 1.7;
-  margin: 0;
-  flex: 1;
-}
-
-.mt-ach-menu-bottom {
+.dp-title-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-top: 13px;
-  border-top: 1px solid #e6eee9;
+  gap: 18px;
+  margin-bottom: 19px;
 }
 
-.mt-ach-menu-bottom span {
-  color: #759184;
-  font-size: 11px;
+.dp-title-row small {
+  color: #6f8094;
+  font-size: 13px;
 }
 
-.mt-ach-menu-bottom strong {
-  color: #07855b;
-  font-size: 11px;
+.dp-title-row h1 {
+  margin: 5px 0;
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: -.8px;
 }
 
-.mt-menu-grid {
-  display: grid;
-  grid-template-columns:
-    repeat(2,minmax(0,1fr));
-  gap: 10px;
+.dp-title-row h1 span {
+  color: var(--green);
 }
 
-.mt-menu {
+.dp-title-row p {
+  margin: 0;
+  color: #7a899a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dp-week-select {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 76px;
-  border: 1px solid #e3ebe7;
+  gap: 9px;
+  padding: 13px;
+  background: #fff;
+  border: 1px solid #e0e8ee;
   border-radius: 12px;
-  background: white;
-  padding: 12px;
-  text-align: left;
-  color: inherit;
-  font-family: inherit;
-  cursor: pointer;
+  max-width: 365px;
 }
 
-.mt-menu:hover {
-  background: #f7fcf9;
-  border-color: #9ed7bd;
+.dp-week-select select {
+  border: 0;
+  background: transparent;
+  color: #1a3145;
+  font-size: 12px;
+  font-weight: 800;
+  min-width: 0;
+  max-width: 315px;
 }
 
-.mt-menu-icon {
-  font-size: 23px;
-  flex-shrink: 0;
+/* PROFILE */
+
+.dp-profile {
+  display: grid;
+  grid-template-columns: minmax(0,1.55fr) minmax(250px,1fr);
+  background: #fff;
+  border: 1px solid #e4ebf1;
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 15px;
+  box-shadow: 0 4px 17px #142d4308;
 }
 
-.mt-menu-content {
-  flex: 1;
+.dp-profile-info {
+  display: flex;
+  align-items: center;
+  gap: 25px;
+  padding: 23px;
   min-width: 0;
 }
 
-.mt-menu-name {
-  font-size: 12px;
+.dp-big-avatar {
+  width: 105px;
+  height: 105px;
+  border-radius: 14px;
+  background: #dff4e9;
+  color: #067b53;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 39px;
   font-weight: 900;
-  line-height: 1.4;
 }
 
-.mt-menu-desc {
-  color: #809389;
+.dp-profile-copy {
+  min-width: 0;
+}
+
+.dp-profile-copy h2 {
+  font-size: 25px;
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.dp-profile-copy > p {
+  font-size: 12px;
+  color: #75849a;
+  font-weight: 700;
+  margin: 0;
+}
+
+.dp-profile-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  margin-top: 23px;
+}
+
+.dp-profile-facts > div {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+.dp-fact-icon {
+  font-size: 22px;
+}
+
+.dp-profile-facts small {
+  display: block;
+  color: #8795a4;
+  font-size: 10px;
+}
+
+.dp-profile-facts strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+}
+
+.dp-profile-image {
+  padding: 23px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  background:
+    linear-gradient(
+      90deg,
+      #fff 0%,
+      #ffffffd9 28%,
+      #ffffff26 100%
+    ),
+    url("/background-erg.png.PNG") center/cover;
+}
+
+.dp-profile-badge {
+  background: #07845b;
+  color: #fff;
+  border-radius: 5px;
+  padding: 7px 11px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.dp-profile-image p {
+  margin: 13px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #344a62;
+}
+
+.dp-profile-accent {
+  width: 47px;
+  height: 4px;
+  border-radius: 10px;
+  background: #087c57;
+  margin-top: 12px;
+}
+
+/* COMMON CARD */
+
+.dp-achievement,
+.dp-card {
+  background: #fff;
+  border: 1px solid #e5ebf1;
+  border-radius: 16px;
+  padding: 15px;
+  margin-bottom: 15px;
+  box-shadow: 0 4px 18px #142d4307;
+}
+
+/* ACHIEVEMENT */
+
+.dp-achievement-overview {
+  display: grid;
+  grid-template-columns:
+    minmax(180px,1.4fr)
+    145px
+    repeat(3,minmax(95px,1fr));
+  align-items: center;
+  gap: 12px;
+  background: #f1fbf6;
+  border-radius: 12px;
+  padding: 13px;
+  margin-bottom: 13px;
+}
+
+.dp-week-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.dp-big-icon {
+  display: grid;
+  place-items: center;
+  width: 59px;
+  height: 59px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  background: #ddf4e8;
+  font-size: 27px;
+}
+
+.dp-week-heading small {
+  font-size: 12px;
+  font-weight: 800;
+  color: #07865d;
+}
+
+.dp-week-heading h2 {
+  margin: 6px 0;
+  font-size: 24px;
+}
+
+.dp-week-heading p {
+  margin: 0;
+  font-size: 11px;
+  color: #6d7d91;
+}
+
+.dp-donut {
+  --progress: 0%;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: conic-gradient(
+    #08b77d var(--progress),
+    #dcebe5 var(--progress)
+  );
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  margin: auto;
+}
+
+.dp-donut > div {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.dp-donut strong {
+  font-size: 22px;
+}
+
+.dp-donut small {
+  font-size: 9px;
+  text-align: center;
+  color: #81909f;
+}
+
+.dp-summary {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 7px;
+  padding: 15px 7px;
+  border-radius: 11px;
+}
+
+.dp-summary span {
+  font-size: 21px;
+}
+
+.dp-summary strong {
+  font-size: 27px;
+}
+
+.dp-summary small {
+  font-size: 11px;
+}
+
+.dp-summary.green {
+  background: #e5f7ed;
+  color: #067e57;
+}
+
+.dp-summary.amber {
+  background: #fff6e8;
+  color: #c48111;
+}
+
+.dp-summary.blue {
+  background: #eaf4ff;
+  color: #2876b7;
+}
+
+.dp-participant-range {
+  font-size: 11px;
+  color: #69857a;
+  margin: 0 0 14px;
+  padding: 0 4px;
+}
+
+.dp-category-grid {
+  display: grid;
+  grid-template-columns: repeat(6,minmax(0,1fr));
+  gap: 9px;
+}
+
+.dp-category {
+  min-width: 0;
+  padding: 13px;
+  background: #fff;
+  border: 1px solid #e5ebf1;
+  border-radius: 11px;
+}
+
+.dp-category-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+
+.dp-category-icon {
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  width: 35px;
+  height: 35px;
+  background: #edf8f2;
+  border-radius: 9px;
+}
+
+.dp-category-value {
+  margin: 13px 0 8px;
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.dp-progress {
+  width: 100%;
+  height: 9px;
+  background: #e1e8ee;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.dp-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg,#09b77d,#07875c);
+}
+
+.dp-category-footer {
+  display: grid;
+  gap: 7px;
+  margin-top: 13px;
+}
+
+.dp-category-footer span {
+  display: flex;
+  justify-content: space-between;
+  gap: 5px;
+  font-size: 10px;
+  color: #75859a;
+}
+
+.dp-category-footer strong {
+  color: #273c4e;
+  text-align: right;
+}
+
+.dp-note {
+  color: #8292a1;
+  font-size: 11px;
+  line-height: 1.65;
+  margin-top: 13px;
+}
+
+/* MENU */
+
+.dp-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.dp-section-heading h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+}
+
+.dp-heading-symbol {
+  font-size: 25px;
+  color: #07a76f;
+}
+
+.dp-section-heading p {
+  color: #7c8b9b;
+  font-size: 11px;
+  margin: 6px 0 0;
+}
+
+.dp-refresh {
+  border: 1px solid #dce8e2;
+  background: #f4fbf6;
+  border-radius: 9px;
+  padding: 10px 14px;
+  color: #087e55;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.dp-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 9px;
+}
+
+.dp-module {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #e2e9f0;
+  border-radius: 11px;
+  background: #fff;
+  text-align: left;
+}
+
+.dp-module:hover {
+  background: #f8fcfa;
+  border-color: #82cdb0;
+}
+
+.dp-module-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 43px;
+  height: 43px;
+  border-radius: 11px;
+  background: #e6f6ed;
+  font-size: 21px;
+}
+
+.dp-module-icon.amber {
+  background: #fff4e3;
+}
+
+.dp-module-icon.blue {
+  background: #eaf4ff;
+}
+
+.dp-module-icon.purple {
+  background: #f2eaff;
+}
+
+.dp-module-icon.rose {
+  background: #ffeaf0;
+}
+
+.dp-module-icon.teal {
+  background: #e6f6f7;
+}
+
+.dp-module-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.dp-module-text strong {
+  display: block;
+  font-size: 12px;
+}
+
+.dp-module-text small {
+  display: block;
+  color: #8090a1;
   font-size: 10px;
   margin-top: 5px;
   line-height: 1.4;
 }
 
-.mt-menu-arrow {
-  color: #82968a;
-  font-size: 20px;
+.dp-chevron {
+  font-size: 23px;
+  color: #778b9f;
 }
 
-.mt-button {
-  border: 0;
-  background: #118660;
-  color: white;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font-size: 13px;
+.dp-ach-actions {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 10px;
+}
+
+.dp-ach-actions button {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #dde9e1;
+  background: #f7fcf9;
+  color: #126f50;
+  padding: 15px;
+  border-radius: 11px;
   font-weight: 800;
-  cursor: pointer;
+  text-align: left;
 }
 
-.mt-button:disabled {
-  opacity: .55;
+.dp-bottom-back {
+  width: 100%;
+  padding: 14px;
+  background: #eaf2ee;
+  color: #2a5b48;
+  border: 1px solid #d6e6dd;
+  border-radius: 10px;
+  font-weight: 800;
 }
 
-.mt-button.outline {
-  background: #ecf5f0;
-  color: #167251;
+/* POST TEST */
+
+.dp-post-stats {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 12px;
+  margin-bottom: 21px;
 }
 
-.mt-button.gray {
-  background: #64748b;
+.dp-post-stats > div {
+  background: #f4faf6;
+  border: 1px solid #e0eee5;
+  border-radius: 11px;
+  padding: 17px;
+  font-size: 12px;
+  color: #6b7f73;
 }
 
-.mt-button.blue {
-  background: #317bd0;
+.dp-post-stats strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 26px;
+  color: #087b56;
 }
 
-.mt-button.red {
-  background: #d03939;
+.dp-form {
+  max-width: 560px;
+  display: grid;
+  gap: 15px;
+  margin-top: 18px;
 }
 
-.mt-actions {
+.dp-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dp-form input,
+.dp-form textarea {
+  width: 100%;
+  border: 1px solid #dbe5e9;
+  border-radius: 9px;
+  padding: 12px;
+  font-size: 14px;
+}
+
+.dp-form-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 9px;
 }
 
-.mt-form-heading {
-  margin: 24px 0 17px;
-  font-size: 18px;
-}
-
-.mt-field-group {
-  margin-bottom: 17px;
-}
-
-.mt-field-group label {
-  display: block;
-  color: #344a40;
+.dp-primary,
+.dp-secondary,
+.dp-edit,
+.dp-delete {
+  border: 0;
+  border-radius: 9px;
+  padding: 11px 15px;
   font-size: 12px;
   font-weight: 800;
-  margin-bottom: 7px;
 }
 
-.mt-field {
-  width: 100%;
-  background: white;
-  border: 1px solid #d8e3dd;
-  border-radius: 10px;
-  color: #17352b;
-  padding: 12px;
-  font-size: 16px;
-  font-family: inherit;
+.dp-primary {
+  background: #087e58;
+  color: #fff;
 }
 
-textarea.mt-field {
-  resize: vertical;
+.dp-secondary {
+  background: #e7eef2;
+  color: #38516a;
 }
 
-.mt-history {
-  border: 1px solid #e1eae5;
-  border-radius: 12px;
-  padding: 15px;
-  margin-bottom: 11px;
+.dp-edit {
+  background: #277bd2;
+  color: #fff;
 }
 
-.mt-history-heading {
-  margin-bottom: 16px;
+.dp-delete {
+  background: #d13c3c;
+  color: #fff;
 }
 
-.mt-history-title {
-  font-size: 14px;
-  font-weight: 900;
+.dp-history {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  border-bottom: 1px solid #edf0f3;
+  padding: 17px 0;
 }
 
-.mt-history-meta {
-  color: #788980;
-  font-size: 11px;
+.dp-history small {
+  display: block;
+  color: #8493a3;
   margin-top: 6px;
-  line-height: 1.6;
+  font-size: 11px;
 }
 
-.mt-history-desc {
-  color: #395045;
+.dp-history p {
+  color: #526477;
   font-size: 12px;
-  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.mt-history-actions {
+.dp-history-actions {
   display: flex;
+  align-items: flex-start;
   gap: 7px;
-  margin-top: 12px;
 }
 
-.mt-alert {
-  padding: 14px;
-  border-radius: 11px;
-  font-size: 13px;
-  line-height: 1.6;
-  margin-bottom: 15px;
+/* NOTIFICATION / FOOTER */
+
+.dp-alert {
+  padding: 13px;
+  border-radius: 10px;
+  font-size: 12px;
+  margin-bottom: 13px;
 }
 
-.mt-alert.error {
-  background: #fff0f1;
-  border: 1px solid #fecdd3;
+.dp-alert.error {
+  background: #fff0f0;
+  border: 1px solid #fecaca;
   color: #b91c1c;
 }
 
-.mt-alert.success {
-  background: #edfbf2;
-  border: 1px solid #bde7ca;
-  color: #08784d;
+.dp-alert.success {
+  background: #eaf9ef;
+  border: 1px solid #c6e9d1;
+  color: #087b56;
 }
 
-.mt-bottom-back {
-  width: 100%;
-  border: 1px solid #cfe2d9;
-  background: #eaf2ef;
-  color: #234139;
-  border-radius: 12px;
-  padding: 15px;
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
-  margin-top: 15px;
-}
-
-.mt-footer {
+.dp-footer {
+  padding: 25px 0;
   text-align: center;
-  color: #8b9f93;
-  font-size: 11px;
-  padding: 22px 0;
+  color: #98a4b2;
+  font-size: 10px;
 }
 
-@media (min-width: 900px) {
-  .mt-menu-grid {
+.dp-loading {
+  padding: 35px;
+  font: 14px Arial, sans-serif;
+}
+
+.dp-loading button {
+  padding: 12px;
+}
+
+.dp-overlay {
+  display: none;
+}
+
+/* RESPONSIVE */
+
+@media (max-width: 1450px) {
+  .dp-category-grid {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+
+  .dp-achievement-overview {
     grid-template-columns:
-      repeat(3,minmax(0,1fr));
+      minmax(180px,1fr)
+      125px
+      repeat(3,minmax(90px,1fr));
+  }
+
+  .dp-donut {
+    width: 110px;
+    height: 110px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .dp-profile {
+    grid-template-columns: 1fr;
+  }
+
+  .dp-profile-image {
+    min-height: 110px;
+  }
+
+  .dp-achievement-overview {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+
+  .dp-week-heading {
+    grid-column: span 2;
+  }
+
+  .dp-menu-grid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
   }
 }
 
 @media (max-width: 760px) {
-  .mt-header {
-    padding: 15px;
+  .dp-sidebar {
+    transform: translateX(-105%);
+    transition: transform .2s;
   }
 
-  .mt-brand {
-    font-size: 18px;
+  .dp-sidebar.open {
+    transform: translateX(0);
   }
 
-  .mt-account {
-    display: none;
+  .dp-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: #0006;
+    border: 0;
+    z-index: 45;
   }
 
-  .mt-back {
-    font-size: 12px;
-    padding: 9px;
+  .dp-right {
+    margin-left: 0;
   }
 
-  .mt-container {
-    padding: 12px;
+  .dp-topbar {
+    height: 59px;
+    padding: 0 14px;
   }
 
-  .mt-banner {
-    padding: 23px 18px;
+  .dp-mobile-menu {
+    display: block;
   }
 
-  .mt-banner h1 {
-    font-size: 24px;
+  .dp-content {
+    padding: 14px 11px;
   }
 
-  .mt-card {
-    padding: 15px;
-    margin-bottom: 12px;
+  .dp-title-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .mt-avatar {
-    width: 48px;
-    height: 48px;
-    font-size: 17px;
+  .dp-title-row h1 {
+    font-size: 26px;
   }
 
-  .mt-profile {
-    gap: 10px;
+  .dp-week-select {
+    max-width: none;
+    width: 100%;
   }
 
-  .mt-profile-name {
-    font-size: 16px;
+  .dp-week-select select {
+    flex: 1;
+    max-width: none;
   }
 
-  .mt-profile-meta {
-    font-size: 11px;
+  .dp-profile-info {
+    padding: 16px;
+    gap: 12px;
   }
 
-  .mt-overall-value {
-    font-size: 29px;
+  .dp-big-avatar {
+    width: 66px;
+    height: 66px;
+    font-size: 25px;
   }
 
-  .mt-ach-navigation {
-    gap: 9px;
+  .dp-profile-copy h2 {
+    font-size: 19px;
   }
 
-  .mt-ach-menu {
-    padding: 14px;
-    min-height: 195px;
+  .dp-profile-facts {
+    margin-top: 15px;
+    gap: 12px;
   }
 
-  .mt-ach-menu-icon {
-    width: 42px;
-    height: 42px;
-    font-size: 21px;
-  }
-
-  .mt-ach-menu h3 {
-    font-size: 14px;
-  }
-
-  .mt-ach-menu p {
-    font-size: 11px;
-  }
-
-  .mt-menu-grid {
-    gap: 9px;
-  }
-
-  .mt-menu {
-    padding: 10px;
+  .dp-achievement-overview {
+    grid-template-columns: repeat(3,minmax(0,1fr));
     gap: 8px;
   }
 
-  .mt-menu-icon {
-    font-size: 20px;
+  .dp-week-heading,
+  .dp-donut {
+    grid-column: 1 / -1;
   }
 
-  .mt-menu-name {
-    font-size: 11px;
+  .dp-donut {
+    width: 115px;
+    height: 115px;
   }
 
-  .mt-stat strong {
-    font-size: 18px;
+  .dp-summary {
+    padding: 12px 5px;
   }
 
-  .mt-category-grid {
+  .dp-summary strong {
+    font-size: 22px;
+  }
+
+  .dp-summary small {
+    font-size: 9px;
+  }
+
+  .dp-category-grid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+
+  .dp-menu-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dp-top-account {
+    gap: 7px;
+  }
+
+  .dp-top-account strong {
+    font-size: 10px;
+  }
+
+  .dp-ach-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .dp-history {
+    flex-direction: column;
   }
 }
 
-@media (max-width: 420px) {
-  .mt-ach-navigation {
+@media (max-width: 400px) {
+  .dp-category-grid {
     grid-template-columns: 1fr;
   }
 
-  .mt-ach-menu {
-    min-height: 155px;
+  .dp-profile-info {
+    flex-wrap: wrap;
   }
 
-  .mt-profile {
-    flex-wrap: wrap;
+  .dp-profile-facts > div {
+    width: 100%;
+  }
+}
+
+@media print {
+  .dp-sidebar,
+  .dp-topbar,
+  .dp-overlay,
+  .dp-refresh,
+  .dp-bottom-back,
+  .dp-ach-actions,
+  .dp-form-actions {
+    display: none !important;
+  }
+
+  .dp-right {
+    margin-left: 0;
+  }
+
+  .dp-content {
+    max-width: none;
+    padding: 0;
+  }
+
+  .dp-achievement,
+  .dp-profile,
+  .dp-card {
+    box-shadow: none;
+    break-inside: avoid;
   }
 }
 `;
