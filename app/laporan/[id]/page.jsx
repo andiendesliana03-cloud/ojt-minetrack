@@ -1,63 +1,31 @@
 
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// ======================================================
+// =====================================================
 // OJT MINETRACK V2.0
-// RAPOR OJT - TEMPLATE 10 PREMIUM CORPORATE
-// NAVY / GOLD / WHITE
-// KALENDER GLOBAL 25 MINGGU
-// ======================================================
+// RAPOR TERINTEGRASI — TEMPLATE 3
+// EARTH TONE PROFESSIONAL
+// A4 PORTRAIT | WEEK 01–25
+// =====================================================
 
 const TOTAL_WEEKS = 25;
 const POSITION = "Junior OJT";
 
 const TARGETS = [
-  {
-    key: "Fisik",
-    label: "FISIK",
-    target: 25,
-    unit: "km",
-    color: "#c88c21",
-  },
-  {
-    key: "Training",
-    label: "INTERNAL TRAINING",
-    target: 4,
-    unit: "kegiatan",
-    color: "#c88c21",
-  },
-  {
-    key: "Sosialisasi",
-    label: "SOSIALISASI",
-    target: 3,
-    unit: "kegiatan",
-    color: "#c88c21",
-  },
-  {
-    key: "Orientasi Area",
-    label: "ORIENTASI AREA",
-    target: 2,
-    unit: "kegiatan",
-    color: "#c88c21",
-  },
-  {
-    key: "Coaching",
-    label: "COACHING",
-    target: 1,
-    unit: "kegiatan",
-    color: "#c88c21",
-  },
-  {
-    key: "Hazard",
-    label: "HAZARD",
-    target: 2,
-    unit: "kegiatan",
-    color: "#c88c21",
-  },
+  { key: "Fisik", label: "Fisik", target: 25, unit: "km" },
+  { key: "Training", label: "Internal Training", target: 4, unit: "kegiatan" },
+  { key: "Sosialisasi", label: "Sosialisasi", target: 3, unit: "kegiatan" },
+  { key: "Orientasi Area", label: "Orientasi Area", target: 2, unit: "kegiatan" },
+  { key: "Coaching", label: "Coaching", target: 1, unit: "kegiatan" },
+  { key: "Hazard", label: "Hazard", target: 2, unit: "kegiatan" },
 ];
 
 const SIMPER_START = "[[SIMPER_V2]]";
@@ -88,7 +56,6 @@ function number(value) {
 function fmt(value, digits = 0) {
   const n = number(value);
   if (n === null) return "—";
-
   return n.toLocaleString("id-ID", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
@@ -159,17 +126,17 @@ function percent(realized, target) {
   return Math.min(100, Math.max(0, (realized / target) * 100));
 }
 
-function chunks(list, size = 7) {
-  const results = [];
-  for (let i = 0; i < list.length; i += size) {
-    results.push(list.slice(i, i + size));
-  }
-  return results;
+function gradeOf(score) {
+  if (score === null) return ["—", "BELUM ADA NILAI"];
+  if (score >= 85) return ["A", "SANGAT BAIK"];
+  if (score >= 75) return ["B", "BAIK"];
+  if (score >= 60) return ["C", "CUKUP"];
+  return ["D", "KURANG"];
 }
 
-// ======================================================
-// KALENDER GLOBAL
-// ======================================================
+// =====================================================
+// KALENDER GLOBAL — TIDAK BERUBAH
+// =====================================================
 
 const GLOBAL_WEEKS = Array.from(
   { length: TOTAL_WEEKS },
@@ -199,7 +166,9 @@ function globalWeekOf(value) {
 }
 
 function weekByNumber(week) {
-  return GLOBAL_WEEKS.find((item) => item.week === Number(week));
+  return GLOBAL_WEEKS.find(
+    (item) => item.week === Number(week)
+  );
 }
 
 function weekLabel(week) {
@@ -211,12 +180,15 @@ function programWeekRange(week, program) {
   if (!global || !parseDate(program?.start_date)) return null;
 
   const programStart = String(program.start_date).slice(0, 10);
+
   const programEnd = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
 
   const start =
-    global.start > programStart ? global.start : programStart;
+    global.start > programStart
+      ? global.start
+      : programStart;
 
   const end =
     programEnd && programEnd < global.end
@@ -227,37 +199,38 @@ function programWeekRange(week, program) {
 }
 
 function defaultWeek(program) {
-  const today = new Date()
-    .toLocaleDateString("en-CA", {
-      timeZone: "Asia/Makassar",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Makassar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 
-  const available = GLOBAL_WEEKS.filter((item) =>
-    programWeekRange(item.week, program)
+  const available = GLOBAL_WEEKS.filter((week) =>
+    programWeekRange(week.week, program)
   );
 
   if (!available.length) return 1;
 
-  const active = available.find((item) => {
-    const range = programWeekRange(item.week, program);
+  const active = available.find((week) => {
+    const range = programWeekRange(week.week, program);
     return today >= range.start && today <= range.end;
   });
 
   if (active) return active.week;
 
   const next = available.find(
-    (item) => programWeekRange(item.week, program).start > today
+    (week) => programWeekRange(week.week, program).start > today
   );
 
-  return next ? next.week : available[available.length - 1].week;
+  return next
+    ? next.week
+    : available[available.length - 1].week;
 }
 
-// ======================================================
-// SIMPER
-// ======================================================
+// =====================================================
+// SIMPER — PERHITUNGAN ASLI DIPERTAHANKAN
+// =====================================================
 
 function parseSimper(notes) {
   const text = String(notes ?? "");
@@ -284,12 +257,20 @@ function parseSimper(notes) {
 function calculateSimper(record) {
   const meta = parseSimper(record?.notes);
 
-  const kmkop = roleOf(record?.theory_status) === "passed";
-  const praktik = roleOf(record?.practice_status) === "passed";
+  const kmkop =
+    roleOf(record?.theory_status) === "passed";
+
+  const praktik =
+    roleOf(record?.practice_status) === "passed";
+
   const orientasi =
     roleOf(meta?.orientation_status) === "completed";
 
-  const completed = [kmkop, praktik, orientasi].filter(Boolean).length;
+  const completed = [
+    kmkop,
+    praktik,
+    orientasi,
+  ].filter(Boolean).length;
 
   return {
     kmkop,
@@ -301,7 +282,8 @@ function calculateSimper(record) {
     kmkopStatus: record?.theory_status || null,
     practiceStatus: record?.practice_status || null,
     orientationStatus: meta?.orientation_status || null,
-    issuanceStatus: roleOf(meta?.issuance_status) || "not_issued",
+    issuanceStatus:
+      roleOf(meta?.issuance_status) || "not_issued",
     orientationDate: meta?.orientation_date || null,
     issuanceDate: record?.graduation_date || null,
     issuanceNumber: meta?.issuance_number || "",
@@ -311,7 +293,8 @@ function calculateSimper(record) {
       null,
     practiceValidation:
       meta?.practice_validation_status ?? null,
-    legacy: !!record && !meta && record.status === "passed",
+    legacy:
+      !!record && !meta && record.status === "passed",
   };
 }
 
@@ -321,7 +304,10 @@ function simperStatus(status, type) {
   if (type === "orientation") {
     if (value === "completed") return "SELESAI";
     if (value === "scheduled") return "DIJADWALKAN";
-    if (value === "in_progress" || value === "ongoing") {
+    if (
+      value === "in_progress" ||
+      value === "ongoing"
+    ) {
       return "DALAM PROSES";
     }
     return "BELUM SELESAI";
@@ -343,44 +329,45 @@ function issuanceText(status) {
 }
 
 function validationText(status) {
-  if (status === null || status === undefined || status === "") {
-    return "Belum ada data validasi";
+  if (
+    status === null ||
+    status === undefined ||
+    status === ""
+  ) {
+    return "Belum ada validasi";
   }
 
   const value = roleOf(status);
 
   if (
-    ["validated", "verified", "approved", "completed"].includes(value)
+    ["validated", "verified", "approved", "completed"]
+      .includes(value)
   ) {
     return "TERVALIDASI";
   }
 
   if (["pending", "waiting"].includes(value)) {
-    return "MENUNGGU VALIDASI";
+    return "MENUNGGU";
   }
 
   if (["rejected", "failed"].includes(value)) {
     return "BELUM TERVALIDASI";
   }
 
-  return String(status).replace(/_/g, " ").toUpperCase();
+  return String(status)
+    .replace(/_/g, " ")
+    .toUpperCase();
 }
 
-function getGrade(score) {
-  if (score === null) return ["—", "BELUM ADA NILAI"];
-  if (score >= 85) return ["A", "SANGAT BAIK"];
-  if (score >= 75) return ["B", "BAIK"];
-  if (score >= 60) return ["C", "CUKUP"];
-  return ["D", "KURANG"];
-}
-
-// ======================================================
-// AKSES RAPOR
-// ======================================================
+// =====================================================
+// AKSES — ASLI DIPERTAHANKAN
+// =====================================================
 
 async function verifyAccess(programId) {
-  const { data: auth, error: authError } =
-    await supabase.auth.getUser();
+  const {
+    data: auth,
+    error: authError,
+  } = await supabase.auth.getUser();
 
   if (authError || !auth?.user) {
     return { redirect: "/login" };
@@ -388,20 +375,33 @@ async function verifyAccess(programId) {
 
   const user = auth.user;
 
-  const { data: profile, error: profileError } = await supabase
+  const {
+    data: profile,
+    error: profileError,
+  } = await supabase
     .from("profiles")
     .select("id,full_name,role")
     .eq("id", user.id)
     .maybeSingle();
 
   if (profileError) throw profileError;
-  if (!profile) throw new Error("Profil akun tidak ditemukan.");
+
+  if (!profile) {
+    throw new Error("Profil akun tidak ditemukan.");
+  }
 
   const role = roleOf(profile.role);
-  const isParticipant = ["participant", "peserta"].includes(role);
 
-  if (!isParticipant && !["admin", "mentor"].includes(role)) {
-    throw new Error("Anda tidak memiliki akses Rapor OJT.");
+  const isParticipant =
+    ["participant", "peserta"].includes(role);
+
+  if (
+    !isParticipant &&
+    !["admin", "mentor"].includes(role)
+  ) {
+    throw new Error(
+      "Anda tidak memiliki akses Rapor OJT."
+    );
   }
 
   let query = supabase
@@ -428,13 +428,17 @@ async function verifyAccess(programId) {
       .eq("status", "active");
   }
 
-  const { data: program, error: programError } =
-    await query.maybeSingle();
+  const {
+    data: program,
+    error: programError,
+  } = await query.maybeSingle();
 
   if (programError) throw programError;
 
   if (!program) {
-    throw new Error("Program OJT tidak ditemukan atau tidak dapat diakses.");
+    throw new Error(
+      "Program OJT tidak ditemukan atau tidak dapat diakses."
+    );
   }
 
   if (!parseDate(program.start_date)) {
@@ -442,17 +446,18 @@ async function verifyAccess(programId) {
   }
 
   if (isParticipant) {
-    const [request, registration] = await Promise.all([
-      supabase
-        .from("ojt_registration_requests")
-        .select("status")
-        .eq("participant_id", user.id),
+    const [request, registration] =
+      await Promise.all([
+        supabase
+          .from("ojt_registration_requests")
+          .select("status")
+          .eq("participant_id", user.id),
 
-      supabase
-        .from("participant_registrations")
-        .select("status")
-        .eq("user_id", user.id),
-    ]);
+        supabase
+          .from("participant_registrations")
+          .select("status")
+          .eq("user_id", user.id),
+      ]);
 
     if (request.error) throw request.error;
     if (registration.error) throw registration.error;
@@ -460,10 +465,17 @@ async function verifyAccess(programId) {
     const approved = [
       ...(request.data || []),
       ...(registration.data || []),
-    ].some((item) => roleOf(item.status) === "approved");
+    ].some(
+      (item) => roleOf(item.status) === "approved"
+    );
 
-    if (!approved && program.legacy_access !== true) {
-      throw new Error("Akses program peserta belum disetujui.");
+    if (
+      !approved &&
+      program.legacy_access !== true
+    ) {
+      throw new Error(
+        "Akses program peserta belum disetujui."
+      );
     }
   }
 
@@ -476,7 +488,8 @@ async function verifyAccess(programId) {
       .eq("id", program.mentor_id)
       .maybeSingle();
 
-    mentorName = mentor?.full_name?.trim() || "";
+    mentorName =
+      mentor?.full_name?.trim() || "";
   }
 
   if (
@@ -495,9 +508,9 @@ async function verifyAccess(programId) {
   };
 }
 
-// ======================================================
-// DATABASE RAPOR
-// ======================================================
+// =====================================================
+// DATABASE — QUERY ASLI DIPERTAHANKAN
+// =====================================================
 
 async function fetchReportData(programId) {
   const results = await Promise.all([
@@ -507,7 +520,9 @@ async function fetchReportData(programId) {
 
     supabase
       .from("achievement_records")
-      .select("id,type_code,activity_date,distance_km,status")
+      .select(
+        "id,type_code,activity_date,distance_km,status"
+      )
       .eq("program_id", programId),
 
     supabase
@@ -517,7 +532,9 @@ async function fetchReportData(programId) {
 
     supabase
       .from("weekly_practice_scores")
-      .select("id,practice_date,practice_name,score")
+      .select(
+        "id,practice_date,practice_name,score"
+      )
       .eq("program_id", programId),
 
     supabase
@@ -526,7 +543,9 @@ async function fetchReportData(programId) {
         "id,theory_status,practice_status,status,notes,graduation_date,created_at"
       )
       .eq("program_id", programId)
-      .order("created_at", { ascending: false })
+      .order("created_at", {
+        ascending: false,
+      })
       .limit(1),
   ]);
 
@@ -555,15 +574,78 @@ async function fetchReportData(programId) {
   };
 }
 
-// ======================================================
-// KOMPONEN LAPORAN
-// ======================================================
+// =====================================================
+// KOMPONEN TAMPILAN
+// =====================================================
 
-function SectionHeader({ number, title }) {
+function Icon({ name, size = 18 }) {
+  const paths = {
+    report: (
+      <>
+        <rect x="5" y="3" width="14" height="18" rx="2" />
+        <path d="M9 8h6M9 12h6M9 16h4" />
+      </>
+    ),
+    calendar: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M7 3v4M17 3v4M3 10h18" />
+      </>
+    ),
+    check: <path d="m4 12 5 5L20 6" />,
+    print: (
+      <>
+        <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+        <path d="M6 14h12v7H6zM18 12h.01" />
+      </>
+    ),
+    refresh: (
+      <>
+        <path d="M20 11a8 8 0 0 0-14-5L3 9" />
+        <path d="M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />
+      </>
+    ),
+    back: <path d="M19 12H5m6-6-6 6 6 6" />,
+    shield: (
+      <>
+        <path d="m12 2 9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z" />
+        <path d="m8 12 3 3 5-6" />
+      </>
+    ),
+    info: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v5M12 8h.01" />
+      </>
+    ),
+  };
+
   return (
-    <div className="premium-section-heading">
-      {number && <span className="premium-section-no">{number}</span>}
-      <strong>{title}</strong>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[name] || paths.report}
+    </svg>
+  );
+}
+
+function SectionTitle({ number, children }) {
+  return (
+    <div className="report-section-title">
+      {number && (
+        <span className="report-section-number">
+          {number}
+        </span>
+      )}
+      <strong>{children}</strong>
     </div>
   );
 }
@@ -571,13 +653,19 @@ function SectionHeader({ number, title }) {
 function WeekSelect({ weeks, value, onChange }) {
   return (
     <select
-      className="premium-select"
+      className="report-select"
       value={value}
-      onChange={(event) => onChange(Number(event.target.value))}
+      onChange={(event) =>
+        onChange(Number(event.target.value))
+      }
     >
       {weeks.map((week) => (
-        <option key={week.week} value={week.week}>
-          {weekLabel(week.week)} — {dateText(week.start)} s.d.{" "}
+        <option
+          key={week.week}
+          value={week.week}
+        >
+          {weekLabel(week.week)} ·{" "}
+          {dateText(week.start)} –{" "}
           {dateText(week.end)}
         </option>
       ))}
@@ -585,103 +673,78 @@ function WeekSelect({ weeks, value, onChange }) {
   );
 }
 
-function WeeklyScoreTable({ weeks, site, type }) {
-  const getItems = (week) =>
-    type === "practice" ? week.practices : week.theory;
-
+function WeeklyTable({ weeks }) {
   return (
-    <div className="premium-table-scroll">
-      <table className="premium-table premium-week-table">
-        <thead>
-          <tr>
-            <th>SITE</th>
-            {weeks.map((week) => (
-              <th key={week.week}>WEEK {pad(week.week)}</th>
-            ))}
-          </tr>
-        </thead>
+    <table className="report-week-table">
+      <thead>
+        <tr>
+          <th>WEEK</th>
+          <th>POST 1</th>
+          <th>POST 2</th>
+          <th>PRAKTIK</th>
+        </tr>
+      </thead>
 
-        <tbody>
-          {Array.from(
-            {
-              length: Math.max(
-                1,
-                ...weeks.map((week) => getItems(week).length)
-              ),
-            },
-            (_, rowIndex) => (
-              <tr key={rowIndex}>
-                {rowIndex === 0 && (
-                  <td
-                    className="premium-site-cell"
-                    rowSpan={Math.max(
-                      1,
-                      ...weeks.map((week) => getItems(week).length)
-                    )}
-                  >
-                    {site}
-                  </td>
-                )}
+      <tbody>
+        {weeks.map((week) => {
+          const theory = [...week.theory].sort(
+            (a, b) =>
+              String(a.test_date).localeCompare(
+                String(b.test_date)
+              ) ||
+              String(a.id).localeCompare(String(b.id))
+          );
 
-                {weeks.map((week) => {
-                  const item = getItems(week)[rowIndex];
+          const practices = [...week.practices].sort(
+            (a, b) =>
+              String(a.practice_date).localeCompare(
+                String(b.practice_date)
+              ) ||
+              String(a.id).localeCompare(String(b.id))
+          );
 
-                  if (!item) {
-                    return <td key={week.week}>—</td>;
-                  }
-
-                  const label = String(
-                    (type === "practice"
-                      ? item.practice_name
-                      : item.notes) ?? ""
-                  ).trim();
-
-                  return (
-                    <td key={week.week}>
-                      <div className="premium-score-entry">
-                        {label && <span>{label}</span>}
-                        <strong>{fmt(item.score, 2)}</strong>
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            )
-          )}
-        </tbody>
-      </table>
-    </div>
+          return (
+            <tr key={week.week}>
+              <td className="report-week-label">
+                W{pad(week.week)}
+              </td>
+              <td>{fmt(theory[0]?.score, 2)}</td>
+              <td>{fmt(theory[1]?.score, 2)}</td>
+              <td>{fmt(practices[0]?.score, 2)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
-function SimperItem({ title, status, positive, detail }) {
+function SimperBox({
+  label,
+  status,
+  positive,
+  detail,
+}) {
   return (
-    <div className="premium-simper-item">
-      <span className="premium-simper-title">{title}</span>
-
-      <div className="premium-simper-content">
-        <span
-          className={
-            "premium-simper-symbol " +
-            (positive ? "positive" : "pending")
-          }
-        >
-          {positive ? "✓" : "!"}
-        </span>
-
-        <strong className={positive ? "positive-text" : "pending-text"}>
-          {status}
-        </strong>
-      </div>
-
+    <div className="report-simper-box">
+      <strong>{label}</strong>
+      <span
+        className={
+          positive
+            ? "report-simper-good"
+            : "report-simper-wait"
+        }
+      >
+        {status}
+      </span>
       <small>{detail}</small>
     </div>
   );
 }
 
-// ======================================================
+// =====================================================
 // HALAMAN UTAMA
-// ======================================================
+// =====================================================
 
 export default function RaporOJTPage() {
   const params = useParams();
@@ -702,6 +765,10 @@ export default function RaporOJTPage() {
   const [toWeek, setToWeek] = useState(1);
   const [customWeeks, setCustomWeeks] = useState([1]);
   const [preview, setPreview] = useState(true);
+
+  // ===================================================
+  // LOAD DATA + PARAMETER PUSAT RAPOR
+  // ===================================================
 
   useEffect(() => {
     if (!programId) {
@@ -736,15 +803,72 @@ export default function RaporOJTPage() {
           ...records,
         });
 
+        const available = GLOBAL_WEEKS.filter(
+          (week) =>
+            programWeekRange(
+              week.week,
+              access.program
+            )
+        ).map((week) => week.week);
+
         const initial = defaultWeek(access.program);
 
-        setSingleWeek(initial);
-        setFromWeek(initial);
-        setToWeek(initial);
-        setCustomWeeks([initial]);
+        const params = new URLSearchParams(
+          window.location.search
+        );
+
+        const urlFrom = Number(
+          params.get("weekFrom")
+        );
+
+        const urlTo = Number(
+          params.get("weekTo")
+        );
+
+        const validRange =
+          params.has("weekFrom") &&
+          params.has("weekTo") &&
+          Number.isInteger(urlFrom) &&
+          Number.isInteger(urlTo) &&
+          urlFrom >= 1 &&
+          urlTo <= TOTAL_WEEKS &&
+          urlFrom <= urlTo;
+
+        if (validRange) {
+          const overlapping = available.filter(
+            (week) =>
+              week >= urlFrom &&
+              week <= urlTo
+          );
+
+          if (overlapping.length) {
+            setMode("range");
+            setFromWeek(overlapping[0]);
+            setToWeek(
+              overlapping[overlapping.length - 1]
+            );
+            setSingleWeek(overlapping[0]);
+            setCustomWeeks(overlapping);
+          } else {
+            setMode("single");
+            setSingleWeek(initial);
+            setFromWeek(initial);
+            setToWeek(initial);
+            setCustomWeeks([initial]);
+          }
+        } else {
+          setMode("single");
+          setSingleWeek(initial);
+          setFromWeek(initial);
+          setToWeek(initial);
+          setCustomWeeks([initial]);
+        }
       } catch (err) {
         if (active) {
-          setError(err?.message || "Gagal memuat Rapor OJT.");
+          setError(
+            err?.message ||
+              "Gagal memuat Rapor OJT."
+          );
         }
       } finally {
         if (active) setLoading(false);
@@ -774,7 +898,9 @@ export default function RaporOJTPage() {
       }
 
       if (access.userId !== data.userId) {
-        throw new Error("Akun berubah. Buka kembali halaman Rapor.");
+        throw new Error(
+          "Akun berubah. Buka kembali halaman Rapor."
+        );
       }
 
       const records = await fetchReportData(programId);
@@ -784,7 +910,10 @@ export default function RaporOJTPage() {
         ...records,
       });
     } catch (err) {
-      setError(err?.message || "Gagal memperbarui Rapor.");
+      setError(
+        err?.message ||
+          "Gagal memperbarui Rapor."
+      );
     } finally {
       setRefreshing(false);
     }
@@ -793,13 +922,20 @@ export default function RaporOJTPage() {
   const availableWeeks = useMemo(() => {
     if (!data?.program) return [];
 
-    return GLOBAL_WEEKS.filter((week) =>
-      programWeekRange(week.week, data.program)
+    return GLOBAL_WEEKS.filter(
+      (week) =>
+        programWeekRange(
+          week.week,
+          data.program
+        )
     );
   }, [data]);
 
   const availableSet = useMemo(
-    () => new Set(availableWeeks.map((week) => week.week)),
+    () =>
+      new Set(
+        availableWeeks.map((week) => week.week)
+      ),
     [availableWeeks]
   );
 
@@ -810,14 +946,23 @@ export default function RaporOJTPage() {
       weeks = [singleWeek];
     } else if (mode === "range") {
       weeks = Array.from(
-        { length: Math.max(0, toWeek - fromWeek + 1) },
+        {
+          length: Math.max(
+            0,
+            toWeek - fromWeek + 1
+          ),
+        },
         (_, index) => fromWeek + index
       );
     } else {
-      weeks = [...new Set(customWeeks)].sort((a, b) => a - b);
+      weeks = [
+        ...new Set(customWeeks),
+      ].sort((a, b) => a - b);
     }
 
-    return weeks.filter((week) => availableSet.has(week));
+    return weeks.filter(
+      (week) => availableSet.has(week)
+    );
   }, [
     mode,
     singleWeek,
@@ -840,9 +985,9 @@ export default function RaporOJTPage() {
     if (toWeek < week) setToWeek(week);
   }
 
-  // ====================================================
-  // PERHITUNGAN
-  // ====================================================
+  // ===================================================
+  // PERHITUNGAN ASLI — TIDAK DIUBAH
+  // ===================================================
 
   const report = useMemo(() => {
     if (!data) return null;
@@ -864,60 +1009,85 @@ export default function RaporOJTPage() {
       return typeMap.get(norm(key));
     }
 
-    const weekly = selectedWeeks.map((weekNumber) => {
-      const achievementRecords = data.achievements.filter(
-        (item) => globalWeekOf(item.activity_date) === weekNumber
-      );
+    const weekly = selectedWeeks.map(
+      (weekNumber) => {
+        const achievementRecords =
+          data.achievements.filter(
+            (item) =>
+              globalWeekOf(item.activity_date) ===
+              weekNumber
+          );
 
-      const competencies = TARGETS.map((target) => {
-        const code = findType(target.key);
+        const competencies = TARGETS.map(
+          (target) => {
+            const code = findType(target.key);
 
-        const matching = code
-          ? achievementRecords.filter((item) => item.type_code === code)
-          : [];
+            const matching = code
+              ? achievementRecords.filter(
+                  (item) =>
+                    item.type_code === code
+                )
+              : [];
 
-        const verified = matching.filter(
-          (item) => roleOf(item.status) === "verified"
+            const verified = matching.filter(
+              (item) =>
+                roleOf(item.status) ===
+                "verified"
+            );
+
+            let realized = 0;
+
+            if (target.key === "Fisik") {
+              realized =
+                verified.reduce(
+                  (sum, item) =>
+                    sum +
+                    Math.round(
+                      (number(item.distance_km) ?? 0) *
+                        1000
+                    ),
+                  0
+                ) / 1000;
+            } else {
+              realized = verified.length;
+            }
+
+            return {
+              ...target,
+              realized,
+              percentage: percent(
+                realized,
+                target.target
+              ),
+              achieved:
+                realized >= target.target,
+            };
+          }
         );
 
-        let realized = 0;
-
-        if (target.key === "Fisik") {
-          realized =
-            verified.reduce(
-              (sum, item) =>
-                sum +
-                Math.round((number(item.distance_km) ?? 0) * 1000),
-              0
-            ) / 1000;
-        } else {
-          realized = verified.length;
-        }
-
         return {
-          ...target,
-          realized,
-          percentage: percent(realized, target.target),
-          achieved: realized >= target.target,
+          week: weekNumber,
+          competencies,
+          theory: data.theory.filter(
+            (item) =>
+              globalWeekOf(item.test_date) ===
+              weekNumber
+          ),
+          practices: data.practices.filter(
+            (item) =>
+              globalWeekOf(item.practice_date) ===
+              weekNumber
+          ),
         };
-      });
-
-      return {
-        week: weekNumber,
-        competencies,
-        theory: data.theory.filter(
-          (item) => globalWeekOf(item.test_date) === weekNumber
-        ),
-        practices: data.practices.filter(
-          (item) => globalWeekOf(item.practice_date) === weekNumber
-        ),
-      };
-    });
+      }
+    );
 
     const summary = TARGETS.map((target) => {
       const entries = weekly
         .map((week) =>
-          week.competencies.find((item) => item.key === target.key)
+          week.competencies.find(
+            (item) => item.key === target.key
+          )
         )
         .filter(Boolean);
 
@@ -927,12 +1097,16 @@ export default function RaporOJTPage() {
         realized =
           entries.reduce(
             (sum, item) =>
-              sum + Math.round(item.realized * 1000),
+              sum +
+              Math.round(
+                item.realized * 1000
+              ),
             0
           ) / 1000;
       } else {
         realized = entries.reduce(
-          (sum, item) => sum + item.realized,
+          (sum, item) =>
+            sum + item.realized,
           0
         );
       }
@@ -940,28 +1114,49 @@ export default function RaporOJTPage() {
       return {
         ...target,
         realized,
-        totalTarget: target.target * selectedWeeks.length,
-        percentage: average(entries.map((item) => item.percentage)),
+        totalTarget:
+          target.target * selectedWeeks.length,
+        percentage: average(
+          entries.map(
+            (item) => item.percentage
+          )
+        ),
         achieved:
           entries.length > 0 &&
-          entries.every((item) => item.achieved),
+          entries.every(
+            (item) => item.achieved
+          ),
       };
     });
 
-    const allTheory = weekly.flatMap((week) => week.theory);
-    const allPractices = weekly.flatMap((week) => week.practices);
+    const allTheory = weekly.flatMap(
+      (week) => week.theory
+    );
 
-    const scores = [...allTheory, ...allPractices]
+    const allPractices = weekly.flatMap(
+      (week) => week.practices
+    );
+
+    const scores = [
+      ...allTheory,
+      ...allPractices,
+    ]
       .map((item) => number(item.score))
       .filter((item) => item !== null);
 
-    const totalScore = scores.reduce((sum, item) => sum + item, 0);
+    const totalScore = scores.reduce(
+      (sum, item) => sum + item,
+      0
+    );
+
     const avgScore = scores.length
       ? totalScore / scores.length
       : null;
 
     const competencyAverage = average(
-      summary.map((item) => item.percentage)
+      summary.map(
+        (item) => item.percentage
+      )
     );
 
     return {
@@ -972,20 +1167,22 @@ export default function RaporOJTPage() {
       scoreCount: scores.length,
       totalScore,
       avgScore,
-      grade: getGrade(avgScore),
+      grade: gradeOf(avgScore),
       competencyAverage,
-      incomplete: summary.filter((item) => !item.achieved),
+      incomplete: summary.filter(
+        (item) => !item.achieved
+      ),
       simper: calculateSimper(data.simper),
     };
   }, [data, selectedWeeks]);
 
-  // ====================================================
-  // LOADING
-  // ====================================================
+  // ===================================================
+  // LOADING & ERROR
+  // ===================================================
 
   if (loading) {
     return (
-      <main className="premium-loading">
+      <main className="report-loading">
         Memuat Rapor OJT...
       </main>
     );
@@ -993,119 +1190,181 @@ export default function RaporOJTPage() {
 
   if (!data || !report) {
     return (
-      <main className="premium-loading">
-        <h2>Rapor Tidak Dapat Ditampilkan</h2>
-        <p>{error || "Data tidak tersedia."}</p>
-        <button onClick={() => router.back()}>Kembali</button>
+      <main className="report-loading">
+        <h2>
+          Rapor Tidak Dapat Ditampilkan
+        </h2>
+
+        <p>
+          {error || "Data tidak tersedia."}
+        </p>
+
+        <button
+          onClick={() => router.back()}
+        >
+          Kembali
+        </button>
       </main>
     );
   }
 
-  const { program, profile, mentorName } = data;
+  const {
+    program,
+    profile,
+    mentorName,
+  } = data;
 
-  const participant = Array.isArray(program.peserta)
+  const participant = Array.isArray(
+    program.peserta
+  )
     ? program.peserta[0]
     : program.peserta;
 
   const participantName =
-    participant?.full_name?.trim() || "Peserta OJT";
+    participant?.full_name?.trim() ||
+    "Peserta OJT";
 
   const site = program.site || "—";
-  const department = participant?.department || "—";
 
-  const accountRole = roleOf(profile.role);
-  const isManager = ["admin", "mentor"].includes(accountRole);
+  const department =
+    participant?.department || "—";
 
-  const selectedLabel = selectedWeeks
-    .map((week) => weekLabel(week))
-    .join(", ");
+  const accountRole = roleOf(
+    profile.role
+  );
 
-  const ranges = selectedWeeks.map((week) => {
-    const global = weekByNumber(week);
-    const participantRange = programWeekRange(week, program);
+  const isManager = [
+    "admin",
+    "mentor",
+  ].includes(accountRole);
 
-    return {
-      week,
-      start: participantRange?.start || global?.start,
-      end: participantRange?.end || global?.end,
-    };
-  });
+  const selectedLabel =
+    selectedWeeks.length === 1
+      ? weekLabel(selectedWeeks[0])
+      : selectedWeeks.length
+        ? `Week ${pad(selectedWeeks[0])} – ${pad(
+            selectedWeeks[selectedWeeks.length - 1]
+          )}`
+        : "Belum dipilih";
+
+  const ranges = selectedWeeks.map(
+    (week) => {
+      const global = weekByNumber(week);
+
+      const participantRange =
+        programWeekRange(week, program);
+
+      return {
+        week,
+        start:
+          participantRange?.start ||
+          global?.start,
+        end:
+          participantRange?.end ||
+          global?.end,
+      };
+    }
+  );
 
   const periodStart = ranges[0]?.start;
-  const periodEnd = ranges[ranges.length - 1]?.end;
+  const periodEnd =
+    ranges[ranges.length - 1]?.end;
 
   const backPath = isManager
     ? `/peserta/${programId}`
     : "/dashboard-peserta";
 
+  const splitIndex = Math.ceil(
+    report.weekly.length / 2
+  );
+
+  const leftWeeks =
+    report.weekly.slice(0, splitIndex);
+
+  const rightWeeks =
+    report.weekly.slice(splitIndex);
+
+  const targetTheory =
+    selectedWeeks.length * 2;
+
+  const targetPractice =
+    selectedWeeks.length;
+
   return (
-    <main className="premium-root">
+    <main className="report-root">
       <style>{css}</style>
 
-      {/* =============================================
-          NAVIGASI APLIKASI
-      ============================================= */}
+      {/* NAVIGASI APLIKASI */}
 
-      <header className="premium-topbar">
-        <div className="premium-app-brand">
+      <header className="report-topbar">
+        <div className="report-brand">
           OJT <span>MineTrack</span>
+          <small>v2.0</small>
         </div>
 
-        <div className="premium-account">
+        <div className="report-account">
           <small>
             {accountRole === "admin"
               ? "Administrator"
               : accountRole === "mentor"
-              ? "Mentor"
-              : "Peserta"}
+                ? "Mentor OJT"
+                : "Peserta OJT"}
           </small>
-          <strong>{profile.full_name || "Pengguna"}</strong>
+
+          <strong>
+            {profile.full_name || "Pengguna"}
+          </strong>
         </div>
 
         <button
-          className="premium-button light"
+          type="button"
           onClick={() => router.push(backPath)}
+          className="report-back"
         >
-          ← Kembali
+          <Icon name="back" size={17} />
+          Kembali
         </button>
       </header>
 
-      <div className="premium-container">
+      <div className="report-container">
 
-        {/* =========================================
-            PENGATURAN RAPOR
-        ========================================= */}
+        {/* PENGATURAN RAPOR */}
 
-        <section className="premium-controls">
-          <div className="premium-controls-head">
+        <section className="report-controls">
+          <div className="report-control-head">
             <div>
-              <small className="premium-eyebrow">
+              <span className="report-control-kicker">
                 OJT MINETRACK · REPORT GENERATOR
-              </small>
+              </span>
 
               <h2>Pengaturan Rapor OJT</h2>
 
               <p>
-                Pilih periode Kalender Global dan cetak
-                dengan Template 10 Premium Corporate.
+                Pilih periode penilaian dan cetak
+                dengan Template 3 Earth Tone Professional.
               </p>
             </div>
 
-            <span className="premium-template-tag">
-              TEMPLATE 10 · NAVY & GOLD
+            <span className="report-template-tag">
+              TEMPLATE 3 · A4 PORTRAIT
             </span>
           </div>
 
-          <div className="premium-modes">
+          <div className="report-modes">
             {[
               ["single", "Satu Minggu"],
               ["range", "Rentang Minggu"],
               ["custom", "Minggu Tertentu"],
             ].map(([key, label]) => (
-              <label key={key} className={mode === key ? "chosen" : ""}>
+              <label
+                key={key}
+                className={
+                  mode === key ? "chosen" : ""
+                }
+              >
                 <input
                   type="radio"
-                  name="premiumMode"
+                  name="reportMode"
                   checked={mode === key}
                   onChange={() => setMode(key)}
                 />
@@ -1114,453 +1373,518 @@ export default function RaporOJTPage() {
             ))}
           </div>
 
-          {mode === "single" && availableWeeks.length > 0 && (
-            <div className="premium-selectors">
-              <div>
-                <label>Pilih Minggu</label>
-                <WeekSelect
-                  weeks={availableWeeks}
-                  value={singleWeek}
-                  onChange={setSingleWeek}
-                />
+          {mode === "single" &&
+            availableWeeks.length > 0 && (
+              <div className="report-selectors">
+                <div>
+                  <label>Pilih Minggu</label>
+                  <WeekSelect
+                    weeks={availableWeeks}
+                    value={singleWeek}
+                    onChange={setSingleWeek}
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {mode === "range" && availableWeeks.length > 0 && (
-            <div className="premium-selectors">
-              <div>
-                <label>Dari Minggu</label>
-                <WeekSelect
-                  weeks={availableWeeks}
-                  value={fromWeek}
-                  onChange={changeFromWeek}
-                />
-              </div>
+          {mode === "range" &&
+            availableWeeks.length > 0 && (
+              <div className="report-selectors">
+                <div>
+                  <label>Dari Minggu</label>
+                  <WeekSelect
+                    weeks={availableWeeks}
+                    value={fromWeek}
+                    onChange={changeFromWeek}
+                  />
+                </div>
 
-              <div>
-                <label>Sampai Minggu</label>
-                <WeekSelect
-                  weeks={availableWeeks.filter(
-                    (week) => week.week >= fromWeek
-                  )}
-                  value={toWeek}
-                  onChange={setToWeek}
-                />
+                <div>
+                  <label>Sampai Minggu</label>
+                  <WeekSelect
+                    weeks={availableWeeks.filter(
+                      (week) =>
+                        week.week >= fromWeek
+                    )}
+                    value={toWeek}
+                    onChange={setToWeek}
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {mode === "custom" && (
-            <div className="premium-week-selector">
-              {GLOBAL_WEEKS.map((week) => {
-                const selected = customWeeks.includes(week.week);
-
-                return (
-                  <button
-                    key={week.week}
-                    type="button"
-                    disabled={!availableSet.has(week.week)}
-                    className={selected ? "selected" : ""}
-                    onClick={() => toggleCustomWeek(week.week)}
-                    title={`${dateText(week.start)} - ${dateText(week.end)}`}
-                  >
-                    {pad(week.week)}
-                  </button>
-                );
-              })}
+            <div className="report-week-picker">
+              {GLOBAL_WEEKS.map((week) => (
+                <button
+                  key={week.week}
+                  type="button"
+                  disabled={
+                    !availableSet.has(week.week)
+                  }
+                  className={
+                    customWeeks.includes(week.week)
+                      ? "selected"
+                      : ""
+                  }
+                  onClick={() =>
+                    toggleCustomWeek(week.week)
+                  }
+                >
+                  {pad(week.week)}
+                </button>
+              ))}
             </div>
           )}
 
-          <div className="premium-selected-summary">
+          <div className="report-selected">
             <strong>
               {selectedWeeks.length} Minggu Dipilih
             </strong>
 
-            <span>{selectedLabel || "Belum ada minggu dipilih"}</span>
+            <span>{selectedLabel}</span>
 
             {selectedWeeks.length > 0 && (
               <small>
-                {dateText(periodStart)} – {dateText(periodEnd)}
+                {dateText(periodStart)}
+                {" – "}
+                {dateText(periodEnd)}
               </small>
             )}
           </div>
 
-          {error && <div className="premium-error">{error}</div>}
+          <div className="report-quick-picks">
+            {[
+              [2, "2 Minggu"],
+              [12, "12 Minggu"],
+              [25, "25 Minggu"],
+            ].map(([count, label]) => (
+              <button
+                type="button"
+                key={count}
+                onClick={() => {
+                  const available = availableWeeks
+                    .map((week) => week.week)
+                    .filter(
+                      (week) =>
+                        week >= 1 &&
+                        week <= count
+                    );
 
-          <div className="premium-actions">
+                  if (!available.length) return;
+
+                  setMode("range");
+                  setFromWeek(available[0]);
+                  setToWeek(
+                    available[
+                      available.length - 1
+                    ]
+                  );
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {error && (
+            <div
+              className="report-error"
+              role="alert"
+            >
+              {error}
+            </div>
+          )}
+
+          <div className="report-actions">
             <button
-              className="premium-button light"
+              type="button"
+              className="secondary"
               onClick={refresh}
               disabled={refreshing}
             >
-              {refreshing ? "Memuat..." : "↻ Refresh Data"}
+              <Icon name="refresh" size={17} />
+              {refreshing
+                ? "Memuat..."
+                : "Refresh Data"}
             </button>
 
             <button
-              className="premium-button navy"
-              onClick={() => setPreview((old) => !old)}
+              type="button"
+              className="secondary"
+              onClick={() =>
+                setPreview((old) => !old)
+              }
             >
-              {preview ? "Sembunyikan Pratinjau" : "Tampilkan Pratinjau"}
+              {preview
+                ? "Sembunyikan Pratinjau"
+                : "Tampilkan Pratinjau"}
             </button>
 
             <button
-              className="premium-button gold"
+              type="button"
+              className="primary"
+              disabled={
+                !selectedWeeks.length ||
+                refreshing
+              }
               onClick={() => window.print()}
-              disabled={!selectedWeeks.length || refreshing}
             >
+              <Icon name="print" size={18} />
               Cetak / Simpan PDF
             </button>
           </div>
         </section>
 
-        {/* =========================================
-            DOKUMEN RAPOR
-        ========================================= */}
+        {/* DOKUMEN RAPOR */}
 
         {selectedWeeks.length > 0 && (
           <article
             className={
-              "premium-paper " +
-              (!preview ? "premium-preview-hidden" : "")
+              "report-paper " +
+              (!preview
+                ? "report-preview-hidden"
+                : "")
             }
           >
-            {/* HEADER CORPORATE */}
-            <div className="premium-report-header">
-              <div className="premium-header-gold-line" />
+            {/* HEADER */}
 
-              <div className="premium-header-content">
-                <div className="premium-corporate-name">
-                  <strong>BERAU<span>COAL</span></strong>
+            <header className="report-document-header">
+              <div className="report-header-top">
+                <div className="report-company">
+                  <strong>
+                    BERAU<span>COAL</span>
+                  </strong>
                   <small>PT BERAU COAL</small>
                 </div>
 
-                <div className="premium-report-title">
-                  <span>OFFICIAL TRAINING REPORT</span>
+                <div className="report-document-title">
+                  <small>
+                    EMERGENCY RESPONSE GROUP
+                  </small>
                   <h1>RAPOR OJT</h1>
-                  <h2>ON THE JOB TRAINING</h2>
-                  <p>EMERGENCY RESPONSE GROUP</p>
+                  <p>
+                    ON THE JOB TRAINING · JUNIOR OJT
+                  </p>
                 </div>
 
-                <div className="premium-report-seal">
-                  <div>
-                    <strong>OJT</strong>
-                    <small>TRAINING</small>
-                  </div>
+                <div className="report-header-mark">
+                  <Icon name="shield" size={26} />
+                  <span>OJT</span>
                 </div>
               </div>
 
-              <div className="premium-header-bottom">
+              <div className="report-header-strip">
                 <span>MINETRACK V2.0</span>
-                <span>EVALUASI KOMPETENSI PESERTA</span>
-                <span>KALENDER GLOBAL 2026–2027</span>
+                <span>PERIODE {selectedLabel.toUpperCase()}</span>
+                <span>2026–2027</span>
               </div>
-            </div>
+            </header>
 
-            {/* IDENTITAS DAN KETERANGAN */}
-            <div className="premium-intro">
-              <section className="premium-panel">
-                <SectionHeader title="DATA PESERTA" />
+            {/* IDENTITAS */}
 
-                <div className="premium-identity">
-                  <span>Nama</span>
+            <section className="report-identity-section">
+              <SectionTitle number="01">
+                DATA PESERTA
+              </SectionTitle>
+
+              <div className="report-identity-grid">
+                <div>
+                  <span>Nama Peserta</span>
                   <strong>{participantName}</strong>
+                </div>
 
-                  <span>Site</span>
-                  <strong>{site}</strong>
-
+                <div>
                   <span>Jabatan</span>
                   <strong>{POSITION}</strong>
+                </div>
 
+                <div>
                   <span>Departemen</span>
                   <strong>{department}</strong>
+                </div>
 
-                  <span>Periode OJT</span>
+                <div>
+                  <span>Site Penempatan</span>
+                  <strong>{site}</strong>
+                </div>
+
+                <div>
+                  <span>Periode Program</span>
                   <strong>
-                    {dateText(program.start_date)} –{" "}
+                    {dateText(program.start_date)}
+                    {" – "}
                     {dateText(program.end_date)}
                   </strong>
-
-                  <span>Minggu Rapor</span>
-                  <strong>{selectedLabel}</strong>
-                </div>
-              </section>
-
-              <section className="premium-panel premium-description-panel">
-                <SectionHeader title="KETERANGAN PROGRAM" />
-
-                <p>
-                  On The Job Training (OJT) merupakan program
-                  pengembangan kompetensi kerja melalui
-                  pembelajaran, kegiatan lapangan, pembinaan,
-                  dan praktik langsung di lingkungan kerja.
-                </p>
-
-                <p>
-                  Penilaian menggunakan Kalender Global OJT
-                  Week 01–25. Realisasi dicatat berdasarkan
-                  hasil aktual, sedangkan persentase setiap
-                  kompetensi dibatasi maksimal 100% per minggu.
-                </p>
-
-                <div className="premium-period-tag">
-                  <strong>PERIODE LAPORAN</strong>
-                  <span>
-                    {dateText(periodStart)} – {dateText(periodEnd)}
-                  </span>
-                </div>
-              </section>
-            </div>
-
-            {/* KOMPETENSI + RINGKASAN */}
-            <div className="premium-main-grid">
-              <section className="premium-panel premium-competency-panel">
-                <SectionHeader
-                  number="01"
-                  title="PENILAIAN KOMPETENSI UTAMA"
-                />
-
-                <div className="premium-table-scroll">
-                  <table className="premium-table premium-competency-table">
-                    <thead>
-                      <tr>
-                        <th>NO</th>
-                        <th>KOMPETENSI</th>
-                        <th>TARGET</th>
-                        <th>REALISASI</th>
-                        <th>PROGRES</th>
-                        <th>%</th>
-                        <th>STATUS</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {report.summary.map((item, index) => (
-                        <tr key={item.key}>
-                          <td>{index + 1}</td>
-
-                          <td className="premium-competency-name">
-                            <span className="premium-gold-dot" />
-                            {item.label}
-                          </td>
-
-                          <td>
-                            {fmt(item.totalTarget)} {item.unit}
-                          </td>
-
-                          <td>
-                            <strong>
-                              {fmt(
-                                item.realized,
-                                item.key === "Fisik" ? 3 : 0
-                              )}
-                            </strong>{" "}
-                            {item.unit}
-                          </td>
-
-                          <td>
-                            <div className="premium-progress-track">
-                              <div
-                                className={
-                                  item.achieved ? "complete" : "partial"
-                                }
-                                style={{
-                                  width: `${item.percentage}%`,
-                                }}
-                              />
-                            </div>
-                          </td>
-
-                          <td>
-                            <strong
-                              className={
-                                item.achieved
-                                  ? "premium-positive"
-                                  : "premium-warning"
-                              }
-                            >
-                              {fmt(item.percentage, 2)}%
-                            </strong>
-                          </td>
-
-                          <td>
-                            <span
-                              className={
-                                "premium-status " +
-                                (item.achieved ? "yes" : "no")
-                              }
-                            >
-                              {item.achieved
-                                ? "TERCAPAI"
-                                : "BELUM TERCAPAI"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
 
-                <p className="premium-competency-note">
-                  Persentase merupakan rata-rata capaian tiap
-                  minggu yang masing-masing dibatasi 100%.
-                  Status Tercapai mensyaratkan seluruh
-                  target minggu pilihan terpenuhi.
-                </p>
-              </section>
-
-              <aside className="premium-kpi-column">
-                <div className="premium-average-card">
-                  <small>RATA-RATA KOMPETENSI</small>
+                <div>
+                  <span>Periode Rapor</span>
                   <strong>
-                    {fmt(report.competencyAverage, 2)}%
+                    {dateText(periodStart)}
+                    {" – "}
+                    {dateText(periodEnd)}
                   </strong>
-
-                  <div className="premium-average-track">
-                    <div
-                      style={{
-                        width: `${report.competencyAverage}%`,
-                      }}
-                    />
-                  </div>
-
-                  <span>Achievement Performance</span>
                 </div>
+              </div>
+            </section>
 
-                <div className="premium-grade-card">
-                  <div className="premium-grade-title">
-                    RINGKASAN NILAI
-                  </div>
+            {/* RINGKASAN NILAI */}
 
-                  <div className="premium-grade-numbers">
-                    <div>
-                      <span>NILAI TOTAL</span>
-                      <strong>
-                        {report.scoreCount
-                          ? fmt(report.totalScore, 2)
-                          : "—"}
-                      </strong>
-                    </div>
+            <div className="report-summary-strip">
+              <div>
+                <span>RATA-RATA KOMPETENSI</span>
+                <strong>
+                  {fmt(
+                    report.competencyAverage,
+                    2
+                  )}%
+                </strong>
+              </div>
 
-                    <div>
-                      <span>RATA-RATA</span>
-                      <strong>{fmt(report.avgScore, 2)}</strong>
-                    </div>
-                  </div>
+              <div>
+                <span>RATA-RATA NILAI</span>
+                <strong>
+                  {fmt(report.avgScore, 2)}
+                </strong>
+              </div>
 
-                  <div className="premium-grade-bottom">
-                    <div className="premium-grade-circle">
-                      {report.grade[0]}
-                    </div>
-
-                    <div>
-                      <strong>{report.grade[1]}</strong>
-                      <small>
-                        Berdasarkan nilai teori dan praktik
-                      </small>
-                    </div>
-                  </div>
-                </div>
-              </aside>
+              <div>
+                <span>PREDIKAT</span>
+                <strong>
+                  {report.grade[0]}
+                  {" · "}
+                  {report.grade[1]}
+                </strong>
+              </div>
             </div>
 
-            {/* TEORI DAN PRAKTIK */}
-            <div className="premium-learning-grid">
-              <section className="premium-panel">
-                <SectionHeader
-                  number="02"
-                  title="PENILAIAN PEMBELAJARAN MINGGUAN"
-                />
+            {/* KOMPETENSI */}
 
-                {chunks(report.weekly).map((group, index) => (
-                  <WeeklyScoreTable
-                    key={index}
-                    weeks={group}
-                    site={site}
-                    type="theory"
-                  />
-                ))}
-              </section>
+            <section className="report-section">
+              <SectionTitle number="02">
+                PENILAIAN KOMPETENSI UTAMA
+              </SectionTitle>
 
-              <section className="premium-panel">
-                <SectionHeader
-                  number="03"
-                  title="PENILAIAN PRAKTIK MINGGUAN"
-                />
+              <table className="report-competency-table">
+                <thead>
+                  <tr>
+                    <th>NO</th>
+                    <th>KOMPETENSI</th>
+                    <th>TARGET</th>
+                    <th>REALISASI</th>
+                    <th>CAPAIAN</th>
+                    <th>STATUS</th>
+                  </tr>
+                </thead>
 
-                {chunks(report.weekly).map((group, index) => (
-                  <WeeklyScoreTable
-                    key={index}
-                    weeks={group}
-                    site={site}
-                    type="practice"
-                  />
-                ))}
-              </section>
-            </div>
+                <tbody>
+                  {report.summary.map(
+                    (item, index) => (
+                      <tr key={item.key}>
+                        <td>{index + 1}</td>
+
+                        <td>
+                          <strong>
+                            {item.label}
+                          </strong>
+                        </td>
+
+                        <td>
+                          {fmt(
+                            item.totalTarget,
+                            item.key === "Fisik"
+                              ? 2
+                              : 0
+                          )}
+                        </td>
+
+                        <td>
+                          {fmt(
+                            item.realized,
+                            item.key === "Fisik"
+                              ? 3
+                              : 0
+                          )}
+                        </td>
+
+                        <td>
+                          <div className="report-progress">
+                            <div
+                              style={{
+                                width:
+                                  `${item.percentage}%`,
+                              }}
+                            />
+                          </div>
+
+                          <span>
+                            {fmt(
+                              item.percentage,
+                              1
+                            )}%
+                          </span>
+                        </td>
+
+                        <td>
+                          <span
+                            className={
+                              item.achieved
+                                ? "report-status good"
+                                : "report-status pending"
+                            }
+                          >
+                            {item.achieved
+                              ? "TERCAPAI"
+                              : "BELUM TERCAPAI"}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+            </section>
+
+            {/* PENILAIAN MINGGUAN */}
+
+            <section className="report-section">
+              <SectionTitle number="03">
+                PENILAIAN PEMBELAJARAN DAN PRAKTIK MINGGUAN
+              </SectionTitle>
+
+              <div className="report-week-heading">
+                <span>
+                  2 Post-Test + 1 Praktik per Minggu
+                </span>
+
+                <strong>
+                  {selectedWeeks.length} Minggu
+                </strong>
+              </div>
+
+              <div className="report-week-columns">
+                <div>
+                  <WeeklyTable weeks={leftWeeks} />
+                </div>
+
+                <div>
+                  {rightWeeks.length > 0 ? (
+                    <WeeklyTable weeks={rightWeeks} />
+                  ) : (
+                    <div className="report-week-empty">
+                      Ringkasan Penilaian
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="report-week-footer">
+                <span>
+                  Post-Test:{" "}
+                  <strong>
+                    {report.allTheory.length}
+                    /{targetTheory}
+                  </strong>
+                </span>
+
+                <span>
+                  Praktik:{" "}
+                  <strong>
+                    {report.allPractices.length}
+                    /{targetPractice}
+                  </strong>
+                </span>
+
+                <span>
+                  Total Nilai:{" "}
+                  <strong>
+                    {report.scoreCount
+                      ? fmt(
+                          report.totalScore,
+                          2
+                        )
+                      : "—"}
+                  </strong>
+                </span>
+
+                <span>
+                  Rata-Rata:{" "}
+                  <strong>
+                    {fmt(
+                      report.avgScore,
+                      2
+                    )}
+                  </strong>
+                </span>
+              </div>
+            </section>
 
             {/* SIMPER */}
-            <section className="premium-panel premium-simper-panel">
-              <SectionHeader
-                number="04"
-                title="VALIDASI DAN KETERANGAN SIMPER"
-              />
 
-              <div className="premium-simper-grid">
-                <SimperItem
-                  title="KMKOP"
+            <section className="report-section">
+              <SectionTitle number="04">
+                VALIDASI DAN STATUS SIMPER
+              </SectionTitle>
+
+              <div className="report-simper-grid">
+                <SimperBox
+                  label="KMKOP"
                   status={simperStatus(
                     report.simper.kmkopStatus,
                     "kmkop"
                   )}
                   positive={report.simper.kmkop}
-                  detail={`Validasi: ${validationText(
+                  detail={validationText(
                     report.simper.kmkopValidation
-                  )}`}
+                  )}
                 />
 
-                <SimperItem
-                  title="PRAKTIK"
+                <SimperBox
+                  label="PRAKTIK"
                   status={simperStatus(
                     report.simper.practiceStatus,
                     "practice"
                   )}
                   positive={report.simper.praktik}
-                  detail={`Validasi: ${validationText(
+                  detail={validationText(
                     report.simper.practiceValidation
-                  )}`}
+                  )}
                 />
 
-                <SimperItem
-                  title="ORIENTASI AREA"
+                <SimperBox
+                  label="ORIENTASI AREA"
                   status={simperStatus(
                     report.simper.orientationStatus,
                     "orientation"
                   )}
                   positive={report.simper.orientasi}
-                  detail={`Tanggal: ${dateText(
+                  detail={dateText(
                     report.simper.orientationDate
-                  )}`}
+                  )}
                 />
 
-                <SimperItem
-                  title="PENERBITAN SIMPER"
+                <SimperBox
+                  label="PENERBITAN"
                   status={issuanceText(
                     report.simper.issuanceStatus
                   )}
                   positive={
-                    report.simper.issuanceStatus === "issued"
+                    report.simper.issuanceStatus ===
+                    "issued"
                   }
-                  detail={`Tanggal: ${dateText(
+                  detail={dateText(
                     report.simper.issuanceDate
-                  )}`}
+                  )}
                 />
               </div>
 
-              <div className="premium-simper-footer">
+              <div className="report-simper-summary">
                 <span>
-                  PROGRES SIMPER:{" "}
-                  <strong>{report.simper.percentage}%</strong>
+                  Progres SIMPER:{" "}
+                  <strong>
+                    {report.simper.percentage}%
+                  </strong>
                 </span>
 
                 <span>
@@ -1578,137 +1902,83 @@ export default function RaporOJTPage() {
                       : "BELUM LULUS"}
                   </strong>
                 </span>
-
-                <span>
-                  Penerbitan:{" "}
-                  <strong>
-                    {issuanceText(report.simper.issuanceStatus)}
-                  </strong>
-                </span>
-              </div>
-
-              {report.simper.issuanceNumber && (
-                <p className="premium-footnote">
-                  Nomor SIMPER: {report.simper.issuanceNumber}
-                </p>
-              )}
-
-              {report.simper.legacy && (
-                <p className="premium-footnote">
-                  Catatan: Data SIMPER lama terdeteksi.
-                  Validasi komponen perlu diperiksa.
-                </p>
-              )}
-            </section>
-
-            {/* EVALUASI DAN PREDIKAT */}
-            <div className="premium-bottom-grid">
-              <section className="premium-panel premium-evaluation">
-                <SectionHeader title="CATATAN EVALUASI" />
-
-                {report.incomplete.length ? (
-                  <p>
-                    Kompetensi yang belum memenuhi target
-                    pada seluruh minggu pilihan:{" "}
-                    <strong>
-                      {report.incomplete
-                        .map((item) => item.label)
-                        .join(", ")}
-                    </strong>.
-                  </p>
-                ) : (
-                  <p>
-                    Seluruh kompetensi utama telah mencapai
-                    target pada setiap minggu yang dipilih.
-                  </p>
-                )}
-
-                <p>
-                  Jumlah penilaian teori:{" "}
-                  <strong>{report.allTheory.length}</strong>.
-                  Jumlah penilaian praktik:{" "}
-                  <strong>{report.allPractices.length}</strong>.
-                </p>
-
-                <p>
-                  Kegiatan yang belum tercatat tidak otomatis
-                  menunjukkan kegagalan. Monitoring dan evaluasi
-                  Mentor tetap diperlukan.
-                </p>
-              </section>
-
-              <section className="premium-panel premium-grade-description">
-                <SectionHeader title="PREDIKAT PENILAIAN" />
-
-                <div className="premium-predicate">
-                  <div className="premium-predicate-medal">
-                    {report.grade[0]}
-                  </div>
-
-                  <div>
-                    <strong>{report.grade[1]}</strong>
-
-                    <p>
-                      A: 85–100 · B: 75–84,99
-                      <br />
-                      C: 60–74,99 · D: di bawah 60
-                    </p>
-                  </div>
-                </div>
-
-                <p>
-                  Predikat menggunakan rata-rata nilai teori
-                  dan praktik, bukan persentase Achievement.
-                  Predikat merupakan acuan template dan bukan
-                  keputusan kelulusan resmi.
-                </p>
-              </section>
-            </div>
-
-            {/* RINCIAN WEEK */}
-            <section className="premium-week-details">
-              <SectionHeader title="RINCIAN MINGGU GLOBAL" />
-
-              <div className="premium-week-detail-grid">
-                {ranges.map((week) => (
-                  <div key={week.week}>
-                    <strong>W{pad(week.week)}</strong>
-                    <span>
-                      {dateText(week.start)} – {dateText(week.end)}
-                    </span>
-                  </div>
-                ))}
               </div>
             </section>
 
-            {/* TANDA TANGAN */}
-            <footer className="premium-report-footer">
-              <div className="premium-footer-info">
-                <strong>OJT MineTrack · PT Berau Coal</strong>
+            {/* EVALUASI */}
+
+            <section className="report-section report-evaluation">
+              <SectionTitle number="05">
+                CATATAN EVALUASI
+              </SectionTitle>
+
+              <p>
+                {report.incomplete.length
+                  ? (
+                    <>
+                      Kompetensi yang belum mencapai
+                      target pada seluruh minggu pilihan:{" "}
+                      <strong>
+                        {report.incomplete
+                          .map(
+                            (item) => item.label
+                          )
+                          .join(", ")}
+                      </strong>.
+                    </>
+                  )
+                  : (
+                    "Seluruh kompetensi utama mencapai target pada setiap minggu yang dipilih."
+                  )}
+              </p>
+
+              <p>
+                Nilai Post-Test dan Praktik dihitung
+                berdasarkan data aktual yang tersedia.
+                Nilai yang belum tercatat ditampilkan
+                sebagai tanda (—), bukan dianggap nol.
+              </p>
+
+              <p>
+                Predikat nilai merupakan ringkasan
+                hasil teori dan praktik, bukan keputusan
+                kelulusan resmi.
+              </p>
+            </section>
+
+            {/* PENGESAHAN */}
+
+            <footer className="report-document-footer">
+              <div className="report-footer-meta">
+                <strong>
+                  OJT MineTrack v2.0
+                </strong>
+
                 <span>
-                  Tanggal cetak: {currentDate()}
+                  Emergency Response Group · PT Berau Coal
                 </span>
+
                 <span>
-                  Kalender Global OJT Week 01–25
-                </span>
-                <span>
-                  Dokumen Evaluasi OJT · Emergency Response Group
+                  Tanggal Cetak: {currentDate()}
                 </span>
               </div>
 
-              <div className="premium-mentor-sign">
+              <div className="report-signature">
                 <span>Mengetahui,</span>
-                <strong>Mentor / Penanggung Jawab</strong>
 
-                <div className="premium-sign-space" />
+                <strong>
+                  Mentor / Penanggung Jawab
+                </strong>
 
-                <div className="premium-sign-line">
+                <div className="report-sign-space" />
+
+                <div className="report-sign-name">
                   {mentorName || "Mentor OJT"}
                 </div>
               </div>
             </footer>
 
-            <div className="premium-footer-line" />
+            <div className="report-bottom-line" />
           </article>
         )}
       </div>
@@ -1716,1436 +1986,1087 @@ export default function RaporOJTPage() {
   );
 }
 
-// ======================================================
-// STYLING PREMIUM CORPORATE
-// ======================================================
+// =====================================================
+// CSS — TEMPLATE 3 EARTH TONE PROFESSIONAL
+// =====================================================
 
 const css = `
 :root {
-  --premium-navy: #0b2643;
-  --premium-dark: #061b30;
-  --premium-gold: #c79636;
-  --premium-lightgold: #f7ebcf;
-  --premium-border: #d6dee5;
+  --r-navy: #203d4a;
+  --r-deep: #152e37;
+  --r-earth: #ac8050;
+  --r-gold: #c99a5f;
+  --r-cream: #f7f1e7;
+  --r-paper: #fffdf9;
+  --r-green: #227b5a;
+  --r-border: #ded9ce;
 }
 
-.premium-root,
-.premium-root * {
+.report-root,
+.report-root * {
   box-sizing: border-box;
 }
 
-.premium-root {
+.report-root {
   min-height: 100vh;
-  background: #edf1f5;
-  color: #172f47;
+  background: #edf1f1;
+  color: #263c44;
   font-family: Arial, Helvetica, sans-serif;
   font-size: 12px;
 }
 
-.premium-loading {
-  min-height: 100vh;
-  background: #edf1f5;
-  padding: 30px;
-  font-family: Arial, sans-serif;
+.report-root button,
+.report-root select {
+  font-family: inherit;
 }
 
-.premium-topbar {
-  background: #081d32;
-  color: white;
-  padding: 14px 22px;
+.report-root button {
+  cursor: pointer;
+}
+
+.report-root button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* NAVIGATION */
+
+.report-topbar {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 17px;
+  min-height: 65px;
+  padding: 13px 23px;
+  background: #193943;
+  color: #fff;
 }
 
-.premium-app-brand {
+.report-brand {
   font-size: 21px;
   font-weight: 900;
   white-space: nowrap;
 }
 
-.premium-app-brand span {
-  color: #3bc596;
+.report-brand span {
+  color: #69d5a5;
 }
 
-.premium-account {
+.report-brand small {
+  margin-left: 6px;
+  font-size: 10px;
+  color: #b3d1c4;
+}
+
+.report-account {
   margin-left: auto;
   text-align: right;
-  max-width: 230px;
 }
 
-.premium-account small {
+.report-account small {
   display: block;
-  color: #a9c3d2;
+  color: #b6d0ca;
   font-size: 10px;
 }
 
-.premium-account strong {
+.report-account strong {
   display: block;
-  margin-top: 4px;
-  overflow-wrap: anywhere;
+  margin-top: 5px;
+  font-size: 12px;
 }
 
-.premium-container {
-  max-width: 1400px;
+.report-back {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #ffffff55;
+  border-radius: 8px;
+  padding: 10px 13px;
+  background: #ffffff14;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* CONTAINER */
+
+.report-container {
+  max-width: 1250px;
   margin: auto;
   padding: 20px;
 }
 
-.premium-controls {
+/* CONTROLS */
+
+.report-controls {
+  padding: 20px;
+  margin-bottom: 20px;
   background: white;
-  border: 1px solid #d6dee5;
+  border: 1px solid #dce5e5;
   border-radius: 13px;
-  padding: 22px;
-  margin-bottom: 19px;
-  box-shadow: 0 4px 15px #102c4010;
+  box-shadow: 0 5px 19px #1738470b;
 }
 
-.premium-controls-head {
+.report-control-head {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  gap: 15px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.premium-eyebrow {
-  color: #b78c3a;
+.report-control-kicker {
+  font-size: 10px;
   font-weight: 900;
+  color: #ad824e;
   letter-spacing: 1px;
-  font-size: 10px;
 }
 
-.premium-controls h2 {
-  font-size: 23px;
-  margin: 8px 0;
+.report-controls h2 {
+  margin: 9px 0;
+  font-size: 22px;
 }
 
-.premium-controls p {
-  color: #6d7c88;
-  line-height: 1.5;
+.report-controls p {
+  margin: 0;
+  color: #788a8d;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
-.premium-template-tag {
-  border: 1px solid #e0c382;
-  color: #916a20;
-  background: #fff8e8;
+.report-template-tag {
   padding: 9px 12px;
+  border: 1px solid #e9d5b5;
   border-radius: 20px;
+  background: #fff8eb;
+  color: #986e35;
   font-size: 10px;
   font-weight: 900;
+  white-space: nowrap;
 }
 
-.premium-modes {
+.report-modes {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 20px 0;
-}
-
-.premium-modes label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #dbe2e8;
-  border-radius: 9px;
-  padding: 11px 14px;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.premium-modes label.chosen {
-  border-color: #c79636;
-  color: #81601e;
-  background: #fff8e7;
-}
-
-.premium-selectors {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-width: 800px;
-  gap: 12px;
-}
-
-.premium-selectors label {
-  display: block;
-  margin-bottom: 7px;
-  font-weight: 800;
-}
-
-.premium-select {
-  width: 100%;
-  border: 1px solid #cbd7e0;
-  color: #172f47;
-  padding: 12px;
-  background: white;
-  border-radius: 8px;
-}
-
-.premium-week-selector {
-  display: grid;
-  grid-template-columns: repeat(13, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.premium-week-selector button {
-  padding: 10px 4px;
-  border: 1px solid #d8e1e8;
-  background: white;
-  color: #17304a;
-  border-radius: 7px;
-  cursor: pointer;
-}
-
-.premium-week-selector button.selected {
-  background: #b8872c;
-  border-color: #b8872c;
-  color: white;
-  font-weight: 900;
-}
-
-.premium-week-selector button:disabled {
-  opacity: .3;
-  cursor: not-allowed;
-}
-
-.premium-selected-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  padding: 13px;
-  margin-top: 15px;
-  background: #f8f3e8;
-  border: 1px solid #efe0bb;
-  border-radius: 9px;
-}
-
-.premium-selected-summary strong {
-  color: #9e7628;
-}
-
-.premium-selected-summary small {
-  width: 100%;
-  color: #7d786c;
-}
-
-.premium-actions {
-  display: flex;
-  flex-wrap: wrap;
   gap: 9px;
-  margin-top: 15px;
+  flex-wrap: wrap;
+  margin: 21px 0 17px;
 }
 
-.premium-button {
-  border: none;
-  border-radius: 8px;
-  padding: 12px 15px;
+.report-modes label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 13px;
+  border: 1px solid #e0e6e5;
+  border-radius: 9px;
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
 
-.premium-button:disabled {
-  opacity: .5;
-  cursor: not-allowed;
+.report-modes label.chosen {
+  border-color: #c79a62;
+  background: #fcf5e9;
+  color: #99703e;
 }
 
-.premium-button.light {
-  background: #e6edf0;
-  color: #214663;
+.report-modes input {
+  accent-color: #ac8050;
 }
 
-.premium-button.navy {
-  background: #113451;
-  color: white;
+.report-selectors {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 13px;
+  max-width: 850px;
 }
 
-.premium-button.gold {
-  background: #b98629;
-  color: white;
+.report-selectors label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.premium-error {
-  background: #fff0f0;
-  color: #ae2929;
-  padding: 12px;
+.report-select {
+  width: 100%;
+  min-height: 43px;
+  padding: 10px 12px;
+  border: 1px solid #d7e0df;
+  border-radius: 9px;
+  background: #fff;
+  color: #29454b;
+  font-size: 12px;
+}
+
+.report-week-picker {
+  display: grid;
+  grid-template-columns: repeat(13,minmax(0,1fr));
+  gap: 7px;
+}
+
+.report-week-picker button {
+  min-height: 38px;
+  border: 1px solid #dfded8;
+  border-radius: 7px;
+  background: #fff;
+  color: #3b5356;
+}
+
+.report-week-picker button.selected {
+  background: #ab8052;
+  border-color: #ab8052;
+  color: #fff;
+  font-weight: 900;
+}
+
+.report-selected {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 15px;
+  padding: 12px 14px;
+  border: 1px solid #e8dbc6;
+  border-radius: 9px;
+  background: #fcf7ed;
+}
+
+.report-selected strong {
+  color: #91683b;
+}
+
+.report-selected span {
+  color: #4e645f;
+}
+
+.report-selected small {
+  color: #8a897d;
+}
+
+.report-quick-picks {
+  display: flex;
+  gap: 8px;
   margin-top: 12px;
+}
+
+.report-quick-picks button {
+  padding: 8px 12px;
+  border: 1px solid #dfd1bd;
+  border-radius: 7px;
+  background: #fffaf2;
+  color: #92703f;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.report-actions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.report-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 43px;
+  padding: 11px 14px;
+  border: 0;
   border-radius: 8px;
+  font-size: 12px;
+  font-weight: 850;
 }
 
-.premium-paper {
-  background: white;
-  border: 1px solid #d4dce4;
-  padding: 17px;
-  box-shadow: 0 5px 23px #102c401c;
+.report-actions .secondary {
+  background: #eaf0ee;
+  color: #315b53;
 }
 
-.premium-preview-hidden {
+.report-actions .primary {
+  background: #a67d4e;
+  color: white;
+}
+
+.report-error {
+  padding: 12px;
+  margin-top: 13px;
+  background: #fff0f0;
+  border-radius: 8px;
+  color: #b12c2c;
+}
+
+/* PAPER */
+
+.report-paper {
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 9mm;
+  background: var(--r-paper);
+  color: #263c44;
+  box-shadow: 0 10px 30px #1738471e;
+}
+
+.report-preview-hidden {
   display: none;
 }
 
-/* HEADER */
+/* DOCUMENT HEADER */
 
-.premium-report-header {
-  position: relative;
-  overflow: hidden;
-  border-bottom: 4px solid #c79636;
-  background: linear-gradient(
-    125deg,
-    #ffffff 0%,
-    #ffffff 43%,
-    #fbf7ec 65%,
-    #e7ecf0 100%
-  );
+.report-document-header {
+  background: #fffdf9;
 }
 
-.premium-header-gold-line {
-  height: 5px;
-  background: linear-gradient(
-    90deg,
-    #0b2643 0%,
-    #0b2643 22%,
-    #c79636 22%,
-    #e4bb61 100%
-  );
-}
-
-.premium-header-content {
+.report-header-top {
   display: grid;
-  grid-template-columns: 1fr 2.1fr .7fr;
+  grid-template-columns: 1fr 1.7fr .45fr;
   align-items: center;
   gap: 10px;
-  min-height: 115px;
-  padding: 14px 19px;
+  padding-bottom: 12px;
 }
 
-.premium-corporate-name strong {
+.report-company strong {
   display: block;
-  font-size: 23px;
+  font-size: 22px;
+  color: #204051;
   letter-spacing: -1px;
-  color: #0b2643;
   white-space: nowrap;
 }
 
-.premium-corporate-name strong span {
-  color: #158145;
+.report-company strong span {
+  color: #308354;
 }
 
-.premium-corporate-name small {
+.report-company small {
   display: block;
-  margin-top: 7px;
+  margin-top: 5px;
+  color: #917b5e;
   font-size: 9px;
   letter-spacing: 1px;
-  color: #8a8a81;
 }
 
-.premium-report-title {
+.report-document-title {
   text-align: center;
 }
 
-.premium-report-title > span {
-  color: #a37e36;
+.report-document-title small {
+  display: block;
+  color: #a47a49;
   font-size: 9px;
   font-weight: 900;
-  letter-spacing: 2px;
+  letter-spacing: .9px;
 }
 
-.premium-report-title h1 {
-  font-size: 31px;
-  color: #0b2643;
+.report-document-title h1 {
   margin: 4px 0;
-  letter-spacing: 1px;
+  color: #193b4b;
+  font-size: 26px;
+  font-weight: 900;
 }
 
-.premium-report-title h2 {
-  font-size: 13px;
-  color: #a57c2a;
-  letter-spacing: 1px;
-  margin: 0 0 6px;
+.report-document-title p {
+  margin: 0;
+  font-size: 9px;
+  color: #8e744f;
+  font-weight: 800;
 }
 
-.premium-report-title p {
+.report-header-mark {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px;
+  border: 2px solid #c39a63;
+  border-radius: 10px;
+  color: #9e7646;
+}
+
+.report-header-mark span {
   font-size: 10px;
   font-weight: 900;
-  color: #25415b;
-  margin: 0;
 }
 
-.premium-report-seal {
-  display: flex;
-  justify-content: center;
-}
-
-.premium-report-seal > div {
-  width: 68px;
-  height: 68px;
-  border: 3px solid #c79636;
-  border-radius: 50%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #0b2643;
-}
-
-.premium-report-seal strong {
-  font-size: 18px;
-}
-
-.premium-report-seal small {
-  font-size: 8px;
-  font-weight: bold;
-}
-
-.premium-header-bottom {
+.report-header-strip {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 14px;
-  background: #0b2643;
-  color: white;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .3px;
-}
-
-/* PANELS */
-
-.premium-intro {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 11px;
-  margin: 13px 0;
-}
-
-.premium-panel {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid #d3dce4;
-  border-radius: 7px;
-  background: white;
-}
-
-.premium-section-heading {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 23px;
-  padding: 5px 11px;
-  margin-bottom: 11px;
-  background: #0b2643;
-  color: white;
-  border-left: 4px solid #c79636;
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.premium-section-no {
-  color: #f1c46c;
-}
-
-.premium-identity {
-  display: grid;
-  grid-template-columns: 100px minmax(0,1fr);
-  gap: 6px 11px;
-  font-size: 10px;
-}
-
-.premium-identity span {
-  color: #687b88;
-}
-
-.premium-identity strong {
-  font-size: 10px;
-  overflow-wrap: anywhere;
-}
-
-.premium-description-panel p {
-  font-size: 10px;
-  line-height: 1.65;
-  color: #526777;
-  margin: 0 0 10px;
-}
-
-.premium-period-tag {
-  display: flex;
   gap: 8px;
-  align-items: center;
-  padding: 8px;
-  background: #f9f4e9;
-  border-radius: 5px;
-  color: #78591f;
-  font-size: 9px;
-}
-
-.premium-period-tag span {
-  font-weight: bold;
-}
-
-/* KOMPETENSI */
-
-.premium-main-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 2.5fr) minmax(220px, 1fr);
-  gap: 10px;
-  margin-bottom: 12px;
-  align-items: stretch;
-}
-
-.premium-table-scroll {
-  overflow-x: auto;
-  margin-bottom: 7px;
-}
-
-.premium-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-size: 9px;
-}
-
-.premium-table th,
-.premium-table td {
-  border: 1px solid #d1dbe3;
-  padding: 8px 5px;
-  text-align: center;
-  vertical-align: middle;
-  overflow-wrap: anywhere;
-}
-
-.premium-table th {
-  background: #eaf0f5;
-  color: #0b2643;
-  font-size: 8px;
-  font-weight: 900;
-}
-
-.premium-competency-table th:nth-child(1) {width: 6%;}
-.premium-competency-table th:nth-child(2) {width: 25%;}
-.premium-competency-table th:nth-child(3) {width: 14%;}
-.premium-competency-table th:nth-child(4) {width: 16%;}
-.premium-competency-table th:nth-child(5) {width: 13%;}
-.premium-competency-table th:nth-child(6) {width: 12%;}
-.premium-competency-table th:nth-child(7) {width: 14%;}
-
-.premium-competency-name {
-  text-align: left !important;
-  font-weight: 800;
-}
-
-.premium-gold-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  background: #c79636;
-  border-radius: 50%;
-  margin-right: 6px;
-}
-
-.premium-progress-track {
-  width: 100%;
-  height: 8px;
-  background: #e8edf0;
-  border-radius: 30px;
-  overflow: hidden;
-}
-
-.premium-progress-track > div {
-  height: 100%;
-  border-radius: 30px;
-}
-
-.premium-progress-track .complete {
-  background: linear-gradient(90deg, #13835a, #23b07e);
-}
-
-.premium-progress-track .partial {
-  background: linear-gradient(90deg, #bc8428, #e9bd65);
-}
-
-.premium-positive {
-  color: #087d55;
-}
-
-.premium-warning {
-  color: #b97a1b;
-}
-
-.premium-status {
-  display: inline-block;
-  padding: 5px 6px;
-  border-radius: 12px;
-  font-size: 8px;
-  font-weight: 800;
-}
-
-.premium-status.yes {
-  background: #e3f5e9;
-  color: #08754d;
-}
-
-.premium-status.no {
-  background: #fff1df;
-  color: #b17323;
-}
-
-.premium-competency-note {
-  color: #7e8c95;
-  font-size: 9px;
-  line-height: 1.6;
-  margin: 8px 0 0;
-}
-
-/* RINGKASAN KANAN */
-
-.premium-kpi-column {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  min-width: 0;
-}
-
-.premium-average-card {
-  padding: 15px;
-  background: linear-gradient(
-    125deg,
-    #a4711f,
-    #d4a951
-  );
-  border-radius: 7px;
+  padding: 9px 12px;
+  background: #244553;
   color: white;
-  text-align: center;
-}
-
-.premium-average-card small {
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.premium-average-card > strong {
-  display: block;
-  margin: 8px 0;
-  font-size: 32px;
-}
-
-.premium-average-track {
-  height: 9px;
-  background: #ffffff44;
-  border-radius: 30px;
-  overflow: hidden;
-}
-
-.premium-average-track div {
-  height: 100%;
-  background: white;
-  border-radius: 30px;
-}
-
-.premium-average-card > span {
-  display: block;
-  margin-top: 9px;
   font-size: 9px;
+  font-weight: 800;
+  border-bottom: 4px solid #c79a61;
 }
 
-.premium-grade-card {
-  border: 1px solid #e1d2af;
-  background: #fffdfa;
-  border-radius: 7px;
-  padding: 11px;
-  flex: 1;
-}
+/* SECTION */
 
-.premium-grade-title {
-  text-align: center;
-  background: #0b2643;
-  color: #f1cc80;
-  padding: 7px;
-  font-weight: 900;
-  font-size: 10px;
-}
-
-.premium-grade-numbers {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.premium-grade-numbers div {
-  background: white;
-  border: 1px solid #e9e0cf;
-  padding: 10px 4px;
-  text-align: center;
-}
-
-.premium-grade-numbers span {
-  display: block;
-  color: #718493;
-  font-size: 8px;
-}
-
-.premium-grade-numbers strong {
-  display: block;
-  margin-top: 6px;
-  font-size: 22px;
-  color: #0b2643;
-}
-
-.premium-grade-bottom {
-  display: flex;
-  align-items: center;
-  gap: 11px;
+.report-section {
   margin-top: 14px;
 }
 
-.premium-grade-circle {
-  width: 55px;
-  height: 55px;
-  flex-shrink: 0;
+.report-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid #d8c6aa;
+  color: #244553;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .3px;
+}
+
+.report-section-number {
   display: grid;
   place-items: center;
-  border: 4px solid #bd8e36;
-  border-radius: 50%;
-  color: #90681e;
-  font-size: 27px;
+  width: 23px;
+  height: 23px;
+  border-radius: 5px;
+  background: #b58a55;
+  color: white;
+  font-size: 10px;
+}
+
+.report-identity-section {
+  margin-top: 15px;
+}
+
+.report-identity-grid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 6px 13px;
+}
+
+.report-identity-grid > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0,1fr);
+  gap: 7px;
+  padding: 6px 8px;
+  background: #f9f5ed;
+  border: 1px solid #e8e0d3;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.report-identity-grid span {
+  color: #8d7f6b;
+}
+
+.report-identity-grid strong {
+  overflow-wrap: anywhere;
+}
+
+/* SUMMARY STRIP */
+
+.report-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.report-summary-strip > div {
+  padding: 11px;
+  border-radius: 6px;
+  background: #f3eadb;
+  border: 1px solid #e4d2b5;
+  text-align: center;
+}
+
+.report-summary-strip span {
+  display: block;
+  font-size: 9px;
+  font-weight: 800;
+  color: #91744d;
+}
+
+.report-summary-strip strong {
+  display: block;
+  margin-top: 5px;
+  color: #294a4a;
+  font-size: 17px;
+}
+
+/* COMPETENCY */
+
+.report-competency-table,
+.report-week-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.report-competency-table th,
+.report-competency-table td,
+.report-week-table th,
+.report-week-table td {
+  border: 1px solid #ddd9d1;
+  padding: 7px 6px;
+  text-align: center;
+  font-size: 9px;
+}
+
+.report-competency-table th,
+.report-week-table th {
+  background: #e8eee9;
+  color: #37564e;
+  font-size: 9px;
   font-weight: 900;
 }
 
-.premium-grade-bottom strong {
-  display: block;
-  font-size: 13px;
+.report-competency-table td:nth-child(2) {
+  text-align: left;
 }
 
-.premium-grade-bottom small {
+.report-competency-table th:nth-child(1) {
+  width: 7%;
+}
+
+.report-competency-table th:nth-child(2) {
+  width: 30%;
+}
+
+.report-competency-table th:nth-child(3),
+.report-competency-table th:nth-child(4) {
+  width: 13%;
+}
+
+.report-competency-table th:nth-child(5) {
+  width: 20%;
+}
+
+.report-competency-table th:nth-child(6) {
+  width: 17%;
+}
+
+.report-progress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #e4e8e5;
+}
+
+.report-progress > div {
+  height: 100%;
+  background: #4b9c75;
+}
+
+.report-competency-table td:nth-child(5) span {
   display: block;
+  margin-top: 3px;
+  font-size: 8px;
+}
+
+.report-status {
+  display: inline-block;
+  padding: 5px 6px;
+  border-radius: 5px;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.report-status.good {
+  background: #e1f2e7;
+  color: #227a53;
+}
+
+.report-status.pending {
+  background: #fff0df;
+  color: #a77536;
+}
+
+/* WEEKLY */
+
+.report-week-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: #8b7757;
   font-size: 9px;
-  color: #7d8b93;
-  line-height: 1.5;
-  margin-top: 5px;
 }
 
-/* NILAI MINGGUAN */
-
-.premium-learning-grid {
+.report-week-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-bottom: 12px;
   align-items: start;
 }
 
-.premium-week-table {
+.report-week-table th,
+.report-week-table td {
+  padding: 5px 4px;
   font-size: 9px;
 }
 
-.premium-week-table td {
-  padding: 6px 4px;
+.report-week-table tbody tr:nth-child(even) {
+  background: #faf7f0;
 }
 
-.premium-site-cell {
-  width: 70px;
-  color: #163551;
+.report-week-label {
+  color: #9b7549;
   font-weight: 900;
-  background: #f5f8fa;
 }
 
-.premium-score-entry {
+.report-week-empty {
+  display: grid;
+  place-items: center;
+  min-height: 70px;
+  color: #b3a38c;
+  border: 1px dashed #dfd3bd;
+  font-size: 11px;
+}
+
+.report-week-footer {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  min-height: 17px;
-}
-
-.premium-score-entry span {
+  gap: 8px;
+  margin-top: 9px;
+  padding: 9px;
+  background: #f7f1e6;
+  color: #83745e;
   font-size: 9px;
-  color: #6a7983;
 }
 
-.premium-score-entry strong {
-  font-size: 10px;
-  color: #173955;
+.report-week-footer strong {
+  color: #304c47;
 }
 
 /* SIMPER */
 
-.premium-simper-panel {
-  margin-bottom: 12px;
-}
-
-.premium-simper-grid {
+.report-simper-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0,1fr));
-  gap: 8px;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 7px;
 }
 
-.premium-simper-item {
-  border: 1px solid #dce4eb;
-  border-radius: 6px;
+.report-simper-box {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
   min-width: 0;
-  padding: 10px;
-  background: #fafbfd;
+  padding: 10px 5px;
+  border: 1px solid #e2d9cb;
+  border-radius: 5px;
+  background: #faf8f3;
   text-align: center;
 }
 
-.premium-simper-title {
-  display: block;
-  color: #4a6174;
+.report-simper-box > strong {
   font-size: 9px;
-  font-weight: 900;
+  color: #4c645b;
 }
 
-.premium-simper-content {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin: 12px 0 8px;
-}
-
-.premium-simper-symbol {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font-weight: 900;
-  color: white;
-}
-
-.premium-simper-symbol.positive {
-  background: #108454;
-}
-
-.premium-simper-symbol.pending {
-  background: #c68b23;
-}
-
-.premium-simper-content strong {
+.report-simper-box > span {
   font-size: 10px;
+  font-weight: 900;
 }
 
-.positive-text {
-  color: #08784d;
+.report-simper-good {
+  color: #25845a;
 }
 
-.pending-text {
-  color: #aa731a;
+.report-simper-wait {
+  color: #ae7d3d;
 }
 
-.premium-simper-item > small {
-  display: block;
-  color: #82909a;
+.report-simper-box small {
   font-size: 8px;
-  line-height: 1.5;
+  color: #998b77;
   overflow-wrap: anywhere;
 }
 
-.premium-simper-footer {
+.report-simper-summary {
   display: flex;
-  gap: 8px 16px;
   flex-wrap: wrap;
-  background: #f4f7fa;
-  border: 1px solid #e0e6eb;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 9px;
-  padding: 10px;
-  color: #667a88;
+  padding: 9px;
+  background: #edf4ec;
   font-size: 9px;
+  color: #69806f;
 }
 
-.premium-simper-footer strong {
-  color: #173955;
+.report-simper-summary strong {
+  color: #2c7255;
 }
 
-.premium-footnote {
-  color: #7d8d98;
-  font-size: 9px;
-  line-height: 1.5;
-}
+/* EVALUATION */
 
-/* EVALUASI */
-
-.premium-bottom-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.premium-evaluation p,
-.premium-grade-description > p {
+.report-evaluation p {
+  margin: 5px 0;
+  color: #65756d;
   font-size: 10px;
-  line-height: 1.7;
-  color: #516b7a;
-  margin: 5px 0 10px;
-}
-
-.premium-predicate {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 5px 0 11px;
-}
-
-.premium-predicate-medal {
-  width: 56px;
-  height: 56px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  border: 4px solid #c79636;
-  display: grid;
-  place-items: center;
-  color: #966d24;
-  background: #fff7e4;
-  font-size: 25px;
-  font-weight: 900;
-}
-
-.premium-predicate strong {
-  font-size: 14px;
-  color: #183651;
-}
-
-.premium-predicate p {
-  margin: 6px 0 0;
-  font-size: 9px;
-  color: #778995;
-  line-height: 1.5;
-}
-
-/* RINCIAN MINGGU */
-
-.premium-week-details {
-  margin-top: 12px;
-  border: 1px solid #d5dfe5;
-  border-radius: 6px;
-  padding: 11px;
-}
-
-.premium-week-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0,1fr));
-  gap: 7px;
-}
-
-.premium-week-detail-grid > div {
-  padding: 7px 9px;
-  border-radius: 5px;
-  border: 1px solid #e5e4dd;
-  background: #fffdf9;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 9px;
-}
-
-.premium-week-detail-grid strong {
-  color: #a07524;
-}
-
-.premium-week-detail-grid span {
-  color: #526977;
+  line-height: 1.6;
 }
 
 /* FOOTER */
 
-.premium-report-footer {
+.report-document-footer {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 15px;
-  padding: 18px 10px 12px;
+  gap: 12px;
+  margin-top: 16px;
 }
 
-.premium-footer-info {
-  display: flex;
-  flex-direction: column;
+.report-footer-meta {
+  display: grid;
   gap: 5px;
-  color: #6c8090;
+  color: #8b968d;
   font-size: 9px;
 }
 
-.premium-footer-info strong {
-  color: #0b2643;
+.report-footer-meta strong {
+  color: #315348;
 }
 
-.premium-mentor-sign {
-  min-width: 220px;
+.report-signature {
+  width: 210px;
   text-align: center;
   font-size: 10px;
 }
 
-.premium-mentor-sign > span,
-.premium-mentor-sign > strong {
+.report-signature > span,
+.report-signature > strong {
   display: block;
 }
 
-.premium-mentor-sign > strong {
-  margin-top: 4px;
-}
-
-.premium-sign-space {
-  height: 36px;
-}
-
-.premium-sign-line {
-  padding-top: 6px;
-  border-top: 1px solid #82909b;
-  font-weight: 900;
-  color: #0b2643;
-}
-
-.premium-footer-line {
-  height: 5px;
-  background: linear-gradient(
-    90deg,
-    #0b2643,
-    #0b2643 75%,
-    #c79636 75%,
-    #c79636
-  );
+.report-signature > strong {
   margin-top: 5px;
 }
 
-/* RESPONSIVE */
-
-@media (max-width: 1050px) {
-  .premium-main-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .premium-kpi-column {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
+.report-sign-space {
+  height: 35px;
 }
 
-@media (max-width: 700px) {
-  .premium-topbar {
-    padding: 11px;
-    gap: 8px;
+.report-sign-name {
+  padding-top: 6px;
+  border-top: 1px solid #9c9d91;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.report-bottom-line {
+  height: 5px;
+  margin-top: 13px;
+  background: linear-gradient(
+    90deg,
+    #254b4e 75%,
+    #b58c56 75%
+  );
+}
+
+.report-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 25px;
+  background: #f1f4f3;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #28464a;
+  text-align: center;
+}
+
+/* RESPONSIVE SCREEN */
+
+@media(max-width:800px) {
+  .report-container {
+    padding: 12px;
   }
 
-  .premium-app-brand {
-    font-size: 17px;
-  }
-
-  .premium-account {
-    max-width: 110px;
-  }
-
-  .premium-account strong {
-    font-size: 10px;
-  }
-
-  .premium-container {
-    padding: 8px;
-  }
-
-  .premium-controls {
-    padding: 14px;
-  }
-
-  .premium-controls h2 {
-    font-size: 20px;
-  }
-
-  .premium-modes {
+  .report-control-head {
     flex-direction: column;
-    gap: 7px;
   }
 
-  .premium-selectors {
+  .report-modes {
+    flex-direction: column;
+  }
+
+  .report-selectors {
     grid-template-columns: 1fr;
   }
 
-  .premium-week-selector {
-    grid-template-columns: repeat(5, minmax(0,1fr));
+  .report-week-picker {
+    grid-template-columns: repeat(5,1fr);
   }
 
-  .premium-actions .premium-button {
-    flex: 1;
+  .report-paper {
+    width: 100%;
+    min-height: 0;
+    padding: 12px;
   }
 
-  .premium-paper {
-    padding: 8px;
+  .report-header-top {
+    grid-template-columns: 1fr 1.7fr;
   }
 
-  .premium-header-content {
-    grid-template-columns: .8fr 2fr;
-    gap: 5px;
-    padding: 10px;
-  }
-
-  .premium-corporate-name strong {
-    font-size: 14px;
-  }
-
-  .premium-report-title h1 {
-    font-size: 23px;
-  }
-
-  .premium-report-title h2 {
-    font-size: 10px;
-  }
-
-  .premium-report-seal {
+  .report-header-mark {
     display: none;
   }
 
-  .premium-header-bottom {
+  .report-company strong {
+    font-size: 15px;
+  }
+
+  .report-document-title h1 {
+    font-size: 19px;
+  }
+
+  .report-identity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-identity-grid > div {
+    grid-template-columns: 110px 1fr;
+  }
+
+  .report-summary-strip strong {
+    font-size: 14px;
+  }
+
+  .report-competency-table th,
+  .report-competency-table td {
+    padding: 5px 3px;
+    font-size: 8px;
+  }
+
+  .report-status {
     font-size: 7px;
-    gap: 6px;
   }
 
-  .premium-intro,
-  .premium-learning-grid,
-  .premium-bottom-grid {
-    grid-template-columns: 1fr;
+  .report-week-columns {
+    gap: 5px;
   }
 
-  .premium-competency-table {
-    min-width: 640px;
+  .report-week-table th,
+  .report-week-table td {
+    padding: 5px 2px;
+    font-size: 8px;
   }
 
-  .premium-week-table {
-    min-width: 470px;
-  }
-
-  .premium-kpi-column {
-    grid-template-columns: 1fr;
-  }
-
-  .premium-simper-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .premium-week-detail-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .premium-mentor-sign {
-    min-width: 125px;
-  }
-
-  .premium-report-footer {
-    padding: 12px 2px;
+  .report-simper-grid {
+    grid-template-columns: repeat(2,1fr);
   }
 }
 
-/* PRINT A4 LANDSCAPE */
+/* A4 PORTRAIT PRINT */
 
 @page {
-  size: A4 landscape;
-  margin: 7mm;
+  size: A4 portrait;
+  margin: 0;
 }
 
 @media print {
   html,
   body {
-    padding: 0 !important;
     margin: 0 !important;
+    padding: 0 !important;
     background: white !important;
   }
 
-  .premium-root {
-    background: white !important;
+  .report-root {
     min-height: 0 !important;
+    background: white !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 
-  .premium-topbar,
-  .premium-controls {
+  .report-topbar,
+  .report-controls {
     display: none !important;
   }
 
-  .premium-container {
+  .report-container {
+    width: 100% !important;
     max-width: none !important;
     padding: 0 !important;
     margin: 0 !important;
   }
 
-  .premium-paper,
-  .premium-preview-hidden {
+  .report-paper,
+  .report-preview-hidden {
     display: block !important;
-    padding: 0 !important;
-    border: none !important;
+    width: 210mm !important;
+    max-width: none !important;
+    min-height: 297mm !important;
+    padding: 8mm !important;
+    margin: 0 !important;
+    border: 0 !important;
     box-shadow: none !important;
   }
 
-  .premium-header-content {
-    grid-template-columns: 1fr 2.1fr .7fr !important;
-    min-height: 72px !important;
-    padding: 7px 13px !important;
+  .report-header-top {
+    grid-template-columns: 1fr 1.7fr .45fr !important;
+    padding-bottom: 7px !important;
   }
 
-  .premium-report-title h1 {
-    font-size: 24px !important;
-  }
-
-  .premium-report-title h2 {
-    font-size: 10px !important;
-  }
-
-  .premium-corporate-name strong {
+  .report-company strong {
     font-size: 17px !important;
   }
 
-  .premium-report-seal {
-    display: flex !important;
+  .report-document-title h1 {
+    font-size: 22px !important;
   }
 
-  .premium-report-seal > div {
-    width: 50px !important;
-    height: 50px !important;
+  .report-header-mark {
+    display: grid !important;
   }
 
-  .premium-header-bottom {
-    padding: 5px 10px !important;
+  .report-header-strip {
+    padding: 6px 9px !important;
     font-size: 8px !important;
   }
 
-  .premium-intro {
-    grid-template-columns: 1fr 1fr !important;
-    gap: 7px !important;
-    margin: 7px 0 !important;
+  .report-section,
+  .report-identity-section {
+    margin-top: 10px !important;
   }
 
-  .premium-panel {
+  .report-section-title {
+    margin-bottom: 6px !important;
+    padding-bottom: 4px !important;
+    font-size: 9px !important;
+  }
+
+  .report-section-number {
+    width: 19px !important;
+    height: 19px !important;
+    font-size: 9px !important;
+  }
+
+  .report-identity-grid {
+    grid-template-columns: repeat(2,minmax(0,1fr)) !important;
+    gap: 4px 8px !important;
+  }
+
+  .report-identity-grid > div {
+    grid-template-columns: 82px minmax(0,1fr) !important;
+    padding: 4px 6px !important;
+    font-size: 8px !important;
+  }
+
+  .report-summary-strip {
+    margin-top: 9px !important;
+    gap: 6px !important;
+  }
+
+  .report-summary-strip > div {
     padding: 7px !important;
   }
 
-  .premium-section-heading {
-    padding: 4px 8px !important;
-    margin-bottom: 6px !important;
-    min-height: 19px !important;
-    font-size: 9px !important;
-  }
-
-  .premium-identity {
-    grid-template-columns: 80px 1fr !important;
-    gap: 3px 8px !important;
-    font-size: 9px !important;
-  }
-
-  .premium-identity strong {
-    font-size: 9px !important;
-  }
-
-  .premium-description-panel p {
-    font-size: 8px !important;
-    line-height: 1.35 !important;
-    margin-bottom: 5px !important;
-  }
-
-  .premium-period-tag {
-    padding: 5px !important;
+  .report-summary-strip span {
     font-size: 8px !important;
   }
 
-  .premium-main-grid {
-    grid-template-columns: minmax(0,2.5fr) minmax(0,1fr) !important;
-    gap: 7px !important;
-    margin-bottom: 7px !important;
+  .report-summary-strip strong {
+    margin-top: 3px !important;
+    font-size: 14px !important;
   }
 
-  .premium-table-scroll {
-    overflow: visible !important;
-  }
-
-  .premium-table,
-  .premium-competency-table,
-  .premium-week-table {
-    min-width: 0 !important;
-    width: 100% !important;
-  }
-
-  .premium-table th,
-  .premium-table td {
+  .report-competency-table th,
+  .report-competency-table td {
     padding: 4px 3px !important;
     font-size: 8px !important;
   }
 
-  .premium-competency-table th,
-  .premium-competency-table td {
+  .report-status {
+    padding: 3px !important;
     font-size: 7px !important;
   }
 
-  .premium-status {
-    font-size: 6px !important;
-    padding: 3px 4px !important;
+  .report-week-heading {
+    margin-bottom: 5px !important;
+    font-size: 8px !important;
   }
 
-  .premium-progress-track {
-    height: 6px !important;
-  }
-
-  .premium-competency-note {
-    font-size: 7px !important;
-    margin: 5px 0 0 !important;
-  }
-
-  .premium-kpi-column {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 6px !important;
-  }
-
-  .premium-average-card {
-    padding: 10px !important;
-  }
-
-  .premium-average-card > strong {
-    font-size: 24px !important;
-    margin: 5px 0 !important;
-  }
-
-  .premium-grade-card {
-    padding: 8px !important;
-  }
-
-  .premium-grade-numbers div {
-    padding: 6px 2px !important;
-  }
-
-  .premium-grade-numbers strong {
-    font-size: 16px !important;
-  }
-
-  .premium-grade-bottom {
-    margin-top: 7px !important;
-  }
-
-  .premium-grade-circle {
-    width: 40px !important;
-    height: 40px !important;
-    font-size: 20px !important;
-  }
-
-  .premium-grade-bottom strong {
-    font-size: 10px !important;
-  }
-
-  .premium-learning-grid {
+  .report-week-columns {
     grid-template-columns: 1fr 1fr !important;
     gap: 7px !important;
-    margin-bottom: 7px !important;
   }
 
-  .premium-week-table th,
-  .premium-week-table td {
-    font-size: 7px !important;
-    padding: 4px 2px !important;
+  .report-week-table th,
+  .report-week-table td {
+    padding: 3px 2px !important;
+    font-size: 7.5px !important;
+    height: 17px !important;
   }
 
-  .premium-score-entry span,
-  .premium-score-entry strong {
-    font-size: 7px !important;
+  .report-week-footer {
+    margin-top: 5px !important;
+    padding: 6px !important;
+    font-size: 8px !important;
   }
 
-  .premium-simper-panel {
-    margin-bottom: 7px !important;
-  }
-
-  .premium-simper-grid {
+  .report-simper-grid {
     grid-template-columns: repeat(4,minmax(0,1fr)) !important;
     gap: 5px !important;
   }
 
-  .premium-simper-item {
-    padding: 6px 4px !important;
-  }
-
-  .premium-simper-content {
-    margin: 6px 0 !important;
-  }
-
-  .premium-simper-content strong {
-    font-size: 8px !important;
-  }
-
-  .premium-simper-item > small {
-    font-size: 7px !important;
-  }
-
-  .premium-simper-footer {
-    padding: 6px !important;
-    margin-top: 6px !important;
-    font-size: 8px !important;
-  }
-
-  .premium-bottom-grid {
-    grid-template-columns: 1fr 1fr !important;
-    gap: 7px !important;
-  }
-
-  .premium-evaluation p,
-  .premium-grade-description > p {
-    font-size: 8px !important;
-    margin: 3px 0 7px !important;
-    line-height: 1.45 !important;
-  }
-
-  .premium-predicate-medal {
-    width: 42px !important;
-    height: 42px !important;
-    font-size: 19px !important;
-  }
-
-  .premium-predicate strong {
-    font-size: 11px !important;
-  }
-
-  .premium-week-details {
-    padding: 7px !important;
-    margin-top: 7px !important;
-  }
-
-  .premium-week-detail-grid {
-    grid-template-columns: repeat(4,minmax(0,1fr)) !important;
+  .report-simper-box {
+    padding: 6px 3px !important;
     gap: 4px !important;
   }
 
-  .premium-week-detail-grid > div {
-    padding: 4px !important;
+  .report-simper-box strong,
+  .report-simper-box span {
+    font-size: 8px !important;
+  }
+
+  .report-simper-box small {
     font-size: 7px !important;
   }
 
-  .premium-report-footer {
-    padding: 10px 6px 6px !important;
-  }
-
-  .premium-footer-info {
-    gap: 3px !important;
+  .report-simper-summary {
+    margin-top: 5px !important;
+    padding: 5px !important;
     font-size: 8px !important;
   }
 
-  .premium-sign-space {
-    height: 23px !important;
+  .report-evaluation p {
+    margin: 3px 0 !important;
+    font-size: 8px !important;
+    line-height: 1.35 !important;
   }
 
-  .premium-mentor-sign {
-    min-width: 180px !important;
+  .report-document-footer {
+    margin-top: 10px !important;
+  }
+
+  .report-footer-meta,
+  .report-signature {
     font-size: 8px !important;
   }
 
-  .premium-header-content,
-  .premium-intro,
-  .premium-main-grid,
-  .premium-bottom-grid,
-  .premium-simper-panel,
-  .premium-report-footer {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
+  .report-signature {
+    width: 170px !important;
   }
 
-  .premium-table tr,
-  .premium-simper-item,
-  .premium-week-detail-grid > div {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
+  .report-sign-space {
+    height: 24px !important;
+  }
+
+  .report-bottom-line {
+    margin-top: 8px !important;
+  }
+
+  .report-identity-section,
+  .report-summary-strip,
+  .report-section,
+  .report-document-footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .report-week-table tr,
+  .report-simper-box {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }
 `;
