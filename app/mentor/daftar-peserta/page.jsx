@@ -1,63 +1,68 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
 // ======================================================
 // OJT MINETRACK V2.0
-// PENDAFTARAN PESERTA — MENTOR DASHBOARD
-// MODERN CORPORATE NAVY / EMERALD / WHITE
-// BACKGROUND SELARAS DENGAN DASHBOARD PENDAFTARAN
+// MONITORING PENDAFTARAN PESERTA OJT — MENTOR
 //
-// KEAMANAN:
-// - Pendaftaran asli tetap NONAKTIF
-// - Simulasi selalu dry_run: true
-// - Pengujian API asli tetap dipertahankan
-// - Tidak mengubah database atau hak akses
+// CORPORATE NAVY / EMERALD / WHITE
+// BACKGROUND ERG
+//
+// READ ONLY:
+// Tidak membuat akun, mengubah database,
+// menyetujui, atau menolak pengajuan.
 // ======================================================
 
-const REGISTRATION_ENABLED = false;
 const BACKGROUND_IMAGE = "/background-erg.png.PNG";
 
-const PROGRAM_START = "2026-09-12";
-const PROGRAM_END = "2027-03-06";
+const PROGRAM_START = "12 September 2026";
+const PROGRAM_END = "6 Maret 2027";
 const TOTAL_WEEKS = 25;
 
-const SITE_OPTIONS = [
-  "LMO",
-  "SMO",
-  "GMO NORTH",
-  "GMO SOUTH",
-  "BMO 1",
-  "BMO 2",
-  "BMO 3",
-  "SRN",
-  "HO",
+const REGISTRATIONS_API = "/api/mentor/registrations";
+
+const NAV = [
+  {
+    label: "Dashboard",
+    url: "/",
+    icon: "home",
+  },
+  {
+    label: "Peserta OJT",
+    url: "/mentor/monitoring-peserta",
+    icon: "users",
+  },
+  {
+    label: "Pendaftaran Peserta",
+    url: "/mentor/daftar-peserta",
+    icon: "file",
+  },
+  {
+    label: "Persetujuan",
+    url: "/mentor/persetujuan-peserta",
+    icon: "check",
+  },
 ];
 
-const initialForm = {
-  full_name: "",
-  email: "",
-  department: "ER & SS",
-  site: "",
-  start_date: PROGRAM_START,
-  end_date: PROGRAM_END,
-};
+// ======================================================
+// HELPERS
+// ======================================================
 
-function formatDate(value) {
-  if (!value) return "—";
-
-  const parts = String(value).slice(0, 10).split("-");
-
-  if (parts.length !== 3) return String(value);
-
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+function normalize(value) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
-function initials(name) {
-  return String(name || "Mentor OJT")
+function initials(value) {
+  return String(value || "Peserta OJT")
     .trim()
     .split(/\s+/)
     .slice(0, 2)
@@ -66,7 +71,50 @@ function initials(name) {
     .toUpperCase();
 }
 
-function Icon({ name, size = 19 }) {
+function formatDate(value) {
+  if (!value) return "—";
+
+  const match = String(value)
+    .slice(0, 10)
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) return "—";
+
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function formatTime(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleString("id-ID", {
+    timeZone: "Asia/Makassar",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function statusLabel(status) {
+  const labels = {
+    pending: "Menunggu",
+    approved: "Disetujui",
+    rejected: "Ditolak",
+  };
+
+  return labels[status] || "Tidak Diketahui";
+}
+
+// ======================================================
+// ICONS
+// ======================================================
+
+function Icon({ name, size = 18 }) {
   const paths = {
     home: (
       <>
@@ -86,12 +134,6 @@ function Icon({ name, size = 19 }) {
         <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
       </>
     ),
-    mail: (
-      <>
-        <rect x="3" y="5" width="18" height="14" rx="2" />
-        <path d="m3 7 9 6 9-6" />
-      </>
-    ),
     file: (
       <>
         <rect x="5" y="3" width="14" height="18" rx="2" />
@@ -99,10 +141,23 @@ function Icon({ name, size = 19 }) {
       </>
     ),
     check: <path d="m4 12 5 5L20 6" />,
-    calendar: (
+    clock: (
       <>
-        <rect x="3" y="5" width="18" height="16" rx="2" />
-        <path d="M7 3v4M17 3v4M3 10h18" />
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l4 2" />
+      </>
+    ),
+    x: <path d="M5 5l14 14M19 5 5 19" />,
+    search: (
+      <>
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="m16 16 5 5" />
+      </>
+    ),
+    refresh: (
+      <>
+        <path d="M20 11a8 8 0 0 0-14-5L3 9" />
+        <path d="M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />
       </>
     ),
     shield: (
@@ -111,31 +166,10 @@ function Icon({ name, size = 19 }) {
         <path d="m8 12 3 3 5-6" />
       </>
     ),
-    lock: (
+    calendar: (
       <>
-        <rect x="5" y="10" width="14" height="11" rx="2" />
-        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-      </>
-    ),
-    arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
-    back: <path d="M19 12H5m6-6-6 6 6 6" />,
-    refresh: (
-      <>
-        <path d="M20 11a8 8 0 0 0-14-5L3 9" />
-        <path d="M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />
-      </>
-    ),
-    clipboard: (
-      <>
-        <rect x="5" y="5" width="14" height="16" rx="2" />
-        <rect x="9" y="3" width="6" height="5" rx="1" />
-        <path d="M9 13h6M9 17h4" />
-      </>
-    ),
-    map: (
-      <>
-        <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
-        <path d="M9 3v15M15 6v15" />
+        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <path d="M7 3v4M17 3v4M3 10h18" />
       </>
     ),
     info: (
@@ -144,20 +178,20 @@ function Icon({ name, size = 19 }) {
         <path d="M12 11v5M12 8h.01" />
       </>
     ),
-    alert: (
+    arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
+    back: <path d="M19 12H5m6-6-6 6 6 6" />,
+    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+    eye: (
       <>
-        <path d="M12 3 2 21h20L12 3Z" />
-        <path d="M12 9v5M12 18h.01" />
+        <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" />
+        <circle cx="12" cy="12" r="3" />
       </>
     ),
-    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
-    x: <path d="M5 5l14 14M19 5 5 19" />,
-    flag: (
-      <path d="M5 22V4m0 1c5-4 9 4 15 0v11c-6 4-10-4-15 0" />
-    ),
-    activity: (
+    clipboard: (
       <>
-        <path d="M3 12h4l3-7 4 14 3-7h4" />
+        <rect x="5" y="5" width="14" height="16" rx="2" />
+        <rect x="9" y="3" width="6" height="5" rx="1" />
+        <path d="M9 13h6M9 17h4" />
       </>
     ),
   };
@@ -174,62 +208,90 @@ function Icon({ name, size = 19 }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {paths[name] || paths.check}
+      {paths[name] || paths.file}
     </svg>
   );
 }
 
-function FormField({ label, icon, children, hint }) {
+// ======================================================
+// COMPONENTS
+// ======================================================
+
+function StatusBadge({ status }) {
+  const icon =
+    status === "approved"
+      ? "check"
+      : status === "rejected"
+        ? "x"
+        : status === "pending"
+          ? "clock"
+          : "info";
+
   return (
-    <label className="reg-field">
-      <span className="reg-label">{label}</span>
-
-      <div className="reg-input-wrap">
-        <Icon name={icon} size={17} />
-        {children}
-      </div>
-
-      {hint && <small className="reg-hint">{hint}</small>}
-    </label>
+    <span className={`mon-status ${status || "unknown"}`}>
+      <Icon name={icon} size={13} />
+      {statusLabel(status)}
+    </span>
   );
 }
 
-function PreviewItem({ label, value }) {
+function SummaryCard({
+  icon,
+  title,
+  value,
+  description,
+  tone,
+  selected,
+  onClick,
+}) {
   return (
-    <div className="reg-preview-item">
-      <span>{label}</span>
-      <strong>{value || "—"}</strong>
-    </div>
-  );
-}
+    <button
+      type="button"
+      className={
+        `mon-stat ${tone} ` +
+        (selected ? "selected" : "")
+      }
+      onClick={onClick}
+    >
+      <span className="mon-stat-icon">
+        <Icon name={icon} size={24} />
+      </span>
 
-function SummaryCard({ icon, label, value, text, color }) {
-  return (
-    <div className="reg-summary-card">
-      <div className={`reg-summary-icon ${color}`}>
-        <Icon name={icon} size={23} />
-      </div>
-
-      <div className="reg-summary-content">
-        <span>{label}</span>
+      <span className="mon-stat-content">
+        <small>{title}</small>
         <strong>{value}</strong>
-        <p>{text}</p>
-      </div>
-    </div>
+        <span>{description}</span>
+      </span>
+
+      <Icon name="arrow" size={16} />
+    </button>
   );
 }
 
-function SectionHeading({ icon, title, description }) {
+function SectionHeading({
+  icon,
+  title,
+  description,
+}) {
   return (
-    <div className="reg-section-heading">
-      <div className="reg-heading-icon">
+    <div className="mon-section-title">
+      <div className="mon-section-icon">
         <Icon name={icon} size={21} />
       </div>
 
       <div>
         <h2>{title}</h2>
-        {description && <p>{description}</p>}
+        <p>{description}</p>
       </div>
+    </div>
+  );
+}
+
+function DetailField({ label, value }) {
+  return (
+    <div className="mon-detail-field">
+      <span>{label}</span>
+      <strong>{value || "—"}</strong>
     </div>
   );
 }
@@ -241,59 +303,145 @@ function SectionHeading({ icon, title, description }) {
 export default function DaftarPesertaPage() {
   const router = useRouter();
 
-  const [loading, setLoading] = useState(true);
   const [mentor, setMentor] = useState(null);
 
-  const [form, setForm] = useState(initialForm);
+  const [registrations, setRegistrations] = useState([]);
 
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
-  const [securityResult, setSecurityResult] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const [selected, setSelected] = useState(null);
 
   const [mobileMenu, setMobileMenu] = useState(false);
 
+  const [error, setError] = useState("");
+
   // ====================================================
-  // AUTENTIKASI — HANYA MENTOR
+  // AUTHENTICATION — MENTOR ONLY
+  // ====================================================
+
+  const loadData = useCallback(async () => {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { redirect: "/login" };
+    }
+
+    const {
+      data: profile,
+      error: profileError,
+    } = await supabase
+      .from("profiles")
+      .select("id,full_name,role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError) throw profileError;
+
+    if (normalize(profile?.role) !== "mentor") {
+      throw new Error(
+        "Akses ditolak. Halaman ini khusus Mentor OJT."
+      );
+    }
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (
+      sessionError ||
+      !session?.access_token ||
+      session.user?.id !== user.id
+    ) {
+      return { redirect: "/login" };
+    }
+
+    const response = await fetch(
+      REGISTRATIONS_API,
+      {
+        method: "GET",
+        headers: {
+          Authorization:
+            `Bearer ${session.access_token}`,
+        },
+        cache: "no-store",
+      }
+    );
+
+    if (response.status === 401) {
+      return { redirect: "/login" };
+    }
+
+    if (response.status === 403) {
+      throw new Error(
+        "Server menolak akses data pendaftaran Mentor."
+      );
+    }
+
+    let result;
+
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error(
+        "Server tidak memberikan data pengajuan yang valid."
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        result?.error ||
+          "Gagal mengambil daftar pengajuan peserta."
+      );
+    }
+
+    if (!Array.isArray(result.registrations)) {
+      throw new Error(
+        "Format daftar pengajuan dari server tidak valid."
+      );
+    }
+
+    return {
+      profile,
+      registrations: result.registrations,
+    };
+  }, []);
+
+  // ====================================================
+  // INITIAL LOAD
   // ====================================================
 
   useEffect(() => {
     let active = true;
 
-    async function checkAccess() {
+    async function initialize() {
+      setLoading(true);
+      setError("");
+
       try {
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
+        const result = await loadData();
 
-        if (authError || !user) {
-          router.replace("/login");
+        if (!active) return;
+
+        if (result.redirect) {
+          router.replace(result.redirect);
           return;
         }
 
-        const {
-          data: profile,
-          error: profileError,
-        } = await supabase
-          .from("profiles")
-          .select("id,full_name,role")
-          .eq("id", user.id)
-          .single();
-
-        if (profileError || profile?.role !== "mentor") {
-          router.replace("/peserta");
-          return;
-        }
-
-        if (active) setMentor(profile);
+        setMentor(result.profile);
+        setRegistrations(result.registrations);
       } catch (err) {
         if (active) {
           setError(
             err?.message ||
-              "Gagal memeriksa akses mentor."
+              "Gagal memuat monitoring pendaftaran."
           );
         }
       } finally {
@@ -301,233 +449,133 @@ export default function DaftarPesertaPage() {
       }
     }
 
-    checkAccess();
+    initialize();
 
     return () => {
       active = false;
     };
-  }, [router]);
-
-  function updateForm(field, value) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
-
-    setError("");
-    setResult(null);
-  }
-
-  function validateForm() {
-    if (form.full_name.trim().length < 3) {
-      return "Nama peserta minimal 3 karakter.";
-    }
-
-    if (
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-        form.email.trim()
-      )
-    ) {
-      return "Format email peserta tidak valid.";
-    }
-
-    if (!form.department.trim()) {
-      return "Departemen wajib diisi.";
-    }
-
-    if (!SITE_OPTIONS.includes(form.site)) {
-      return "Pilih site OJT.";
-    }
-
-    if (!form.start_date || !form.end_date) {
-      return "Tanggal mulai dan selesai wajib tersedia.";
-    }
-
-    if (form.end_date < form.start_date) {
-      return "Tanggal selesai tidak boleh lebih awal dari tanggal mulai.";
-    }
-
-    return "";
-  }
+  }, [loadData, router]);
 
   // ====================================================
-  // SIMULASI PENDAFTARAN — DRY RUN
-  // TIDAK MEMBUAT AKUN ATAU PROGRAM
+  // REFRESH
   // ====================================================
 
-  async function runSimulation(event) {
-    event.preventDefault();
+  async function refreshData() {
+    if (loading || refreshing) return;
 
-    if (saving || testing) return;
-
-    const validationError = validateForm();
-
-    if (validationError) {
-      setError(validationError);
-      setResult(null);
-      return;
-    }
-
-    setSaving(true);
+    setRefreshing(true);
     setError("");
-    setResult(null);
 
     try {
-      const {
-        data: sessionData,
-        error: sessionError,
-      } = await supabase.auth.getSession();
+      const result = await loadData();
 
-      const token = sessionData?.session?.access_token;
+      if (result.redirect) {
+        setMentor(null);
+        setRegistrations([]);
+        router.replace(result.redirect);
+        return;
+      }
 
-      if (sessionError || !token) {
-        throw new Error(
-          "Sesi login habis. Silakan login kembali."
+      setMentor(result.profile);
+      setRegistrations(result.registrations);
+
+      // Detail dibuka kembali dari data terbaru,
+      // bukan data lama yang mungkin sudah berubah.
+      setSelected((current) => {
+        if (!current) return null;
+
+        return (
+          result.registrations.find(
+            (item) =>
+              item.id === current.id &&
+              item.source === current.source
+          ) || null
         );
-      }
-
-      const response = await fetch(
-        "/api/mentor/register-participant",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-          body: JSON.stringify({
-            full_name: form.full_name.trim(),
-            email: form.email.trim().toLowerCase(),
-            department: form.department.trim(),
-            site: form.site,
-            start_date: PROGRAM_START,
-            end_date: PROGRAM_END,
-            dry_run: true,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Simulasi gagal.");
-      }
-
-      if (data.dry_run !== true) {
-        throw new Error(
-          "Server tidak mengonfirmasi mode simulasi."
-        );
-      }
-
-      setResult(data);
+      });
     } catch (err) {
       setError(
         err?.message ||
-          "Terjadi kesalahan simulasi."
+          "Gagal memperbarui data pendaftaran."
       );
     } finally {
-      setSaving(false);
+      setRefreshing(false);
     }
   }
 
   // ====================================================
-  // UJI PENGAMAN API
-  // TANPA TOKEN DAN TANPA DATA PESERTA
+  // STATISTICS
   // ====================================================
 
-  async function testSecurity() {
-    if (saving || testing) return;
+  const counts = useMemo(() => {
+    return {
+      all: registrations.length,
 
-    setTesting(true);
-    setSecurityResult(null);
-    setError("");
+      pending: registrations.filter(
+        (item) => item.status === "pending"
+      ).length,
 
-    try {
-      const response = await fetch(
-        "/api/mentor/register-participant",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          cache: "no-store",
-          body: JSON.stringify({
-            dry_run: false,
-          }),
-        }
+      approved: registrations.filter(
+        (item) => item.status === "approved"
+      ).length,
+
+      rejected: registrations.filter(
+        (item) => item.status === "rejected"
+      ).length,
+    };
+  }, [registrations]);
+
+  // ====================================================
+  // FILTER & SEARCH
+  // ====================================================
+
+  const filtered = useMemo(() => {
+    const keyword = normalize(search);
+
+    return registrations.filter((item) => {
+      const matchStatus =
+        filter === "all" || item.status === filter;
+
+      const searchable = [
+        item.full_name,
+        item.email,
+        item.department,
+        item.site,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        matchStatus && searchable.includes(keyword)
       );
-
-      const data = await response.json();
-
-      const passed =
-        response.status === 403 &&
-        data.success === false &&
-        typeof data.error === "string" &&
-        data.error.includes(
-          "Pendaftaran asli sedang dinonaktifkan"
-        );
-
-      setSecurityResult({
-        passed,
-        status: response.status,
-        message:
-          data.error ||
-          "Server tidak memberikan pesan.",
-      });
-    } catch (err) {
-      setSecurityResult({
-        passed: false,
-        status: "—",
-        message:
-          err?.message || "Kesalahan jaringan.",
-      });
-    } finally {
-      setTesting(false);
-    }
-  }
+    });
+  }, [registrations, filter, search]);
 
   function navigate(path) {
     setMobileMenu(false);
     router.push(path);
   }
 
-  const navigation = [
-    {
-      label: "Dashboard",
-      path: "/",
-      icon: "home",
-    },
-    {
-      label: "Peserta OJT",
-      path: "/mentor/monitoring-peserta",
-      icon: "users",
-    },
-    {
-      label: "Pendaftaran Peserta",
-      path: "/mentor/daftar-peserta",
-      icon: "file",
-    },
-    {
-      label: "Persetujuan",
-      path: "/mentor/persetujuan-peserta",
-      icon: "check",
-    },
+  const filterTabs = [
+    ["all", "Semua", counts.all],
+    ["pending", "Menunggu", counts.pending],
+    ["approved", "Disetujui", counts.approved],
+    ["rejected", "Ditolak", counts.rejected],
   ];
 
   // ====================================================
   // LOADING
   // ====================================================
 
-  if (loading) {
+  if (loading && !mentor) {
     return (
-      <main className="reg-loading">
+      <main className="mon-loading">
         <style>{css}</style>
-
         <div>
           <h2>
             OJT <span>MineTrack</span>
           </h2>
-          <p>Memeriksa akses mentor...</p>
+          <p>Memuat monitoring pendaftaran...</p>
         </div>
       </main>
     );
@@ -535,16 +583,17 @@ export default function DaftarPesertaPage() {
 
   if (!mentor) {
     return (
-      <main className="reg-loading">
+      <main className="mon-loading">
         <style>{css}</style>
-
         <div>
-          <h2>Akses Tidak Tersedia</h2>
+          <h2>Monitoring Tidak Dapat Dibuka</h2>
           <p>
-            {error || "Halaman khusus Mentor OJT."}
+            {error || "Data Mentor belum tersedia."}
           </p>
-
-          <button onClick={() => router.push("/")}>
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+          >
             Kembali ke Dashboard
           </button>
         </div>
@@ -553,26 +602,28 @@ export default function DaftarPesertaPage() {
   }
 
   // ====================================================
-  // TAMPILAN DASHBOARD
+  // UI
   // ====================================================
 
   return (
-    <div className="reg-app">
+    <div className="mon-app">
       <style>{css}</style>
 
-      {/* HEADER DASHBOARD */}
+      {/* ================================================
+          TOP NAVIGATION
+      ================================================ */}
 
-      <header className="reg-topbar">
+      <header className="mon-topbar">
         <button
           type="button"
-          className="reg-brand"
+          className="mon-brand"
           onClick={() => navigate("/")}
         >
-          <span className="reg-brand-icon">
+          <span className="mon-brand-icon">
             <Icon name="shield" size={22} />
           </span>
 
-          <span className="reg-brand-copy">
+          <span className="mon-brand-copy">
             <strong>
               OJT <em>MineTrack</em>
               <small>v2.0</small>
@@ -586,21 +637,21 @@ export default function DaftarPesertaPage() {
 
         <nav
           className={
-            "reg-navigation " +
-            (mobileMenu ? "open" : "")
+            "mon-nav " + (mobileMenu ? "open" : "")
           }
-          aria-label="Navigasi utama"
+          aria-label="Navigasi Mentor"
         >
-          {navigation.map((item) => (
+          {NAV.map((item) => (
             <button
+              key={item.url}
               type="button"
-              key={item.path}
               className={
-                item.path === "/mentor/daftar-peserta"
+                item.url ===
+                "/mentor/daftar-peserta"
                   ? "active"
                   : ""
               }
-              onClick={() => navigate(item.path)}
+              onClick={() => navigate(item.url)}
             >
               <Icon name={item.icon} size={17} />
               {item.label}
@@ -608,12 +659,12 @@ export default function DaftarPesertaPage() {
           ))}
         </nav>
 
-        <div className="reg-account">
-          <div className="reg-account-avatar">
+        <div className="mon-account">
+          <div className="mon-account-avatar">
             {initials(mentor.full_name)}
           </div>
 
-          <div className="reg-account-info">
+          <div className="mon-account-info">
             <strong>
               {mentor.full_name || "Mentor OJT"}
             </strong>
@@ -623,7 +674,7 @@ export default function DaftarPesertaPage() {
 
         <button
           type="button"
-          className="reg-mobile-toggle"
+          className="mon-mobile-toggle"
           aria-label={
             mobileMenu ? "Tutup menu" : "Buka menu"
           }
@@ -639,41 +690,43 @@ export default function DaftarPesertaPage() {
         </button>
       </header>
 
-      <main className="reg-container">
+      <main className="mon-container">
 
-        {/* HERO CORPORATE */}
+        {/* ================================================
+            HERO
+        ================================================ */}
 
         <section
-          className="reg-hero"
+          className="mon-hero"
           style={{
             backgroundImage: `
               linear-gradient(
                 100deg,
                 rgba(4,22,43,.97) 0%,
-                rgba(5,34,57,.88) 44%,
-                rgba(5,35,54,.46) 100%
+                rgba(5,34,57,.87) 45%,
+                rgba(5,35,54,.48) 100%
               ),
               url("${BACKGROUND_IMAGE}")
             `,
           }}
         >
-          <div className="reg-hero-content">
-            <div className="reg-kicker">
+          <div className="mon-hero-content">
+            <div className="mon-kicker">
               EMERGENCY RESPONSE GROUP · PT BERAU COAL
             </div>
 
             <h1>
-              Dashboard <span>Pendaftaran OJT</span>
+              Monitoring <span>Pendaftaran OJT</span>
             </h1>
 
             <p>
-              Kelola persiapan data calon peserta,
-              tinjau periode program, dan jalankan
-              simulasi pendaftaran secara aman melalui
-              Dashboard Mentor OJT MineTrack.
+              Pantau pengajuan peserta, status
+              pendaftaran, periode program, dan hasil
+              verifikasi melalui Dashboard Mentor
+              OJT MineTrack.
             </p>
 
-            <div className="reg-hero-meta">
+            <div className="mon-hero-tags">
               <span>
                 <Icon name="shield" size={15} />
                 Akses Mentor
@@ -685,722 +738,728 @@ export default function DaftarPesertaPage() {
               </span>
 
               <span>
-                <Icon name="lock" size={15} />
-                Dry Run Only
+                <Icon name="eye" size={15} />
+                Monitoring Data
               </span>
             </div>
           </div>
 
-          <div className="reg-hero-status">
-            <div className="reg-status-icon">
-              <Icon name="lock" size={23} />
+          <div className="mon-hero-summary">
+            <div className="mon-hero-summary-icon">
+              <Icon name="users" size={24} />
             </div>
 
-            <small>STATUS MODUL</small>
-
-            <strong>
-              {REGISTRATION_ENABLED
-                ? "Pendaftaran Aktif"
-                : "Mode Pengujian"}
-            </strong>
-
-            <span>
-              {REGISTRATION_ENABLED
-                ? "Modul tersedia"
-                : "Pendaftaran asli terkunci"}
-            </span>
+            <small>TOTAL PENGAJUAN</small>
+            <strong>{counts.all}</strong>
+            <span>Data dari sistem OJT</span>
           </div>
         </section>
 
         {/* BREADCRUMB */}
 
-        <div className="reg-breadcrumb">
+        <div className="mon-breadcrumb">
           <button
             type="button"
             onClick={() => navigate("/")}
           >
             Dashboard
           </button>
+
           <span>/</span>
-          <strong>Pendaftaran Peserta OJT</strong>
+
+          <strong>Monitoring Pendaftaran Peserta</strong>
         </div>
 
-        {/* KARTU INFORMASI */}
+        {/* ERROR */}
 
-        <section className="reg-summary-grid">
-          <SummaryCard
-            icon="lock"
-            color="green"
-            label="Status Pendaftaran"
-            value="Dry Run Only"
-            text="Pendaftaran asli nonaktif. Simulasi tetap dapat digunakan."
-          />
+        {error && (
+          <div className="mon-alert" role="alert">
+            <Icon name="info" size={19} />
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => setError("")}
+              aria-label="Tutup pesan"
+            >
+              <Icon name="x" size={17} />
+            </button>
+          </div>
+        )}
 
-          <SummaryCard
-            icon="calendar"
-            color="blue"
-            label="Periode Program"
-            value="12 Sep 2026 – 06 Mar 2027"
-            text="Kalender Global Week 01–25."
-          />
+        {/* ================================================
+            STATISTICS
+        ================================================ */}
 
-          <SummaryCard
-            icon="users"
-            color="gold"
-            label="Alur Persetujuan"
-            value="Peserta → Mentor → Admin"
-            text="Persetujuan menggunakan sistem yang sudah berlaku."
-          />
-
+        <section className="mon-stat-grid">
           <SummaryCard
             icon="file"
-            color="teal"
-            label="Program OJT"
-            value="Week 01 – Week 25"
-            text="Monitoring dan evaluasi selama 25 minggu."
+            title="Total Pengajuan"
+            value={counts.all}
+            description="Semua data pendaftaran"
+            tone="blue"
+            selected={filter === "all"}
+            onClick={() => setFilter("all")}
+          />
+
+          <SummaryCard
+            icon="clock"
+            title="Menunggu Persetujuan"
+            value={counts.pending}
+            description="Pengajuan masih menunggu"
+            tone="amber"
+            selected={filter === "pending"}
+            onClick={() => setFilter("pending")}
+          />
+
+          <SummaryCard
+            icon="check"
+            title="Disetujui"
+            value={counts.approved}
+            description="Pengajuan telah disetujui"
+            tone="green"
+            selected={filter === "approved"}
+            onClick={() => setFilter("approved")}
+          />
+
+          <SummaryCard
+            icon="x"
+            title="Ditolak"
+            value={counts.rejected}
+            description="Riwayat pengajuan ditolak"
+            tone="rose"
+            selected={filter === "rejected"}
+            onClick={() => setFilter("rejected")}
           />
         </section>
 
-        {/* PEMBERITAHUAN KEAMANAN */}
+        {/* ================================================
+            INFORMATION NOTICE
+        ================================================ */}
 
-        <section className="reg-notice">
-          <div className="reg-notice-icon">
+        <section className="mon-notice">
+          <div className="mon-notice-icon">
             <Icon name="shield" size={22} />
           </div>
 
           <div>
             <strong>
-              Mode Pengujian Pendaftaran Mentor
+              Monitoring Pendaftaran Peserta Aktif
             </strong>
 
             <p>
-              Pendaftaran asli masih dinonaktifkan.
-              Simulasi dan pengujian API tidak membuat
-              akun maupun program OJT baru.
+              Halaman ini menampilkan data pengajuan
+              peserta dari sistem secara langsung saat
+              dimuat atau diperbarui. Untuk mengambil
+              keputusan, gunakan menu Persetujuan Peserta
+              OJT.
             </p>
           </div>
 
-          <span className="reg-notice-badge">
-            REGISTRATION LOCKED
-          </span>
+          <button
+            type="button"
+            onClick={() =>
+              navigate("/mentor/persetujuan-peserta")
+            }
+          >
+            Menu Persetujuan
+            <Icon name="arrow" size={16} />
+          </button>
         </section>
 
-        {/* GRID FORMULIR DAN INFORMASI */}
+        {/* ================================================
+            REGISTRATION TABLE
+        ================================================ */}
 
-        <div className="reg-main-grid">
-
-          {/* FORMULIR */}
-
-          <section className="reg-card reg-form-card">
+        <section className="mon-card">
+          <div className="mon-section-head">
             <SectionHeading
-              icon="user"
-              title="Formulir Pendaftaran Peserta OJT"
-              description="Masukkan data calon peserta untuk pengujian validasi pendaftaran."
+              icon="users"
+              title="Daftar Pendaftaran Peserta OJT"
+              description="Data peserta yang mengajukan pendaftaran melalui sistem."
             />
 
-            <form onSubmit={runSimulation}>
+            <button
+              type="button"
+              className="mon-refresh"
+              onClick={refreshData}
+              disabled={loading || refreshing}
+            >
+              <Icon name="refresh" size={17} />
 
-              <div className="reg-subheading">
-                <span>01</span>
-                <div>
-                  <strong>Identitas Peserta</strong>
-                  <small>
-                    Data calon peserta OJT.
-                  </small>
-                </div>
-              </div>
+              {refreshing
+                ? "Memperbarui..."
+                : "Perbarui Data"}
+            </button>
+          </div>
 
-              <div className="reg-form-grid">
-                <FormField
-                  label="Nama Lengkap Peserta"
-                  icon="user"
-                >
-                  <input
-                    type="text"
-                    required
-                    minLength={3}
-                    maxLength={120}
-                    placeholder="Masukkan nama lengkap"
-                    value={form.full_name}
-                    disabled={saving || testing}
-                    onChange={(event) =>
-                      updateForm(
-                        "full_name",
-                        event.target.value
-                      )
+          {/* FILTER */}
+
+          <div className="mon-filterbar">
+            <div className="mon-tabs">
+              {filterTabs.map(
+                ([value, label, total]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={
+                      filter === value ? "active" : ""
                     }
-                  />
-                </FormField>
-
-                <FormField
-                  label="Email Peserta"
-                  icon="mail"
-                >
-                  <input
-                    type="email"
-                    required
-                    maxLength={254}
-                    placeholder="nama@example.com"
-                    value={form.email}
-                    disabled={saving || testing}
-                    onChange={(event) =>
-                      updateForm(
-                        "email",
-                        event.target.value
-                      )
-                    }
-                  />
-                </FormField>
-
-                <FormField
-                  label="Departemen"
-                  icon="users"
-                >
-                  <input
-                    type="text"
-                    required
-                    maxLength={100}
-                    value={form.department}
-                    disabled={saving || testing}
-                    onChange={(event) =>
-                      updateForm(
-                        "department",
-                        event.target.value
-                      )
-                    }
-                  />
-                </FormField>
-
-                <FormField
-                  label="Site Penempatan"
-                  icon="map"
-                >
-                  <select
-                    required
-                    value={form.site}
-                    disabled={saving || testing}
-                    onChange={(event) =>
-                      updateForm(
-                        "site",
-                        event.target.value
-                      )
-                    }
+                    onClick={() => setFilter(value)}
                   >
-                    <option value="">
-                      Pilih Site Penempatan
-                    </option>
-
-                    {SITE_OPTIONS.map((site) => (
-                      <option
-                        key={site}
-                        value={site}
-                      >
-                        {site}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
-
-              <div className="reg-inline-info">
-                <Icon name="info" size={17} />
-
-                <span>
-                  Data yang dimasukkan hanya digunakan
-                  untuk simulasi. Pengujian tidak
-                  membuat akun peserta.
-                </span>
-              </div>
-
-              {/* PERIODE PROGRAM */}
-
-              <div className="reg-subheading second">
-                <span>02</span>
-                <div>
-                  <strong>
-                    Jadwal Program OJT
-                  </strong>
-                  <small>
-                    Mengikuti Kalender Global 2026–2027.
-                  </small>
-                </div>
-              </div>
-
-              <div className="reg-fixed-period">
-                <div className="reg-fixed-title">
-                  <Icon name="calendar" size={18} />
-                  Jadwal Program OJT (Fixed)
-                </div>
-
-                <div className="reg-fixed-grid">
-                  <div className="reg-date-box">
-                    <Icon name="calendar" size={22} />
-
-                    <div>
-                      <span>Tanggal Mulai OJT</span>
-                      <strong>
-                        12 September 2026
-                      </strong>
-                      <small>Week 01</small>
-                    </div>
-
-                    <Icon name="lock" size={16} />
-                  </div>
-
-                  <div className="reg-date-box">
-                    <Icon name="flag" size={22} />
-
-                    <div>
-                      <span>
-                        Tanggal Selesai Program
-                      </span>
-                      <strong>
-                        6 Maret 2027
-                      </strong>
-                      <small>Week 25</small>
-                    </div>
-
-                    <Icon name="lock" size={16} />
-                  </div>
-                </div>
-
-                <p>
-                  <Icon name="info" size={16} />
-                  Periode tetap mengikuti Kalender Global
-                  Week 01–25. Tanggal tidak dapat diubah
-                  melalui formulir Mentor.
-                </p>
-              </div>
-
-              {/* ERROR */}
-
-              {error && (
-                <div
-                  className="reg-alert error"
-                  role="alert"
-                >
-                  <Icon name="alert" size={19} />
-                  <span>{error}</span>
-                </div>
+                    {label}
+                    <span>{total}</span>
+                  </button>
+                )
               )}
+            </div>
 
-              {/* AKSI */}
+            <label className="mon-search">
+              <Icon name="search" size={17} />
 
-              <div className="reg-form-actions">
-                <button
-                  type="submit"
-                  className="reg-button-primary"
-                  disabled={saving || testing}
-                >
-                  <Icon name="check" size={18} />
+              <input
+                type="search"
+                placeholder="Cari nama, email, site..."
+                value={search}
+                onChange={(event) =>
+                  setSearch(event.target.value)
+                }
+              />
+            </label>
+          </div>
 
-                  {saving
-                    ? "Menjalankan Simulasi..."
-                    : "Jalankan Simulasi Pendaftaran"}
+          <div className="mon-result-count">
+            Menampilkan{" "}
+            <strong>{filtered.length}</strong>
+            {" dari "}
+            <strong>{counts.all}</strong>
+            {" pengajuan."}
+          </div>
 
-                  {!saving && (
-                    <Icon name="arrow" size={17} />
-                  )}
-                </button>
+          {refreshing && (
+            <p className="mon-refresh-message">
+              Memperbarui data dari server...
+            </p>
+          )}
 
-                <button
-                  type="button"
-                  className="reg-button-disabled"
-                  disabled={true}
-                >
-                  <Icon name="lock" size={17} />
-                  Daftarkan Peserta Asli
-                </button>
-              </div>
+          {filtered.length === 0 ? (
+            <div className="mon-empty">
+              <Icon name="file" size={31} />
 
-              <p className="reg-form-footnote">
-                Simulasi dilakukan tanpa membuat akun,
-                peserta baru, atau program OJT.
+              <strong>
+                Tidak Ada Data Pengajuan
+              </strong>
+
+              <p>
+                Belum ada pengajuan yang sesuai
+                dengan filter atau pencarian.
               </p>
-            </form>
+            </div>
+          ) : (
+            <>
+              {/* TABEL DESKTOP */}
 
-            {/* HASIL SIMULASI */}
+              <div className="mon-table-scroll">
+                <table className="mon-table">
+                  <thead>
+                    <tr>
+                      <th>No</th>
+                      <th>Nama Peserta</th>
+                      <th>Departemen / Site</th>
+                      <th>Periode OJT</th>
+                      <th>Tanggal Pengajuan</th>
+                      <th>Status</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
 
-            {result?.dry_run === true && (
-              <section
-                className="reg-simulation-result"
-                role="status"
-              >
-                <div className="reg-result-head">
-                  <div className="reg-result-icon">
-                    <Icon name="check" size={23} />
-                  </div>
+                  <tbody>
+                    {filtered.map((item, index) => (
+                      <tr
+                        key={`${item.source}-${item.id}`}
+                      >
+                        <td>{index + 1}</td>
 
-                  <div>
-                    <h3>Simulasi Berhasil</h3>
-                    <p>
-                      Server mengonfirmasi mode dry run.
-                    </p>
-                  </div>
-                </div>
+                        <td>
+                          <div className="mon-person">
+                            <div className="mon-person-avatar">
+                              {initials(item.full_name)}
+                            </div>
 
-                <div className="reg-preview-grid">
-                  <PreviewItem
-                    label="Nama Peserta"
-                    value={result.preview?.full_name}
-                  />
+                            <div>
+                              <strong>
+                                {item.full_name ||
+                                  "Nama belum tersedia"}
+                              </strong>
 
-                  <PreviewItem
-                    label="Email"
-                    value={result.preview?.email}
-                  />
+                              <small>
+                                {item.email || "—"}
+                              </small>
 
-                  <PreviewItem
-                    label="Departemen"
-                    value={result.preview?.department}
-                  />
+                              <small>
+                                {item.source === "new"
+                                  ? "Pengajuan Baru"
+                                  : "Riwayat Lama"}
+                              </small>
+                            </div>
+                          </div>
+                        </td>
 
-                  <PreviewItem
-                    label="Site"
-                    value={result.preview?.site}
-                  />
+                        <td>
+                          <strong className="mon-cell-main">
+                            {item.department || "—"}
+                          </strong>
 
-                  <PreviewItem
-                    label="Tanggal Mulai"
-                    value={formatDate(
-                      result.preview?.start_date
-                    )}
-                  />
+                          <small className="mon-cell-sub">
+                            {item.site || "—"}
+                          </small>
+                        </td>
 
-                  <PreviewItem
-                    label="Tanggal Selesai"
-                    value={formatDate(
-                      result.preview?.end_date
-                    )}
-                  />
+                        <td>
+                          <span className="mon-period-cell">
+                            {formatDate(item.start_date)}
+                            <br />
+                            s.d. {formatDate(item.end_date)}
+                          </span>
+                        </td>
 
-                  <PreviewItem
-                    label="Status Program"
-                    value={result.preview?.status}
-                  />
-                </div>
+                        <td>
+                          {formatTime(item.created_at)}
+                        </td>
 
-                <div className="reg-result-confirm">
-                  <Icon name="shield" size={17} />
-                  Tidak ada akun atau program OJT yang
-                  dibuat melalui simulasi ini.
-                </div>
-              </section>
-            )}
-          </section>
+                        <td>
+                          <StatusBadge status={item.status} />
+                        </td>
 
-          {/* SIDEBAR */}
-
-          <aside className="reg-side">
-
-            {/* TIMELINE */}
-
-            <section className="reg-card">
-              <SectionHeading
-                icon="calendar"
-                title="Program OJT 2026–2027"
-                description="Timeline Kalender Global Week 01–25."
-              />
-
-              <div className="reg-timeline-labels">
-                <span>Mulai · Week 01</span>
-                <span>Selesai · Week 25</span>
+                        <td>
+                          <button
+                            type="button"
+                            className="mon-detail-button"
+                            onClick={() => setSelected(item)}
+                          >
+                            <Icon name="eye" size={15} />
+                            Detail
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
 
-              <div className="reg-week-timeline">
-                {Array.from(
-                  { length: TOTAL_WEEKS },
-                  (_, index) => (
-                    <div
-                      key={index}
-                      className={
-                        "reg-week-node " +
-                        (index === 0 ||
-                        index === TOTAL_WEEKS - 1
-                          ? "endpoint"
-                          : "")
-                      }
-                    >
-                      <div />
-                      <small>
-                        {String(index + 1).padStart(
-                          2,
-                          "0"
-                        )}
-                      </small>
-                    </div>
-                  )
-                )}
-              </div>
+              {/* MOBILE LIST */}
 
-              <p className="reg-timeline-caption">
-                12 September 2026 – 6 Maret 2027
-              </p>
-            </section>
-
-            {/* INFORMASI MENTOR */}
-
-            <section className="reg-card">
-              <SectionHeading
-                icon="users"
-                title="Informasi Pendaftaran"
-                description="Identitas pengguna dan status modul."
-              />
-
-              <div className="reg-info-list">
-                <div>
-                  <small>Status Modul</small>
-                  <strong className="reg-text-amber">
-                    Mode Pengujian
-                  </strong>
-                </div>
-
-                <div>
-                  <small>Pengguna Aktif</small>
-                  <strong>
-                    {mentor.full_name || "Mentor OJT"}
-                  </strong>
-                </div>
-
-                <div>
-                  <small>Hak Akses</small>
-                  <strong>Mentor OJT</strong>
-                </div>
-
-                <div>
-                  <small>Periode Program</small>
-                  <strong>Week 01–25</strong>
-                </div>
-
-                <div>
-                  <small>Organisasi</small>
-                  <strong>
-                    Emergency Response Group
-                  </strong>
-                </div>
-              </div>
-            </section>
-
-            {/* ALUR PENDAFTARAN */}
-
-            <section className="reg-card">
-              <SectionHeading
-                icon="clipboard"
-                title="Alur Pendaftaran"
-                description="Mekanisme pengajuan peserta OJT."
-              />
-
-              <div className="reg-process-list">
-                {[
-                  {
-                    title: "Pendaftaran Peserta",
-                    text: "Data peserta diisi melalui formulir pendaftaran.",
-                  },
-                  {
-                    title: "Verifikasi Data",
-                    text: "Data pengajuan diperiksa sesuai aturan sistem.",
-                  },
-                  {
-                    title: "Persetujuan Mentor",
-                    text: "Mentor meninjau kelengkapan pengajuan peserta.",
-                  },
-                  {
-                    title: "Persetujuan Admin",
-                    text: "Administrator melakukan verifikasi sesuai kewenangan.",
-                  },
-                  {
-                    title: "Akses Program OJT",
-                    text: "Akses mengikuti hasil persetujuan dalam sistem.",
-                  },
-                ].map((step, index) => (
+              <div className="mon-mobile-list">
+                {filtered.map((item) => (
                   <div
-                    className="reg-process-item"
-                    key={index}
+                    className="mon-mobile-item"
+                    key={`${item.source}-${item.id}`}
                   >
-                    <span
-                      className={
-                        "reg-process-number color-" +
-                        index
-                      }
-                    >
-                      {index + 1}
-                    </span>
+                    <div className="mon-mobile-person">
+                      <div className="mon-person-avatar">
+                        {initials(item.full_name)}
+                      </div>
 
-                    <div>
-                      <strong>{step.title}</strong>
-                      <p>{step.text}</p>
+                      <div>
+                        <strong>
+                          {item.full_name ||
+                            "Nama belum tersedia"}
+                        </strong>
+
+                        <small>
+                          {item.department || "—"}
+                          {" · "}
+                          {item.site || "—"}
+                        </small>
+                      </div>
+                    </div>
+
+                    <div className="mon-mobile-row">
+                      <span>Periode OJT</span>
+                      <strong>
+                        {formatDate(item.start_date)}
+                        {" – "}
+                        {formatDate(item.end_date)}
+                      </strong>
+                    </div>
+
+                    <div className="mon-mobile-row">
+                      <span>Tanggal Pengajuan</span>
+                      <strong>
+                        {formatTime(item.created_at)}
+                      </strong>
+                    </div>
+
+                    <div className="mon-mobile-bottom">
+                      <StatusBadge status={item.status} />
+
+                      <button
+                        type="button"
+                        className="mon-detail-button"
+                        onClick={() => setSelected(item)}
+                      >
+                        <Icon name="eye" size={15} />
+                        Detail
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
+            </>
+          )}
+        </section>
 
-              <button
-                type="button"
-                className="reg-link-button"
-                onClick={() =>
-                  navigate(
-                    "/mentor/persetujuan-peserta"
-                  )
-                }
-              >
-                Lihat Persetujuan Peserta
-                <Icon name="arrow" size={17} />
-              </button>
-            </section>
+        {/* ================================================
+            PROGRAM INFORMATION
+        ================================================ */}
 
-            {/* KEAMANAN API */}
+        <div className="mon-bottom-grid">
 
-            <section className="reg-card">
-              <SectionHeading
-                icon="shield"
-                title="Pengujian Keamanan API"
-                description="Periksa penguncian pendaftaran asli."
-              />
+          <section className="mon-card">
+            <SectionHeading
+              icon="calendar"
+              title="Program OJT 2026–2027"
+              description="Kalender Global OJT Week 01–25."
+            />
 
-              <div className="reg-security-box">
-                <Icon name="lock" size={21} />
-
-                <div>
-                  <strong>Registration Lock</strong>
-                  <small>
-                    Server harus menolak permintaan
-                    pendaftaran asli ketika fitur terkunci.
-                  </small>
-                </div>
+            <div className="mon-program-dates">
+              <div>
+                <span>Mulai · Week 01</span>
+                <strong>{PROGRAM_START}</strong>
               </div>
 
-              <button
-                type="button"
-                className="reg-button-security"
-                onClick={testSecurity}
-                disabled={saving || testing}
-              >
-                <Icon name="shield" size={17} />
+              <div>
+                <span>Selesai · Week 25</span>
+                <strong>{PROGRAM_END}</strong>
+              </div>
+            </div>
 
-                {testing
-                  ? "Sedang Menguji..."
-                  : "Uji Pengaman API"}
-              </button>
+            <div className="mon-week-timeline">
+              {Array.from(
+                { length: TOTAL_WEEKS },
+                (_, index) => (
+                  <div
+                    key={index}
+                    className={
+                      "mon-week-node " +
+                      (index === 0 ||
+                      index === TOTAL_WEEKS - 1
+                        ? "endpoint"
+                        : "")
+                    }
+                  >
+                    <div />
 
-              {securityResult && (
-                <div
-                  className={
-                    "reg-security-result " +
-                    (securityResult.passed
-                      ? "passed"
-                      : "failed")
-                  }
-                  role="status"
-                >
-                  <strong>
-                    {securityResult.passed
-                      ? "✓ Pengaman API Berfungsi"
-                      : "Pengujian Perlu Diperiksa"}
-                  </strong>
-
-                  <p>
-                    HTTP Status:{" "}
-                    <b>{securityResult.status}</b>
-                  </p>
-
-                  <p>{securityResult.message}</p>
-
-                  {securityResult.passed && (
                     <small>
-                      Server menolak permintaan sesuai
-                      respons pengujian yang diharapkan.
+                      {String(index + 1).padStart(
+                        2,
+                        "0"
+                      )}
                     </small>
-                  )}
-                </div>
+                  </div>
+                )
               )}
-            </section>
+            </div>
+
+            <p className="mon-program-note">
+              Timeline ini merupakan kalender global
+              program. Periode tiap pengajuan tetap
+              menggunakan tanggal yang tersimpan
+              pada sistem.
+            </p>
+          </section>
+
+          <section className="mon-card">
+            <SectionHeading
+              icon="clipboard"
+              title="Alur Pendaftaran Peserta"
+              description="Ringkasan proses pendaftaran dan monitoring."
+            />
+
+            <div className="mon-process-list">
+              {[
+                [
+                  "Pendaftaran",
+                  "Calon peserta mengisi formulir melalui halaman pendaftaran OJT.",
+                ],
+                [
+                  "Data Pengajuan",
+                  "Pengajuan masuk ke sistem untuk ditinjau Mentor.",
+                ],
+                [
+                  "Persetujuan Mentor",
+                  "Keputusan dilakukan pada menu Persetujuan Peserta sesuai fitur yang aktif.",
+                ],
+                [
+                  "Monitoring Status",
+                  "Status pengajuan dapat dipantau kembali pada halaman ini.",
+                ],
+              ].map(([title, description], index) => (
+                <div
+                  className="mon-process-item"
+                  key={title}
+                >
+                  <span>{index + 1}</span>
+
+                  <div>
+                    <strong>{title}</strong>
+                    <p>{description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
 
             <button
               type="button"
-              className="reg-back"
-              onClick={() => navigate("/")}
+              className="mon-process-button"
+              onClick={() =>
+                navigate("/mentor/persetujuan-peserta")
+              }
             >
-              <Icon name="back" size={17} />
-              Kembali ke Dashboard Mentor
+              Buka Dashboard Persetujuan
+              <Icon name="arrow" size={17} />
             </button>
-          </aside>
+          </section>
         </div>
 
-        <footer className="reg-footer">
+        {/* FOOTER */}
+
+        <div className="mon-bottom-actions">
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+          >
+            <Icon name="back" size={17} />
+            Kembali ke Dashboard Mentor
+          </button>
+        </div>
+
+        <footer className="mon-footer">
           <span>
             OJT MineTrack v2.0 · Emergency Response Group
           </span>
+
           <span>
             PT Berau Coal · Program 2026–2027
           </span>
         </footer>
       </main>
+
+      {/* ================================================
+          READ-ONLY DETAIL MODAL
+      ================================================ */}
+
+      {selected && (
+        <div
+          className="mon-modal-overlay"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setSelected(null);
+            }
+          }}
+        >
+          <section
+            className="mon-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mon-detail-title"
+          >
+            <div className="mon-modal-header">
+              <div className="mon-modal-icon">
+                <Icon name="user" size={22} />
+              </div>
+
+              <div>
+                <h2 id="mon-detail-title">
+                  Detail Pendaftaran Peserta
+                </h2>
+
+                <p>
+                  Informasi berdasarkan data aktual sistem.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="mon-close"
+                onClick={() => setSelected(null)}
+                aria-label="Tutup detail"
+              >
+                <Icon name="x" size={20} />
+              </button>
+            </div>
+
+            <div className="mon-modal-body">
+              <div className="mon-detail-grid">
+                <DetailField
+                  label="Nama Peserta"
+                  value={selected.full_name}
+                />
+
+                <DetailField
+                  label="Email"
+                  value={selected.email}
+                />
+
+                <DetailField
+                  label="Departemen"
+                  value={selected.department}
+                />
+
+                <DetailField
+                  label="Site"
+                  value={selected.site}
+                />
+
+                <DetailField
+                  label="Tanggal Mulai"
+                  value={formatDate(
+                    selected.start_date
+                  )}
+                />
+
+                <DetailField
+                  label="Tanggal Selesai"
+                  value={formatDate(
+                    selected.end_date
+                  )}
+                />
+
+                <DetailField
+                  label="Tanggal Pengajuan"
+                  value={formatTime(
+                    selected.created_at
+                  )}
+                />
+
+                <DetailField
+                  label="Sumber Data"
+                  value={
+                    selected.source === "new"
+                      ? "Pengajuan Baru"
+                      : "Riwayat Lama"
+                  }
+                />
+              </div>
+
+              <div className="mon-detail-status">
+                <span>Status Pendaftaran</span>
+                <StatusBadge
+                  status={selected.status}
+                />
+              </div>
+
+              {selected.rejection_reason && (
+                <div className="mon-detail-reason">
+                  <strong>Alasan Penolakan</strong>
+                  <p>{selected.rejection_reason}</p>
+                </div>
+              )}
+
+              <p className="mon-detail-note">
+                Detail ini bersifat informasi dan
+                tidak mengubah status pengajuan.
+              </p>
+
+              <div className="mon-modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setSelected(null)}
+                >
+                  Tutup
+                </button>
+
+                {selected.source === "new" &&
+                  selected.status === "pending" && (
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => {
+                        setSelected(null);
+                        navigate(
+                          "/mentor/persetujuan-peserta"
+                        );
+                      }}
+                    >
+                      Menu Persetujuan
+                      <Icon name="arrow" size={16} />
+                    </button>
+                  )}
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
 
 // ======================================================
-// CSS MODERN CORPORATE DASHBOARD
+// CSS — CORPORATE NAVY & EMERALD
 // ======================================================
 
 const css = `
-.reg-app,
-.reg-app * {
+.mon-app,
+.mon-app * {
   box-sizing: border-box;
 }
 
-.reg-app {
+.mon-app {
   min-height: 100vh;
   background: #edf3f7;
   color: #173654;
   font-family: Arial, Helvetica, sans-serif;
+  font-size: 12px;
 }
 
-.reg-app button,
-.reg-app input,
-.reg-app select {
+.mon-app button,
+.mon-app input {
   font-family: inherit;
 }
 
-.reg-app button {
+.mon-app button {
   cursor: pointer;
 }
 
-.reg-app button:disabled {
+.mon-app button:disabled {
+  opacity: .5;
   cursor: not-allowed;
-  opacity: .52;
 }
 
-.reg-app button:focus-visible,
-.reg-app input:focus-visible,
-.reg-app select:focus-visible {
+.mon-app button:focus-visible,
+.mon-app input:focus-visible {
   outline: 3px solid #60d8bd;
   outline-offset: 2px;
 }
 
-/* TOP NAVIGATION */
+/* TOPBAR */
 
-.reg-topbar {
+.mon-topbar {
   position: sticky;
   top: 0;
   z-index: 40;
+
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 17px;
+
   min-height: 76px;
-  padding: 11px 29px;
+  padding: 11px 28px;
+
   background: #081e35;
-  border-bottom: 1px solid #ffffff2c;
   color: white;
+  border-bottom: 1px solid #ffffff2c;
   box-shadow: 0 5px 20px #0a294024;
 }
 
-.reg-brand {
+.mon-brand {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+
   padding: 0;
   border: 0;
   background: transparent;
@@ -1408,31 +1467,33 @@ const css = `
   text-align: left;
 }
 
-.reg-brand-icon {
+.mon-brand-icon {
   display: grid;
   place-items: center;
+
   flex-shrink: 0;
   width: 40px;
   height: 40px;
+
   border: 1px solid #49cbb88a;
   border-radius: 11px;
   background: #0c78736e;
   color: #71e8c7;
 }
 
-.reg-brand-copy strong {
+.mon-brand-copy strong {
   display: block;
   font-size: 21px;
+  letter-spacing: -.5px;
   white-space: nowrap;
-  letter-spacing: -.4px;
 }
 
-.reg-brand-copy strong em {
-  font-style: normal;
+.mon-brand-copy strong em {
   color: #5de1c1;
+  font-style: normal;
 }
 
-.reg-brand-copy strong small {
+.mon-brand-copy strong small {
   margin-left: 7px;
   padding: 4px 6px;
   border-radius: 5px;
@@ -1441,30 +1502,31 @@ const css = `
   font-size: 10px;
 }
 
-.reg-brand-copy > span {
+.mon-brand-copy > span {
   display: block;
   margin-top: 5px;
   color: #c4d8e4;
   font-size: 8px;
-  letter-spacing: 1px;
   font-weight: 800;
+  letter-spacing: 1px;
 }
 
-.reg-navigation {
+.mon-nav {
   display: flex;
-  justify-content: center;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: center;
   gap: 5px;
 }
 
-.reg-navigation button {
+.mon-nav button {
   display: flex;
   align-items: center;
   gap: 8px;
+
   padding: 11px 12px;
   border: 0;
   border-radius: 8px;
+
   background: transparent;
   color: #c7dae5;
   font-size: 11px;
@@ -1472,29 +1534,31 @@ const css = `
   white-space: nowrap;
 }
 
-.reg-navigation button:hover {
+.mon-nav button:hover {
   background: #ffffff18;
 }
 
-.reg-navigation button.active {
+.mon-nav button.active {
   background: #0c807b;
   color: white;
   box-shadow: inset 0 -2px #68ecd2;
 }
 
-.reg-account {
+.mon-account {
   display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
 }
 
-.reg-account-avatar {
+.mon-account-avatar {
   display: grid;
   place-items: center;
+
   flex-shrink: 0;
   width: 37px;
   height: 37px;
+
   border-radius: 50%;
   background: #d8f6eb;
   color: #08795d;
@@ -1502,26 +1566,23 @@ const css = `
   font-weight: 900;
 }
 
-.reg-account-info {
-  min-width: 0;
-}
-
-.reg-account-info strong {
+.mon-account-info strong {
   display: block;
   max-width: 155px;
-  font-size: 11px;
   overflow-wrap: anywhere;
+  font-size: 11px;
 }
 
-.reg-account-info small {
+.mon-account-info small {
   display: block;
   margin-top: 4px;
   color: #b3cbd6;
   font-size: 10px;
 }
 
-.reg-mobile-toggle {
+.mon-mobile-toggle {
   display: none;
+  padding: 7px;
   border: 0;
   background: transparent;
   color: white;
@@ -1529,99 +1590,105 @@ const css = `
 
 /* CONTAINER */
 
-.reg-container {
+.mon-container {
   max-width: 1500px;
-  margin: 0 auto;
+  margin: auto;
   padding: 23px;
 }
 
-/* HERO BANNER */
+/* HERO */
 
-.reg-hero {
+.mon-hero {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   gap: 30px;
+
   min-height: 230px;
   padding: 30px 34px;
+  overflow: hidden;
+
   border-radius: 16px;
   background-color: #0c2d47;
-  background-size: cover;
   background-position: center 44%;
-  overflow: hidden;
+  background-size: cover;
+
   color: white;
   box-shadow: 0 9px 27px #12385220;
 }
 
-.reg-hero-content {
+.mon-hero-content {
   max-width: 750px;
 }
 
-.reg-kicker {
+.mon-kicker {
   color: #e6c17a;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 1.4px;
 }
 
-.reg-hero h1 {
+.mon-hero h1 {
   margin: 12px 0;
   font-size: clamp(29px,3.3vw,44px);
-  letter-spacing: -.8px;
   line-height: 1.15;
+  letter-spacing: -.8px;
 }
 
-.reg-hero h1 span {
+.mon-hero h1 span {
   color: #5be3c2;
 }
 
-.reg-hero p {
-  max-width: 620px;
+.mon-hero p {
+  max-width: 650px;
   margin: 0;
   color: #e0ebef;
   font-size: 12px;
   line-height: 1.8;
 }
 
-.reg-hero-meta {
+.mon-hero-tags {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 9px;
   margin-top: 18px;
 }
 
-.reg-hero-meta span {
+.mon-hero-tags span {
   display: flex;
   align-items: center;
   gap: 7px;
+
   padding: 7px 10px;
   border: 1px solid #ffffff4c;
   border-radius: 20px;
+
   background: #092b42a8;
   color: #e4f4f0;
   font-size: 10px;
   font-weight: 750;
 }
 
-.reg-hero-meta svg {
+.mon-hero-tags svg {
   color: #83e7c9;
 }
 
-.reg-hero-status {
+.mon-hero-summary {
   display: grid;
   justify-items: center;
   gap: 9px;
   flex-shrink: 0;
+
   min-width: 175px;
   padding: 18px 16px;
+
   border: 1px solid #ffffff5b;
   border-radius: 13px;
   background: #062641c7;
   text-align: center;
 }
 
-.reg-status-icon {
+.mon-hero-summary-icon {
   display: grid;
   place-items: center;
   width: 43px;
@@ -1631,25 +1698,25 @@ const css = `
   color: #108868;
 }
 
-.reg-hero-status small {
+.mon-hero-summary small {
   color: #aacbd9;
   font-size: 9px;
   font-weight: 900;
   letter-spacing: .8px;
 }
 
-.reg-hero-status strong {
-  font-size: 17px;
+.mon-hero-summary > strong {
+  font-size: 38px;
 }
 
-.reg-hero-status > span {
+.mon-hero-summary > span:last-child {
   color: #d6e5ea;
   font-size: 10px;
 }
 
 /* BREADCRUMB */
 
-.reg-breadcrumb {
+.mon-breadcrumb {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1658,7 +1725,7 @@ const css = `
   color: #8ba2af;
 }
 
-.reg-breadcrumb button {
+.mon-breadcrumb button {
   padding: 0;
   border: 0;
   background: transparent;
@@ -1666,32 +1733,67 @@ const css = `
   font-weight: 750;
 }
 
-.reg-breadcrumb strong {
+.mon-breadcrumb strong {
   color: #087c75;
 }
 
-/* FOUR SUMMARY CARDS */
+/* ALERT */
 
-.reg-summary-grid {
+.mon-alert {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 15px;
+  padding: 13px 15px;
+  border: 1px solid #f3c8c8;
+  border-radius: 10px;
+  background: #fff1f1;
+  color: #b12b2b;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.mon-alert span {
+  flex: 1;
+}
+
+.mon-alert button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+/* STATS */
+
+.mon-stat-grid {
   display: grid;
   grid-template-columns: repeat(4,minmax(0,1fr));
   gap: 13px;
   margin-bottom: 16px;
 }
 
-.reg-summary-card {
+.mon-stat {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
+
   min-height: 125px;
   padding: 17px;
+
   border: 1px solid #dce7ee;
   border-radius: 12px;
-  background: #ffffff;
+  background: white;
+
+  text-align: left;
   box-shadow: 0 6px 20px #0d355015;
 }
 
-.reg-summary-icon {
+.mon-stat.selected {
+  outline: 2px solid #58cfae;
+  outline-offset: -2px;
+}
+
+.mon-stat-icon {
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -1700,66 +1802,70 @@ const css = `
   border-radius: 11px;
 }
 
-.reg-summary-icon.green {
-  background: #def8ed;
-  color: #078c67;
-}
-
-.reg-summary-icon.blue {
+.mon-stat.blue .mon-stat-icon {
   background: #e0effe;
   color: #1979bf;
 }
 
-.reg-summary-icon.gold {
+.mon-stat.amber .mon-stat-icon {
   background: #fff1d8;
-  color: #be891c;
+  color: #c18a20;
 }
 
-.reg-summary-icon.teal {
-  background: #ddf7f4;
-  color: #068e89;
+.mon-stat.green .mon-stat-icon {
+  background: #def8ed;
+  color: #078c67;
 }
 
-.reg-summary-content {
+.mon-stat.rose .mon-stat-icon {
+  background: #fff0f2;
+  color: #c94c62;
+}
+
+.mon-stat-content {
+  display: grid;
+  flex: 1;
+  gap: 5px;
   min-width: 0;
 }
 
-.reg-summary-content > span {
-  display: block;
+.mon-stat-content small {
   color: #73899b;
   font-size: 10px;
+  font-weight: 800;
 }
 
-.reg-summary-content > strong {
-  display: block;
-  margin-top: 6px;
+.mon-stat-content strong {
   color: #123d6b;
-  font-size: 13px;
-  line-height: 1.35;
-  font-weight: 900;
+  font-size: 30px;
 }
 
-.reg-summary-content > p {
-  margin: 7px 0 0;
-  color: #73869a;
+.mon-stat-content > span {
+  color: #8497a5;
   font-size: 10px;
-  line-height: 1.55;
 }
 
-/* MODE NOTICE */
+.mon-stat > svg {
+  flex-shrink: 0;
+  color: #93a7b7;
+}
 
-.reg-notice {
+/* NOTICE */
+
+.mon-notice {
   display: flex;
   align-items: center;
   gap: 14px;
+
   padding: 15px 18px;
   margin-bottom: 17px;
+
   border: 1px solid #c7e4ed;
   border-radius: 12px;
   background: #eaf6fa;
 }
 
-.reg-notice-icon {
+.mon-notice-icon {
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -1770,42 +1876,42 @@ const css = `
   color: #2577a1;
 }
 
-.reg-notice > div:nth-child(2) {
+.mon-notice > div:nth-child(2) {
   flex: 1;
 }
 
-.reg-notice strong {
+.mon-notice strong {
   color: #225b7a;
   font-size: 12px;
 }
 
-.reg-notice p {
+.mon-notice p {
   margin: 5px 0 0;
   color: #5e8191;
   font-size: 11px;
   line-height: 1.6;
 }
 
-.reg-notice-badge {
-  padding: 8px 10px;
-  border-radius: 7px;
-  background: #d8eaf3;
-  color: #2a6d8d;
-  font-size: 10px;
+.mon-notice > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 11px 13px;
+  border: 0;
+  border-radius: 8px;
+
+  background: #087d76;
+  color: white;
+  font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
 }
 
-/* MAIN GRID */
+/* MAIN CARD */
 
-.reg-main-grid {
-  display: grid;
-  grid-template-columns: minmax(0,1.15fr) minmax(0,.85fr);
-  align-items: start;
-  gap: 16px;
-}
-
-.reg-card {
+.mon-card {
   min-width: 0;
   padding: 21px;
   border: 1px solid #dce7ef;
@@ -1814,25 +1920,21 @@ const css = `
   box-shadow: 0 6px 20px #17384d0d;
 }
 
-.reg-form-card {
-  padding: 22px;
-}
-
-.reg-side {
-  display: grid;
+.mon-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 15px;
+  margin-bottom: 19px;
 }
 
-/* SECTION HEADING */
-
-.reg-section-heading {
+.mon-section-title {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
 }
 
-.reg-heading-icon {
+.mon-section-icon {
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -1843,380 +1945,334 @@ const css = `
   color: white;
 }
 
-.reg-section-heading h2 {
+.mon-section-title h2 {
   margin: 0;
   color: #123e70;
   font-size: 17px;
-  line-height: 1.3;
 }
 
-.reg-section-heading p {
+.mon-section-title p {
   margin: 5px 0 0;
   color: #7d91a2;
   font-size: 11px;
   line-height: 1.5;
 }
 
-/* FORM */
-
-.reg-subheading {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  margin: 5px 0 17px;
-}
-
-.reg-subheading.second {
-  margin-top: 23px;
-  padding-top: 19px;
-  border-top: 1px solid #e6eef3;
-}
-
-.reg-subheading > span {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 33px;
-  height: 33px;
-  border-radius: 9px;
-  background: #09877c;
-  color: white;
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.reg-subheading strong,
-.reg-subheading small {
-  display: block;
-}
-
-.reg-subheading strong {
-  color: #244660;
-  font-size: 13px;
-}
-
-.reg-subheading small {
-  margin-top: 5px;
-  color: #8799a8;
-  font-size: 10px;
-}
-
-.reg-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 15px 12px;
-}
-
-.reg-field {
-  display: block;
-  min-width: 0;
-}
-
-.reg-label {
-  display: block;
-  margin-bottom: 8px;
-  color: #304b68;
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.reg-input-wrap {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 0 11px;
-  border: 1px solid #d5e2eb;
-  border-radius: 8px;
-  background: #fdfefe;
-  color: #7f99ac;
-}
-
-.reg-input-wrap:focus-within {
-  border-color: #099c8f;
-  box-shadow: 0 0 0 3px #099c8f15;
-}
-
-.reg-input-wrap > svg {
-  flex-shrink: 0;
-}
-
-.reg-input-wrap input,
-.reg-input-wrap select {
-  width: 100%;
-  min-width: 0;
-  min-height: 42px;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #173b5a;
-  font-size: 12px;
-}
-
-.reg-input-wrap input::placeholder {
-  color: #9cabb9;
-}
-
-.reg-hint {
-  display: block;
-  margin-top: 6px;
-  color: #8195a3;
-  font-size: 10px;
-}
-
-/* INLINE INFORMATION */
-
-.reg-inline-info {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 15px;
-  padding: 11px 13px;
-  border-radius: 8px;
-  background: #f1faf7;
-  color: #4e8273;
-  font-size: 10px;
-  line-height: 1.6;
-}
-
-.reg-inline-info svg {
-  flex-shrink: 0;
-}
-
-/* FIXED PROGRAM PERIOD */
-
-.reg-fixed-period {
-  padding: 15px;
-  border: 1px solid #d0e7f4;
-  border-radius: 10px;
-  background: #eaf6fd;
-}
-
-.reg-fixed-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  color: #145484;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.reg-fixed-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.reg-date-box {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-  padding: 12px;
-  border-radius: 8px;
-  background: #dceefd;
-  color: #206b9e;
-}
-
-.reg-date-box > div {
-  min-width: 0;
-  flex: 1;
-}
-
-.reg-date-box span,
-.reg-date-box small {
-  display: block;
-  font-size: 9px;
-}
-
-.reg-date-box strong {
-  display: block;
-  margin: 6px 0;
-  color: #123e70;
-  font-size: 12px;
-}
-
-.reg-fixed-period > p {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 12px 0 0;
-  color: #3b78a0;
-  font-size: 10px;
-  line-height: 1.6;
-}
-
-.reg-fixed-period > p svg {
-  flex-shrink: 0;
-}
-
-/* FORM BUTTONS */
-
-.reg-form-actions {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.reg-button-primary,
-.reg-button-disabled,
-.reg-button-security {
+.mon-refresh {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 45px;
-  padding: 11px;
+  padding: 11px 14px;
+  border: 1px solid #d8e6e9;
+  border-radius: 8px;
+  background: #f7fafc;
+  color: #206d65;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+/* FILTERS */
+
+.mon-filterbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e6eef3;
+  border-radius: 10px;
+  background: #f6f9fb;
+}
+
+.mon-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mon-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
   border: 0;
   border-radius: 8px;
+  background: transparent;
+  color: #627f90;
   font-size: 11px;
   font-weight: 900;
 }
 
-.reg-button-primary {
-  background: linear-gradient(100deg,#08776f,#09a69a);
+.mon-tabs button.active {
+  background: #087d76;
   color: white;
 }
 
-.reg-button-primary:hover:not(:disabled) {
-  background: #08786d;
-}
-
-.reg-button-disabled {
-  background: #e6edf2;
-  color: #8497a7;
-}
-
-.reg-form-footnote {
-  margin: 13px 0 0;
-  color: #8a9dac;
-  text-align: center;
-  font-size: 10px;
-  line-height: 1.6;
-}
-
-/* ERRORS */
-
-.reg-alert {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  margin-top: 15px;
-  padding: 13px;
-  border-radius: 8px;
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.reg-alert.error {
-  border: 1px solid #f7c8c8;
-  background: #fff2f2;
-  color: #b52d2d;
-}
-
-/* SIMULATION RESULT */
-
-.reg-simulation-result {
-  margin-top: 23px;
-  padding: 17px;
-  border: 1px solid #b9e5ce;
-  border-radius: 11px;
-  background: #f0faf5;
-}
-
-.reg-result-head {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  margin-bottom: 15px;
-}
-
-.reg-result-icon {
+.mon-tabs button > span {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: #d7f4e4;
-  color: #098a60;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #e5edf2;
+  color: #486474;
+  font-size: 10px;
 }
 
-.reg-result-head h3 {
-  margin: 0;
-  color: #087b56;
-  font-size: 15px;
+.mon-tabs button.active > span {
+  background: #ffffff30;
+  color: white;
 }
 
-.reg-result-head p {
-  margin: 5px 0 0;
-  color: #668b79;
+.mon-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 245px;
+  padding: 0 12px;
+  border: 1px solid #d7e4eb;
+  border-radius: 8px;
+  background: white;
+  color: #8ca2af;
+}
+
+.mon-search input {
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #1a3c56;
   font-size: 11px;
 }
 
-.reg-preview-grid {
+.mon-result-count {
+  padding: 13px 2px;
+  color: #8497a4;
+  font-size: 10px;
+}
+
+.mon-result-count strong {
+  color: #087d73;
+}
+
+.mon-refresh-message {
+  color: #26778a;
+  font-size: 11px;
+}
+
+/* TABLE */
+
+.mon-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.mon-table {
+  width: 100%;
+  min-width: 1040px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 11px;
+}
+
+.mon-table th {
+  padding: 13px 11px;
+  background: #eaf1f6;
+  color: #426178;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.mon-table td {
+  padding: 14px 11px;
+  border-bottom: 1px solid #eaf0f3;
+  color: #355265;
+  vertical-align: middle;
+}
+
+.mon-table tbody tr:hover {
+  background: #fafdfc;
+}
+
+.mon-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 160px;
+}
+
+.mon-person-avatar {
   display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 9px;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #ddf3e8;
+  color: #087954;
+  font-size: 12px;
+  font-weight: 900;
 }
 
-.reg-preview-item {
-  padding: 11px;
-  min-width: 0;
-  border: 1px solid #d8ebe0;
-  border-radius: 8px;
-  background: white;
-}
-
-.reg-preview-item span,
-.reg-preview-item strong {
+.mon-person strong,
+.mon-person small {
   display: block;
 }
 
-.reg-preview-item span {
-  color: #83998c;
-  font-size: 10px;
+.mon-person strong {
+  color: #20405a;
+  font-size: 11px;
 }
 
-.reg-preview-item strong {
-  margin-top: 6px;
-  font-size: 11px;
+.mon-person small {
+  margin-top: 5px;
+  color: #879baa;
+  font-size: 10px;
   overflow-wrap: anywhere;
 }
 
-.reg-result-confirm {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 13px;
-  color: #0d8058;
-  font-size: 10px;
-  font-weight: 800;
+.mon-cell-main,
+.mon-cell-sub {
+  display: block;
 }
 
-/* PROGRAM TIMELINE */
+.mon-cell-main {
+  font-size: 11px;
+}
 
-.reg-timeline-labels {
+.mon-cell-sub {
+  margin-top: 5px;
+  color: #8197a6;
+  font-size: 10px;
+}
+
+.mon-period-cell {
+  font-size: 10px;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+/* STATUS */
+
+.mon-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.mon-status.pending {
+  background: #fff3d9;
+  color: #ad7a23;
+}
+
+.mon-status.approved {
+  background: #dff6e9;
+  color: #078257;
+}
+
+.mon-status.rejected {
+  background: #fff0f2;
+  color: #c14d61;
+}
+
+.mon-status.unknown {
+  background: #edf2f5;
+  color: #78909d;
+}
+
+.mon-detail-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #e7f1fd;
+  color: #286ba7;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.mon-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 45px 20px;
+  color: #8ca1b0;
+  text-align: center;
+}
+
+.mon-empty strong {
+  color: #47697d;
+  font-size: 14px;
+}
+
+.mon-empty p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.mon-mobile-list {
+  display: none;
+}
+
+/* BOTTOM PANELS */
+
+.mon-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 15px;
+  margin-top: 16px;
+}
+
+.mon-program-dates {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 27px;
-  color: #078477;
+  gap: 13px;
+  margin-top: 22px;
+}
+
+.mon-program-dates > div {
+  display: grid;
+  gap: 6px;
+}
+
+.mon-program-dates > div:last-child {
+  text-align: right;
+}
+
+.mon-program-dates span {
+  color: #0e8581;
   font-size: 10px;
   font-weight: 900;
 }
 
-.reg-week-timeline {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  margin-top: 18px;
+.mon-program-dates strong {
+  color: #254a66;
+  font-size: 11px;
 }
 
-.reg-week-timeline::before {
+.mon-week-timeline {
+  position: relative;
+  display: flex;
+  margin-top: 22px;
+}
+
+.mon-week-timeline::before {
   content: "";
   position: absolute;
   top: 5px;
@@ -2226,7 +2282,7 @@ const css = `
   background: #2cbfc1;
 }
 
-.reg-week-node {
+.mon-week-node {
   position: relative;
   z-index: 1;
   flex: 1;
@@ -2234,7 +2290,7 @@ const css = `
   text-align: center;
 }
 
-.reg-week-node > div {
+.mon-week-node > div {
   width: 9px;
   height: 9px;
   margin: 1px auto 8px;
@@ -2243,7 +2299,7 @@ const css = `
   background: #d7fcfc;
 }
 
-.reg-week-node.endpoint > div {
+.mon-week-node.endpoint > div {
   width: 15px;
   height: 15px;
   margin-top: -2px;
@@ -2252,109 +2308,77 @@ const css = `
   background: #09a69c;
 }
 
-.reg-week-node small {
-  display: block;
+.mon-week-node small {
   color: #7894aa;
   font-size: 7px;
 }
 
-.reg-timeline-caption {
-  margin: 16px 0 0;
-  color: #64849b;
-  text-align: center;
+.mon-program-note {
+  margin: 20px 0 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #eff8fb;
+  color: #5d8299;
   font-size: 10px;
+  line-height: 1.7;
 }
 
-/* INFORMATION LIST */
+/* PROCESS */
 
-.reg-info-list > div {
+.mon-process-list {
+  display: grid;
+  gap: 15px;
+  margin-top: 19px;
+}
+
+.mon-process-item {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid #edf2f5;
 }
 
-.reg-info-list > div:last-child {
-  border-bottom: 0;
-}
-
-.reg-info-list small {
-  color: #8295a4;
-  font-size: 10px;
-}
-
-.reg-info-list strong {
-  color: #244965;
-  font-size: 11px;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-
-.reg-info-list .reg-text-amber {
-  color: #ad771f;
-}
-
-/* APPROVAL PROCESS */
-
-.reg-process-list {
-  display: grid;
-  gap: 16px;
-}
-
-.reg-process-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-}
-
-.reg-process-number {
+.mon-process-item > span {
   display: grid;
   place-items: center;
   flex-shrink: 0;
   width: 29px;
   height: 29px;
   border-radius: 50%;
-  background: #177ec4;
+  background: #1188bc;
   color: white;
   font-size: 11px;
   font-weight: 900;
 }
 
-.reg-process-number.color-1,
-.reg-process-number.color-4 {
-  background: #0eaa92;
+.mon-process-item:nth-child(2) > span,
+.mon-process-item:nth-child(4) > span {
+  background: #0da78e;
 }
 
-.reg-process-number.color-2 {
-  background: #d3a133;
+.mon-process-item:nth-child(3) > span {
+  background: #d09c31;
 }
 
-.reg-process-number.color-3 {
-  background: #327bd2;
-}
-
-.reg-process-item strong {
-  color: #214767;
+.mon-process-item strong {
+  color: #244967;
   font-size: 11px;
 }
 
-.reg-process-item p {
+.mon-process-item p {
   margin: 5px 0 0;
-  color: #7d91a1;
+  color: #7d93a3;
   font-size: 10px;
   line-height: 1.5;
 }
 
-.reg-link-button {
+.mon-process-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  margin-top: 18px;
-  padding: 11px;
+  margin-top: 20px;
+  padding: 12px;
   border: 1px solid #a7d7ce;
   border-radius: 8px;
   background: #ebf9f5;
@@ -2363,87 +2387,17 @@ const css = `
   font-weight: 900;
 }
 
-/* SECURITY API */
+/* FOOTER */
 
-.reg-security-box {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  margin-bottom: 13px;
-  padding: 13px;
-  border-radius: 9px;
-  background: #edf6fd;
-  color: #246c98;
+.mon-bottom-actions {
+  margin-top: 17px;
 }
 
-.reg-security-box > svg {
-  flex-shrink: 0;
-}
-
-.reg-security-box strong,
-.reg-security-box small {
-  display: block;
-}
-
-.reg-security-box strong {
-  font-size: 12px;
-}
-
-.reg-security-box small {
-  margin-top: 5px;
-  font-size: 10px;
-  line-height: 1.5;
-}
-
-.reg-button-security {
-  width: 100%;
-  background: #176ab4;
-  color: white;
-}
-
-.reg-button-security:hover:not(:disabled) {
-  background: #13568f;
-}
-
-.reg-security-result {
-  margin-top: 13px;
-  padding: 12px;
-  border-radius: 9px;
-  font-size: 11px;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-
-.reg-security-result strong {
-  display: block;
-}
-
-.reg-security-result p {
-  margin: 7px 0;
-}
-
-.reg-security-result.passed {
-  border: 1px solid #bee5cf;
-  background: #eefaf3;
-  color: #08794d;
-}
-
-.reg-security-result.failed {
-  border: 1px solid #f6c9c9;
-  background: #fff1f1;
-  color: #b32d2d;
-}
-
-/* BACK BUTTON */
-
-.reg-back {
+.mon-bottom-actions button {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 9px;
-  width: 100%;
-  min-height: 44px;
-  padding: 11px;
+  padding: 12px 16px;
   border: 1px solid #b8dcd1;
   border-radius: 9px;
   background: #e7f6f1;
@@ -2452,11 +2406,11 @@ const css = `
   font-weight: 900;
 }
 
-.reg-footer {
+.mon-footer {
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 9px;
+  gap: 12px;
   margin-top: 23px;
   padding: 15px 2px;
   border-top: 1px solid #d9e4ec;
@@ -2464,9 +2418,182 @@ const css = `
   font-size: 10px;
 }
 
+/* MODAL */
+
+.mon-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #061e2acd;
+}
+
+.mon-modal {
+  width: min(100%,570px);
+  max-height: 92vh;
+  overflow-y: auto;
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 25px 65px #00192355;
+}
+
+.mon-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  border-bottom: 1px solid #e8eef3;
+}
+
+.mon-modal-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 43px;
+  height: 43px;
+  border-radius: 11px;
+  background: #e1f6ea;
+  color: #07865d;
+}
+
+.mon-modal-header > div:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.mon-modal-header h2 {
+  margin: 0;
+  color: #173e63;
+  font-size: 17px;
+}
+
+.mon-modal-header p {
+  margin: 6px 0 0;
+  color: #8398a7;
+  font-size: 11px;
+}
+
+.mon-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: #f1f5f7;
+  color: #71848f;
+}
+
+.mon-modal-body {
+  padding: 20px;
+}
+
+.mon-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mon-detail-field {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dce8ef;
+  border-radius: 8px;
+  background: #f8fbfd;
+}
+
+.mon-detail-field span {
+  display: block;
+  color: #8297a6;
+  font-size: 10px;
+}
+
+.mon-detail-field strong {
+  display: block;
+  margin-top: 6px;
+  color: #244b67;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.mon-detail-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 15px;
+  padding: 13px;
+  border-radius: 8px;
+  background: #f3f8fa;
+}
+
+.mon-detail-status > span {
+  color: #668092;
+  font-size: 11px;
+}
+
+.mon-detail-reason {
+  margin-top: 14px;
+  padding: 13px;
+  border-radius: 8px;
+  background: #fff3f3;
+}
+
+.mon-detail-reason strong {
+  color: #af4d5b;
+  font-size: 11px;
+}
+
+.mon-detail-reason p {
+  margin: 8px 0 0;
+  color: #9b6570;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.mon-detail-note {
+  margin-top: 15px;
+  color: #7f92a2;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.mon-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.mon-modal-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 43px;
+  padding: 11px 15px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.mon-modal-actions .secondary {
+  background: #e9eff2;
+  color: #526b78;
+}
+
+.mon-modal-actions .primary {
+  background: #078b76;
+  color: white;
+}
+
 /* LOADING */
 
-.reg-loading {
+.mon-loading {
   display: grid;
   place-items: center;
   min-height: 100vh;
@@ -2477,59 +2604,46 @@ const css = `
   color: #15394e;
 }
 
-.reg-loading h2 span {
+.mon-loading h2 span {
   color: #078e72;
 }
 
-.reg-loading p {
+.mon-loading p {
   color: #718a9c;
+  line-height: 1.6;
 }
 
-.reg-loading button {
-  padding: 12px;
+.mon-loading button {
+  margin-top: 12px;
+  padding: 12px 15px;
   border: 0;
   border-radius: 8px;
   background: #078977;
   color: white;
+  font-weight: 800;
   cursor: pointer;
 }
 
-/* TABLET */
+/* RESPONSIVE */
 
-@media(max-width:1200px) {
-  .reg-topbar {
+@media(max-width:1250px) {
+  .mon-topbar {
     gap: 10px;
     padding: 11px 17px;
   }
 
-  .reg-navigation button {
+  .mon-nav button {
     padding: 10px 8px;
     font-size: 10px;
   }
 
-  .reg-summary-grid {
+  .mon-stat-grid {
     grid-template-columns: repeat(2,minmax(0,1fr));
-  }
-
-  .reg-main-grid {
-    grid-template-columns: minmax(0,1.05fr) minmax(0,.95fr);
   }
 }
 
 @media(max-width:1000px) {
-  .reg-main-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .reg-side {
-    grid-template-columns: repeat(2,minmax(0,1fr));
-  }
-
-  .reg-side .reg-back {
-    grid-column: 1 / -1;
-  }
-
-  .reg-navigation {
+  .mon-nav {
     display: none;
     position: absolute;
     top: 100%;
@@ -2540,149 +2654,269 @@ const css = `
     border-bottom: 1px solid #ffffff2d;
   }
 
-  .reg-navigation.open {
+  .mon-nav.open {
     display: grid;
   }
 
-  .reg-navigation button {
-    font-size: 12px;
+  .mon-nav button {
     padding: 12px;
+    font-size: 12px;
   }
 
-  .reg-account {
+  .mon-account {
     margin-left: auto;
   }
 
-  .reg-mobile-toggle {
+  .mon-mobile-toggle {
     display: grid;
     place-items: center;
-    padding: 8px;
+  }
+
+  .mon-bottom-grid {
+    grid-template-columns: 1fr;
   }
 }
 
-/* MOBILE */
-
 @media(max-width:700px) {
-  .reg-container {
-    padding: 11px;
-  }
-
-  .reg-topbar {
+  .mon-topbar {
     min-height: 65px;
     padding: 10px 12px;
   }
 
-  .reg-brand-copy strong {
+  .mon-brand-copy strong {
     font-size: 16px;
   }
 
-  .reg-brand-copy > span {
+  .mon-brand-copy > span {
     font-size: 6.5px;
   }
 
-  .reg-brand-icon {
+  .mon-brand-icon {
     width: 35px;
     height: 35px;
   }
 
-  .reg-account-info {
+  .mon-account-info {
     display: none;
   }
 
-  .reg-hero {
+  .mon-container {
+    padding: 11px;
+  }
+
+  .mon-hero {
     flex-direction: column;
     align-items: stretch;
     gap: 20px;
     padding: 23px 18px;
   }
 
-  .reg-hero h1 {
+  .mon-hero h1 {
     font-size: 29px;
   }
 
-  .reg-hero-status {
+  .mon-hero-summary {
     width: 100%;
   }
 
-  .reg-summary-grid {
-    grid-template-columns: 1fr;
+  .mon-stat-grid {
     gap: 9px;
   }
 
-  .reg-summary-card {
-    min-height: 0;
-    padding: 13px;
+  .mon-stat {
+    min-height: 110px;
+    padding: 12px;
+    gap: 9px;
   }
 
-  .reg-notice {
+  .mon-stat-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .mon-stat-content strong {
+    font-size: 25px;
+  }
+
+  .mon-stat > svg {
+    display: none;
+  }
+
+  .mon-notice {
     flex-wrap: wrap;
     padding: 13px;
   }
 
-  .reg-card {
+  .mon-notice > button {
+    width: 100%;
+  }
+
+  .mon-card {
     padding: 15px;
   }
 
-  .reg-form-grid {
-    grid-template-columns: 1fr;
+  .mon-section-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .reg-fixed-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .reg-form-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .reg-preview-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .reg-side {
-    grid-template-columns: 1fr;
-  }
-
-  .reg-side .reg-back {
-    grid-column: auto;
-  }
-
-  .reg-section-heading h2 {
+  .mon-section-title h2 {
     font-size: 15px;
   }
 
-  .reg-footer {
+  .mon-refresh {
+    width: 100%;
+  }
+
+  .mon-filterbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mon-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .mon-tabs button {
+    justify-content: space-between;
+  }
+
+  .mon-search {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .mon-table-scroll {
+    display: none;
+  }
+
+  .mon-mobile-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mon-mobile-item {
+    padding: 14px;
+    border: 1px solid #e3ebef;
+    border-radius: 10px;
+    background: white;
+  }
+
+  .mon-mobile-person {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 13px;
+  }
+
+  .mon-mobile-person strong,
+  .mon-mobile-person small {
+    display: block;
+  }
+
+  .mon-mobile-person strong {
+    font-size: 12px;
+  }
+
+  .mon-mobile-person small {
+    margin-top: 5px;
+    color: #8498a5;
+    font-size: 10px;
+  }
+
+  .mon-mobile-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid #edf2f4;
+  }
+
+  .mon-mobile-row span {
+    color: #879ba7;
+    font-size: 10px;
+  }
+
+  .mon-mobile-row strong {
+    font-size: 10px;
+    text-align: right;
+  }
+
+  .mon-mobile-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .mon-modal-header,
+  .mon-modal-body {
+    padding: 15px;
+  }
+
+  .mon-modal-header h2 {
+    font-size: 15px;
+  }
+
+  .mon-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mon-modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .mon-modal-actions button {
+    width: 100%;
+  }
+
+  .mon-footer {
     flex-direction: column;
     text-align: center;
   }
 
-  .reg-week-node small {
+  .mon-week-node small {
     font-size: 5.5px;
-  }
-
-  .reg-week-node > div {
-    width: 7px;
-    height: 7px;
   }
 }
 
+@media(max-width:400px) {
+  .mon-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mon-hero-tags {
+    gap: 6px;
+  }
+}
+
+/* PRINT */
+
 @media print {
-  .reg-topbar,
-  .reg-breadcrumb,
-  .reg-form-actions,
-  .reg-button-security,
-  .reg-back {
+  .mon-topbar,
+  .mon-refresh,
+  .mon-tabs,
+  .mon-search,
+  .mon-bottom-actions,
+  .mon-modal-overlay,
+  .mon-notice > button {
     display: none !important;
   }
 
-  .reg-card {
-    break-inside: avoid;
-    box-shadow: none;
+  .mon-container {
+    padding: 0;
   }
 
-  .reg-hero {
+  .mon-hero {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
+  }
+
+  .mon-card,
+  .mon-stat {
+    box-shadow: none;
   }
 }
 `;
