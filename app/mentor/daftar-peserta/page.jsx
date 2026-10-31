@@ -7,11 +7,23 @@ import { supabase } from "../../../lib/supabase";
 
 // ======================================================
 // OJT MINETRACK V2.0
-// PENDAFTARAN PESERTA — CORPORATE MINING
-// Pendaftaran asli tetap NONAKTIF
+// PENDAFTARAN PESERTA — MENTOR DASHBOARD
+// MODERN CORPORATE NAVY / EMERALD / WHITE
+// BACKGROUND SELARAS DENGAN DASHBOARD PENDAFTARAN
+//
+// KEAMANAN:
+// - Pendaftaran asli tetap NONAKTIF
+// - Simulasi selalu dry_run: true
+// - Pengujian API asli tetap dipertahankan
+// - Tidak mengubah database atau hak akses
 // ======================================================
 
 const REGISTRATION_ENABLED = false;
+const BACKGROUND_IMAGE = "/background-erg.png.PNG";
+
+const PROGRAM_START = "2026-09-12";
+const PROGRAM_END = "2027-03-06";
+const TOTAL_WEEKS = 25;
 
 const SITE_OPTIONS = [
   "LMO",
@@ -30,8 +42,8 @@ const initialForm = {
   email: "",
   department: "ER & SS",
   site: "",
-  start_date: "",
-  end_date: "",
+  start_date: PROGRAM_START,
+  end_date: PROGRAM_END,
 };
 
 function formatDate(value) {
@@ -66,6 +78,18 @@ function Icon({ name, size = 19 }) {
       <>
         <circle cx="9" cy="8" r="3" />
         <path d="M3 20v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5" />
+      </>
+    ),
+    user: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+      </>
+    ),
+    mail: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m3 7 9 6 9-6" />
       </>
     ),
     file: (
@@ -128,6 +152,14 @@ function Icon({ name, size = 19 }) {
     ),
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     x: <path d="M5 5l14 14M19 5 5 19" />,
+    flag: (
+      <path d="M5 22V4m0 1c5-4 9 4 15 0v11c-6 4-10-4-15 0" />
+    ),
+    activity: (
+      <>
+        <path d="M3 12h4l3-7 4 14 3-7h4" />
+      </>
+    ),
   };
 
   return (
@@ -147,11 +179,16 @@ function Icon({ name, size = 19 }) {
   );
 }
 
-function FormField({ label, children, hint }) {
+function FormField({ label, icon, children, hint }) {
   return (
     <label className="reg-field">
       <span className="reg-label">{label}</span>
-      {children}
+
+      <div className="reg-input-wrap">
+        <Icon name={icon} size={17} />
+        {children}
+      </div>
+
       {hint && <small className="reg-hint">{hint}</small>}
     </label>
   );
@@ -162,6 +199,37 @@ function PreviewItem({ label, value }) {
     <div className="reg-preview-item">
       <span>{label}</span>
       <strong>{value || "—"}</strong>
+    </div>
+  );
+}
+
+function SummaryCard({ icon, label, value, text, color }) {
+  return (
+    <div className="reg-summary-card">
+      <div className={`reg-summary-icon ${color}`}>
+        <Icon name={icon} size={23} />
+      </div>
+
+      <div className="reg-summary-content">
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <p>{text}</p>
+      </div>
+    </div>
+  );
+}
+
+function SectionHeading({ icon, title, description }) {
+  return (
+    <div className="reg-section-heading">
+      <div className="reg-heading-icon">
+        <Icon name={icon} size={21} />
+      </div>
+
+      <div>
+        <h2>{title}</h2>
+        {description && <p>{description}</p>}
+      </div>
     </div>
   );
 }
@@ -188,7 +256,7 @@ export default function DaftarPesertaPage() {
   const [mobileMenu, setMobileMenu] = useState(false);
 
   // ====================================================
-  // AUTENTIKASI — KHUSUS MENTOR
+  // AUTENTIKASI — HANYA MENTOR
   // ====================================================
 
   useEffect(() => {
@@ -220,13 +288,12 @@ export default function DaftarPesertaPage() {
           return;
         }
 
-        if (active) {
-          setMentor(profile);
-        }
+        if (active) setMentor(profile);
       } catch (err) {
         if (active) {
           setError(
-            err?.message || "Gagal memeriksa akses mentor."
+            err?.message ||
+              "Gagal memeriksa akses mentor."
           );
         }
       } finally {
@@ -273,7 +340,7 @@ export default function DaftarPesertaPage() {
     }
 
     if (!form.start_date || !form.end_date) {
-      return "Tanggal mulai dan selesai wajib diisi.";
+      return "Tanggal mulai dan selesai wajib tersedia.";
     }
 
     if (form.end_date < form.start_date) {
@@ -285,7 +352,7 @@ export default function DaftarPesertaPage() {
 
   // ====================================================
   // SIMULASI PENDAFTARAN — DRY RUN
-  // TIDAK MEMBUAT AKUN / PROGRAM
+  // TIDAK MEMBUAT AKUN ATAU PROGRAM
   // ====================================================
 
   async function runSimulation(event) {
@@ -333,8 +400,8 @@ export default function DaftarPesertaPage() {
             email: form.email.trim().toLowerCase(),
             department: form.department.trim(),
             site: form.site,
-            start_date: form.start_date,
-            end_date: form.end_date,
+            start_date: PROGRAM_START,
+            end_date: PROGRAM_END,
             dry_run: true,
           }),
         }
@@ -355,7 +422,8 @@ export default function DaftarPesertaPage() {
       setResult(data);
     } catch (err) {
       setError(
-        err?.message || "Terjadi kesalahan simulasi."
+        err?.message ||
+          "Terjadi kesalahan simulasi."
       );
     } finally {
       setSaving(false);
@@ -363,8 +431,8 @@ export default function DaftarPesertaPage() {
   }
 
   // ====================================================
-  // PENGUJIAN PENGAMAN API
-  // PERMINTAAN TANPA TOKEN & TANPA DATA PESERTA
+  // UJI PENGAMAN API
+  // TANPA TOKEN DAN TANPA DATA PESERTA
   // ====================================================
 
   async function testSecurity() {
@@ -403,7 +471,8 @@ export default function DaftarPesertaPage() {
         passed,
         status: response.status,
         message:
-          data.error || "Server tidak memberikan pesan.",
+          data.error ||
+          "Server tidak memberikan pesan.",
       });
     } catch (err) {
       setSecurityResult({
@@ -421,10 +490,6 @@ export default function DaftarPesertaPage() {
     setMobileMenu(false);
     router.push(path);
   }
-
-  // ====================================================
-  // NAVIGASI
-  // ====================================================
 
   const navigation = [
     {
@@ -450,13 +515,14 @@ export default function DaftarPesertaPage() {
   ];
 
   // ====================================================
-  // LOADING & ACCESS
+  // LOADING
   // ====================================================
 
   if (loading) {
     return (
       <main className="reg-loading">
         <style>{css}</style>
+
         <div>
           <h2>
             OJT <span>MineTrack</span>
@@ -471,9 +537,13 @@ export default function DaftarPesertaPage() {
     return (
       <main className="reg-loading">
         <style>{css}</style>
+
         <div>
           <h2>Akses Tidak Tersedia</h2>
-          <p>{error || "Halaman khusus Mentor OJT."}</p>
+          <p>
+            {error || "Halaman khusus Mentor OJT."}
+          </p>
+
           <button onClick={() => router.push("/")}>
             Kembali ke Dashboard
           </button>
@@ -483,14 +553,14 @@ export default function DaftarPesertaPage() {
   }
 
   // ====================================================
-  // TAMPILAN UTAMA
+  // TAMPILAN DASHBOARD
   // ====================================================
 
   return (
     <div className="reg-app">
       <style>{css}</style>
 
-      {/* TOP NAVIGATION */}
+      {/* HEADER DASHBOARD */}
 
       <header className="reg-topbar">
         <button
@@ -498,14 +568,27 @@ export default function DaftarPesertaPage() {
           className="reg-brand"
           onClick={() => navigate("/")}
         >
-          OJT <span>MineTrack</span>
-          <small>v2.0</small>
+          <span className="reg-brand-icon">
+            <Icon name="shield" size={22} />
+          </span>
+
+          <span className="reg-brand-copy">
+            <strong>
+              OJT <em>MineTrack</em>
+              <small>v2.0</small>
+            </strong>
+
+            <span>
+              ON THE JOB TRAINING MANAGEMENT SYSTEM
+            </span>
+          </span>
         </button>
 
         <nav
-          className={`reg-navigation ${
-            mobileMenu ? "open" : ""
-          }`}
+          className={
+            "reg-navigation " +
+            (mobileMenu ? "open" : "")
+          }
           aria-label="Navigasi utama"
         >
           {navigation.map((item) => (
@@ -529,8 +612,11 @@ export default function DaftarPesertaPage() {
           <div className="reg-account-avatar">
             {initials(mentor.full_name)}
           </div>
+
           <div className="reg-account-info">
-            <strong>{mentor.full_name || "Mentor OJT"}</strong>
+            <strong>
+              {mentor.full_name || "Mentor OJT"}
+            </strong>
             <small>Mentor OJT</small>
           </div>
         </div>
@@ -538,32 +624,53 @@ export default function DaftarPesertaPage() {
         <button
           type="button"
           className="reg-mobile-toggle"
-          aria-label={mobileMenu ? "Tutup menu" : "Buka menu"}
+          aria-label={
+            mobileMenu ? "Tutup menu" : "Buka menu"
+          }
           aria-expanded={mobileMenu}
-          onClick={() => setMobileMenu((value) => !value)}
+          onClick={() =>
+            setMobileMenu((value) => !value)
+          }
         >
-          <Icon name={mobileMenu ? "x" : "menu"} size={23} />
+          <Icon
+            name={mobileMenu ? "x" : "menu"}
+            size={22}
+          />
         </button>
       </header>
 
       <main className="reg-container">
 
-        {/* HERO CORPORATE MINING */}
+        {/* HERO CORPORATE */}
 
-        <section className="reg-hero">
+        <section
+          className="reg-hero"
+          style={{
+            backgroundImage: `
+              linear-gradient(
+                100deg,
+                rgba(4,22,43,.97) 0%,
+                rgba(5,34,57,.88) 44%,
+                rgba(5,35,54,.46) 100%
+              ),
+              url("${BACKGROUND_IMAGE}")
+            `,
+          }}
+        >
           <div className="reg-hero-content">
             <div className="reg-kicker">
               EMERGENCY RESPONSE GROUP · PT BERAU COAL
             </div>
 
             <h1>
-              Pendaftaran <span>Peserta OJT</span>
+              Dashboard <span>Pendaftaran OJT</span>
             </h1>
 
             <p>
-              Pengelolaan data calon peserta dan simulasi
-              pendaftaran program On Job Training secara
-              aman dan terstruktur.
+              Kelola persiapan data calon peserta,
+              tinjau periode program, dan jalankan
+              simulasi pendaftaran secara aman melalui
+              Dashboard Mentor OJT MineTrack.
             </p>
 
             <div className="reg-hero-meta">
@@ -576,40 +683,85 @@ export default function DaftarPesertaPage() {
                 <Icon name="calendar" size={15} />
                 Program OJT 2026–2027
               </span>
+
+              <span>
+                <Icon name="lock" size={15} />
+                Dry Run Only
+              </span>
             </div>
           </div>
 
           <div className="reg-hero-status">
-            <div className="reg-status-symbol">
+            <div className="reg-status-icon">
               <Icon name="lock" size={23} />
             </div>
-            <div>
-              <small>STATUS PENDAFTARAN</small>
-              <strong>
-                {REGISTRATION_ENABLED
-                  ? "Pendaftaran Aktif"
-                  : "Mode Pengujian"}
-              </strong>
-              <span>
-                {REGISTRATION_ENABLED
-                  ? "Pendaftaran tersedia"
-                  : "Pendaftaran asli terkunci"}
-              </span>
-            </div>
+
+            <small>STATUS MODUL</small>
+
+            <strong>
+              {REGISTRATION_ENABLED
+                ? "Pendaftaran Aktif"
+                : "Mode Pengujian"}
+            </strong>
+
+            <span>
+              {REGISTRATION_ENABLED
+                ? "Modul tersedia"
+                : "Pendaftaran asli terkunci"}
+            </span>
           </div>
         </section>
 
         {/* BREADCRUMB */}
 
         <div className="reg-breadcrumb">
-          <button onClick={() => navigate("/")}>
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+          >
             Dashboard
           </button>
           <span>/</span>
-          <strong>Pendaftaran Peserta</strong>
+          <strong>Pendaftaran Peserta OJT</strong>
         </div>
 
-        {/* MODE TESTING */}
+        {/* KARTU INFORMASI */}
+
+        <section className="reg-summary-grid">
+          <SummaryCard
+            icon="lock"
+            color="green"
+            label="Status Pendaftaran"
+            value="Dry Run Only"
+            text="Pendaftaran asli nonaktif. Simulasi tetap dapat digunakan."
+          />
+
+          <SummaryCard
+            icon="calendar"
+            color="blue"
+            label="Periode Program"
+            value="12 Sep 2026 – 06 Mar 2027"
+            text="Kalender Global Week 01–25."
+          />
+
+          <SummaryCard
+            icon="users"
+            color="gold"
+            label="Alur Persetujuan"
+            value="Peserta → Mentor → Admin"
+            text="Persetujuan menggunakan sistem yang sudah berlaku."
+          />
+
+          <SummaryCard
+            icon="file"
+            color="teal"
+            label="Program OJT"
+            value="Week 01 – Week 25"
+            text="Monitoring dan evaluasi selama 25 minggu."
+          />
+        </section>
+
+        {/* PEMBERITAHUAN KEAMANAN */}
 
         <section className="reg-notice">
           <div className="reg-notice-icon">
@@ -617,60 +769,58 @@ export default function DaftarPesertaPage() {
           </div>
 
           <div>
-            <strong>Mode Pengujian Aktif</strong>
+            <strong>
+              Mode Pengujian Pendaftaran Mentor
+            </strong>
+
             <p>
-              Pendaftaran peserta asli sedang dinonaktifkan.
-              Anda tetap dapat menjalankan simulasi dan menguji
-              keamanan API tanpa membuat akun atau program OJT baru.
+              Pendaftaran asli masih dinonaktifkan.
+              Simulasi dan pengujian API tidak membuat
+              akun maupun program OJT baru.
             </p>
           </div>
 
           <span className="reg-notice-badge">
-            DRY RUN ONLY
+            REGISTRATION LOCKED
           </span>
         </section>
 
-        {/* MAIN GRID */}
+        {/* GRID FORMULIR DAN INFORMASI */}
 
         <div className="reg-main-grid">
 
           {/* FORMULIR */}
 
           <section className="reg-card reg-form-card">
-            <div className="reg-section-head">
-              <div className="reg-section-icon">
-                <Icon name="clipboard" size={21} />
-              </div>
-
-              <div>
-                <h2>Formulir Pendaftaran Peserta</h2>
-                <p>
-                  Lengkapi identitas dan informasi
-                  penempatan program OJT.
-                </p>
-              </div>
-            </div>
-
-            <div className="reg-step-heading">
-              <span>01</span>
-              <div>
-                <strong>Identitas Peserta</strong>
-                <small>
-                  Data calon peserta yang akan disimulasikan.
-                </small>
-              </div>
-            </div>
+            <SectionHeading
+              icon="user"
+              title="Formulir Pendaftaran Peserta OJT"
+              description="Masukkan data calon peserta untuk pengujian validasi pendaftaran."
+            />
 
             <form onSubmit={runSimulation}>
-              <div className="reg-form-grid">
 
-                <FormField label="Nama Lengkap Peserta">
+              <div className="reg-subheading">
+                <span>01</span>
+                <div>
+                  <strong>Identitas Peserta</strong>
+                  <small>
+                    Data calon peserta OJT.
+                  </small>
+                </div>
+              </div>
+
+              <div className="reg-form-grid">
+                <FormField
+                  label="Nama Lengkap Peserta"
+                  icon="user"
+                >
                   <input
                     type="text"
                     required
                     minLength={3}
                     maxLength={120}
-                    placeholder="Masukkan nama lengkap peserta"
+                    placeholder="Masukkan nama lengkap"
                     value={form.full_name}
                     disabled={saving || testing}
                     onChange={(event) =>
@@ -682,7 +832,10 @@ export default function DaftarPesertaPage() {
                   />
                 </FormField>
 
-                <FormField label="Email Peserta">
+                <FormField
+                  label="Email Peserta"
+                  icon="mail"
+                >
                   <input
                     type="email"
                     required
@@ -699,7 +852,10 @@ export default function DaftarPesertaPage() {
                   />
                 </FormField>
 
-                <FormField label="Departemen">
+                <FormField
+                  label="Departemen"
+                  icon="users"
+                >
                   <input
                     type="text"
                     required
@@ -715,7 +871,10 @@ export default function DaftarPesertaPage() {
                   />
                 </FormField>
 
-                <FormField label="Site Penempatan OJT">
+                <FormField
+                  label="Site Penempatan"
+                  icon="map"
+                >
                   <select
                     required
                     value={form.site}
@@ -732,7 +891,10 @@ export default function DaftarPesertaPage() {
                     </option>
 
                     {SITE_OPTIONS.map((site) => (
-                      <option key={site} value={site}>
+                      <option
+                        key={site}
+                        value={site}
+                      >
                         {site}
                       </option>
                     ))}
@@ -740,71 +902,77 @@ export default function DaftarPesertaPage() {
                 </FormField>
               </div>
 
-              <div className="reg-inline-note">
+              <div className="reg-inline-info">
                 <Icon name="info" size={17} />
+
                 <span>
-                  Site penempatan ditentukan pada awal
-                  program dan digunakan selama periode OJT.
+                  Data yang dimasukkan hanya digunakan
+                  untuk simulasi. Pengujian tidak
+                  membuat akun peserta.
                 </span>
               </div>
 
-              <div className="reg-step-heading second">
+              {/* PERIODE PROGRAM */}
+
+              <div className="reg-subheading second">
                 <span>02</span>
                 <div>
-                  <strong>Periode Program OJT</strong>
+                  <strong>
+                    Jadwal Program OJT
+                  </strong>
                   <small>
-                    Tentukan tanggal mulai dan selesai
-                    program peserta.
+                    Mengikuti Kalender Global 2026–2027.
                   </small>
                 </div>
               </div>
 
-              <div className="reg-form-grid">
-                <FormField label="Tanggal Mulai OJT">
-                  <input
-                    type="date"
-                    required
-                    value={form.start_date}
-                    disabled={saving || testing}
-                    onChange={(event) =>
-                      updateForm(
-                        "start_date",
-                        event.target.value
-                      )
-                    }
-                  />
-                </FormField>
-
-                <FormField label="Tanggal Selesai OJT">
-                  <input
-                    type="date"
-                    required
-                    min={form.start_date || undefined}
-                    value={form.end_date}
-                    disabled={saving || testing}
-                    onChange={(event) =>
-                      updateForm(
-                        "end_date",
-                        event.target.value
-                      )
-                    }
-                  />
-                </FormField>
-              </div>
-
-              <div className="reg-calendar-notice">
-                <Icon name="calendar" size={20} />
-                <div>
-                  <strong>Kalender Global OJT</strong>
-                  <p>
-                    Kalender monitoring menggunakan
-                    Week 01–25 secara global.
-                    Tanggal mulai dan selesai peserta
-                    tetap disimpan sesuai periode
-                    masing-masing.
-                  </p>
+              <div className="reg-fixed-period">
+                <div className="reg-fixed-title">
+                  <Icon name="calendar" size={18} />
+                  Jadwal Program OJT (Fixed)
                 </div>
+
+                <div className="reg-fixed-grid">
+                  <div className="reg-date-box">
+                    <Icon name="calendar" size={22} />
+
+                    <div>
+                      <span>Tanggal Mulai OJT</span>
+                      <strong>
+                        12 September 2026
+                      </strong>
+                      <small>Week 01</small>
+                    </div>
+
+                    <Icon name="lock" size={16} />
+                  </div>
+
+                  <div className="reg-date-box">
+                    <Icon name="flag" size={22} />
+
+                    <div>
+                      <span>
+                        Tanggal Selesai Program
+                      </span>
+                      <strong>
+                        6 Maret 2027
+                      </strong>
+                      <small>Week 25</small>
+                    </div>
+
+                    <Icon name="lock" size={16} />
+                  </div>
+                </div>
+
+                <p>
+                  <Icon name="info" size={16} />
+                  Periode tetap mengikuti Kalender Global
+                  Week 01–25. Tanggal tidak dapat diubah
+                  melalui formulir Mentor.
+                </p>
               </div>
+
+              {/* ERROR */}
 
               {error && (
                 <div
@@ -815,6 +983,8 @@ export default function DaftarPesertaPage() {
                   <span>{error}</span>
                 </div>
               )}
+
+              {/* AKSI */}
 
               <div className="reg-form-actions">
                 <button
@@ -827,16 +997,16 @@ export default function DaftarPesertaPage() {
                   {saving
                     ? "Menjalankan Simulasi..."
                     : "Jalankan Simulasi Pendaftaran"}
+
+                  {!saving && (
+                    <Icon name="arrow" size={17} />
+                  )}
                 </button>
 
                 <button
                   type="button"
                   className="reg-button-disabled"
-                  disabled={
-                    !REGISTRATION_ENABLED ||
-                    saving ||
-                    testing
-                  }
+                  disabled={true}
                 >
                   <Icon name="lock" size={17} />
                   Daftarkan Peserta Asli
@@ -844,13 +1014,12 @@ export default function DaftarPesertaPage() {
               </div>
 
               <p className="reg-form-footnote">
-                Simulasi tidak membuat akun,
-                menyimpan peserta baru,
-                atau membuat program OJT.
+                Simulasi dilakukan tanpa membuat akun,
+                peserta baru, atau program OJT.
               </p>
             </form>
 
-            {/* RESULT SIMULASI */}
+            {/* HASIL SIMULASI */}
 
             {result?.dry_run === true && (
               <section
@@ -865,8 +1034,7 @@ export default function DaftarPesertaPage() {
                   <div>
                     <h3>Simulasi Berhasil</h3>
                     <p>
-                      Validasi data dan akses mentor
-                      berhasil diperiksa.
+                      Server mengonfirmasi mode dry run.
                     </p>
                   </div>
                 </div>
@@ -914,25 +1082,70 @@ export default function DaftarPesertaPage() {
 
                 <div className="reg-result-confirm">
                   <Icon name="shield" size={17} />
-                  Server mengonfirmasi mode simulasi.
-                  Tidak ada akun atau program OJT yang dibuat.
+                  Tidak ada akun atau program OJT yang
+                  dibuat melalui simulasi ini.
                 </div>
               </section>
             )}
           </section>
 
-          {/* SIDEBAR INFORMASI */}
+          {/* SIDEBAR */}
 
           <aside className="reg-side">
 
-            <section className="reg-card">
-              <div className="reg-side-title">
-                <div className="reg-section-icon">
-                  <Icon name="info" size={20} />
-                </div>
+            {/* TIMELINE */}
 
-                <h2>Informasi Pendaftaran</h2>
+            <section className="reg-card">
+              <SectionHeading
+                icon="calendar"
+                title="Program OJT 2026–2027"
+                description="Timeline Kalender Global Week 01–25."
+              />
+
+              <div className="reg-timeline-labels">
+                <span>Mulai · Week 01</span>
+                <span>Selesai · Week 25</span>
               </div>
+
+              <div className="reg-week-timeline">
+                {Array.from(
+                  { length: TOTAL_WEEKS },
+                  (_, index) => (
+                    <div
+                      key={index}
+                      className={
+                        "reg-week-node " +
+                        (index === 0 ||
+                        index === TOTAL_WEEKS - 1
+                          ? "endpoint"
+                          : "")
+                      }
+                    >
+                      <div />
+                      <small>
+                        {String(index + 1).padStart(
+                          2,
+                          "0"
+                        )}
+                      </small>
+                    </div>
+                  )
+                )}
+              </div>
+
+              <p className="reg-timeline-caption">
+                12 September 2026 – 6 Maret 2027
+              </p>
+            </section>
+
+            {/* INFORMASI MENTOR */}
+
+            <section className="reg-card">
+              <SectionHeading
+                icon="users"
+                title="Informasi Pendaftaran"
+                description="Identitas pengguna dan status modul."
+              />
 
               <div className="reg-info-list">
                 <div>
@@ -955,43 +1168,103 @@ export default function DaftarPesertaPage() {
                 </div>
 
                 <div>
+                  <small>Periode Program</small>
+                  <strong>Week 01–25</strong>
+                </div>
+
+                <div>
                   <small>Organisasi</small>
                   <strong>
                     Emergency Response Group
                   </strong>
                 </div>
-
-                <div>
-                  <small>Perusahaan</small>
-                  <strong>PT Berau Coal</strong>
-                </div>
               </div>
             </section>
 
-            {/* PENGAMAN API */}
+            {/* ALUR PENDAFTARAN */}
 
             <section className="reg-card">
-              <div className="reg-side-title">
-                <div className="reg-section-icon blue">
-                  <Icon name="shield" size={21} />
-                </div>
+              <SectionHeading
+                icon="clipboard"
+                title="Alur Pendaftaran"
+                description="Mekanisme pengajuan peserta OJT."
+              />
 
-                <h2>Pengujian Keamanan API</h2>
+              <div className="reg-process-list">
+                {[
+                  {
+                    title: "Pendaftaran Peserta",
+                    text: "Data peserta diisi melalui formulir pendaftaran.",
+                  },
+                  {
+                    title: "Verifikasi Data",
+                    text: "Data pengajuan diperiksa sesuai aturan sistem.",
+                  },
+                  {
+                    title: "Persetujuan Mentor",
+                    text: "Mentor meninjau kelengkapan pengajuan peserta.",
+                  },
+                  {
+                    title: "Persetujuan Admin",
+                    text: "Administrator melakukan verifikasi sesuai kewenangan.",
+                  },
+                  {
+                    title: "Akses Program OJT",
+                    text: "Akses mengikuti hasil persetujuan dalam sistem.",
+                  },
+                ].map((step, index) => (
+                  <div
+                    className="reg-process-item"
+                    key={index}
+                  >
+                    <span
+                      className={
+                        "reg-process-number color-" +
+                        index
+                      }
+                    >
+                      {index + 1}
+                    </span>
+
+                    <div>
+                      <strong>{step.title}</strong>
+                      <p>{step.text}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              <p className="reg-side-description">
-                Verifikasi bahwa server menolak
-                permintaan pendaftaran asli
-                ketika fitur masih dikunci.
-              </p>
+              <button
+                type="button"
+                className="reg-link-button"
+                onClick={() =>
+                  navigate(
+                    "/mentor/persetujuan-peserta"
+                  )
+                }
+              >
+                Lihat Persetujuan Peserta
+                <Icon name="arrow" size={17} />
+              </button>
+            </section>
+
+            {/* KEAMANAN API */}
+
+            <section className="reg-card">
+              <SectionHeading
+                icon="shield"
+                title="Pengujian Keamanan API"
+                description="Periksa penguncian pendaftaran asli."
+              />
 
               <div className="reg-security-box">
-                <Icon name="lock" size={20} />
+                <Icon name="lock" size={21} />
+
                 <div>
                   <strong>Registration Lock</strong>
                   <small>
                     Server harus menolak permintaan
-                    pendaftaran asli.
+                    pendaftaran asli ketika fitur terkunci.
                   </small>
                 </div>
               </div>
@@ -1003,18 +1276,20 @@ export default function DaftarPesertaPage() {
                 disabled={saving || testing}
               >
                 <Icon name="shield" size={17} />
+
                 {testing
-                  ? "Sedang Menguji Pengaman..."
+                  ? "Sedang Menguji..."
                   : "Uji Pengaman API"}
               </button>
 
               {securityResult && (
                 <div
-                  className={`reg-security-result ${
-                    securityResult.passed
+                  className={
+                    "reg-security-result " +
+                    (securityResult.passed
                       ? "passed"
-                      : "failed"
-                  }`}
+                      : "failed")
+                  }
                   role="status"
                 >
                   <strong>
@@ -1028,76 +1303,16 @@ export default function DaftarPesertaPage() {
                     <b>{securityResult.status}</b>
                   </p>
 
-                  <p>
-                    {securityResult.message}
-                  </p>
+                  <p>{securityResult.message}</p>
 
                   {securityResult.passed && (
                     <small>
-                      Server menolak permintaan
-                      pendaftaran asli dengan
-                      respons yang diharapkan.
+                      Server menolak permintaan sesuai
+                      respons pengujian yang diharapkan.
                     </small>
                   )}
                 </div>
               )}
-            </section>
-
-            {/* ALUR PENDAFTARAN */}
-
-            <section className="reg-card">
-              <div className="reg-side-title">
-                <div className="reg-section-icon">
-                  <Icon name="clipboard" size={20} />
-                </div>
-                <h2>Alur Pendaftaran</h2>
-              </div>
-
-              <div className="reg-timeline">
-                <div className="reg-timeline-item">
-                  <span>01</span>
-                  <div>
-                    <strong>Isi Data Peserta</strong>
-                    <small>
-                      Identitas, departemen,
-                      dan lokasi penempatan.
-                    </small>
-                  </div>
-                </div>
-
-                <div className="reg-timeline-item">
-                  <span>02</span>
-                  <div>
-                    <strong>Tentukan Periode OJT</strong>
-                    <small>
-                      Tanggal mulai dan tanggal
-                      selesai program peserta.
-                    </small>
-                  </div>
-                </div>
-
-                <div className="reg-timeline-item">
-                  <span>03</span>
-                  <div>
-                    <strong>Jalankan Simulasi</strong>
-                    <small>
-                      Periksa validasi data
-                      tanpa membuat akun.
-                    </small>
-                  </div>
-                </div>
-
-                <div className="reg-timeline-item">
-                  <span>04</span>
-                  <div>
-                    <strong>Verifikasi Keamanan</strong>
-                    <small>
-                      Pastikan pengaman
-                      pendaftaran berfungsi.
-                    </small>
-                  </div>
-                </div>
-              </div>
             </section>
 
             <button
@@ -1112,8 +1327,12 @@ export default function DaftarPesertaPage() {
         </div>
 
         <footer className="reg-footer">
-          OJT MineTrack v2.0 · Emergency Response Group ·
-          PT Berau Coal · Program 2026–2027
+          <span>
+            OJT MineTrack v2.0 · Emergency Response Group
+          </span>
+          <span>
+            PT Berau Coal · Program 2026–2027
+          </span>
         </footer>
       </main>
     </div>
@@ -1121,7 +1340,7 @@ export default function DaftarPesertaPage() {
 }
 
 // ======================================================
-// STYLE — CORPORATE MINING
+// CSS MODERN CORPORATE DASHBOARD
 // ======================================================
 
 const css = `
@@ -1132,8 +1351,8 @@ const css = `
 
 .reg-app {
   min-height: 100vh;
-  background: #f3f7f8;
-  color: #142d38;
+  background: #edf3f7;
+  color: #173654;
   font-family: Arial, Helvetica, sans-serif;
 }
 
@@ -1149,60 +1368,92 @@ const css = `
 
 .reg-app button:disabled {
   cursor: not-allowed;
-  opacity: .55;
+  opacity: .52;
 }
 
 .reg-app button:focus-visible,
 .reg-app input:focus-visible,
 .reg-app select:focus-visible {
-  outline: 3px solid #75cdb0;
+  outline: 3px solid #60d8bd;
   outline-offset: 2px;
 }
 
-/* TOPBAR */
+/* TOP NAVIGATION */
 
 .reg-topbar {
   position: sticky;
   top: 0;
   z-index: 40;
-  min-height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 12px 28px;
-  background: #fff;
-  border-bottom: 1px solid #e2ebef;
-  box-shadow: 0 3px 16px #102d3a08;
+  min-height: 76px;
+  padding: 11px 29px;
+  background: #081e35;
+  border-bottom: 1px solid #ffffff2c;
+  color: white;
+  box-shadow: 0 5px 20px #0a294024;
 }
 
 .reg-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
-  border: 0;
   padding: 0;
+  border: 0;
   background: transparent;
-  color: #14283f;
-  font-size: 24px;
-  font-weight: 900;
-  letter-spacing: -.7px;
+  color: white;
+  text-align: left;
+}
+
+.reg-brand-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #49cbb88a;
+  border-radius: 11px;
+  background: #0c78736e;
+  color: #71e8c7;
+}
+
+.reg-brand-copy strong {
+  display: block;
+  font-size: 21px;
   white-space: nowrap;
+  letter-spacing: -.4px;
 }
 
-.reg-brand span {
-  color: #07865f;
+.reg-brand-copy strong em {
+  font-style: normal;
+  color: #5de1c1;
 }
 
-.reg-brand small {
-  margin-left: 6px;
+.reg-brand-copy strong small {
+  margin-left: 7px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: #5be2c2;
+  color: #073647;
   font-size: 10px;
-  font-weight: 700;
-  color: #8a9ba8;
+}
+
+.reg-brand-copy > span {
+  display: block;
+  margin-top: 5px;
+  color: #c4d8e4;
+  font-size: 8px;
+  letter-spacing: 1px;
+  font-weight: 800;
 }
 
 .reg-navigation {
   display: flex;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   flex-wrap: wrap;
   gap: 5px;
 }
@@ -1211,38 +1462,42 @@ const css = `
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 11px 12px;
   border: 0;
-  border-radius: 9px;
-  padding: 12px 14px;
+  border-radius: 8px;
   background: transparent;
-  color: #526777;
-  font-size: 12px;
+  color: #c7dae5;
+  font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
 }
 
-.reg-navigation button.active,
 .reg-navigation button:hover {
-  background: #e6f5ee;
-  color: #07835b;
+  background: #ffffff18;
+}
+
+.reg-navigation button.active {
+  background: #0c807b;
+  color: white;
+  box-shadow: inset 0 -2px #68ecd2;
 }
 
 .reg-account {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   min-width: 0;
 }
 
 .reg-account-avatar {
-  flex-shrink: 0;
-  width: 39px;
-  height: 39px;
   display: grid;
   place-items: center;
+  flex-shrink: 0;
+  width: 37px;
+  height: 37px;
   border-radius: 50%;
-  background: #dff4e9;
-  color: #087857;
+  background: #d8f6eb;
+  color: #08795d;
   font-size: 12px;
   font-weight: 900;
 }
@@ -1251,151 +1506,145 @@ const css = `
   min-width: 0;
 }
 
-.reg-account-info strong,
-.reg-account-info small {
-  display: block;
-}
-
 .reg-account-info strong {
-  font-size: 12px;
+  display: block;
+  max-width: 155px;
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
 
 .reg-account-info small {
-  margin-top: 5px;
+  display: block;
+  margin-top: 4px;
+  color: #b3cbd6;
   font-size: 10px;
-  color: #8293a0;
 }
 
 .reg-mobile-toggle {
   display: none;
   border: 0;
   background: transparent;
-  color: #173d34;
+  color: white;
 }
 
 /* CONTAINER */
 
 .reg-container {
   max-width: 1500px;
-  margin: auto;
-  padding: 24px;
+  margin: 0 auto;
+  padding: 23px;
 }
 
-/* HERO */
+/* HERO BANNER */
 
 .reg-hero {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 28px;
-  min-height: 220px;
-  padding: 32px;
-  border-radius: 17px;
+  gap: 30px;
+  min-height: 230px;
+  padding: 30px 34px;
+  border-radius: 16px;
+  background-color: #0c2d47;
+  background-size: cover;
+  background-position: center 44%;
   overflow: hidden;
   color: white;
-  background:
-    linear-gradient(
-      95deg,
-      rgba(4,24,36,.98) 0%,
-      rgba(5,43,47,.92) 48%,
-      rgba(5,47,49,.63) 100%
-    ),
-    url("/background-erg.png.PNG") center/cover;
+  box-shadow: 0 9px 27px #12385220;
 }
 
 .reg-hero-content {
-  max-width: 760px;
+  max-width: 750px;
 }
 
 .reg-kicker {
-  color: #eccb82;
+  color: #e6c17a;
   font-size: 10px;
   font-weight: 900;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.4px;
 }
 
 .reg-hero h1 {
-  margin: 14px 0 10px;
-  font-size: clamp(27px,3.3vw,44px);
+  margin: 12px 0;
+  font-size: clamp(29px,3.3vw,44px);
+  letter-spacing: -.8px;
   line-height: 1.15;
-  letter-spacing: -.7px;
 }
 
 .reg-hero h1 span {
-  color: #34d19b;
+  color: #5be3c2;
 }
 
 .reg-hero p {
+  max-width: 620px;
   margin: 0;
-  max-width: 650px;
-  color: #d1e5e1;
-  font-size: 13px;
+  color: #e0ebef;
+  font-size: 12px;
   line-height: 1.8;
 }
 
 .reg-hero-meta {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 21px;
+  gap: 9px;
+  margin-top: 18px;
 }
 
 .reg-hero-meta span {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
-  color: #e5f1ec;
+  padding: 7px 10px;
+  border: 1px solid #ffffff4c;
+  border-radius: 20px;
+  background: #092b42a8;
+  color: #e4f4f0;
+  font-size: 10px;
+  font-weight: 750;
 }
 
 .reg-hero-meta svg {
-  color: #eac578;
+  color: #83e7c9;
 }
 
 .reg-hero-status {
-  display: flex;
-  align-items: center;
-  gap: 13px;
+  display: grid;
+  justify-items: center;
+  gap: 9px;
   flex-shrink: 0;
-  padding: 18px;
-  border: 1px solid #ffffff40;
+  min-width: 175px;
+  padding: 18px 16px;
+  border: 1px solid #ffffff5b;
   border-radius: 13px;
-  background: #05272dd9;
+  background: #062641c7;
+  text-align: center;
 }
 
-.reg-status-symbol {
-  flex-shrink: 0;
+.reg-status-icon {
   display: grid;
   place-items: center;
-  width: 45px;
-  height: 45px;
+  width: 43px;
+  height: 43px;
   border-radius: 11px;
-  background: #d6f2e5;
-  color: #087453;
-}
-
-.reg-hero-status small,
-.reg-hero-status strong,
-.reg-hero-status span {
-  display: block;
+  background: #e2f5ed;
+  color: #108868;
 }
 
 .reg-hero-status small {
+  color: #aacbd9;
   font-size: 9px;
-  letter-spacing: .6px;
-  color: #a9cbc5;
+  font-weight: 900;
+  letter-spacing: .8px;
 }
 
 .reg-hero-status strong {
-  margin-top: 7px;
-  font-size: 15px;
+  font-size: 17px;
 }
 
-.reg-hero-status span {
-  margin-top: 6px;
+.reg-hero-status > span {
+  color: #d6e5ea;
   font-size: 10px;
-  color: #c2dbd5;
 }
 
 /* BREADCRUMB */
@@ -1403,46 +1652,122 @@ const css = `
 .reg-breadcrumb {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 15px 2px;
-  color: #90a0aa;
+  gap: 9px;
+  margin: 15px 3px;
   font-size: 11px;
+  color: #8ba2af;
 }
 
 .reg-breadcrumb button {
-  border: 0;
   padding: 0;
+  border: 0;
   background: transparent;
-  color: #758c95;
-  font-weight: 700;
+  color: #6c8595;
+  font-weight: 750;
 }
 
 .reg-breadcrumb strong {
-  color: #097c59;
+  color: #087c75;
 }
 
-/* NOTICE */
+/* FOUR SUMMARY CARDS */
+
+.reg-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 13px;
+  margin-bottom: 16px;
+}
+
+.reg-summary-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 125px;
+  padding: 17px;
+  border: 1px solid #dce7ee;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 6px 20px #0d355015;
+}
+
+.reg-summary-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 45px;
+  height: 45px;
+  border-radius: 11px;
+}
+
+.reg-summary-icon.green {
+  background: #def8ed;
+  color: #078c67;
+}
+
+.reg-summary-icon.blue {
+  background: #e0effe;
+  color: #1979bf;
+}
+
+.reg-summary-icon.gold {
+  background: #fff1d8;
+  color: #be891c;
+}
+
+.reg-summary-icon.teal {
+  background: #ddf7f4;
+  color: #068e89;
+}
+
+.reg-summary-content {
+  min-width: 0;
+}
+
+.reg-summary-content > span {
+  display: block;
+  color: #73899b;
+  font-size: 10px;
+}
+
+.reg-summary-content > strong {
+  display: block;
+  margin-top: 6px;
+  color: #123d6b;
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 900;
+}
+
+.reg-summary-content > p {
+  margin: 7px 0 0;
+  color: #73869a;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+/* MODE NOTICE */
 
 .reg-notice {
   display: flex;
   align-items: center;
-  gap: 15px;
-  padding: 17px 20px;
+  gap: 14px;
+  padding: 15px 18px;
   margin-bottom: 17px;
-  background: #eaf6fb;
-  border: 1px solid #c5e4ee;
-  border-radius: 13px;
+  border: 1px solid #c7e4ed;
+  border-radius: 12px;
+  background: #eaf6fa;
 }
 
 .reg-notice-icon {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: 11px;
-  background: #d3eaf6;
-  color: #236c91;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #d8ebf5;
+  color: #2577a1;
 }
 
 .reg-notice > div:nth-child(2) {
@@ -1450,22 +1775,22 @@ const css = `
 }
 
 .reg-notice strong {
-  font-size: 13px;
-  color: #205d7d;
+  color: #225b7a;
+  font-size: 12px;
 }
 
 .reg-notice p {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
+  color: #5e8191;
   font-size: 11px;
-  line-height: 1.7;
-  color: #557b8b;
+  line-height: 1.6;
 }
 
 .reg-notice-badge {
-  border-radius: 6px;
   padding: 8px 10px;
-  background: #d8ecf5;
-  color: #216588;
+  border-radius: 7px;
+  background: #d8eaf3;
+  color: #2a6d8d;
   font-size: 10px;
   font-weight: 900;
   white-space: nowrap;
@@ -1475,105 +1800,111 @@ const css = `
 
 .reg-main-grid {
   display: grid;
-  grid-template-columns: minmax(0,1.8fr) minmax(300px,.85fr);
-  gap: 17px;
+  grid-template-columns: minmax(0,1.15fr) minmax(0,.85fr);
   align-items: start;
+  gap: 16px;
 }
 
 .reg-card {
   min-width: 0;
-  padding: 23px;
-  margin-bottom: 17px;
+  padding: 21px;
+  border: 1px solid #dce7ef;
+  border-radius: 13px;
   background: white;
-  border: 1px solid #e1eaf0;
-  border-radius: 15px;
-  box-shadow: 0 5px 18px #112a3708;
+  box-shadow: 0 6px 20px #17384d0d;
 }
 
-.reg-section-head {
+.reg-form-card {
+  padding: 22px;
+}
+
+.reg-side {
+  display: grid;
+  gap: 15px;
+}
+
+/* SECTION HEADING */
+
+.reg-section-heading {
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #edf1f3;
-  margin-bottom: 22px;
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
-.reg-section-icon {
+.reg-heading-icon {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
   flex-shrink: 0;
-  border-radius: 11px;
-  background: #e0f5ea;
-  color: #07835a;
+  width: 41px;
+  height: 41px;
+  border-radius: 9px;
+  background: linear-gradient(135deg,#10487e,#188bcb);
+  color: white;
 }
 
-.reg-section-icon.blue {
-  background: #e6f1ff;
-  color: #2875b7;
-}
-
-.reg-section-head h2 {
+.reg-section-heading h2 {
   margin: 0;
-  font-size: 18px;
+  color: #123e70;
+  font-size: 17px;
+  line-height: 1.3;
 }
 
-.reg-section-head p {
-  margin: 6px 0 0;
-  color: #8394a3;
+.reg-section-heading p {
+  margin: 5px 0 0;
+  color: #7d91a2;
   font-size: 11px;
   line-height: 1.5;
 }
 
-/* STEP HEADINGS */
+/* FORM */
 
-.reg-step-heading {
+.reg-subheading {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 6px 0 18px;
+  gap: 11px;
+  margin: 5px 0 17px;
 }
 
-.reg-step-heading.second {
-  padding-top: 25px;
-  margin-top: 24px;
-  border-top: 1px solid #e9eff1;
+.reg-subheading.second {
+  margin-top: 23px;
+  padding-top: 19px;
+  border-top: 1px solid #e6eef3;
 }
 
-.reg-step-heading > span {
+.reg-subheading > span {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 35px;
-  height: 35px;
+  width: 33px;
+  height: 33px;
   border-radius: 9px;
-  background: #087e5b;
+  background: #09877c;
   color: white;
   font-size: 11px;
   font-weight: 900;
 }
 
-.reg-step-heading strong,
-.reg-step-heading small {
+.reg-subheading strong,
+.reg-subheading small {
   display: block;
 }
 
-.reg-step-heading strong {
-  font-size: 14px;
+.reg-subheading strong {
+  color: #244660;
+  font-size: 13px;
 }
 
-.reg-step-heading small {
+.reg-subheading small {
   margin-top: 5px;
-  color: #8293a0;
-  font-size: 11px;
+  color: #8799a8;
+  font-size: 10px;
 }
 
 .reg-form-grid {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 19px 17px;
+  gap: 15px 12px;
 }
 
 .reg-field {
@@ -1583,210 +1914,259 @@ const css = `
 
 .reg-label {
   display: block;
-  margin-bottom: 9px;
-  color: #30495a;
-  font-size: 12px;
-  font-weight: 800;
+  margin-bottom: 8px;
+  color: #304b68;
+  font-size: 11px;
+  font-weight: 900;
 }
 
-.reg-field input,
-.reg-field select {
-  display: block;
+.reg-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 11px;
+  border: 1px solid #d5e2eb;
+  border-radius: 8px;
+  background: #fdfefe;
+  color: #7f99ac;
+}
+
+.reg-input-wrap:focus-within {
+  border-color: #099c8f;
+  box-shadow: 0 0 0 3px #099c8f15;
+}
+
+.reg-input-wrap > svg {
+  flex-shrink: 0;
+}
+
+.reg-input-wrap input,
+.reg-input-wrap select {
   width: 100%;
-  min-height: 45px;
-  padding: 12px 13px;
-  border: 1px solid #d9e5e9;
-  border-radius: 9px;
-  outline: none;
-  background: #fff;
-  color: #183442;
-  font-size: 13px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #173b5a;
+  font-size: 12px;
 }
 
-.reg-field input:focus,
-.reg-field select:focus {
-  border-color: #0a9a70;
-  box-shadow: 0 0 0 3px #0a9a7018;
-}
-
-.reg-field input::placeholder {
-  color: #a5b2bd;
+.reg-input-wrap input::placeholder {
+  color: #9cabb9;
 }
 
 .reg-hint {
   display: block;
   margin-top: 6px;
+  color: #8195a3;
   font-size: 10px;
-  color: #8393a0;
 }
 
-.reg-inline-note {
+/* INLINE INFORMATION */
+
+.reg-inline-info {
   display: flex;
-  gap: 10px;
   align-items: flex-start;
-  margin-top: 20px;
-  padding: 12px 14px;
-  border-radius: 9px;
-  background: #f3faf6;
-  color: #487766;
-  font-size: 11px;
-  line-height: 1.7;
+  gap: 8px;
+  margin-top: 15px;
+  padding: 11px 13px;
+  border-radius: 8px;
+  background: #f1faf7;
+  color: #4e8273;
+  font-size: 10px;
+  line-height: 1.6;
 }
 
-.reg-inline-note svg {
+.reg-inline-info svg {
   flex-shrink: 0;
-  margin-top: 1px;
 }
 
-.reg-calendar-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 13px;
+/* FIXED PROGRAM PERIOD */
+
+.reg-fixed-period {
   padding: 15px;
-  margin-top: 21px;
-  border: 1px solid #dcece4;
-  border-radius: 11px;
-  background: #f5fbf7;
+  border: 1px solid #d0e7f4;
+  border-radius: 10px;
+  background: #eaf6fd;
 }
 
-.reg-calendar-notice svg {
-  flex-shrink: 0;
-  color: #07885c;
-}
-
-.reg-calendar-notice strong {
+.reg-fixed-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #145484;
   font-size: 12px;
-  color: #14714f;
+  font-weight: 900;
 }
 
-.reg-calendar-notice p {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: #658779;
-  line-height: 1.7;
+.reg-fixed-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
-/* BUTTONS */
+.reg-date-box {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #dceefd;
+  color: #206b9e;
+}
+
+.reg-date-box > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.reg-date-box span,
+.reg-date-box small {
+  display: block;
+  font-size: 9px;
+}
+
+.reg-date-box strong {
+  display: block;
+  margin: 6px 0;
+  color: #123e70;
+  font-size: 12px;
+}
+
+.reg-fixed-period > p {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: #3b78a0;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.reg-fixed-period > p svg {
+  flex-shrink: 0;
+}
+
+/* FORM BUTTONS */
 
 .reg-form-actions {
-  display: flex;
-  align-items: stretch;
-  gap: 11px;
-  margin-top: 23px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 10px;
+  margin-top: 20px;
 }
 
 .reg-button-primary,
 .reg-button-disabled,
 .reg-button-security {
-  display: inline-flex;
-  justify-content: center;
+  display: flex;
   align-items: center;
-  gap: 9px;
+  justify-content: center;
+  gap: 8px;
+  min-height: 45px;
+  padding: 11px;
   border: 0;
-  border-radius: 10px;
-  min-height: 46px;
-  padding: 13px 15px;
-  font-size: 12px;
-  font-weight: 850;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 900;
 }
 
 .reg-button-primary {
-  flex: 1;
-  background: #078960;
+  background: linear-gradient(100deg,#08776f,#09a69a);
   color: white;
 }
 
 .reg-button-primary:hover:not(:disabled) {
-  background: #067650;
+  background: #08786d;
 }
 
 .reg-button-disabled {
-  flex: 1;
-  background: #e8eef1;
-  color: #82949d;
+  background: #e6edf2;
+  color: #8497a7;
 }
 
 .reg-form-footnote {
   margin: 13px 0 0;
+  color: #8a9dac;
   text-align: center;
   font-size: 10px;
-  color: #91a0a9;
   line-height: 1.6;
 }
 
-/* ALERTS */
+/* ERRORS */
 
 .reg-alert {
   display: flex;
-  align-items: flex-start;
   gap: 10px;
-  padding: 14px;
-  margin-top: 18px;
-  border-radius: 10px;
-  font-size: 12px;
+  align-items: flex-start;
+  margin-top: 15px;
+  padding: 13px;
+  border-radius: 8px;
+  font-size: 11px;
   line-height: 1.6;
 }
 
-.reg-alert svg {
-  flex-shrink: 0;
-}
-
 .reg-alert.error {
-  color: #ae2828;
-  background: #fff1f1;
-  border: 1px solid #fbcaca;
+  border: 1px solid #f7c8c8;
+  background: #fff2f2;
+  color: #b52d2d;
 }
 
-/* SIMULATION */
+/* SIMULATION RESULT */
 
 .reg-simulation-result {
-  margin-top: 25px;
-  padding: 19px;
-  border: 1px solid #b9e6cf;
-  border-radius: 12px;
-  background: #f0faf4;
+  margin-top: 23px;
+  padding: 17px;
+  border: 1px solid #b9e5ce;
+  border-radius: 11px;
+  background: #f0faf5;
 }
 
 .reg-result-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 17px;
+  gap: 11px;
+  margin-bottom: 15px;
 }
 
 .reg-result-icon {
   display: grid;
   place-items: center;
-  width: 43px;
-  height: 43px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   border-radius: 50%;
-  background: #d6f5e2;
-  color: #068559;
+  background: #d7f4e4;
+  color: #098a60;
 }
 
 .reg-result-head h3 {
   margin: 0;
+  color: #087b56;
   font-size: 15px;
-  color: #09794f;
 }
 
 .reg-result-head p {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
+  color: #668b79;
   font-size: 11px;
-  color: #648b77;
 }
 
 .reg-preview-grid {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 10px;
+  gap: 9px;
 }
 
 .reg-preview-item {
+  padding: 11px;
   min-width: 0;
-  padding: 12px;
-  border: 1px solid #d8ecdf;
+  border: 1px solid #d8ebe0;
   border-radius: 8px;
   background: white;
 }
@@ -1797,58 +2177,103 @@ const css = `
 }
 
 .reg-preview-item span {
-  color: #809889;
+  color: #83998c;
   font-size: 10px;
 }
 
 .reg-preview-item strong {
-  margin-top: 7px;
-  font-size: 12px;
+  margin-top: 6px;
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
 
 .reg-result-confirm {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin-top: 15px;
-  color: #0b774f;
-  font-size: 11px;
+  gap: 8px;
+  margin-top: 13px;
+  color: #0d8058;
+  font-size: 10px;
   font-weight: 800;
-  line-height: 1.6;
 }
 
-/* SIDE PANELS */
+/* PROGRAM TIMELINE */
 
-.reg-side-title {
+.reg-timeline-labels {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 27px;
+  color: #078477;
+  font-size: 10px;
+  font-weight: 900;
 }
 
-.reg-side-title h2 {
-  margin: 0;
-  font-size: 15px;
+.reg-week-timeline {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  margin-top: 18px;
 }
 
-.reg-side-title .reg-section-icon {
-  width: 38px;
-  height: 38px;
+.reg-week-timeline::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 1%;
+  right: 1%;
+  height: 3px;
+  background: #2cbfc1;
 }
 
-.reg-info-list {
-  display: grid;
-  gap: 0;
+.reg-week-node {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  text-align: center;
 }
+
+.reg-week-node > div {
+  width: 9px;
+  height: 9px;
+  margin: 1px auto 8px;
+  border: 2px solid #1bb0bb;
+  border-radius: 50%;
+  background: #d7fcfc;
+}
+
+.reg-week-node.endpoint > div {
+  width: 15px;
+  height: 15px;
+  margin-top: -2px;
+  margin-bottom: 5px;
+  border: 3px solid #087c81;
+  background: #09a69c;
+}
+
+.reg-week-node small {
+  display: block;
+  color: #7894aa;
+  font-size: 7px;
+}
+
+.reg-timeline-caption {
+  margin: 16px 0 0;
+  color: #64849b;
+  text-align: center;
+  font-size: 10px;
+}
+
+/* INFORMATION LIST */
 
 .reg-info-list > div {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  padding: 13px 0;
-  border-bottom: 1px solid #eef2f4;
+  padding: 12px 0;
+  border-bottom: 1px solid #edf2f5;
 }
 
 .reg-info-list > div:last-child {
@@ -1856,36 +2281,99 @@ const css = `
 }
 
 .reg-info-list small {
-  color: #8193a0;
-  font-size: 11px;
+  color: #8295a4;
+  font-size: 10px;
 }
 
 .reg-info-list strong {
+  color: #244965;
   font-size: 11px;
   text-align: right;
   overflow-wrap: anywhere;
 }
 
-.reg-text-amber {
-  color: #b77c19;
+.reg-info-list .reg-text-amber {
+  color: #ad771f;
 }
 
-.reg-side-description {
-  margin: 0 0 17px;
-  font-size: 11px;
-  color: #748998;
-  line-height: 1.8;
+/* APPROVAL PROCESS */
+
+.reg-process-list {
+  display: grid;
+  gap: 16px;
 }
+
+.reg-process-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.reg-process-number {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 29px;
+  height: 29px;
+  border-radius: 50%;
+  background: #177ec4;
+  color: white;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.reg-process-number.color-1,
+.reg-process-number.color-4 {
+  background: #0eaa92;
+}
+
+.reg-process-number.color-2 {
+  background: #d3a133;
+}
+
+.reg-process-number.color-3 {
+  background: #327bd2;
+}
+
+.reg-process-item strong {
+  color: #214767;
+  font-size: 11px;
+}
+
+.reg-process-item p {
+  margin: 5px 0 0;
+  color: #7d91a1;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.reg-link-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 18px;
+  padding: 11px;
+  border: 1px solid #a7d7ce;
+  border-radius: 8px;
+  background: #ebf9f5;
+  color: #087e73;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+/* SECURITY API */
 
 .reg-security-box {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 11px;
-  padding: 14px;
-  margin-bottom: 14px;
-  background: #edf6fc;
-  border-radius: 10px;
-  color: #22668a;
+  margin-bottom: 13px;
+  padding: 13px;
+  border-radius: 9px;
+  background: #edf6fd;
+  color: #246c98;
 }
 
 .reg-security-box > svg {
@@ -1902,25 +2390,25 @@ const css = `
 }
 
 .reg-security-box small {
-  margin-top: 6px;
+  margin-top: 5px;
   font-size: 10px;
   line-height: 1.5;
 }
 
 .reg-button-security {
   width: 100%;
+  background: #176ab4;
   color: white;
-  background: #246bb3;
 }
 
 .reg-button-security:hover:not(:disabled) {
-  background: #1c5897;
+  background: #13568f;
 }
 
 .reg-security-result {
-  margin-top: 15px;
-  padding: 13px;
-  border-radius: 10px;
+  margin-top: 13px;
+  padding: 12px;
+  border-radius: 9px;
   font-size: 11px;
   line-height: 1.7;
   overflow-wrap: anywhere;
@@ -1928,97 +2416,51 @@ const css = `
 
 .reg-security-result strong {
   display: block;
-  font-size: 12px;
 }
 
 .reg-security-result p {
-  margin: 9px 0;
-}
-
-.reg-security-result small {
-  display: block;
-  margin-top: 9px;
+  margin: 7px 0;
 }
 
 .reg-security-result.passed {
-  background: #ecf9f0;
-  border: 1px solid #bde8ce;
-  color: #087449;
+  border: 1px solid #bee5cf;
+  background: #eefaf3;
+  color: #08794d;
 }
 
 .reg-security-result.failed {
+  border: 1px solid #f6c9c9;
   background: #fff1f1;
-  border: 1px solid #fbcaca;
-  color: #b12e2e;
+  color: #b32d2d;
 }
 
-/* TIMELINE */
-
-.reg-timeline {
-  display: grid;
-  gap: 19px;
-  padding: 3px 0;
-}
-
-.reg-timeline-item {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.reg-timeline-item > span {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 31px;
-  height: 31px;
-  border-radius: 50%;
-  background: #e3f5ec;
-  color: #087856;
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.reg-timeline-item strong,
-.reg-timeline-item small {
-  display: block;
-}
-
-.reg-timeline-item strong {
-  font-size: 12px;
-}
-
-.reg-timeline-item small {
-  margin-top: 6px;
-  font-size: 10px;
-  color: #8597a2;
-  line-height: 1.6;
-}
+/* BACK BUTTON */
 
 .reg-back {
   display: flex;
-  justify-content: center;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 9px;
   width: 100%;
   min-height: 44px;
-  padding: 12px;
-  border: 1px solid #d5e7df;
-  border-radius: 10px;
-  background: #e9f5ee;
-  color: #126b50;
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.reg-back:hover {
-  background: #d8eee2;
+  padding: 11px;
+  border: 1px solid #b8dcd1;
+  border-radius: 9px;
+  background: #e7f6f1;
+  color: #087c67;
+  font-size: 11px;
+  font-weight: 900;
 }
 
 .reg-footer {
-  padding: 28px 0 10px;
-  text-align: center;
-  color: #92a2ad;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 23px;
+  padding: 15px 2px;
+  border-top: 1px solid #d9e4ec;
+  color: #8195a5;
   font-size: 10px;
 }
 
@@ -2029,71 +2471,58 @@ const css = `
   place-items: center;
   min-height: 100vh;
   padding: 24px;
-  background: #f2f7f8;
-  color: #193b42;
-  font-family: Arial, Helvetica, sans-serif;
+  background: #edf4f7;
+  font-family: Arial, sans-serif;
   text-align: center;
-}
-
-.reg-loading > div {
-  max-width: 480px;
+  color: #15394e;
 }
 
 .reg-loading h2 span {
-  color: #07865f;
+  color: #078e72;
 }
 
 .reg-loading p {
-  color: #718894;
-  line-height: 1.7;
+  color: #718a9c;
 }
 
 .reg-loading button {
-  margin-top: 12px;
-  padding: 12px 16px;
+  padding: 12px;
   border: 0;
-  border-radius: 9px;
-  background: #07885f;
+  border-radius: 8px;
+  background: #078977;
   color: white;
-  font-weight: 800;
   cursor: pointer;
 }
 
-/* RESPONSIVE */
+/* TABLET */
 
-@media (max-width: 1250px) {
+@media(max-width:1200px) {
   .reg-topbar {
     gap: 10px;
-    padding: 12px 18px;
-  }
-
-  .reg-brand {
-    font-size: 20px;
+    padding: 11px 17px;
   }
 
   .reg-navigation button {
-    padding: 10px;
-    font-size: 11px;
+    padding: 10px 8px;
+    font-size: 10px;
+  }
+
+  .reg-summary-grid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
   }
 
   .reg-main-grid {
-    grid-template-columns: minmax(0,1.5fr) minmax(270px,.8fr);
+    grid-template-columns: minmax(0,1.05fr) minmax(0,.95fr);
   }
 }
 
-@media (max-width: 1000px) {
+@media(max-width:1000px) {
   .reg-main-grid {
     grid-template-columns: 1fr;
   }
 
   .reg-side {
-    display: grid;
     grid-template-columns: repeat(2,minmax(0,1fr));
-    gap: 14px;
-  }
-
-  .reg-side .reg-card {
-    margin-bottom: 0;
   }
 
   .reg-side .reg-back {
@@ -2106,10 +2535,9 @@ const css = `
     top: 100%;
     left: 0;
     right: 0;
-    background: white;
-    border-bottom: 1px solid #e2ebef;
-    padding: 13px;
-    box-shadow: 0 12px 25px #142d3817;
+    padding: 12px;
+    background: #0b2943;
+    border-bottom: 1px solid #ffffff2d;
   }
 
   .reg-navigation.open {
@@ -2117,7 +2545,12 @@ const css = `
   }
 
   .reg-navigation button {
-    font-size: 13px;
+    font-size: 12px;
+    padding: 12px;
+  }
+
+  .reg-account {
+    margin-left: auto;
   }
 
   .reg-mobile-toggle {
@@ -2125,24 +2558,31 @@ const css = `
     place-items: center;
     padding: 8px;
   }
-
-  .reg-account {
-    margin-left: auto;
-  }
 }
 
-@media (max-width: 700px) {
+/* MOBILE */
+
+@media(max-width:700px) {
   .reg-container {
-    padding: 12px;
+    padding: 11px;
   }
 
   .reg-topbar {
-    min-height: 61px;
+    min-height: 65px;
     padding: 10px 12px;
   }
 
-  .reg-brand {
-    font-size: 19px;
+  .reg-brand-copy strong {
+    font-size: 16px;
+  }
+
+  .reg-brand-copy > span {
+    font-size: 6.5px;
+  }
+
+  .reg-brand-icon {
+    width: 35px;
+    height: 35px;
   }
 
   .reg-account-info {
@@ -2152,9 +2592,8 @@ const css = `
   .reg-hero {
     flex-direction: column;
     align-items: stretch;
-    min-height: auto;
-    padding: 24px 18px;
-    gap: 22px;
+    gap: 20px;
+    padding: 23px 18px;
   }
 
   .reg-hero h1 {
@@ -2165,31 +2604,35 @@ const css = `
     width: 100%;
   }
 
-  .reg-notice {
-    flex-wrap: wrap;
-    padding: 15px;
+  .reg-summary-grid {
+    grid-template-columns: 1fr;
+    gap: 9px;
   }
 
-  .reg-notice-badge {
-    margin-left: 0;
+  .reg-summary-card {
+    min-height: 0;
+    padding: 13px;
+  }
+
+  .reg-notice {
+    flex-wrap: wrap;
+    padding: 13px;
   }
 
   .reg-card {
-    padding: 17px;
+    padding: 15px;
   }
 
   .reg-form-grid {
     grid-template-columns: 1fr;
-    gap: 16px;
+  }
+
+  .reg-fixed-grid {
+    grid-template-columns: 1fr;
   }
 
   .reg-form-actions {
-    flex-direction: column;
-  }
-
-  .reg-button-primary,
-  .reg-button-disabled {
-    width: 100%;
+    grid-template-columns: 1fr;
   }
 
   .reg-preview-grid {
@@ -2200,8 +2643,26 @@ const css = `
     grid-template-columns: 1fr;
   }
 
-  .reg-section-head h2 {
-    font-size: 16px;
+  .reg-side .reg-back {
+    grid-column: auto;
+  }
+
+  .reg-section-heading h2 {
+    font-size: 15px;
+  }
+
+  .reg-footer {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .reg-week-node small {
+    font-size: 5.5px;
+  }
+
+  .reg-week-node > div {
+    width: 7px;
+    height: 7px;
   }
 }
 
@@ -2210,24 +2671,18 @@ const css = `
   .reg-breadcrumb,
   .reg-form-actions,
   .reg-button-security,
-  .reg-back,
-  .reg-mobile-toggle {
+  .reg-back {
     display: none !important;
   }
 
-  .reg-container {
-    max-width: none;
-    padding: 0;
+  .reg-card {
+    break-inside: avoid;
+    box-shadow: none;
   }
 
   .reg-hero {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
-  }
-
-  .reg-card {
-    box-shadow: none;
-    break-inside: avoid;
   }
 }
 `;
