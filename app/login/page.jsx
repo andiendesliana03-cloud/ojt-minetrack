@@ -7,16 +7,22 @@ import { supabase } from "../../lib/supabase";
 
 // ======================================================
 // OJT MINETRACK V2.0
-// TEMPLATE 1 — MODERN SPLIT LAYOUT
-// LOGIN ADMIN / MENTOR / PESERTA
-// SUPABASE AUTH + MAINTENANCE + RESET PASSWORD
+// LOGIN — MODERN SPLIT LAYOUT
+// BACKGROUND ERG + INFORMASI PENDAFTARAN PESERTA
+// LOGIN, MAINTENANCE, RESET PASSWORD DIPERTAHANKAN
 // ======================================================
 
-const BACKGROUND_IMAGE = "/login-erg.jpg";
+const BACKGROUND_CANDIDATES = [
+  "/login-erg.jpg",
+  "/background-erg.png.PNG",
+  "/background-erg.png",
+  "/login-erg.png",
+];
+
 const REMEMBER_KEY = "ojt_minetrack_remembered_email";
 
 function normalize(value) {
-  return String(value || "").trim().toLowerCase();
+  return String(value ?? "").trim().toLowerCase();
 }
 
 function getDestination(role) {
@@ -34,7 +40,7 @@ function getDestination(role) {
 }
 
 function Icon({ name, size = 20 }) {
-  const icons = {
+  const paths = {
     mail: (
       <>
         <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -66,12 +72,6 @@ function Icon({ name, size = 20 }) {
         <path d="m8 12 3 3 5-6" />
       </>
     ),
-    shieldCheck: (
-      <>
-        <path d="m12 2 9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z" />
-        <path d="m8 12 3 3 5-6" />
-      </>
-    ),
     chart: (
       <>
         <path d="M4 20V14h4v6M10 20V9h4v11M16 20V4h4v16" />
@@ -91,6 +91,13 @@ function Icon({ name, size = 20 }) {
       </>
     ),
     check: <path d="m4 12 5 5L20 6" />,
+    x: <path d="M18 6 6 18M6 6l12 12" />,
+    info: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v5M12 8h.01" />
+      </>
+    ),
   };
 
   return (
@@ -105,7 +112,7 @@ function Icon({ name, size = 20 }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {icons[name] || icons.check}
+      {paths[name] || paths.check}
     </svg>
   );
 }
@@ -113,9 +120,7 @@ function Icon({ name, size = 20 }) {
 function FeatureCard({ icon, title }) {
   return (
     <div className="login-feature">
-      <div className="login-feature-icon">
-        <Icon name={icon} size={23} />
-      </div>
+      <Icon name={icon} size={22} />
       <span>{title}</span>
     </div>
   );
@@ -133,8 +138,45 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [backgroundUrl, setBackgroundUrl] = useState("");
+  const [showRegistrationInfo, setShowRegistrationInfo] =
+    useState(false);
+
   // ====================================================
-  // MEMBACA PROFIL & STATUS MAINTENANCE
+  // MEMERIKSA FILE BACKGROUND
+  // ====================================================
+
+  useEffect(() => {
+    let active = true;
+
+    function tryImage(index) {
+      if (!active || index >= BACKGROUND_CANDIDATES.length) {
+        return;
+      }
+
+      const candidate = BACKGROUND_CANDIDATES[index];
+      const image = new window.Image();
+
+      image.onload = () => {
+        if (active) setBackgroundUrl(candidate);
+      };
+
+      image.onerror = () => {
+        if (active) tryImage(index + 1);
+      };
+
+      image.src = candidate;
+    }
+
+    tryImage(0);
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // ====================================================
+  // PROFIL DAN MAINTENANCE
   // ====================================================
 
   async function resolveAccess(user) {
@@ -184,50 +226,42 @@ export default function LoginPage() {
     if (settingsError) {
       throw new Error(
         "Gagal memeriksa status sistem. " +
-        settingsError.message
+          settingsError.message
       );
     }
 
-    if (
-      typeof settings?.maintenance_mode !== "boolean"
-    ) {
+    if (typeof settings?.maintenance_mode !== "boolean") {
       throw new Error(
         "Konfigurasi Maintenance Mode belum tersedia."
       );
     }
 
-    if (
-      settings.maintenance_mode &&
-      role !== "admin"
-    ) {
+    if (settings.maintenance_mode && role !== "admin") {
       throw new Error(
         "OJT MineTrack sedang Maintenance. " +
-        "Akses Mentor dan Peserta sementara dinonaktifkan."
+          "Akses Mentor dan Peserta sementara dinonaktifkan."
       );
     }
 
-    return {
-      destination,
-      profile,
-    };
+    return { destination, profile };
   }
 
   // ====================================================
-  // INGAT EMAIL
-  // HANYA MENYIMPAN EMAIL, BUKAN PASSWORD
+  // INGAT EMAIL, BUKAN PASSWORD
   // ====================================================
 
   useEffect(() => {
     try {
-      const savedEmail =
-        window.localStorage.getItem(REMEMBER_KEY);
+      const savedEmail = window.localStorage.getItem(
+        REMEMBER_KEY
+      );
 
       if (savedEmail) {
         setEmail(savedEmail);
         setRememberEmail(true);
       }
     } catch {
-      // Storage tidak tersedia.
+      // Storage mungkin dinonaktifkan.
     }
   }, []);
 
@@ -242,7 +276,7 @@ export default function LoginPage() {
         window.localStorage.removeItem(REMEMBER_KEY);
       }
     } catch {
-      // Tidak menghalangi login.
+      // Tidak memblokir login.
     }
   }
 
@@ -253,13 +287,13 @@ export default function LoginPage() {
       try {
         window.localStorage.removeItem(REMEMBER_KEY);
       } catch {
-        // Abaikan kesalahan storage.
+        // Abaikan.
       }
     }
   }
 
   // ====================================================
-  // CEK SESI SEBELUM LOGIN
+  // MEMERIKSA SESI LOGIN
   // ====================================================
 
   useEffect(() => {
@@ -310,7 +344,7 @@ export default function LoginPage() {
   }, [router]);
 
   // ====================================================
-  // LOGIN SUPABASE AUTH
+  // LOGIN SUPABASE
   // ====================================================
 
   async function handleLogin(event) {
@@ -321,9 +355,7 @@ export default function LoginPage() {
     const cleanEmail = email.trim().toLowerCase();
 
     if (
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-        cleanEmail
-      )
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
     ) {
       setError("Masukkan alamat email yang valid.");
       return;
@@ -349,28 +381,20 @@ export default function LoginPage() {
       });
 
       if (loginError) {
-        const loginMessage = normalize(
-          loginError.message
-        );
+        const message = normalize(loginError.message);
 
         if (
-          loginMessage.includes(
-            "invalid login credentials"
-          ) ||
-          loginMessage.includes("invalid credentials")
+          message.includes("invalid login credentials") ||
+          message.includes("invalid credentials")
         ) {
           throw new Error(
-            "Email atau password salah. " +
-            "Silakan periksa kembali."
+            "Email atau password salah. Silakan periksa kembali."
           );
         }
 
-        if (
-          loginMessage.includes("email not confirmed")
-        ) {
+        if (message.includes("email not confirmed")) {
           throw new Error(
-            "Email akun belum diverifikasi. " +
-            "Hubungi Administrator."
+            "Email belum diverifikasi. Hubungi Administrator."
           );
         }
 
@@ -397,13 +421,12 @@ export default function LoginPage() {
         try {
           await supabase.auth.signOut();
         } catch {
-          // Status autentikasi tetap ditangani Supabase.
+          // Abaikan kegagalan signOut sementara.
         }
       }
 
       setError(
-        err?.message ||
-        "Gagal login. Silakan coba lagi."
+        err?.message || "Gagal login. Silakan coba lagi."
       );
       setLoading(false);
     }
@@ -432,7 +455,7 @@ export default function LoginPage() {
   }
 
   // ====================================================
-  // UI — TEMPLATE 1
+  // TAMPILAN LOGIN
   // ====================================================
 
   return (
@@ -441,27 +464,25 @@ export default function LoginPage() {
 
       <div
         className="login-background"
-        style={{
-          backgroundImage: `url("${BACKGROUND_IMAGE}")`,
-        }}
+        style={
+          backgroundUrl
+            ? { backgroundImage: `url("${backgroundUrl}")` }
+            : undefined
+        }
+        aria-hidden="true"
       />
 
-      <div className="login-overlay" />
+      <div className="login-overlay" aria-hidden="true" />
 
       <div className="login-container">
-
-        {/* HEADER */}
-
         <header className="login-header">
           <div className="login-header-brand">
             <div className="login-header-logo">
-              <Icon name="shieldCheck" size={24} />
+              <Icon name="shield" size={24} />
             </div>
 
             <div>
-              <strong>
-                EMERGENCY RESPONSE GROUP
-              </strong>
+              <strong>EMERGENCY RESPONSE GROUP</strong>
               <span>PT BERAU COAL</span>
             </div>
           </div>
@@ -471,15 +492,12 @@ export default function LoginPage() {
           </span>
         </header>
 
-        {/* MAIN TWO-COLUMN LAYOUT */}
-
         <div className="login-main">
-
-          {/* LEFT CONTENT */}
+          {/* SISI KIRI */}
 
           <section className="login-left">
             <div className="login-eyebrow">
-              ON JOB TRAINING MANAGEMENT SYSTEM
+              ON THE JOB TRAINING MANAGEMENT SYSTEM
             </div>
 
             <div className="login-heading">
@@ -520,6 +538,7 @@ export default function LoginPage() {
 
             <div className="login-left-footer">
               <div className="login-footer-line" />
+
               <span>
                 EMERGENCY RESPONSE GROUP
                 <br />
@@ -528,27 +547,23 @@ export default function LoginPage() {
             </div>
           </section>
 
-          {/* RIGHT LOGIN CARD */}
+          {/* SISI KANAN */}
 
           <section className="login-right">
             <div className="login-card">
-
               <div className="login-card-badge">
-                <Icon name="shieldCheck" size={16} />
+                <Icon name="shield" size={16} />
                 SECURE ACCESS
               </div>
 
               <h2>Selamat Datang</h2>
 
               <p className="login-card-description">
-                Silakan login menggunakan email dan password
+                Masuk menggunakan email dan password
                 akun OJT MineTrack Anda.
               </p>
 
               <form onSubmit={handleLogin}>
-
-                {/* EMAIL */}
-
                 <div className="login-field">
                   <label htmlFor="login-email">
                     Email Pengguna
@@ -574,8 +589,6 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* PASSWORD */}
-
                 <div className="login-field">
                   <label htmlFor="login-password">
                     Password
@@ -586,11 +599,7 @@ export default function LoginPage() {
 
                     <input
                       id="login-password"
-                      type={
-                        showPassword
-                          ? "text"
-                          : "password"
-                      }
+                      type={showPassword ? "text" : "password"}
                       required
                       autoComplete="current-password"
                       placeholder="Masukkan password"
@@ -616,18 +625,12 @@ export default function LoginPage() {
                       }
                     >
                       <Icon
-                        name={
-                          showPassword
-                            ? "eyeOff"
-                            : "eye"
-                        }
+                        name={showPassword ? "eyeOff" : "eye"}
                         size={19}
                       />
                     </button>
                   </div>
                 </div>
-
-                {/* REMEMBER & FORGOT */}
 
                 <div className="login-options">
                   <label className="login-remember">
@@ -656,19 +659,12 @@ export default function LoginPage() {
                   </button>
                 </div>
 
-                {/* ERROR */}
-
                 {error && (
-                  <div
-                    className="login-error"
-                    role="alert"
-                  >
+                  <div className="login-error" role="alert">
                     <Icon name="alert" size={19} />
                     <span>{error}</span>
                   </div>
                 )}
-
-                {/* SUBMIT */}
 
                 <button
                   type="submit"
@@ -687,35 +683,48 @@ export default function LoginPage() {
                 </button>
               </form>
 
-              {/* ROLE INFO */}
+              {/* PENDAFTARAN PESERTA */}
+
+              <div className="login-register">
+                <div className="login-divider">
+                  <span>ATAU</span>
+                </div>
+
+                <p>Belum memiliki akun peserta OJT?</p>
+
+                <button
+                  type="button"
+                  className="login-register-button"
+                  onClick={() => setShowRegistrationInfo(true)}
+                >
+                  <Icon name="users" size={19} />
+                  Daftar sebagai Peserta OJT
+                  <Icon name="arrow" size={17} />
+                </button>
+
+                <small>
+                  Pendaftaran peserta mengikuti proses
+                  verifikasi dan persetujuan yang berlaku.
+                </small>
+              </div>
 
               <div className="login-access-info">
                 <div className="login-access-icon">
-                  <Icon
-                    name="shieldCheck"
-                    size={21}
-                  />
+                  <Icon name="shield" size={21} />
                 </div>
 
                 <div>
-                  <strong>
-                    Akses Berdasarkan Peran
-                  </strong>
+                  <strong>Akses Berdasarkan Peran</strong>
 
                   <p>
-                    Sistem mengarahkan Administrator,
-                    Mentor, dan Peserta ke dashboard
-                    sesuai hak akses.
+                    Administrator, Mentor, dan Peserta
+                    diarahkan ke dashboard sesuai hak akses.
                   </p>
                 </div>
               </div>
 
-              {/* CARD FOOTER */}
-
               <div className="login-card-footer">
-                <div>
-                  © 2026 OJT MineTrack v2.0
-                </div>
+                <div>© 2026 OJT MineTrack v2.0</div>
                 <div>
                   Emergency Response Group · PT Berau Coal
                 </div>
@@ -724,28 +733,82 @@ export default function LoginPage() {
           </section>
         </div>
 
-        {/* GLOBAL FOOTER */}
-
         <footer className="login-global-footer">
-          <span>
-            OJT Program 2026–2027
-          </span>
-
-          <span className="login-footer-separator">
-            |
-          </span>
-
-          <span>
-            PT Berau Coal
-          </span>
+          OJT Program 2026–2027
+          <span>|</span>
+          PT Berau Coal
         </footer>
       </div>
+
+      {/* INFORMASI PENDAFTARAN */}
+
+      {showRegistrationInfo && (
+        <div
+          className="login-modal-backdrop"
+          onClick={() => setShowRegistrationInfo(false)}
+        >
+          <section
+            className="login-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="register-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="login-modal-close"
+              aria-label="Tutup"
+              onClick={() =>
+                setShowRegistrationInfo(false)
+              }
+            >
+              <Icon name="x" size={21} />
+            </button>
+
+            <div className="login-modal-icon">
+              <Icon name="users" size={28} />
+            </div>
+
+            <h2 id="register-title">
+              Pendaftaran Peserta OJT
+            </h2>
+
+            <p>
+              Pendaftaran akun peserta baru saat ini
+              belum dibuka untuk pendaftaran mandiri.
+              Silakan menghubungi Mentor atau Administrator
+              OJT MineTrack untuk mengikuti proses
+              pendaftaran dan persetujuan peserta.
+            </p>
+
+            <div className="login-modal-note">
+              <Icon name="info" size={19} />
+              <span>
+                Halaman Mentor untuk pengelolaan
+                pendaftaran adalah bagian dari sistem
+                internal, bukan halaman pendaftaran publik.
+                Tidak ada akun yang dibuat melalui tombol ini.
+              </span>
+            </div>
+
+            <button
+              type="button"
+              className="login-modal-action"
+              onClick={() =>
+                setShowRegistrationInfo(false)
+              }
+            >
+              Mengerti
+            </button>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
 
 // ======================================================
-// STYLES — TEMPLATE 1
+// CSS
 // ======================================================
 
 const css = `
@@ -759,7 +822,7 @@ const css = `
   min-height: 100vh;
   overflow: hidden;
   font-family: Arial, Helvetica, sans-serif;
-  color: #ffffff;
+  color: white;
   background: #071b2d;
 }
 
@@ -788,10 +851,11 @@ const css = `
 .login-background {
   position: absolute;
   inset: 0;
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
   z-index: 0;
+  background-color: #102f45;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
 }
 
 .login-overlay {
@@ -801,39 +865,37 @@ const css = `
   background:
     linear-gradient(
       90deg,
-      rgba(4, 20, 35, .92) 0%,
-      rgba(5, 29, 43, .83) 31%,
-      rgba(5, 32, 47, .43) 61%,
-      rgba(6, 24, 39, .47) 100%
+      rgba(4,20,35,.79) 0%,
+      rgba(5,29,43,.66) 32%,
+      rgba(5,32,47,.28) 65%,
+      rgba(6,24,39,.40) 100%
     ),
     linear-gradient(
       0deg,
-      rgba(2, 14, 26, .88),
-      transparent 34%
+      rgba(2,14,26,.78),
+      transparent 42%
     );
 }
-
-/* PAGE CONTAINER */
 
 .login-container {
   position: relative;
   z-index: 2;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
   width: 100%;
   max-width: 1600px;
+  min-height: 100vh;
   margin: 0 auto;
-  padding: 30px clamp(24px,4.5vw,70px) 24px;
+  padding: 25px clamp(22px,4.5vw,70px);
 }
 
 /* HEADER */
 
 .login-header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 15px;
+  align-items: center;
+  gap: 16px;
 }
 
 .login-header-brand {
@@ -874,27 +936,22 @@ const css = `
   padding: 9px 12px;
   border: 1px solid #ffffff38;
   border-radius: 8px;
-  background: #071a2c55;
-  color: #d8e8e6;
+  background: #071a2c66;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .7px;
 }
 
-/* MAIN */
+/* SPLIT LAYOUT */
 
 .login-main {
   display: grid;
-  grid-template-columns:
-    minmax(0,1.25fr)
-    minmax(350px,.75fr);
+  grid-template-columns: minmax(0,1.2fr) minmax(350px,.8fr);
   align-items: center;
-  gap: clamp(30px,5vw,90px);
+  gap: clamp(30px,5vw,80px);
   flex: 1;
-  padding: 30px 0 50px;
+  padding: 32px 0 45px;
 }
-
-/* LEFT */
 
 .login-left {
   min-width: 0;
@@ -902,36 +959,32 @@ const css = `
 }
 
 .login-eyebrow {
-  margin-bottom: 20px;
+  margin-bottom: 19px;
   color: #f0c779;
   font-size: 12px;
-  letter-spacing: 2.3px;
   font-weight: 900;
+  letter-spacing: 2px;
 }
 
 .login-heading-top {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 19px;
 }
 
 .login-heading-top h1 {
   margin: 0;
-  font-size: clamp(74px,9vw,135px);
+  font-size: clamp(70px,9vw,132px);
   font-weight: 900;
   line-height: .95;
   letter-spacing: -4px;
-  color: #fff;
 }
 
 .login-version {
-  display: inline-flex;
-  align-items: center;
   padding: 9px 13px;
   border: 1px solid #55e2b88a;
   border-radius: 9px;
   background: #18a88c28;
-  color: #d8fff1;
   font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
@@ -940,59 +993,55 @@ const css = `
 .login-minetrack {
   margin-top: 4px;
   color: #56e7b9;
-  font-size: clamp(57px,7.1vw,110px);
+  font-size: clamp(56px,7vw,108px);
   font-weight: 900;
-  line-height: 1.04;
+  line-height: 1.05;
   letter-spacing: -3px;
-  overflow-wrap: anywhere;
   text-shadow: 0 5px 20px #00162055;
 }
 
 .login-subtitle {
-  max-width: 580px;
-  margin: 24px 0 30px;
+  max-width: 570px;
+  margin: 24px 0 28px;
   color: #e0eeed;
   font-size: 16px;
-  line-height: 1.85;
+  line-height: 1.8;
   text-shadow: 0 2px 10px #06152366;
 }
-
-/* VALUES */
 
 .login-features {
   display: flex;
   flex-wrap: wrap;
-  gap: 11px;
+  gap: 10px;
 }
 
 .login-feature {
   display: flex;
   align-items: center;
-  gap: 11px;
-  min-height: 66px;
-  padding: 12px 15px;
-  border: 1px solid #ffffff4a;
-  border-radius: 12px;
-  background: #092536a8;
-  backdrop-filter: blur(9px);
-  -webkit-backdrop-filter: blur(9px);
-  color: #fff;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #ffffff55;
+  border-radius: 11px;
+  background: #092536a3;
+  color: white;
   font-size: 12px;
   font-weight: 800;
+  backdrop-filter: blur(7px);
 }
 
-.login-feature-icon {
+.login-feature svg {
   color: #75edc5;
+  flex-shrink: 0;
 }
 
 .login-left-footer {
-  margin-top: 48px;
+  margin-top: 43px;
 }
 
 .login-footer-line {
   width: 130px;
   height: 3px;
-  margin-bottom: 17px;
+  margin-bottom: 15px;
   border-radius: 10px;
   background: #57e7b8;
 }
@@ -1017,10 +1066,10 @@ const css = `
 .login-card {
   width: 100%;
   max-width: 455px;
-  padding: 33px 30px 25px;
-  border: 1px solid #ffffff8c;
+  padding: 29px 29px 23px;
+  border: 1px solid #ffffff90;
   border-radius: 17px;
-  background: #ffffff;
+  background: white;
   color: #17303f;
   box-shadow: 0 25px 70px #05172480;
 }
@@ -1029,39 +1078,37 @@ const css = `
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
+  padding: 8px 11px;
   border-radius: 8px;
   background: #e6f6ef;
   color: #088760;
   font-size: 10px;
   font-weight: 900;
-  letter-spacing: .9px;
+  letter-spacing: .8px;
 }
 
 .login-card h2 {
-  margin: 22px 0 10px;
+  margin: 20px 0 9px;
   color: #152b3c;
-  font-size: 30px;
+  font-size: 29px;
   font-weight: 900;
-  letter-spacing: -.8px;
+  letter-spacing: -.7px;
 }
 
 .login-card-description {
-  margin: 0 0 29px;
+  margin: 0 0 22px;
   color: #728695;
   font-size: 13px;
-  line-height: 1.75;
+  line-height: 1.7;
 }
 
-/* FORM */
-
 .login-field {
-  margin-bottom: 22px;
+  margin-bottom: 19px;
 }
 
 .login-field label {
   display: block;
-  margin-bottom: 9px;
+  margin-bottom: 8px;
   color: #2e4656;
   font-size: 12px;
   font-weight: 850;
@@ -1071,7 +1118,7 @@ const css = `
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 50px;
+  min-height: 49px;
   padding: 0 13px;
   border: 1px solid #d6e3e9;
   border-radius: 9px;
@@ -1092,7 +1139,7 @@ const css = `
 .login-input input {
   width: 100%;
   min-width: 0;
-  min-height: 49px;
+  min-height: 47px;
   padding: 0;
   border: 0;
   outline: 0;
@@ -1115,15 +1162,13 @@ const css = `
   color: #8698a5;
 }
 
-/* OPTIONS */
-
 .login-options {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  margin: 3px 0 24px;
+  gap: 10px;
+  margin: 1px 0 20px;
 }
 
 .login-remember {
@@ -1154,61 +1199,118 @@ const css = `
   text-decoration: underline;
 }
 
-/* SUBMIT */
-
 .login-submit {
   display: flex;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 51px;
+  min-height: 50px;
   padding: 13px;
   border: 0;
   border-radius: 9px;
-  background: linear-gradient(
-    95deg,
-    #07855e,
-    #0ec68f
-  );
-  box-shadow: 0 7px 19px #05966c25;
+  background: linear-gradient(95deg,#07855e,#0ec68f);
   color: white;
   font-size: 13px;
   font-weight: 900;
+  box-shadow: 0 7px 19px #05966c25;
 }
 
 .login-submit:hover:not(:disabled) {
   background: #087d59;
 }
 
-/* ERROR */
-
 .login-error {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 18px;
-  padding: 13px;
+  gap: 9px;
+  margin-bottom: 15px;
+  padding: 12px;
   border: 1px solid #fecaca;
   border-radius: 9px;
   background: #fff1f1;
   color: #b91c1c;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .login-error svg {
   flex-shrink: 0;
 }
 
-/* ACCESS INFO */
+/* PENDAFTARAN */
+
+.login-register {
+  margin-top: 23px;
+  text-align: center;
+}
+
+.login-divider {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.login-divider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #e5ecef;
+}
+
+.login-divider span {
+  position: relative;
+  padding: 0 12px;
+  background: white;
+  color: #94a3aa;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.login-register > p {
+  margin: 0 0 12px;
+  color: #667e89;
+  font-size: 12px;
+}
+
+.login-register-button {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 49px;
+  padding: 11px;
+  border: 1px solid #0b9b70;
+  border-radius: 9px;
+  background: #f4fbf7;
+  color: #087e5b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.login-register-button:hover {
+  background: #e1f5eb;
+}
+
+.login-register > small {
+  display: block;
+  margin-top: 10px;
+  color: #90a0a5;
+  font-size: 10px;
+  line-height: 1.6;
+}
 
 .login-access-info {
   display: flex;
   align-items: flex-start;
   gap: 11px;
-  margin-top: 27px;
-  padding: 14px;
+  margin-top: 21px;
+  padding: 13px;
   border: 1px solid #d9eee5;
   border-radius: 10px;
   background: #effaf5;
@@ -1226,41 +1328,123 @@ const css = `
 }
 
 .login-access-info strong {
-  font-size: 11px;
   color: #167253;
+  font-size: 11px;
 }
 
 .login-access-info p {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
   color: #6c8b7c;
   font-size: 10px;
-  line-height: 1.7;
+  line-height: 1.6;
 }
 
-/* FOOTERS */
-
 .login-card-footer {
-  margin-top: 24px;
-  padding-top: 19px;
+  margin-top: 19px;
+  padding-top: 14px;
   border-top: 1px solid #e9eef1;
   color: #9eacb4;
   font-size: 10px;
   text-align: center;
-  line-height: 1.8;
+  line-height: 1.7;
 }
 
 .login-global-footer {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-top: 16px;
+  padding-top: 13px;
   border-top: 1px solid #ffffff42;
   color: #d0e1df;
   font-size: 11px;
 }
 
-.login-footer-separator {
+.login-global-footer span {
   color: #79d6b9;
+}
+
+/* MODAL PENDAFTARAN */
+
+.login-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(3,17,27,.72);
+}
+
+.login-modal {
+  position: relative;
+  width: 100%;
+  max-width: 470px;
+  padding: 30px;
+  border-radius: 16px;
+  background: white;
+  color: #17303f;
+  box-shadow: 0 25px 70px #0006;
+}
+
+.login-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: #eef2f3;
+  color: #5c717b;
+}
+
+.login-modal-icon {
+  display: grid;
+  place-items: center;
+  width: 53px;
+  height: 53px;
+  border-radius: 13px;
+  background: #e3f7eb;
+  color: #07875e;
+}
+
+.login-modal h2 {
+  margin: 18px 0 10px;
+  font-size: 22px;
+}
+
+.login-modal > p {
+  color: #637988;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.login-modal-note {
+  display: flex;
+  gap: 10px;
+  padding: 13px;
+  margin: 17px 0;
+  border-radius: 9px;
+  background: #f1f7f5;
+  color: #466a60;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.login-modal-note svg {
+  flex-shrink: 0;
+}
+
+.login-modal-action {
+  width: 100%;
+  padding: 13px;
+  border: 0;
+  border-radius: 9px;
+  background: #087e5b;
+  color: white;
+  font-weight: 900;
 }
 
 /* LOADING */
@@ -1309,30 +1493,24 @@ const css = `
 
 @media(max-width:1100px) {
   .login-main {
-    grid-template-columns:
-      minmax(0,1fr)
-      minmax(340px,.9fr);
-    gap: 30px;
+    grid-template-columns: minmax(0,1fr) minmax(340px,.95fr);
+    gap: 25px;
   }
 
   .login-heading-top h1 {
-    font-size: 80px;
+    font-size: 77px;
   }
 
   .login-minetrack {
-    font-size: 64px;
+    font-size: 62px;
   }
 
   .login-subtitle {
     font-size: 14px;
   }
 
-  .login-feature {
-    padding: 10px;
-  }
-
   .login-card {
-    padding: 26px 23px;
+    padding: 25px 22px;
   }
 }
 
@@ -1340,12 +1518,12 @@ const css = `
 
 @media(max-width:800px) {
   .login-container {
-    padding: 20px 17px;
+    padding: 19px 16px;
   }
 
   .login-main {
     grid-template-columns: 1fr;
-    gap: 25px;
+    gap: 26px;
     padding: 35px 0;
   }
 
@@ -1354,12 +1532,8 @@ const css = `
   }
 
   .login-left {
-    text-align: center;
     margin: 0 auto;
-  }
-
-  .login-eyebrow {
-    font-size: 10px;
+    text-align: center;
   }
 
   .login-heading-top {
@@ -1367,7 +1541,7 @@ const css = `
   }
 
   .login-heading-top h1 {
-    font-size: 67px;
+    font-size: 68px;
   }
 
   .login-minetrack {
@@ -1375,8 +1549,8 @@ const css = `
   }
 
   .login-subtitle {
-    max-width: 500px;
-    margin: 16px auto 21px;
+    max-width: 520px;
+    margin: 17px auto 22px;
     font-size: 13px;
   }
 
@@ -1385,8 +1559,7 @@ const css = `
   }
 
   .login-feature {
-    min-height: 50px;
-    padding: 9px 11px;
+    padding: 10px;
     font-size: 11px;
   }
 
@@ -1407,13 +1580,12 @@ const css = `
   }
 
   .login-overlay {
-    background:
-      linear-gradient(
-        180deg,
-        #061b2dba,
-        #071f35bc 52%,
-        #061b2df0
-      );
+    background: linear-gradient(
+      180deg,
+      rgba(6,27,45,.66),
+      rgba(7,31,53,.77) 55%,
+      rgba(6,27,45,.92)
+    );
   }
 
   .login-global-footer {
@@ -1423,7 +1595,7 @@ const css = `
 
 @media(max-width:480px) {
   .login-container {
-    padding: 17px 12px;
+    padding: 16px 12px;
   }
 
   .login-header-brand strong {
@@ -1435,12 +1607,12 @@ const css = `
   }
 
   .login-heading-top h1 {
-    font-size: 61px;
+    font-size: 60px;
   }
 
   .login-minetrack {
-    font-size: 49px;
-    letter-spacing: -1.5px;
+    font-size: 48px;
+    letter-spacing: -1px;
   }
 
   .login-version {
@@ -1459,17 +1631,11 @@ const css = `
   .login-feature {
     flex-direction: column;
     gap: 5px;
-    padding: 9px;
     font-size: 9px;
   }
 
-  .login-feature-icon svg {
-    width: 19px;
-    height: 19px;
-  }
-
   .login-card {
-    padding: 24px 19px 20px;
+    padding: 23px 18px;
   }
 
   .login-card h2 {
@@ -1480,17 +1646,13 @@ const css = `
     font-size: 12px;
   }
 
-  .login-options {
-    gap: 8px;
-  }
-
   .login-remember,
   .login-forgot {
     font-size: 11px;
   }
 
-  .login-global-footer {
-    font-size: 10px;
+  .login-modal {
+    padding: 24px 20px;
   }
 }
 
