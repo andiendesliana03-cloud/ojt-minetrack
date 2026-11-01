@@ -10,7 +10,7 @@ function respond(data, status = 200) {
   return NextResponse.json(data, {
     status,
     headers: {
-      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Cache-Control": "no-store",
     },
   });
 }
@@ -35,9 +35,9 @@ function getAdminClient() {
 
 export async function GET(request) {
   try {
-    // ================================================
-    // 1. VALIDASI TOKEN
-    // ================================================
+    // ==============================================
+    // 1. VALIDASI TOKEN LOGIN
+    // ==============================================
 
     const authorization =
       request.headers.get("authorization") || "";
@@ -73,22 +73,24 @@ export async function GET(request) {
       );
     }
 
-    // ================================================
+    // ==============================================
     // 2. VALIDASI ROLE MENTOR
-    // ================================================
+    // ==============================================
 
     const {
       data: mentor,
       error: mentorError,
     } = await admin
       .from("profiles")
-      .select("id, role")
+      .select("id,role")
       .eq("id", authData.user.id)
       .maybeSingle();
 
-    if (mentorError) throw mentorError;
+    if (mentorError) {
+      throw mentorError;
+    }
 
-    if (mentor?.role !== "mentor") {
+    if (!mentor || mentor.role !== "mentor") {
       return respond(
         {
           success: false,
@@ -98,9 +100,10 @@ export async function GET(request) {
       );
     }
 
-    // ================================================
-    // 3. AMBIL PENGAJUAN SISTEM BARU
-    // ================================================
+    // ==============================================
+    // 3. PENGAJUAN SISTEM BARU
+    // HANYA ROLE PARTICIPANT
+    // ==============================================
 
     const {
       data: newRequests,
@@ -118,7 +121,11 @@ export async function GET(request) {
         rejection_reason,
         reviewed_by,
         reviewed_at,
-        created_at
+        created_at,
+        peserta:profiles!ojt_registration_requests_participant_id_fkey(
+          full_name,
+          role
+        )
       `)
       .order("created_at", {
         ascending: false,
@@ -140,9 +147,42 @@ export async function GET(request) {
       );
     }
 
-    // ================================================
-    // 4. AMBIL RIWAYAT SISTEM LAMA
-    // ================================================
+    // Filter berdasarkan role profil.
+    const currentRegistrations = (
+      newRequests || []
+    )
+      .filter(
+        (item) =>
+          item.peserta?.role === "participant"
+      )
+      .map((item) => ({
+        id: item.id,
+        participant_id: item.participant_id,
+        user_id: item.participant_id,
+
+        full_name:
+          item.peserta?.full_name ||
+          "Nama belum tersedia",
+
+        email: null,
+        department: item.department,
+        site: item.site,
+        start_date: item.start_date,
+        end_date: item.end_date,
+        status: item.status,
+        reviewed_by: item.reviewed_by,
+        reviewed_at: item.reviewed_at,
+
+        rejection_reason:
+          item.rejection_reason || null,
+
+        created_at: item.created_at,
+        source: "new",
+      }));
+
+    // ==============================================
+    // 4. RIWAYAT PENDAFTARAN SISTEM LAMA
+    // ==============================================
 
     const {
       data: oldRequests,
@@ -182,41 +222,32 @@ export async function GET(request) {
       );
     }
 
-    // ================================================
-    // 5. KUMPULKAN ID SELURUH PEMILIK PENGAJUAN
-    // ================================================
+    // ==============================================
+    // 5. VERIFIKASI ROLE RIWAYAT LAMA
+    // ==============================================
 
-    const participantIds = [
-      ...(newRequests || []).map(
-        (item) => item.participant_id
+    const oldUserIds = [
+      ...new Set(
+        (oldRequests || [])
+          .map((item) => item.user_id)
+          .filter(Boolean)
       ),
-      ...(oldRequests || []).map(
-        (item) => item.user_id
-      ),
-    ].filter(Boolean);
-
-    const uniqueIds = [
-      ...new Set(participantIds),
     ];
 
-    // ================================================
-    // 6. VERIFIKASI ROLE MELALUI PROFILES
-    // ================================================
+    let participantIds = new Set();
 
-    let profiles = [];
-
-    if (uniqueIds.length > 0) {
+    if (oldUserIds.length > 0) {
       const {
-        data,
+        data: oldProfiles,
         error: profileError,
       } = await admin
         .from("profiles")
-        .select("id, full_name, role")
-        .in("id", uniqueIds);
+        .select("id,role")
+        .in("id", oldUserIds);
 
       if (profileError) {
         console.error(
-          "Participant profile query failed:",
+          "Legacy profile query failed:",
           profileError
         );
 
@@ -224,100 +255,41 @@ export async function GET(request) {
           {
             success: false,
             error:
-              "Gagal memverifikasi identitas peserta.",
+              "Gagal memverifikasi identitas riwayat pendaftaran.",
           },
           500
         );
       }
 
-      profiles = data || [];
+      participantIds = new Set(
+        (oldProfiles || [])
+          .filter(
+            (profile) =>
+              profile.role === "participant"
+          )
+          .map((profile) => profile.id)
+      );
     }
 
-    const profileMap = new Map(
-      profiles.map((profile) => [
-        profile.id,
-        profile,
-      ])
-    );
-
-    // Hanya role participant yang diperbolehkan.
-    // Admin, mentor, dan profil yang tidak ditemukan
-    // tidak dimasukkan ke daftar peserta.
-
-    const isParticipant = (userId) => {
-      const profile = profileMap.get(userId);
-
-      return profile?.role === "participant";
-    };
-
-    // ================================================
-    // 7. FILTER PENGAJUAN SISTEM BARU
-    // ================================================
-
-    const validNewRequests = (
-      newRequests || []
-    ).filter((item) =>
-      isParticipant(item.participant_id)
-    );
-
-    const currentRegistrations =
-      validNewRequests.map((item) => {
-        const profile = profileMap.get(
-          item.participant_id
-        );
-
-        return {
-          id: item.id,
-          participant_id: item.participant_id,
-          user_id: item.participant_id,
-
-          full_name:
-            profile?.full_name ||
-            "Nama belum tersedia",
-
-          email: null,
-          department: item.department,
-          site: item.site,
-          start_date: item.start_date,
-          end_date: item.end_date,
-          status: item.status,
-          reviewed_by: item.reviewed_by,
-          reviewed_at: item.reviewed_at,
-
-          rejection_reason:
-            item.rejection_reason || null,
-
-          created_at: item.created_at,
-          source: "new",
-        };
-      });
-
-    // ================================================
-    // 8. FILTER RIWAYAT SISTEM LAMA
-    // ================================================
-
-    const validOldRequests = (
+    // Hanya riwayat milik peserta.
+    const legacyRegistrations = (
       oldRequests || []
-    ).filter((item) =>
-      isParticipant(item.user_id)
-    );
-
-    const legacyRegistrations =
-      validOldRequests.map((item) => ({
+    )
+      .filter((item) =>
+        participantIds.has(item.user_id)
+      )
+      .map((item) => ({
         id: item.id,
         participant_id: item.user_id,
         user_id: item.user_id,
-
-        full_name:
-          item.full_name ||
-          profileMap.get(item.user_id)?.full_name ||
-          "Nama belum tersedia",
-
+        full_name: item.full_name,
         email: item.email,
         department: item.department,
         site: item.site,
+
         start_date: null,
         end_date: null,
+
         status: item.status,
         reviewed_by: item.reviewed_by,
         reviewed_at: item.reviewed_at,
@@ -329,9 +301,9 @@ export async function GET(request) {
         source: "legacy",
       }));
 
-    // ================================================
-    // 9. GABUNGKAN DATA YANG SUDAH TERVERIFIKASI
-    // ================================================
+    // ==============================================
+    // 6. GABUNGKAN DATA PESERTA
+    // ==============================================
 
     const registrations = [
       ...currentRegistrations,
@@ -343,13 +315,9 @@ export async function GET(request) {
       );
     });
 
-    // ================================================
-    // 10. HASIL AKHIR
-    // ================================================
-
-    const rawTotal =
-      (newRequests || []).length +
-      (oldRequests || []).length;
+    // ==============================================
+    // 7. RESPONSE
+    // ==============================================
 
     return respond({
       success: true,
@@ -363,11 +331,6 @@ export async function GET(request) {
 
       legacy_count:
         legacyRegistrations.length,
-
-      // Informasi diagnostik.
-      // Tidak mengubah database.
-      excluded_non_participant_count:
-        rawTotal - registrations.length,
     });
 
   } catch (error) {
