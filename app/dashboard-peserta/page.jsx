@@ -36,14 +36,16 @@ const C = {
   yellow: "#aa7623",
 };
 
-const panelStyle = {
-  background: C.white,
-  border: `1px solid ${C.border}`,
-  borderRadius: 16,
-  padding: 20,
-  boxShadow: "0 5px 20px rgba(11,43,76,0.045)",
-  minWidth: 0,
-};
+// PERBAIKAN ERROR CLIENT-SIDE
+function initials(name) {
+  return String(name || "Peserta")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word.charAt(0))
+    .join("")
+    .toUpperCase();
+}
 
 function normalize(v) {
   return String(v || "").trim().toLowerCase();
@@ -102,7 +104,7 @@ function addDays(value, days) {
   );
 }
 
-// Kalender global tidak mengikuti start_date peserta.
+// JADWAL GLOBAL OJT
 function getGlobalWeek(number) {
   if (number < 1 || number > TOTAL_WEEKS) return null;
 
@@ -153,8 +155,7 @@ function getCurrentGlobalWeek() {
   return globalWeekOf(today) || 1;
 }
 
-// Dipertahankan dari rumus Achievement asli:
-// minggu dihitung dari start_date program peserta.
+// Rumus asli menggunakan tanggal mulai program.
 function weekOf(value, startValue) {
   const date = parseDate(value);
   const start = parseDate(startValue);
@@ -200,7 +201,7 @@ function emptyWeeklyData() {
 }
 
 // =====================================================
-// ACHIEVEMENT — LOGIKA ASLI DIPERTAHANKAN
+// ACHIEVEMENT - PERHITUNGAN ASLI
 // =====================================================
 
 function calculateAchievements(records, types, startDate) {
@@ -232,10 +233,8 @@ function calculateAchievements(records, types, startDate) {
       amount = matching.reduce((sum, r) => {
         const km = Number(r.distance_km);
 
-        return (
-          sum +
-          (Number.isFinite(km) && km > 0 ? km : 0)
-        );
+        return sum +
+          (Number.isFinite(km) && km > 0 ? km : 0);
       }, 0);
     } else {
       amount = matching.length;
@@ -261,7 +260,7 @@ function calculateAchievements(records, types, startDate) {
 }
 
 // =====================================================
-// SIMPER V2 — LOGIKA ASLI DIPERTAHANKAN
+// SIMPER V2 - PERHITUNGAN ASLI
 // =====================================================
 
 function parseSimperMetadata(notes) {
@@ -313,7 +312,7 @@ function calculateSimper(record) {
 }
 
 // =====================================================
-// RINGKASAN PROGRAM — LOGIKA ASLI
+// RINGKASAN PROGRES - LOGIKA ASLI
 // =====================================================
 
 function buildProgress(program, data) {
@@ -337,9 +336,7 @@ function buildProgress(program, data) {
   function markWeek(date) {
     const week = weekOf(date, program.start_date);
 
-    if (week !== null) {
-      weeks.add(week);
-    }
+    if (week !== null) weeks.add(week);
   }
 
   data.achievements.forEach((r) =>
@@ -376,31 +373,31 @@ function getStatusInfo(access) {
     pending: {
       label: "Menunggu Persetujuan Mentor",
       color: C.yellow,
-      background: "#fff4df",
+      bg: "#fff4df",
       icon: "clock",
     },
     rejected: {
       label: "Pengajuan Ditolak",
       color: C.red,
-      background: "#fff0f2",
+      bg: "#fff0f2",
       icon: "alert",
     },
     approved: {
       label: "Program OJT Aktif",
       color: C.emerald,
-      background: "#dff8ec",
+      bg: "#dff8ec",
       icon: "check",
     },
     no_program: {
       label: "Belum Ada Program",
       color: C.muted,
-      background: "#eff3f6",
+      bg: "#eff3f6",
       icon: "clock",
     },
     error: {
       label: "Terjadi Kesalahan",
       color: C.red,
-      background: "#fff0f2",
+      bg: "#fff0f2",
       icon: "alert",
     },
   };
@@ -480,8 +477,8 @@ function Icon({ name, size = 20 }) {
       </>
     ),
     arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
-    chevronLeft: <path d="m15 18-6-6 6-6" />,
-    chevronRight: <path d="m9 18 6-6-6-6" />,
+    left: <path d="m15 18-6-6 6-6" />,
+    right: <path d="m9 18 6-6-6-6" />,
     refresh: (
       <>
         <path d="M20 11a8 8 0 0 0-14-5L3 9" />
@@ -517,7 +514,7 @@ function PanelTitle({ icon, title, subtitle }) {
   return (
     <div className="ojt-panel-title">
       <div className="ojt-panel-icon">
-        <Icon name={icon} size={22} />
+        <Icon name={icon} size={21} />
       </div>
 
       <div>
@@ -532,7 +529,7 @@ function StatCard({ icon, label, value, detail, tone }) {
   return (
     <div className="ojt-stat">
       <div className={`ojt-stat-icon ${tone || "blue"}`}>
-        <Icon name={icon} size={23} />
+        <Icon name={icon} size={22} />
       </div>
 
       <div className="ojt-stat-copy">
@@ -586,7 +583,7 @@ function MenuCard({
   icon,
   title,
   description,
-  disabled,
+  disabled = false,
   onClick,
 }) {
   return (
@@ -597,7 +594,7 @@ function MenuCard({
       onClick={onClick}
     >
       <span className="ojt-menu-icon">
-        <Icon name={icon} size={22} />
+        <Icon name={icon} size={21} />
       </span>
 
       <span className="ojt-menu-copy">
@@ -635,7 +632,7 @@ function WeekSelector({
         disabled={selectedWeek <= 1}
         onClick={() => onSelect(selectedWeek - 1)}
       >
-        <Icon name="chevronLeft" size={18} />
+        <Icon name="left" size={18} />
       </button>
 
       <div className="ojt-week-scroll">
@@ -670,7 +667,7 @@ function WeekSelector({
         disabled={selectedWeek >= TOTAL_WEEKS}
         onClick={() => onSelect(selectedWeek + 1)}
       >
-        <Icon name="chevronRight" size={18} />
+        <Icon name="right" size={18} />
       </button>
     </div>
   );
@@ -729,7 +726,7 @@ export default function DashboardPeserta() {
   }
 
   // ===================================================
-  // DAFTAR PESERTA ADMIN — LOGIKA ASLI
+  // DAFTAR PESERTA ADMIN
   // ===================================================
 
   async function fetchParticipantList() {
@@ -779,8 +776,7 @@ export default function DashboardPeserta() {
   }
 
   // ===================================================
-  // MEMUAT DATA PROGRAM
-  // RUMUS PROGRES TIDAK DIUBAH
+  // DATA PROGRAM DAN PROGRES
   // ===================================================
 
   async function fetchProgramProgress(activeProgram) {
@@ -856,8 +852,6 @@ export default function DashboardPeserta() {
 
     return {
       progress: buildProgress(activeProgram, data),
-
-      // Data mentah untuk panel mingguan baru.
       weekly: {
         achievements: data.achievements,
         postTests: data.postTests,
@@ -868,7 +862,7 @@ export default function DashboardPeserta() {
   }
 
   // ===================================================
-  // VALIDASI PROGRAM DAN PENDAFTARAN — LOGIKA ASLI
+  // VALIDASI PENDAFTARAN DAN PROGRAM
   // ===================================================
 
   async function fetchParticipantDashboard(
@@ -1060,7 +1054,7 @@ export default function DashboardPeserta() {
   }
 
   // ===================================================
-  // LOAD DASHBOARD — LOGIKA ASLI
+  // LOAD DASHBOARD
   // ===================================================
 
   async function loadDashboard(
@@ -1226,7 +1220,7 @@ export default function DashboardPeserta() {
   }, []);
 
   // ===================================================
-  // ADMIN PREVIEW — LOGIKA ASLI
+  // ADMIN PREVIEW
   // ===================================================
 
   async function changePreviewParticipant(id) {
@@ -1317,7 +1311,7 @@ export default function DashboardPeserta() {
   }
 
   // ===================================================
-  // LOGOUT DAN NAVIGASI — LOGIKA ASLI
+  // LOGOUT DAN NAVIGASI
   // ===================================================
 
   async function logout() {
@@ -1352,7 +1346,7 @@ export default function DashboardPeserta() {
   }
 
   // ===================================================
-  // DATA WEEKLY ACTIVITY HUB — FITUR TAMPILAN BARU
+  // DATA WEEKLY ACTIVITY HUB
   // ===================================================
 
   const weekInfo = getGlobalWeek(selectedWeek);
@@ -1418,7 +1412,9 @@ export default function DashboardPeserta() {
     !error &&
     (profile || isAdminEmptyView);
 
-  const selectedWeekLabel =
+  const noProgramData = !hasActiveProgram;
+
+  const weekLabel =
     `Week ${String(selectedWeek).padStart(2, "0")}`;
 
   const weeklyRows = [
@@ -1440,8 +1436,10 @@ export default function DashboardPeserta() {
     },
   ];
 
+  const status = getStatusInfo(access);
+
   // ===================================================
-  // TAMPILAN SKETSA 3 — WEEKLY ACTIVITY HUB
+  // RENDER
   // ===================================================
 
   return (
@@ -1463,6 +1461,7 @@ export default function DashboardPeserta() {
               OJT <em>MineTrack</em>
               <small>v2.0</small>
             </strong>
+
             <span>
               ON THE JOB TRAINING MANAGEMENT SYSTEM
             </span>
@@ -1471,9 +1470,7 @@ export default function DashboardPeserta() {
 
         <div className="ojt-topbar-right">
           <span className="ojt-topbar-avatar">
-            {initials(
-              account?.full_name || "Peserta"
-            )}
+            {initials(account?.full_name)}
           </span>
 
           <span className="ojt-topbar-account">
@@ -1489,9 +1486,7 @@ export default function DashboardPeserta() {
             type="button"
             className="ojt-menu-toggle"
             aria-label="Buka menu"
-            onClick={() =>
-              setMobileMenu((prev) => !prev)
-            }
+            onClick={() => setMobileMenu((v) => !v)}
           >
             <Icon name="menu" size={23} />
           </button>
@@ -1557,6 +1552,9 @@ export default function DashboardPeserta() {
       )}
 
       <div className="ojt-content">
+
+        {/* HERO */}
+
         <section
           className="ojt-hero"
           style={{
@@ -1589,8 +1587,7 @@ export default function DashboardPeserta() {
               <div className="ojt-hero-avatar">
                 {initials(
                   profile?.full_name ||
-                    account?.full_name ||
-                    "Peserta"
+                  account?.full_name
                 )}
               </div>
 
@@ -1600,6 +1597,7 @@ export default function DashboardPeserta() {
                     account?.full_name ||
                     "Peserta OJT"}
                 </strong>
+
                 <small>
                   {isAdmin
                     ? "Tinjauan Administrator"
@@ -1654,7 +1652,7 @@ export default function DashboardPeserta() {
 
         {loading && (
           <div className="ojt-notice">
-            Memeriksa akun dan memuat data Dashboard Peserta...
+            Memeriksa akun dan memuat Dashboard Peserta...
           </div>
         )}
 
@@ -1696,9 +1694,7 @@ export default function DashboardPeserta() {
               value={selectedParticipantId}
               disabled={loading || refreshing}
               onChange={(event) =>
-                changePreviewParticipant(
-                  event.target.value
-                )
+                changePreviewParticipant(event.target.value)
               }
             >
               <option value="">
@@ -1716,7 +1712,7 @@ export default function DashboardPeserta() {
             <p>
               {selectedParticipantId
                 ? "Menampilkan data peserta aktif yang dipilih."
-                : "Menampilkan kerangka dashboard tanpa data peserta atau program fiktif."}
+                : "Menampilkan struktur dashboard tanpa data peserta atau program fiktif."}
             </p>
 
             <button
@@ -1731,7 +1727,7 @@ export default function DashboardPeserta() {
 
         {showDashboardContent && (
           <>
-            {/* STATUS PENGAJUAN */}
+            {/* STATUS PENDAFTARAN */}
 
             {access === "pending" && profile && (
               <section className="ojt-message amber">
@@ -1812,7 +1808,7 @@ export default function DashboardPeserta() {
 
             {(hasActiveProgram || isAdminEmptyView) && (
               <>
-                {/* INFORMASI UTAMA */}
+                {/* KARTU INFORMASI */}
 
                 <section className="ojt-stats-grid">
                   <StatCard
@@ -1846,13 +1842,13 @@ export default function DashboardPeserta() {
                   />
                 </section>
 
-                {/* WEEKLY ACTIVITY HUB */}
+                {/* MONITORING MINGGUAN */}
 
-                <section style={panelStyle}>
+                <section className="ojt-panel">
                   <PanelTitle
                     icon="calendar"
                     title="Monitoring Mingguan OJT"
-                    subtitle="Pilih Week 01–25 untuk melihat catatan kegiatan sesuai kalender program global."
+                    subtitle="Pilih Week 01–25 untuk melihat catatan kegiatan berdasarkan kalender global."
                   />
 
                   <WeekSelector
@@ -1867,12 +1863,12 @@ export default function DashboardPeserta() {
                         MINGGU TERPILIH
                       </span>
 
-                      <strong>{selectedWeekLabel}</strong>
+                      <strong>{weekLabel}</strong>
 
                       <span>
-                        {formatDate(weekInfo.start)}
+                        {formatDate(weekInfo?.start)}
                         {" – "}
-                        {formatDate(weekInfo.end)}
+                        {formatDate(weekInfo?.end)}
                       </span>
 
                       <div
@@ -1922,10 +1918,7 @@ export default function DashboardPeserta() {
                       </div>
 
                       <div className="ojt-week-verification">
-                        <Icon
-                          name="check"
-                          size={17}
-                        />
+                        <Icon name="check" size={17} />
 
                         <span>
                           Achievement terverifikasi:{" "}
@@ -1939,8 +1932,8 @@ export default function DashboardPeserta() {
 
                       <p className="ojt-week-note">
                         Jumlah di atas merupakan catatan
-                        yang memiliki tanggal dalam minggu
-                        terpilih. Ini bukan jumlah hari
+                        yang tanggalnya berada pada
+                        minggu terpilih. Bukan jumlah
                         kehadiran atau nilai kelulusan.
                       </p>
 
@@ -1962,10 +1955,10 @@ export default function DashboardPeserta() {
                   </div>
                 </section>
 
-                {/* PROGRES ACHIEVEMENT & SIMPER */}
+                {/* ACHIEVEMENT DAN SIMPER */}
 
                 <section className="ojt-dual-grid">
-                  <div style={panelStyle}>
+                  <div className="ojt-panel">
                     <PanelTitle
                       icon="award"
                       title="Achievement"
@@ -1984,7 +1977,7 @@ export default function DashboardPeserta() {
                     />
                   </div>
 
-                  <div style={panelStyle}>
+                  <div className="ojt-panel">
                     <PanelTitle
                       icon="shield"
                       title="Status SIMPER"
@@ -2015,7 +2008,7 @@ export default function DashboardPeserta() {
 
                 {/* RINGKASAN PROGRAM */}
 
-                <section style={panelStyle}>
+                <section className="ojt-panel">
                   <PanelTitle
                     icon="chart"
                     title="Ringkasan Progres Program"
@@ -2025,6 +2018,7 @@ export default function DashboardPeserta() {
                   <div className="ojt-summary-grid">
                     <div className="ojt-summary-item">
                       <span>Minggu Beraktivitas</span>
+
                       <strong>
                         {hasActiveProgram
                           ? `${progress.activityWeeks}/${TOTAL_WEEKS}`
@@ -2034,6 +2028,7 @@ export default function DashboardPeserta() {
 
                     <div className="ojt-summary-item">
                       <span>Achievement Tercapai</span>
+
                       <strong>
                         {hasActiveProgram
                           ? `${progress.completedCategories}/6`
@@ -2043,6 +2038,7 @@ export default function DashboardPeserta() {
 
                     <div className="ojt-summary-item">
                       <span>Persyaratan SIMPER</span>
+
                       <strong>
                         {hasActiveProgram
                           ? `${progress.simperCompleted}/3`
@@ -2053,16 +2049,15 @@ export default function DashboardPeserta() {
 
                   <p className="ojt-summary-note">
                     Perhitungan Achievement dan SIMPER
-                    menggunakan metode yang sudah
-                    diterapkan sebelumnya. Aktivitas
-                    mingguan dihitung dari minggu
-                    yang memiliki catatan.
+                    mengikuti rumus yang sudah berjalan.
+                    Aktivitas mingguan dihitung
+                    berdasarkan catatan yang tersedia.
                   </p>
                 </section>
 
-                {/* MENU FITUR */}
+                {/* AKSES CEPAT */}
 
-                <section style={panelStyle}>
+                <section className="ojt-panel">
                   <PanelTitle
                     icon="grid"
                     title="Akses Cepat"
@@ -2123,24 +2118,27 @@ export default function DashboardPeserta() {
 
                   {isAdmin && (
                     <p className="ojt-admin-note">
-                      Akses lanjutan mengikuti validasi
-                      role dan kebijakan RLS tiap
-                      halaman. Preview Admin tidak
-                      menambahkan izin penulisan.
+                      Akses lanjutan tetap mengikuti
+                      validasi role dan kebijakan RLS.
+                      Preview Admin tidak memberikan
+                      izin penulisan tambahan.
                     </p>
                   )}
                 </section>
               </>
             )}
 
+            {/* TOMBOL */}
+
             <div className="ojt-actions">
               <button
                 type="button"
                 className="ojt-primary-button"
-                disabled={refreshing}
+                disabled={refreshing || loading}
                 onClick={() => loadDashboard(true)}
               >
                 <Icon name="refresh" size={19} />
+
                 {refreshing
                   ? "Memperbarui..."
                   : "Perbarui Status"}
@@ -2153,6 +2151,7 @@ export default function DashboardPeserta() {
                 onClick={logout}
               >
                 <Icon name="logout" size={19} />
+
                 {loggingOut
                   ? "Sedang keluar..."
                   : "Keluar dari Akun"}
@@ -2175,10 +2174,6 @@ export default function DashboardPeserta() {
   );
 }
 
-// =====================================================
-// CSS RESPONSIVE — CORPORATE NAVY & EMERALD
-// =====================================================
-
 const dashboardCSS = `
 .ojt-dashboard,
 .ojt-dashboard * {
@@ -2189,12 +2184,8 @@ const dashboardCSS = `
   min-height: 100vh;
   background: ${C.bg};
   color: ${C.text};
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
   padding-bottom: 25px;
 }
 
@@ -2677,6 +2668,15 @@ const dashboardCSS = `
   margin-top: 4px;
   font-size: 10px;
   color: ${C.muted};
+}
+
+.ojt-panel {
+  padding: 20px;
+  border-radius: 16px;
+  background: white;
+  border: 1px solid ${C.border};
+  box-shadow: 0 5px 20px rgba(11,43,76,.045);
+  min-width: 0;
 }
 
 .ojt-panel-title {
@@ -3214,10 +3214,6 @@ const dashboardCSS = `
 
   .ojt-stat-copy > strong {
     font-size: 16px;
-  }
-
-  .ojt-stats-grid > :nth-child(2) {
-    grid-column: span 1;
   }
 
   .ojt-stats-grid > :nth-child(3) {
