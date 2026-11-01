@@ -5,12 +5,30 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Pendaftaran wajib tetap nonaktif selama pengujian.
-const REGISTRATION_ENABLED = false;
+/*
+ * OJT MineTrack v2.0
+ * Registration API
+ *
+ * Pengaturan:
+ * OJT_REGISTRATION_ENABLED
+ * OJT_TEST_AUTO_CONFIRM_EMAIL
+ *
+ * Khusus pengujian:
+ * - Pendaftaran dibuka melalui environment Vercel.
+ * - Email akun pengujian dapat dikonfirmasi oleh server.
+ * - Role selalu participant.
+ * - Pengajuan tetap pending.
+ * - Tidak membuat program OJT aktif.
+ * - Tidak mengubah struktur database.
+ *
+ * MATIKAN kembali kedua flag setelah pengujian.
+ */
 
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  "https://ojt-minetrack.vercel.app";
+const REGISTRATION_ENABLED =
+  process.env.OJT_REGISTRATION_ENABLED === "true";
+
+const TEST_AUTO_CONFIRM_EMAIL =
+  process.env.OJT_TEST_AUTO_CONFIRM_EMAIL === "true";
 
 const ALLOWED_SITES = [
   "LMO",
@@ -24,26 +42,54 @@ const ALLOWED_SITES = [
   "HO",
 ];
 
+const ALLOWED_DEPARTMENTS = [
+  "ER & SS",
+  "Emergency Response Group",
+  "Operation",
+  "Maintenance",
+  "HSE",
+  "Engineering",
+  "Human Resources",
+  "Lainnya",
+];
+
+function jsonResponse(data, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 function errorResponse(message, status = 400) {
-  return NextResponse.json(
+  return jsonResponse(
     {
       success: false,
       error: message,
     },
-    {
-      status,
-      headers: {
-        "Cache-Control": "no-store",
-      },
-    }
+    status
   );
 }
 
 export async function POST(request) {
-  // Pengunci server: tidak membuat akun atau menulis database.
   if (!REGISTRATION_ENABLED) {
     return errorResponse(
-      "Pendaftaran peserta sementara dinonaktifkan sampai seluruh pengujian selesai.",
+      "Pendaftaran peserta sementara dinonaktifkan.",
+      503
+    );
+  }
+
+  /*
+   * Implementasi ini menggunakan konfirmasi email
+   * langsung khusus akun pengujian.
+   *
+   * Jangan digunakan sebagai alur pendaftaran
+   * publik permanen.
+   */
+  if (!TEST_AUTO_CONFIRM_EMAIL) {
+    return errorResponse(
+      "Pendaftaran pengujian belum dikonfigurasi. Hubungi administrator.",
       503
     );
   }
@@ -60,30 +106,32 @@ export async function POST(request) {
     }
 
     const fullName = String(
-      body?.full_name || ""
+      body?.full_name ?? ""
     )
       .trim()
       .replace(/\s+/g, " ");
 
     const email = String(
-      body?.email || ""
+      body?.email ?? ""
     )
       .trim()
       .toLowerCase();
 
-    const department = String(
-      body?.department || "ER & SS"
-    ).trim();
-
     const password = String(
-      body?.password || ""
+      body?.password ?? ""
     );
 
-    const site =
-      typeof body?.site === "string"
-        ? body.site.trim().toUpperCase()
-        : "";
+    const department = String(
+      body?.department ?? ""
+    ).trim();
 
+    const site = String(
+      body?.site ?? ""
+    )
+      .trim()
+      .toUpperCase();
+
+    // VALIDASI NAMA
     if (
       fullName.length < 3 ||
       fullName.length > 120
@@ -93,6 +141,7 @@ export async function POST(request) {
       );
     }
 
+    // VALIDASI EMAIL
     if (
       email.length > 254 ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -102,15 +151,7 @@ export async function POST(request) {
       );
     }
 
-    if (
-      !department ||
-      department.length > 100
-    ) {
-      return errorResponse(
-        "Departemen tidak valid."
-      );
-    }
-
+    // VALIDASI PASSWORD
     if (
       password.length < 8 ||
       password.length > 128
@@ -120,31 +161,40 @@ export async function POST(request) {
       );
     }
 
-    if (!ALLOWED_SITES.includes(site)) {
+    // VALIDASI DEPARTEMEN
+    if (!ALLOWED_DEPARTMENTS.includes(department)) {
       return errorResponse(
-        "Site wajib dipilih dari daftar Site yang tersedia."
+        "Departemen tidak valid."
       );
     }
 
-    const url =
+    // VALIDASI SITE
+    if (!ALLOWED_SITES.includes(site)) {
+      return errorResponse(
+        "Site tidak valid."
+      );
+    }
+
+    // SUPABASE SERVER CONFIGURATION
+    const supabaseUrl =
       process.env.NEXT_PUBLIC_SUPABASE_URL;
 
     const secretKey =
       process.env.SUPABASE_SECRET_KEY;
 
-    if (!url || !secretKey) {
+    if (!supabaseUrl || !secretKey) {
       console.error(
-        "Konfigurasi Supabase server belum lengkap."
+        "Supabase server configuration incomplete."
       );
 
       return errorResponse(
-        "Konfigurasi Supabase belum lengkap.",
+        "Konfigurasi server belum lengkap.",
         500
       );
     }
 
     const admin = createClient(
-      url,
+      supabaseUrl,
       secretKey,
       {
         auth: {
@@ -154,15 +204,22 @@ export async function POST(request) {
       }
     );
 
-    // Buat akun baru sebagai belum terverifikasi.
-    // Role tidak pernah diambil dari input pengguna.
+    /*
+     * BUAT AKUN PESERTA
+     *
+     * email_confirm: true hanya digunakan karena
+     * mode pengujian secara eksplisit diaktifkan.
+     *
+     * Role tidak diambil dari input pengguna.
+     */
+
     const {
       data: created,
       error: createError,
     } = await admin.auth.admin.createUser({
       email,
       password,
-      email_confirm: false,
+      email_confirm: true,
       user_metadata: {
         full_name: fullName,
       },
@@ -186,7 +243,7 @@ export async function POST(request) {
       );
 
       return errorResponse(
-        "Pendaftaran gagal. Silakan coba kembali.",
+        "Pendaftaran gagal diproses.",
         500
       );
     }
@@ -200,26 +257,30 @@ export async function POST(request) {
       );
     }
 
+    /*
+     * ROLLBACK AKUN
+     * Bila penyimpanan profil/pengajuan gagal.
+     */
     async function rollbackAccount() {
       const { error } =
         await admin.auth.admin.deleteUser(userId);
 
       if (error) {
         console.error(
-          "Rollback participant failed:",
+          "Rollback failed:",
           error
         );
-
         return false;
       }
 
       return true;
     }
 
-    // Simpan profil dengan role peserta.
-    const {
-      error: profileError,
-    } = await admin
+    /*
+     * PROFIL PESERTA
+     * Role selalu participant.
+     */
+    const { error: profileError } = await admin
       .from("profiles")
       .upsert(
         {
@@ -235,25 +296,25 @@ export async function POST(request) {
 
     if (profileError) {
       console.error(
-        "Participant profile failed:",
+        "Profile creation failed:",
         profileError
       );
 
-      const rolledBack =
-        await rollbackAccount();
+      const rolledBack = await rollbackAccount();
 
       return errorResponse(
         rolledBack
-          ? "Gagal menyimpan profil. Silakan coba kembali."
+          ? "Gagal menyimpan profil peserta."
           : "Pendaftaran belum selesai. Hubungi administrator.",
         500
       );
     }
 
-    // Simpan Site agar bisa diteruskan ke persetujuan Mentor.
-    const {
-      error: registrationError,
-    } = await admin
+    /*
+     * PENGAJUAN PENDAFTARAN
+     * Tetap melalui alur persetujuan Mentor.
+     */
+    const { error: registrationError } = await admin
       .from("participant_registrations")
       .insert({
         user_id: userId,
@@ -270,71 +331,41 @@ export async function POST(request) {
         registrationError
       );
 
-      const rolledBack =
-        await rollbackAccount();
+      const rolledBack = await rollbackAccount();
 
       return errorResponse(
         rolledBack
-          ? "Gagal menyimpan pendaftaran. Silakan coba kembali."
+          ? "Gagal menyimpan pengajuan peserta."
           : "Pendaftaran belum selesai. Hubungi administrator.",
         500
       );
     }
 
-    // Membuat tautan tidak sama dengan mengirim email.
-    const {
-      error: linkError,
-    } = await admin.auth.admin.generateLink({
-      type: "signup",
-      email,
-      password,
-      options: {
-        redirectTo: `${SITE_URL}/login`,
-      },
-    });
-
-    if (linkError) {
-      console.error(
-        "Verification link failed:",
-        linkError
-      );
-
-      return NextResponse.json(
-        {
-          success: true,
-          verification_sent: false,
-          message:
-            "Pendaftaran tersimpan dan menunggu persetujuan Mentor, tetapi tautan verifikasi belum berhasil dibuat. Hubungi administrator.",
-        },
-        {
-          headers: {
-            "Cache-Control": "no-store",
-          },
-        }
-      );
-    }
-
-    return NextResponse.json(
+    /*
+     * SUKSES
+     *
+     * Akun bisa digunakan untuk autentikasi.
+     * Persetujuan Mentor tetap wajib.
+     * Tidak ada program OJT yang otomatis aktif.
+     */
+    return jsonResponse(
       {
         success: true,
+        status: "pending",
         verification_sent: false,
         message:
-          "Pendaftaran tersimpan dengan status Menunggu Persetujuan Mentor. Pengiriman email verifikasi masih perlu dikonfigurasi.",
+          "Akun pengujian berhasil dibuat. Silakan login. Pengajuan OJT tetap menunggu persetujuan Mentor.",
       },
-      {
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      }
+      201
     );
   } catch (error) {
     console.error(
-      "Self-registration error:",
+      "OJT registration error:",
       error
     );
 
     return errorResponse(
-      "Terjadi kesalahan server.",
+      "Terjadi kesalahan pada server.",
       500
     );
   }
