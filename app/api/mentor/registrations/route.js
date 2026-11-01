@@ -76,20 +76,17 @@ function normalizeDate(value) {
 function normalizeNew(row, profile) {
   return {
     id: row.id,
-
     source: "new",
-
     participant_id: row.participant_id,
 
     full_name:
-      profile?.full_name ||
-      "Peserta OJT",
+      profile.full_name || "Peserta OJT",
 
     email: null,
 
     department:
       row.department ||
-      profile?.department ||
+      profile.department ||
       null,
 
     site: row.site || null,
@@ -105,9 +102,7 @@ function normalizeNew(row, profile) {
     status: normalizeStatus(row.status),
 
     created_at: row.created_at || null,
-
     reviewed_by: row.reviewed_by || null,
-
     reviewed_at: row.reviewed_at || null,
 
     rejection_reason:
@@ -118,38 +113,32 @@ function normalizeNew(row, profile) {
 function normalizeLegacy(row, profile) {
   return {
     id: row.id,
-
     source: "legacy",
-
     participant_id: row.user_id,
 
     full_name:
       row.full_name ||
-      profile?.full_name ||
+      profile.full_name ||
       "Peserta OJT",
 
     email: row.email || null,
 
     department:
       row.department ||
-      profile?.department ||
+      profile.department ||
       null,
 
     site: row.site || null,
 
-    // Tabel participant_registrations
-    // tidak memiliki kolom tanggal.
-    // Jangan mengarang periode individual.
+    // Tabel legacy tidak menyimpan periode.
+    // Jangan mengisi tanggal secara perkiraan.
     start_date: null,
-
     end_date: null,
 
     status: normalizeStatus(row.status),
 
     created_at: row.created_at || null,
-
     reviewed_by: row.reviewed_by || null,
-
     reviewed_at: row.reviewed_at || null,
 
     rejection_reason:
@@ -159,9 +148,9 @@ function normalizeLegacy(row, profile) {
 
 export async function GET(request) {
   try {
-    // ===========================================
-    // 1. VERIFIKASI TOKEN
-    // ===========================================
+    // ==========================================
+    // 1. AUTENTIKASI MENTOR
+    // ==========================================
 
     const authorization =
       request.headers.get("authorization") || "";
@@ -203,10 +192,6 @@ export async function GET(request) {
 
     const mentorId = authData.user.id;
 
-    // ===========================================
-    // 2. VALIDASI ROLE MENTOR
-    // ===========================================
-
     const {
       data: mentor,
       error: mentorError,
@@ -225,41 +210,62 @@ export async function GET(request) {
       mentor.role !== "mentor"
     ) {
       return fail(
-        "Hanya Mentor yang dapat melihat daftar pengajuan.",
+        "Hanya Mentor yang dapat melihat pengajuan.",
         403
       );
     }
 
-    // ===========================================
-    // 3. AMBIL PENDAFTARAN SISTEM BARU
-    // ===========================================
+    // ==========================================
+    // 2. AMBIL KEDUA SUMBER PENDAFTARAN
+    // ==========================================
 
-    const {
-      data: newRegistrations,
-      error: newError,
-    } = await admin
-      .from("ojt_registration_requests")
-      .select(`
-        id,
-        participant_id,
-        department,
-        site,
-        start_date,
-        end_date,
-        status,
-        created_at,
-        reviewed_by,
-        reviewed_at,
-        rejection_reason
-      `)
-      .order("created_at", {
-        ascending: false,
-      });
+    const [
+      newResult,
+      legacyResult,
+    ] = await Promise.all([
+      admin
+        .from("ojt_registration_requests")
+        .select(`
+          id,
+          participant_id,
+          department,
+          site,
+          start_date,
+          end_date,
+          status,
+          created_at,
+          reviewed_by,
+          reviewed_at,
+          rejection_reason
+        `)
+        .order("created_at", {
+          ascending: false,
+        }),
 
-    if (newError) {
+      admin
+        .from("participant_registrations")
+        .select(`
+          id,
+          user_id,
+          full_name,
+          email,
+          department,
+          site,
+          status,
+          created_at,
+          reviewed_by,
+          reviewed_at,
+          rejection_reason
+        `)
+        .order("created_at", {
+          ascending: false,
+        }),
+    ]);
+
+    if (newResult.error) {
       console.error(
         "[MENTOR REGISTRATIONS] New:",
-        newError.message
+        newResult.error.message
       );
 
       return fail(
@@ -268,36 +274,10 @@ export async function GET(request) {
       );
     }
 
-    // ===========================================
-    // 4. AMBIL PENDAFTARAN SISTEM LAMA
-    // ===========================================
-
-    const {
-      data: legacyRegistrations,
-      error: legacyError,
-    } = await admin
-      .from("participant_registrations")
-      .select(`
-        id,
-        user_id,
-        full_name,
-        email,
-        department,
-        site,
-        status,
-        created_at,
-        reviewed_by,
-        reviewed_at,
-        rejection_reason
-      `)
-      .order("created_at", {
-        ascending: false,
-      });
-
-    if (legacyError) {
+    if (legacyResult.error) {
       console.error(
         "[MENTOR REGISTRATIONS] Legacy:",
-        legacyError.message
+        legacyResult.error.message
       );
 
       return fail(
@@ -306,12 +286,12 @@ export async function GET(request) {
       );
     }
 
-    const newRows = newRegistrations || [];
-    const legacyRows = legacyRegistrations || [];
+    const newRows = newResult.data || [];
+    const legacyRows = legacyResult.data || [];
 
-    // ===========================================
-    // 5. AMBIL IDENTITAS PESERTA
-    // ===========================================
+    // ==========================================
+    // 3. AMBIL DAN PERIKSA ROLE PESERTA
+    // ==========================================
 
     const participantIds = [
       ...new Set(
@@ -327,50 +307,66 @@ export async function GET(request) {
     ];
 
     const profilesById = new Map();
+    const batchSize = 100;
 
-    if (participantIds.length > 0) {
-      // Batasi jumlah ID per permintaan agar
-      // tidak membuat query terlalu besar.
-      const batchSize = 100;
+    for (
+      let index = 0;
+      index < participantIds.length;
+      index += batchSize
+    ) {
+      const batch = participantIds.slice(
+        index,
+        index + batchSize
+      );
 
-      for (
-        let index = 0;
-        index < participantIds.length;
-        index += batchSize
-      ) {
-        const batch = participantIds.slice(
-          index,
-          index + batchSize
+      const {
+        data: profiles,
+        error: profileError,
+      } = await admin
+        .from("profiles")
+        .select(
+          "id,full_name,department,role"
+        )
+        .in("id", batch);
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      for (const profile of profiles || []) {
+        profilesById.set(
+          profile.id,
+          profile
         );
-
-        const {
-          data: profiles,
-          error: profileError,
-        } = await admin
-          .from("profiles")
-          .select(
-            "id,full_name,department,role"
-          )
-          .in("id", batch);
-
-        if (profileError) {
-          throw profileError;
-        }
-
-        for (const profile of profiles || []) {
-          profilesById.set(
-            profile.id,
-            profile
-          );
-        }
       }
     }
 
-    // ===========================================
-    // 6. NORMALISASI SUMBER DATA
-    // ===========================================
+    // ==========================================
+    // 4. FILTER ROLE PARTICIPANT
+    //
+    // ADMIN DAN MENTOR TIDAK BOLEH MASUK
+    // KE DAFTAR ATAU STATISTIK PESERTA.
+    // ==========================================
 
-    const normalizedNew = newRows.map(
+    const validNewRows = newRows.filter(
+      (row) =>
+        profilesById.get(
+          row.participant_id
+        )?.role === "participant"
+    );
+
+    const validLegacyRows = legacyRows.filter(
+      (row) =>
+        profilesById.get(
+          row.user_id
+        )?.role === "participant"
+    );
+
+    // ==========================================
+    // 5. NORMALISASI DATA
+    // ==========================================
+
+    const normalizedNew = validNewRows.map(
       (row) =>
         normalizeNew(
           row,
@@ -380,18 +376,19 @@ export async function GET(request) {
         )
     );
 
-    const normalizedLegacy = legacyRows.map(
-      (row) =>
-        normalizeLegacy(
-          row,
-          profilesById.get(
-            row.user_id
+    const normalizedLegacy =
+      validLegacyRows.map(
+        (row) =>
+          normalizeLegacy(
+            row,
+            profilesById.get(
+              row.user_id
+            )
           )
-        )
-    );
+      );
 
-    // Tetap tampilkan kedua sumber agar
-    // riwayat pendaftaran tidak hilang.
+    // Kedua sumber tetap ditampilkan
+    // selama akunnya benar-benar participant.
     const registrations = [
       ...normalizedNew,
       ...normalizedLegacy,
@@ -423,9 +420,9 @@ export async function GET(request) {
       return timeB - timeA;
     });
 
-    // ===========================================
-    // 7. STATISTIK
-    // ===========================================
+    // ==========================================
+    // 6. STATISTIK KHUSUS PESERTA
+    // ==========================================
 
     const summary = {
       total: registrations.length,
@@ -443,13 +440,12 @@ export async function GET(request) {
       ).length,
 
       new: normalizedNew.length,
-
       legacy: normalizedLegacy.length,
     };
 
-    // ===========================================
-    // 8. RESPONSE
-    // ===========================================
+    // ==========================================
+    // 7. RESPONS
+    // ==========================================
 
     return respond({
       success: true,
