@@ -9,33 +9,29 @@ export const dynamic = "force-dynamic";
  * OJT MineTrack v2.0
  * OFFICIAL PARTICIPANT REGISTRATION
  *
- * - Registrasi resmi peserta OJT
- * - Verifikasi email melalui Supabase Auth
+ * Pendaftaran langsung tanpa SMTP.
+ *
+ * - Auth melalui Supabase signUp
+ * - Tidak membutuhkan email verifikasi
  * - Role selalu participant
  * - Pengajuan selalu pending
- * - Persetujuan Mentor tetap berlaku
- * - Tidak membuat program aktif otomatis
- * - Tidak mengubah struktur database
+ * - Tidak membuat program OJT otomatis
+ * - Mentor tetap menyetujui pengajuan
+ * - Tidak mengubah database
  * - Tidak mengubah kalender global 25 minggu
  *
- * Required:
+ * Environment:
  * OJT_REGISTRATION_ENABLED
  * NEXT_PUBLIC_SUPABASE_URL
  * NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
  *   atau NEXT_PUBLIC_SUPABASE_ANON_KEY
  * SUPABASE_SECRET_KEY
- * NEXT_PUBLIC_SITE_URL
  */
 
 const REGISTRATION_ENABLED =
   process.env.OJT_REGISTRATION_ENABLED === "true";
 
-const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  "https://ojt-minetrack.vercel.app"
-).replace(/\/+$/, "");
-
-const SITES = [
+const ALLOWED_SITES = [
   "LMO",
   "SMO",
   "GMO NORTH",
@@ -47,7 +43,7 @@ const SITES = [
   "HO",
 ];
 
-const DEPARTMENTS = [
+const ALLOWED_DEPARTMENTS = [
   "ER & SS",
   "Emergency Response Group",
   "Operation",
@@ -78,7 +74,6 @@ function fail(message, status = 400) {
 }
 
 export async function POST(request) {
-  // Registration lock tetap dikendalikan server.
   if (!REGISTRATION_ENABLED) {
     return fail(
       "Pendaftaran peserta sementara dinonaktifkan.",
@@ -95,26 +90,35 @@ export async function POST(request) {
       return fail("Format permintaan tidak valid.");
     }
 
-    const fullName = String(body?.full_name ?? "")
+    const fullName = String(
+      body?.full_name ?? ""
+    )
       .trim()
       .replace(/\s+/g, " ");
 
-    const email = String(body?.email ?? "")
+    const email = String(
+      body?.email ?? ""
+    )
       .trim()
       .toLowerCase();
 
-    const password = String(body?.password ?? "");
+    const password = String(
+      body?.password ?? ""
+    );
 
-    const department = String(body?.department ?? "")
-      .trim();
+    const department = String(
+      body?.department ?? ""
+    ).trim();
 
-    const site = String(body?.site ?? "")
+    const site = String(
+      body?.site ?? ""
+    )
       .trim()
       .toUpperCase();
 
-    // ============================================
-    // VALIDASI FORMULIR
-    // ============================================
+    // =====================================
+    // VALIDASI
+    // =====================================
 
     if (
       fullName.length < 3 ||
@@ -141,17 +145,17 @@ export async function POST(request) {
       );
     }
 
-    if (!DEPARTMENTS.includes(department)) {
+    if (!ALLOWED_DEPARTMENTS.includes(department)) {
       return fail("Departemen tidak valid.");
     }
 
-    if (!SITES.includes(site)) {
+    if (!ALLOWED_SITES.includes(site)) {
       return fail("Site tidak valid.");
     }
 
-    // ============================================
-    // SUPABASE CONFIGURATION
-    // ============================================
+    // =====================================
+    // KONFIGURASI SUPABASE
+    // =====================================
 
     const supabaseUrl =
       process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -165,16 +169,15 @@ export async function POST(request) {
 
     if (!supabaseUrl || !publicKey || !secretKey) {
       console.error(
-        "Registration: Supabase environment incomplete."
+        "OJT registration: missing Supabase configuration"
       );
 
       return fail(
-        "Konfigurasi pendaftaran belum lengkap.",
-        503
+        "Konfigurasi server belum lengkap.",
+        500
       );
     }
 
-    // Client pendaftaran: tidak memakai admin privileges.
     const signupClient = createClient(
       supabaseUrl,
       publicKey,
@@ -187,7 +190,6 @@ export async function POST(request) {
       }
     );
 
-    // Client admin hanya berjalan pada server.
     const admin = createClient(
       supabaseUrl,
       secretKey,
@@ -200,51 +202,54 @@ export async function POST(request) {
       }
     );
 
-    // ============================================
-    // SIGN UP & EMAIL VERIFICATION
-    // ============================================
+    // =====================================
+    // BUAT AKUN PESERTA
+    // =====================================
 
-    const { data: signup, error: signupError } =
-      await signupClient.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${SITE_URL}/login`,
-          data: {
-            full_name: fullName,
-          },
+    const {
+      data: signup,
+      error: signupError,
+    } = await signupClient.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
         },
-      });
+      },
+    });
 
     if (signupError) {
-      console.error(
-        "Registration signup error:",
-        signupError.message
-      );
+      const message = signupError.message || "";
 
       if (
-        /already|registered|exists/i.test(
-          signupError.message || ""
+        /already|registered|exists|duplicate/i.test(
+          message
         )
       ) {
         return fail(
-          "Email sudah terdaftar. Silakan login atau gunakan pemulihan password.",
+          "Email sudah terdaftar. Silakan login.",
           409
         );
       }
 
       if (
         signupError.status === 429 ||
-        /rate limit/i.test(signupError.message || "")
+        /rate limit/i.test(message)
       ) {
         return fail(
-          "Terlalu banyak percobaan. Silakan coba kembali nanti.",
+          "Terlalu banyak percobaan pendaftaran. Silakan coba kembali nanti.",
           429
         );
       }
 
+      console.error(
+        "OJT signup failed:",
+        message
+      );
+
       return fail(
-        "Pendaftaran belum berhasil. Periksa email atau hubungi administrator.",
+        "Pendaftaran gagal diproses.",
         500
       );
     }
@@ -254,62 +259,39 @@ export async function POST(request) {
 
     if (!userId) {
       return fail(
-        "Server belum mengonfirmasi pembuatan akun.",
+        "Akun tidak berhasil dibuat.",
         500
       );
     }
 
-    /*
-     * Supabase dapat mengembalikan identitas kosong
-     * untuk respons terobfusikasi akun yang sudah ada.
-     * Jangan menulis profil/pengajuan untuk respons itu.
-     */
+    // Cegah pemrosesan respons user terobfusikasi.
     if (
       Array.isArray(user.identities) &&
       user.identities.length === 0
     ) {
-      return respond({
-        success: true,
-        status: "verification_required",
-        verification_sent: false,
-        message:
-          "Jika alamat email dapat didaftarkan, instruksi verifikasi akan dikirim. Periksa kotak masuk email Anda.",
-      });
+      return fail(
+        "Email sudah terdaftar. Silakan login.",
+        409
+      );
     }
 
     /*
-     * Untuk alur resmi, Confirm Email di Supabase
-     * wajib aktif. Jika signUp langsung membuat
-     * session, konfigurasi email confirmation
-     * kemungkinan tidak sesuai untuk alur ini.
+     * Pendaftaran ini memerlukan Confirm Email OFF.
+     * Jika masih ON, session biasanya null.
+     *
+     * Jangan hapus akun pada kondisi ini, karena
+     * akun mungkin sedang menunggu konfirmasi.
      */
-    if (signup?.session) {
-      console.error(
-        "Registration stopped: email confirmation is not enforced."
-      );
-
-      // Hanya hapus akun baru yang dibuat oleh request ini.
-      if (userId) {
-        const { error: cleanupError } =
-          await admin.auth.admin.deleteUser(userId);
-
-        if (cleanupError) {
-          console.error(
-            "Registration cleanup failed:",
-            cleanupError.message
-          );
-        }
-      }
-
+    if (!signup?.session) {
       return fail(
-        "Verifikasi email belum diwajibkan di Supabase. Hubungi administrator.",
+        "Konfirmasi email masih aktif di Supabase. Hubungi administrator untuk menyelesaikan konfigurasi.",
         503
       );
     }
 
-    // ============================================
+    // =====================================
     // ROLLBACK AKUN BARU
-    // ============================================
+    // =====================================
 
     async function rollbackAccount() {
       const { error } =
@@ -317,19 +299,18 @@ export async function POST(request) {
 
       if (error) {
         console.error(
-          "Registration rollback failed:",
+          "OJT rollback error:",
           error.message
         );
-
         return false;
       }
 
       return true;
     }
 
-    // ============================================
-    // SIMPAN PROFIL PESERTA
-    // ============================================
+    // =====================================
+    // PROFIL PESERTA
+    // =====================================
 
     const { error: profileError } = await admin
       .from("profiles")
@@ -347,23 +328,24 @@ export async function POST(request) {
 
     if (profileError) {
       console.error(
-        "Registration profile error:",
+        "OJT profile error:",
         profileError.message
       );
 
-      const rolledBack = await rollbackAccount();
+      const rolledBack =
+        await rollbackAccount();
 
       return fail(
         rolledBack
           ? "Gagal menyimpan profil. Silakan coba kembali."
-          : "Pendaftaran belum selesai. Hubungi administrator.",
+          : "Pendaftaran belum selesai. Hubungi Administrator.",
         500
       );
     }
 
-    // ============================================
-    // PENGAJUAN OJT — PENDING
-    // ============================================
+    // =====================================
+    // PENGAJUAN PENDING
+    // =====================================
 
     const { error: registrationError } = await admin
       .from("participant_registrations")
@@ -378,37 +360,38 @@ export async function POST(request) {
 
     if (registrationError) {
       console.error(
-        "Registration insert error:",
+        "OJT registration insert error:",
         registrationError.message
       );
 
-      const rolledBack = await rollbackAccount();
+      const rolledBack =
+        await rollbackAccount();
 
       return fail(
         rolledBack
           ? "Gagal menyimpan pengajuan. Silakan coba kembali."
-          : "Pendaftaran belum selesai. Hubungi administrator.",
+          : "Pendaftaran belum selesai. Hubungi Administrator.",
         500
       );
     }
 
-    // ============================================
-    // SUCCESS
-    // ============================================
+    // =====================================
+    // PENDAFTARAN BERHASIL
+    // =====================================
 
     return respond(
       {
         success: true,
         status: "pending",
-        verification_sent: true,
+        verification_sent: false,
         message:
-          "Pendaftaran berhasil diproses. Periksa email dan klik tautan verifikasi sebelum login. Setelah verifikasi, pengajuan OJT tetap menunggu persetujuan Mentor.",
+          "Pendaftaran berhasil. Akun peserta sudah dibuat dan dapat digunakan untuk login. Pengajuan OJT menunggu persetujuan Mentor.",
       },
       201
     );
   } catch (error) {
     console.error(
-      "Official registration error:",
+      "OJT registration server error:",
       error
     );
 
