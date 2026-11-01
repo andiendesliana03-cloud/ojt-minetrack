@@ -7,22 +7,13 @@ import {
   useMemo,
   useState,
 } from "react";
-
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
 // ======================================================
 // OJT MINETRACK V2.0
-// DASHBOARD PERSETUJUAN PESERTA OJT
-// MODERN CORPORATE NAVY / EMERALD / WHITE
-// TEMPLATE SELARAS DENGAN PENDAFTARAN OJT
-//
-// KEAMANAN & DATABASE TETAP:
-// - Feature flags gagal = nonaktif
-// - Endpoint review-registration tetap
-// - Konfirmasi keputusan dua tahap
-// - Validasi respons server tetap
-// - Hanya pengajuan baru pending dapat diproses
+// DASHBOARD PERSETUJUAN PESERTA
+// FIX: TOMBOL SETUJUI / TOLAK PADA PENDING
 // ======================================================
 
 const FLAGS_URL = "/api/system/feature-flags";
@@ -33,11 +24,7 @@ const PROGRAM_END = "6 Maret 2027";
 const TOTAL_WEEKS = 25;
 
 const NAV = [
-  {
-    label: "Dashboard",
-    url: "/",
-    icon: "home",
-  },
+  { label: "Dashboard", url: "/", icon: "home" },
   {
     label: "Peserta OJT",
     url: "/mentor/monitoring-peserta",
@@ -130,18 +117,14 @@ function Icon({ name, size = 18 }) {
         <path d="M9 8h6M9 12h6M9 16h4" />
       </>
     ),
-    check: (
-      <path d="m4 12 5 5L20 6" />
-    ),
+    check: <path d="m4 12 5 5L20 6" />,
     clock: (
       <>
         <circle cx="12" cy="12" r="9" />
         <path d="M12 7v5l4 2" />
       </>
     ),
-    x: (
-      <path d="M5 5l14 14M19 5 5 19" />
-    ),
+    x: <path d="M5 5l14 14M19 5 5 19" />,
     search: (
       <>
         <circle cx="10.5" cy="10.5" r="6.5" />
@@ -172,24 +155,9 @@ function Icon({ name, size = 18 }) {
         <path d="M12 11v5M12 8h.01" />
       </>
     ),
-    back: (
-      <path d="M19 12H5m6-6-6 6 6 6" />
-    ),
-    arrow: (
-      <path d="M5 12h14m-6-6 6 6-6 6" />
-    ),
-    menu: (
-      <path d="M4 7h16M4 12h16M4 17h16" />
-    ),
-    lock: (
-      <>
-        <rect x="5" y="10" width="14" height="11" rx="2" />
-        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-      </>
-    ),
-    flag: (
-      <path d="M5 22V4m0 1c5-4 9 4 15 0v11c-6 4-10-4-15 0" />
-    ),
+    back: <path d="M19 12H5m6-6-6 6 6 6" />,
+    arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
+    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     clipboard: (
       <>
         <rect x="5" y="5" width="14" height="16" rx="2" />
@@ -215,10 +183,6 @@ function Icon({ name, size = 18 }) {
     </svg>
   );
 }
-
-// ======================================================
-// KOMPONEN
-// ======================================================
 
 function StatusBadge({ status }) {
   const icon =
@@ -247,10 +211,9 @@ function SummaryCard({
   return (
     <button
       type="button"
-      className={
-        `ap-summary-card ${tone} ` +
-        (selected ? "selected" : "")
-      }
+      className={`ap-summary-card ${tone} ${
+        selected ? "selected" : ""
+      }`}
       onClick={onClick}
     >
       <div className="ap-summary-icon">
@@ -292,9 +255,11 @@ function DetailItem({ label, value }) {
   );
 }
 
-// ======================================================
-// HALAMAN UTAMA
-// ======================================================
+// Penentu tombol pada antarmuka.
+// Server tetap menentukan apakah pengajuan sah untuk diproses.
+function canShowReview(item) {
+  return Boolean(item?.id) && item?.status === "pending";
+}
 
 export default function PersetujuanPesertaPage() {
   const router = useRouter();
@@ -318,11 +283,11 @@ export default function PersetujuanPesertaPage() {
 
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
+
   const [decision, setDecision] = useState("approved");
   const [reason, setReason] = useState("");
 
   const [mobileMenu, setMobileMenu] = useState(false);
-
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -345,23 +310,18 @@ export default function PersetujuanPesertaPage() {
       });
 
       if (!response.ok) {
-        throw new Error(
-          "Gagal membaca konfigurasi fitur."
-        );
+        throw new Error("Gagal membaca konfigurasi fitur.");
       }
 
       const result = await response.json();
 
       if (result?.success !== true) {
-        throw new Error(
-          "Konfigurasi fitur tidak valid."
-        );
+        throw new Error("Konfigurasi fitur tidak valid.");
       }
 
       const nextFlags = {
         approval_enabled:
           result.features?.approval_enabled === true,
-
         rejection_enabled:
           result.features?.rejection_enabled === true,
       };
@@ -377,7 +337,7 @@ export default function PersetujuanPesertaPage() {
   }, []);
 
   // ====================================================
-  // DATA REGISTRASI — ENDPOINT ASLI
+  // DATA REGISTRASI — ENDPOINT TETAP
   // ====================================================
 
   const loadRegistrations = useCallback(
@@ -402,8 +362,7 @@ export default function PersetujuanPesertaPage() {
           {
             method: "GET",
             headers: {
-              Authorization:
-                `Bearer ${session.access_token}`,
+              Authorization: `Bearer ${session.access_token}`,
             },
             cache: "no-store",
           }
@@ -441,7 +400,6 @@ export default function PersetujuanPesertaPage() {
           err?.message ||
             "Gagal membaca daftar pengajuan."
         );
-
         return false;
       } finally {
         setLoading(false);
@@ -469,14 +427,12 @@ export default function PersetujuanPesertaPage() {
           return;
         }
 
-        const {
-          data,
-          error: profileError,
-        } = await supabase
-          .from("profiles")
-          .select("id,full_name,role")
-          .eq("id", user.id)
-          .maybeSingle();
+        const { data, error: profileError } =
+          await supabase
+            .from("profiles")
+            .select("id,full_name,role")
+            .eq("id", user.id)
+            .maybeSingle();
 
         if (profileError) throw profileError;
 
@@ -510,7 +466,7 @@ export default function PersetujuanPesertaPage() {
   }, [loadFeatureFlags, loadRegistrations]);
 
   // ====================================================
-  // PENGAMAN KEPUTUSAN
+  // KEAMANAN KEPUTUSAN
   // ====================================================
 
   function decisionEnabled(type, currentFlags) {
@@ -529,8 +485,7 @@ export default function PersetujuanPesertaPage() {
     if (
       processing ||
       flagsLoading ||
-      item.source !== "new" ||
-      item.status !== "pending" ||
+      !canShowReview(item) ||
       !decisionEnabled(nextDecision, features)
     ) {
       return;
@@ -552,15 +507,17 @@ export default function PersetujuanPesertaPage() {
   }
 
   function openDetail(item) {
+    if (processing) return;
     setDetail(item);
   }
 
   function closeDetail() {
+    if (processing) return;
     setDetail(null);
   }
 
   // ====================================================
-  // KEPUTUSAN MENTOR — ENDPOINT ASLI
+  // SIMPAN KEPUTUSAN — ENDPOINT ASLI TIDAK DIUBAH
   // ====================================================
 
   async function submitDecision(event) {
@@ -568,13 +525,8 @@ export default function PersetujuanPesertaPage() {
 
     if (!selected || processing || flagsLoading) return;
 
-    if (
-      selected.source !== "new" ||
-      selected.status !== "pending"
-    ) {
-      setError(
-        "Pengajuan ini tidak dapat diproses."
-      );
+    if (!canShowReview(selected)) {
+      setError("Pengajuan ini tidak dapat diproses.");
       return;
     }
 
@@ -596,6 +548,7 @@ export default function PersetujuanPesertaPage() {
     setMessage("");
 
     try {
+      // Periksa ulang izin sebelum keputusan
       const latestFlags = await loadFeatureFlags();
 
       if (!decisionEnabled(decision, latestFlags)) {
@@ -615,9 +568,10 @@ export default function PersetujuanPesertaPage() {
       const confirmed = window.confirm(
         `${action} pengajuan OJT?\n\n` +
           `Peserta: ${participantName}\n` +
-          `Site: ${selected.site}\n` +
-          `Periode: ${formatDate(selected.start_date)} ` +
-          `s.d. ${formatDate(selected.end_date)}\n` +
+          `Site: ${selected.site || "—"}\n` +
+          `Periode: ${formatDate(
+            selected.start_date
+          )} s.d. ${formatDate(selected.end_date)}\n` +
           (decision === "rejected"
             ? `Alasan: ${cleanReason}\n`
             : "") +
@@ -642,8 +596,7 @@ export default function PersetujuanPesertaPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization:
-              `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${session.access_token}`,
           },
           cache: "no-store",
           body: JSON.stringify({
@@ -658,7 +611,15 @@ export default function PersetujuanPesertaPage() {
         }
       );
 
-      const result = await response.json();
+      let result = {};
+
+      try {
+        result = await response.json();
+      } catch {
+        throw new Error(
+          "Server memberikan respons tidak valid."
+        );
+      }
 
       if (response.status === 401) {
         router.replace("/login");
@@ -668,6 +629,7 @@ export default function PersetujuanPesertaPage() {
       if (!response.ok) {
         throw new Error(
           result.error ||
+            result.message ||
             "Keputusan gagal diproses."
         );
       }
@@ -696,13 +658,13 @@ export default function PersetujuanPesertaPage() {
         setMessage(
           refreshed
             ? `${participantName} berhasil disetujui. Program OJT telah aktif.`
-            : `${participantName} berhasil disetujui. Program OJT telah aktif, tetapi daftar belum dapat diperbarui.`
+            : `${participantName} berhasil disetujui. Program OJT aktif, tetapi daftar belum diperbarui.`
         );
       } else {
         setMessage(
           refreshed
             ? `Pengajuan ${participantName} berhasil ditolak.`
-            : `Pengajuan ${participantName} berhasil ditolak, tetapi daftar belum dapat diperbarui.`
+            : `Pengajuan ${participantName} berhasil ditolak, tetapi daftar belum diperbarui.`
         );
       }
     } catch (err) {
@@ -735,7 +697,7 @@ export default function PersetujuanPesertaPage() {
   }
 
   // ====================================================
-  // PERHITUNGAN STATISTIK
+  // STATISTIK & FILTER
   // ====================================================
 
   const counts = useMemo(
@@ -807,14 +769,14 @@ export default function PersetujuanPesertaPage() {
       : "Nonaktif";
 
   // ====================================================
-  // TAMPILAN DASHBOARD
+  // TAMPILAN
   // ====================================================
 
   return (
     <div className="ap-app">
       <style>{css}</style>
 
-      {/* TOPBAR */}
+      {/* HEADER */}
 
       <header className="ap-topbar">
         <button
@@ -831,6 +793,7 @@ export default function PersetujuanPesertaPage() {
               OJT <em>MineTrack</em>
               <small>v2.0</small>
             </strong>
+
             <span>
               ON THE JOB TRAINING MANAGEMENT SYSTEM
             </span>
@@ -901,8 +864,7 @@ export default function PersetujuanPesertaPage() {
       </header>
 
       <main className="ap-container">
-
-        {/* HERO CORPORATE */}
+        {/* HERO */}
 
         <section
           className="ap-hero"
@@ -958,12 +920,8 @@ export default function PersetujuanPesertaPage() {
             </span>
 
             <small>TOTAL PENGAJUAN</small>
-
             <strong>{counts.all}</strong>
-
-            <span>
-              Pengajuan tercatat
-            </span>
+            <span>Pengajuan tercatat</span>
           </div>
         </section>
 
@@ -979,9 +937,7 @@ export default function PersetujuanPesertaPage() {
 
           <span>/</span>
 
-          <strong>
-            Persetujuan Peserta OJT
-          </strong>
+          <strong>Persetujuan Peserta OJT</strong>
         </div>
 
         {/* NOTIFIKASI */}
@@ -1022,7 +978,7 @@ export default function PersetujuanPesertaPage() {
           </div>
         )}
 
-        {/* EMPAT KARTU STATISTIK */}
+        {/* STATISTIK */}
 
         <section className="ap-summary-grid">
           <SummaryCard
@@ -1062,7 +1018,7 @@ export default function PersetujuanPesertaPage() {
           />
         </section>
 
-        {/* STATUS FEATURE FLAGS */}
+        {/* FEATURE FLAGS */}
 
         <section className="ap-feature-bar">
           <div className="ap-feature-heading">
@@ -1071,10 +1027,7 @@ export default function PersetujuanPesertaPage() {
             </div>
 
             <div>
-              <strong>
-                Status Fitur Mentor
-              </strong>
-
+              <strong>Status Fitur Mentor</strong>
               <small>
                 Keputusan hanya dapat diproses
                 jika fitur diaktifkan oleh server.
@@ -1085,7 +1038,6 @@ export default function PersetujuanPesertaPage() {
           <div className="ap-feature-statuses">
             <div>
               <span>Persetujuan</span>
-
               <strong
                 className={
                   features.approval_enabled
@@ -1099,7 +1051,6 @@ export default function PersetujuanPesertaPage() {
 
             <div>
               <span>Penolakan</span>
-
               <strong
                 className={
                   features.rejection_enabled
@@ -1142,7 +1093,7 @@ export default function PersetujuanPesertaPage() {
             </button>
           </div>
 
-          {/* FILTER & SEARCH */}
+          {/* FILTER */}
 
           <div className="ap-filterbar">
             <div className="ap-tabs">
@@ -1190,24 +1141,16 @@ export default function PersetujuanPesertaPage() {
             {" pengajuan."}
           </div>
 
-          {/* LOADING / EMPTY */}
-
           {loading ? (
             <div className="ap-empty">
               <Icon name="refresh" size={30} />
-              <strong>
-                Memuat Data Pengajuan
-              </strong>
-              <p>
-                Memeriksa daftar peserta OJT...
-              </p>
+              <strong>Memuat Data Pengajuan</strong>
+              <p>Memeriksa daftar peserta OJT...</p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="ap-empty">
               <Icon name="file" size={30} />
-              <strong>
-                Tidak Ada Pengajuan
-              </strong>
+              <strong>Tidak Ada Pengajuan</strong>
               <p>
                 Tidak ditemukan pengajuan sesuai
                 filter atau pencarian.
@@ -1234,8 +1177,7 @@ export default function PersetujuanPesertaPage() {
                   <tbody>
                     {filtered.map((item, index) => {
                       const canReview =
-                        item.source === "new" &&
-                        item.status === "pending";
+                        canShowReview(item);
 
                       return (
                         <tr
@@ -1317,7 +1259,7 @@ export default function PersetujuanPesertaPage() {
                                 Detail
                               </button>
 
-                              {canReview ? (
+                              {canReview && (
                                 <>
                                   <button
                                     type="button"
@@ -1355,7 +1297,7 @@ export default function PersetujuanPesertaPage() {
                                     Tolak
                                   </button>
                                 </>
-                              ) : null}
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1370,8 +1312,7 @@ export default function PersetujuanPesertaPage() {
               <div className="ap-mobile-list">
                 {filtered.map((item) => {
                   const canReview =
-                    item.source === "new" &&
-                    item.status === "pending";
+                    canShowReview(item);
 
                   return (
                     <div
@@ -1399,6 +1340,7 @@ export default function PersetujuanPesertaPage() {
 
                       <div className="ap-mobile-meta">
                         <span>Periode OJT</span>
+
                         <strong>
                           {formatDate(item.start_date)}
                           {" – "}
@@ -1491,12 +1433,9 @@ export default function PersetujuanPesertaPage() {
           )}
         </section>
 
-        {/* PANEL INFORMASI BAWAH */}
+        {/* PANEL BAWAH */}
 
         <div className="ap-bottom-grid">
-
-          {/* PERIODE PROGRAM */}
-
           <section className="ap-card">
             <SectionHeading
               icon="calendar"
@@ -1546,8 +1485,6 @@ export default function PersetujuanPesertaPage() {
             </p>
           </section>
 
-          {/* ALUR PERSETUJUAN */}
-
           <section className="ap-card">
             <SectionHeading
               icon="clipboard"
@@ -1590,8 +1527,6 @@ export default function PersetujuanPesertaPage() {
           </section>
         </div>
 
-        {/* BACK */}
-
         <div className="ap-bottom-actions">
           <button
             type="button"
@@ -1614,7 +1549,7 @@ export default function PersetujuanPesertaPage() {
       </main>
 
       {/* =================================================
-          MODAL DETAIL — HANYA MEMBACA DATA
+          MODAL DETAIL + TOMBOL KEPUTUSAN
       ================================================= */}
 
       {detail && (
@@ -1719,6 +1654,44 @@ export default function PersetujuanPesertaPage() {
                 </div>
               )}
 
+              {/* FIX: TOMBOL TERSEDIA DI MODAL DETAIL */}
+
+              {canShowReview(detail) && (
+                <div className="ap-detail-decisions">
+                  <button
+                    type="button"
+                    className="ap-detail-approve"
+                    disabled={
+                      processing ||
+                      flagsLoading ||
+                      !features.approval_enabled
+                    }
+                    onClick={() =>
+                      openDecision(detail, "approved")
+                    }
+                  >
+                    <Icon name="check" size={18} />
+                    Setujui Peserta
+                  </button>
+
+                  <button
+                    type="button"
+                    className="ap-detail-reject"
+                    disabled={
+                      processing ||
+                      flagsLoading ||
+                      !features.rejection_enabled
+                    }
+                    onClick={() =>
+                      openDecision(detail, "rejected")
+                    }
+                  >
+                    <Icon name="x" size={18} />
+                    Tolak Pengajuan
+                  </button>
+                </div>
+              )}
+
               <button
                 type="button"
                 className="ap-detail-close"
@@ -1732,7 +1705,7 @@ export default function PersetujuanPesertaPage() {
       )}
 
       {/* =================================================
-          MODAL KEPUTUSAN — ENDPOINT TETAP
+          MODAL KEPUTUSAN — KONFIRMASI DUA TAHAP
       ================================================= */}
 
       {selected && (
@@ -1772,9 +1745,7 @@ export default function PersetujuanPesertaPage() {
                     : "Penolakan Peserta OJT"}
                 </h2>
 
-                <p>
-                  Konfirmasi keputusan pengajuan.
-                </p>
+                <p>Konfirmasi keputusan pengajuan.</p>
               </div>
 
               <button
@@ -1789,7 +1760,6 @@ export default function PersetujuanPesertaPage() {
             </div>
 
             <div className="ap-modal-body">
-
               <div className="ap-modal-participant">
                 <div className="ap-person-avatar">
                   {initials(selected.full_name)}
@@ -1797,8 +1767,7 @@ export default function PersetujuanPesertaPage() {
 
                 <div>
                   <strong>
-                    {selected.full_name ||
-                      "Peserta OJT"}
+                    {selected.full_name || "Peserta OJT"}
                   </strong>
 
                   <small>
@@ -1811,7 +1780,6 @@ export default function PersetujuanPesertaPage() {
 
               <div className="ap-modal-period">
                 <span>Periode Program OJT</span>
-
                 <strong>
                   {formatDate(selected.start_date)}
                   {" – "}
@@ -1845,9 +1813,7 @@ export default function PersetujuanPesertaPage() {
               <form onSubmit={submitDecision}>
                 {decision === "rejected" && (
                   <label className="ap-reason-field">
-                    <strong>
-                      Alasan Penolakan *
-                    </strong>
+                    <strong>Alasan Penolakan *</strong>
 
                     <textarea
                       rows={5}
@@ -1915,7 +1881,7 @@ export default function PersetujuanPesertaPage() {
 }
 
 // ======================================================
-// CSS — CORPORATE NAVY & EMERALD
+// CSS — CORPORATE NAVY / EMERALD / WHITE
 // ======================================================
 
 const css = `
@@ -1959,18 +1925,14 @@ const css = `
   position: sticky;
   top: 0;
   z-index: 40;
-
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-
   min-height: 76px;
   padding: 11px 28px;
-
   background: #081e35;
   color: white;
-
   border-bottom: 1px solid #ffffff2b;
   box-shadow: 0 5px 20px #0a294024;
 }
@@ -1980,7 +1942,6 @@ const css = `
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-
   padding: 0;
   border: 0;
   background: transparent;
@@ -1994,7 +1955,6 @@ const css = `
   width: 40px;
   height: 40px;
   flex-shrink: 0;
-
   border: 1px solid #49cbb88a;
   border-radius: 11px;
   background: #0c78736e;
@@ -2042,11 +2002,9 @@ const css = `
   display: flex;
   align-items: center;
   gap: 8px;
-
   padding: 11px 12px;
   border: 0;
   border-radius: 8px;
-
   background: transparent;
   color: #c7dae5;
   font-size: 11px;
@@ -2077,7 +2035,6 @@ const css = `
   width: 37px;
   height: 37px;
   flex-shrink: 0;
-
   border-radius: 50%;
   background: #d8f6eb;
   color: #08795d;
@@ -2122,16 +2079,13 @@ const css = `
   align-items: center;
   justify-content: space-between;
   gap: 30px;
-
   min-height: 230px;
   padding: 30px 34px;
   overflow: hidden;
-
   border-radius: 16px;
   background-color: #0c2d47;
   background-position: center 44%;
   background-size: cover;
-
   color: white;
   box-shadow: 0 9px 27px #12385220;
 }
@@ -2177,14 +2131,11 @@ const css = `
   display: flex;
   align-items: center;
   gap: 7px;
-
   padding: 7px 10px;
   border: 1px solid #ffffff4c;
   border-radius: 20px;
-
   background: #092b42a8;
   color: #e4f4f0;
-
   font-size: 10px;
   font-weight: 750;
 }
@@ -2198,14 +2149,11 @@ const css = `
   justify-items: center;
   gap: 9px;
   flex-shrink: 0;
-
   min-width: 175px;
   padding: 18px 16px;
-
   border: 1px solid #ffffff5b;
   border-radius: 13px;
   background: #062641c7;
-
   text-align: center;
 }
 
@@ -2294,7 +2242,7 @@ const css = `
   border: 1px solid #f3c8c8;
 }
 
-/* FOUR STATISTICS */
+/* STATISTICS */
 
 .ap-summary-grid {
   display: grid;
@@ -2307,14 +2255,11 @@ const css = `
   display: flex;
   align-items: center;
   gap: 12px;
-
   min-height: 125px;
   padding: 17px;
-
   border: 1px solid #dce7ee;
   border-radius: 12px;
   background: white;
-
   text-align: left;
   box-shadow: 0 6px 20px #0d355015;
 }
@@ -2388,10 +2333,8 @@ const css = `
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-
   padding: 15px 18px;
   margin-bottom: 17px;
-
   border: 1px solid #c7e4ed;
   border-radius: 12px;
   background: #eaf6fa;
@@ -2407,10 +2350,8 @@ const css = `
   display: grid;
   place-items: center;
   flex-shrink: 0;
-
   width: 42px;
   height: 42px;
-
   border-radius: 10px;
   background: #d8ebf5;
   color: #2577a1;
@@ -2520,14 +2461,11 @@ const css = `
   align-items: center;
   justify-content: center;
   gap: 8px;
-
   padding: 11px 14px;
   border: 1px solid #d8e6e9;
   border-radius: 8px;
-
   background: #f7fafc;
   color: #206d65;
-
   font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
@@ -2666,14 +2604,11 @@ const css = `
   display: grid;
   place-items: center;
   flex-shrink: 0;
-
   width: 40px;
   height: 40px;
-
   border-radius: 10px;
   background: #ddf3e8;
   color: #087954;
-
   font-size: 12px;
   font-weight: 900;
 }
@@ -2759,7 +2694,7 @@ const css = `
   overflow-wrap: anywhere;
 }
 
-/* ACTIONS */
+/* ROW ACTIONS */
 
 .ap-row-actions {
   display: flex;
@@ -2927,14 +2862,11 @@ const css = `
   display: grid;
   place-items: center;
   flex-shrink: 0;
-
   width: 29px;
   height: 29px;
-
   border-radius: 50%;
   background: #1188bc;
   color: white;
-
   font-size: 11px;
   font-weight: 900;
 }
@@ -2984,10 +2916,8 @@ const css = `
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-
   margin-top: 23px;
   padding: 15px 2px;
-
   border-top: 1px solid #d9e4ec;
   color: #8195a5;
   font-size: 10px;
@@ -2999,11 +2929,9 @@ const css = `
   position: fixed;
   inset: 0;
   z-index: 100;
-
   display: grid;
   place-items: center;
   padding: 16px;
-
   background: #061e2acd;
 }
 
@@ -3011,7 +2939,6 @@ const css = `
   width: min(100%,570px);
   max-height: 92vh;
   overflow-y: auto;
-
   border-radius: 16px;
   background: white;
   box-shadow: 0 25px 65px #00192355;
@@ -3021,7 +2948,6 @@ const css = `
   display: flex;
   align-items: center;
   gap: 12px;
-
   padding: 20px;
   border-bottom: 1px solid #e8eef3;
 }
@@ -3032,7 +2958,6 @@ const css = `
   flex-shrink: 0;
   width: 43px;
   height: 43px;
-
   border-radius: 11px;
   background: #e1f6ea;
   color: #07865d;
@@ -3149,10 +3074,8 @@ const css = `
   resize: vertical;
   margin-top: 9px;
   padding: 12px;
-
   border: 1px solid #d9e5e9;
   border-radius: 9px;
-
   color: #1a3945;
   font-size: 12px;
   line-height: 1.6;
@@ -3179,13 +3102,10 @@ const css = `
   align-items: center;
   justify-content: center;
   gap: 8px;
-
   min-height: 43px;
   padding: 11px 15px;
-
   border: 0;
   border-radius: 8px;
-
   font-size: 11px;
   font-weight: 900;
 }
@@ -3270,9 +3190,41 @@ const css = `
   overflow-wrap: anywhere;
 }
 
+/* NEW: TOMBOL DETAIL */
+
+.ap-detail-decisions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.ap-detail-decisions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 45px;
+  padding: 11px;
+  border: 0;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.ap-detail-approve {
+  background: #078b61;
+  color: white;
+}
+
+.ap-detail-reject {
+  background: #ce4356;
+  color: white;
+}
+
 .ap-detail-close {
   width: 100%;
-  margin-top: 18px;
+  margin-top: 12px;
   background: #e8f1f8;
   color: #225d91;
 }
@@ -3539,6 +3491,10 @@ const css = `
   }
 
   .ap-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ap-detail-decisions {
     grid-template-columns: 1fr;
   }
 
