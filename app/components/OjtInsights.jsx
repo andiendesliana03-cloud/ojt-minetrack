@@ -1,11 +1,29 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
+// ====================================================
+// OJT MINETRACK V2.0
+// EVALUASI KESIAPAN & LAPORAN OJT
+//
+// AKSES ADMIN PERMANEN TANPA PESERTA:
+// /evaluasi/admin-review
+// /laporan/admin-review
+//
+// TIDAK MEMBUAT DATA FIKTIF
+// TIDAK MENGUBAH DATABASE
+// ====================================================
+
 const TOTAL_WEEKS = 25;
+const ADMIN_REVIEW_ID = "admin-review";
 
 const CATEGORIES = [
   { name: "Fisik", target: 25, unit: "km", icon: "🏃" },
@@ -14,6 +32,15 @@ const CATEGORIES = [
   { name: "Coaching", target: 1, unit: "kegiatan", icon: "💬" },
   { name: "Orientasi Area", target: 2, unit: "kegiatan", icon: "🧭" },
   { name: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
+];
+
+const INDICATOR_TITLES = [
+  "Pencapaian Kompetensi OJT",
+  "Post-Test",
+  "Praktik Mingguan",
+  "Samapta",
+  "Penerbitan SIMPER",
+  "Cakupan Aktivitas 25 Minggu",
 ];
 
 const SIMPER_META_START = "[[SIMPER_V2]]";
@@ -119,7 +146,15 @@ function fmt(value) {
 }
 
 function fmtNumber(value, decimals = 0) {
-  return Number(value || 0).toLocaleString("id-ID", {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "—";
+  }
+
+  return Number(value).toLocaleString("id-ID", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
@@ -145,6 +180,7 @@ function getParticipant(program) {
 
 // ====================================================
 // SIMPER V2 / V4
+// RUMUS DAN ATURAN LAMA DIPERTAHANKAN
 // ====================================================
 
 function parseSimperMetadata(notes) {
@@ -153,17 +189,15 @@ function parseSimperMetadata(notes) {
   const start = text.lastIndexOf(SIMPER_META_START);
   const end = text.lastIndexOf(SIMPER_META_END);
 
-  if (start < 0 || end <= start) {
-    return null;
-  }
+  if (start < 0 || end <= start) return null;
 
   try {
-    const content = text.slice(
-      start + SIMPER_META_START.length,
-      end
+    const metadata = JSON.parse(
+      text.slice(
+        start + SIMPER_META_START.length,
+        end
+      )
     );
-
-    const metadata = JSON.parse(content);
 
     if (
       metadata &&
@@ -215,9 +249,6 @@ function getSimperProgress(simper) {
 
   const percentage = [0, 33, 67, 100][completedSteps];
 
-  // Penerbitan tidak menambah persentase.
-  // Mengikuti aturan yang sudah digunakan
-  // pada komponen OjtInsights sebelumnya.
   const released =
     normalizeRole(meta?.issuance_status) === "issued" &&
     Boolean(simper.graduation_date);
@@ -323,20 +354,9 @@ function getSamaptaResults(records) {
 }
 
 // ====================================================
-// ACHIEVEMENT — REVISI FINAL
-//
-// Target berlaku untuk seluruh program 25 minggu.
-//
-// Fisik = total distance_km verified
-// Lainnya = jumlah aktivitas verified
-//
-// Progres kategori:
-// min(100, pencapaian / target * 100)
-//
-// Progres keseluruhan:
-// rata-rata 6 progres kategori.
-//
-// Data mingguan tetap dihitung untuk rincian.
+// ACHIEVEMENT
+// TARGET KUMULATIF 25 MINGGU
+// FORMULA ASLI DIPERTAHANKAN
 // ====================================================
 
 function calculateCategories(
@@ -347,7 +367,8 @@ function calculateCategories(
   return CATEGORIES.map((category) => {
     const type = types.find(
       (item) =>
-        normalize(item.name) === normalize(category.name) ||
+        normalize(item.name) ===
+          normalize(category.name) ||
         (
           category.name === "Training" &&
           normalize(item.name) === "internaltraining"
@@ -357,8 +378,10 @@ function calculateCategories(
     const verifiedRecords = type
       ? achievements.filter(
           (record) =>
-            normalize(record.type_code) === normalize(type.code) &&
-            normalizeRole(record.status) === "verified" &&
+            normalize(record.type_code) ===
+              normalize(type.code) &&
+            normalizeRole(record.status) ===
+              "verified" &&
             weekOf(
               record.activity_date,
               startDate
@@ -434,20 +457,28 @@ function calculateCategories(
 function ProgressBar({
   value,
   color = "#119769",
+  unavailable = false,
 }) {
-  const safeValue = Number.isFinite(Number(value))
-    ? Math.max(0, Math.min(100, Number(value)))
-    : 0;
+  const safeValue =
+    !unavailable &&
+    Number.isFinite(Number(value))
+      ? Math.max(
+          0,
+          Math.min(100, Number(value))
+        )
+      : 0;
 
   return (
     <div className="oi-progress-track">
-      <div
-        className="oi-progress-fill"
-        style={{
-          width: `${safeValue}%`,
-          background: color,
-        }}
-      />
+      {!unavailable && (
+        <div
+          className="oi-progress-fill"
+          style={{
+            width: `${safeValue}%`,
+            background: color,
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -462,17 +493,26 @@ function Stat({ label, value, helper }) {
   );
 }
 
-function Indicator({ title, detail, passed }) {
+function Indicator({
+  title,
+  detail,
+  passed,
+  unavailable = false,
+}) {
   return (
     <div className="oi-indicator">
       <div
         className={
-          passed
+          passed && !unavailable
             ? "oi-indicator-icon completed"
             : "oi-indicator-icon"
         }
       >
-        {passed ? "✓" : "○"}
+        {unavailable
+          ? "—"
+          : passed
+          ? "✓"
+          : "○"}
       </div>
 
       <div className="oi-indicator-content">
@@ -482,12 +522,16 @@ function Indicator({ title, detail, passed }) {
 
       <span
         className={
-          passed
+          passed && !unavailable
             ? "oi-pill completed"
             : "oi-pill"
         }
       >
-        {passed ? "Terpenuhi" : "Belum Terpenuhi"}
+        {unavailable
+          ? "Belum Ada Data"
+          : passed
+          ? "Terpenuhi"
+          : "Belum Terpenuhi"}
       </span>
     </div>
   );
@@ -538,7 +582,7 @@ function History({
 
 // ====================================================
 // KOMPONEN UTAMA
-// DIGUNAKAN EVALUASI DAN LAPORAN
+// DIPAKAI EVALUASI DAN LAPORAN
 // ====================================================
 
 export default function OjtInsights({ id, mode }) {
@@ -546,6 +590,8 @@ export default function OjtInsights({ id, mode }) {
 
   const programId = Array.isArray(id) ? id[0] : id;
   const isReport = mode === "laporan";
+  const isAdminReview =
+    programId === ADMIN_REVIEW_ID;
 
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -553,79 +599,80 @@ export default function OjtInsights({ id, mode }) {
   const [refreshing, setRefreshing] = useState(false);
 
   // ==================================================
-  // QUERY DATA MONITORING
+  // QUERY DATA MONITORING ASLI
   // ==================================================
 
-  async function getMonitoringData(targetId) {
-    const results = await Promise.all([
-      supabase
-        .from("achievement_types")
-        .select("code,name"),
+  const getMonitoringData = useCallback(
+    async (targetId) => {
+      const results = await Promise.all([
+        supabase
+          .from("achievement_types")
+          .select("code,name"),
 
-      supabase
-        .from("achievement_records")
-        .select(
-          "id,type_code,status,activity_date,distance_km"
-        )
-        .eq("program_id", targetId),
+        supabase
+          .from("achievement_records")
+          .select(
+            "id,type_code,status,activity_date,distance_km"
+          )
+          .eq("program_id", targetId),
 
-      supabase
-        .from("post_test_scores")
-        .select("id,test_date,score,notes")
-        .eq("program_id", targetId)
-        .order("test_date"),
+        supabase
+          .from("post_test_scores")
+          .select("id,test_date,score,notes")
+          .eq("program_id", targetId)
+          .order("test_date"),
 
-      supabase
-        .from("weekly_practice_scores")
-        .select(
-          "id,practice_date,practice_name,score,notes"
-        )
-        .eq("program_id", targetId)
-        .order("practice_date"),
+        supabase
+          .from("weekly_practice_scores")
+          .select(
+            "id,practice_date,practice_name,score,notes"
+          )
+          .eq("program_id", targetId)
+          .order("practice_date"),
 
-      supabase
-        .from("samapta_records")
-        .select(
-          "id,test_date,test_type,score,outcome,result_value"
-        )
-        .eq("program_id", targetId)
-        .order("test_date"),
+        supabase
+          .from("samapta_records")
+          .select(
+            "id,test_date,test_type,score,outcome,result_value"
+          )
+          .eq("program_id", targetId)
+          .order("test_date"),
 
-      supabase
-        .from("simper_records")
-        .select(
-          "id,status,administration_status,training_status,theory_status,practice_status,application_date,graduation_date,notes"
-        )
-        .eq("program_id", targetId)
-        .maybeSingle(),
-    ]);
+        supabase
+          .from("simper_records")
+          .select(
+            "id,status,administration_status,training_status,theory_status,practice_status,application_date,graduation_date,notes"
+          )
+          .eq("program_id", targetId)
+          .maybeSingle(),
+      ]);
 
-    for (const result of results) {
-      if (result.error) throw result.error;
-    }
+      for (const result of results) {
+        if (result.error) throw result.error;
+      }
 
-    return {
-      types: results[0].data || [],
-      ach: results[1].data || [],
-      post: results[2].data || [],
-      practice: results[3].data || [],
-      samapta: results[4].data || [],
-      simper: results[5].data || null,
-    };
-  }
+      return {
+        types: results[0].data || [],
+        ach: results[1].data || [],
+        post: results[2].data || [],
+        practice: results[3].data || [],
+        samapta: results[4].data || [],
+        simper: results[5].data || null,
+      };
+    },
+    []
+  );
 
   // ==================================================
   // VERIFIKASI AKSES
   //
-  // Admin dan Mentor mengikuti RLS.
+  // admin-review KHUSUS ROLE ADMIN
+  // TIDAK MELAKUKAN QUERY PROGRAM FIKTIF
   //
-  // Peserta:
-  // - Hanya program sendiri
-  // - Program harus active
-  // - Persetujuan baru/lama/legacy
+  // AKSES PROGRAM ASLI DIPERTAHANKAN
   // ==================================================
 
-  async function verifyAccess() {
+  const verifyAccess = useCallback(async () => {
     const {
       data: { user },
       error: authError,
@@ -655,6 +702,21 @@ export default function OjtInsights({ id, mode }) {
     }
 
     const role = normalizeRole(profile.role);
+
+    if (isAdminReview) {
+      if (role !== "admin") {
+        throw new Error(
+          "Tinjauan tanpa peserta hanya dapat dibuka oleh Admin."
+        );
+      }
+
+      return {
+        user,
+        profile,
+        program: null,
+        adminReview: true,
+      };
+    }
 
     const isManager =
       role === "admin" || role === "mentor";
@@ -718,7 +780,9 @@ export default function OjtInsights({ id, mode }) {
         );
       }
 
-      if (normalizeRole(program.status) !== "active") {
+      if (
+        normalizeRole(program.status) !== "active"
+      ) {
         throw new Error(
           "Program OJT belum aktif."
         );
@@ -782,20 +846,15 @@ export default function OjtInsights({ id, mode }) {
       user,
       profile,
       program,
+      adminReview: false,
     };
-  }
+  }, [programId, isAdminReview]);
 
   // ==================================================
   // INITIAL LOAD
   // ==================================================
 
   useEffect(() => {
-    if (!programId) {
-      setError("ID program OJT tidak tersedia.");
-      setLoading(false);
-      return;
-    }
-
     let alive = true;
 
     async function initialize() {
@@ -804,9 +863,35 @@ export default function OjtInsights({ id, mode }) {
       setData(null);
 
       try {
+        if (!programId) {
+          throw new Error(
+            "ID program OJT tidak tersedia."
+          );
+        }
+
         const access = await verifyAccess();
 
         if (!alive) return;
+
+        // Tidak membuat program palsu.
+        // Data kosong hanya berfungsi sebagai
+        // penanda hasil pemeriksaan akses Admin.
+        if (access.adminReview) {
+          setData({
+            viewerId: access.user.id,
+            profile: access.profile,
+            program: null,
+            adminReview: true,
+            types: [],
+            ach: [],
+            post: [],
+            practice: [],
+            samapta: [],
+            simper: null,
+          });
+
+          return;
+        }
 
         const monitoring = await getMonitoringData(
           access.program.id
@@ -818,6 +903,7 @@ export default function OjtInsights({ id, mode }) {
           viewerId: access.user.id,
           profile: access.profile,
           program: access.program,
+          adminReview: false,
           ...monitoring,
         });
       } catch (err) {
@@ -846,18 +932,19 @@ export default function OjtInsights({ id, mode }) {
     return () => {
       alive = false;
     };
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [programId, router]);
+  }, [
+    programId,
+    verifyAccess,
+    getMonitoringData,
+    router,
+  ]);
 
   // ==================================================
-  // REFRESH DENGAN VERIFIKASI ULANG
+  // REFRESH & VERIFIKASI ULANG
   // ==================================================
 
   async function refresh() {
-    if (!programId || refreshing || !data) {
-      return;
-    }
+    if (!programId || refreshing || !data) return;
 
     setRefreshing(true);
     setError("");
@@ -871,6 +958,23 @@ export default function OjtInsights({ id, mode }) {
         );
       }
 
+      if (access.adminReview) {
+        setData({
+          viewerId: access.user.id,
+          profile: access.profile,
+          program: null,
+          adminReview: true,
+          types: [],
+          ach: [],
+          post: [],
+          practice: [],
+          samapta: [],
+          simper: null,
+        });
+
+        return;
+      }
+
       const monitoring = await getMonitoringData(
         access.program.id
       );
@@ -879,6 +983,7 @@ export default function OjtInsights({ id, mode }) {
         viewerId: access.user.id,
         profile: access.profile,
         program: access.program,
+        adminReview: false,
         ...monitoring,
       });
     } catch (err) {
@@ -894,11 +999,12 @@ export default function OjtInsights({ id, mode }) {
   }
 
   // ==================================================
-  // ANALISIS MONITORING
+  // ANALISIS PROGRAM ASLI
+  // TIDAK DIHITUNG DALAM ADMIN REVIEW KOSONG
   // ==================================================
 
   const analysis = useMemo(() => {
-    if (!data) return null;
+    if (!data?.program) return null;
 
     const {
       program,
@@ -951,13 +1057,18 @@ export default function OjtInsights({ id, mode }) {
       }
     };
 
-    // Indikator aktivitas menghitung minggu
-    // yang memiliki data, termasuk pending.
-    ach.forEach((item) => markWeek(item.activity_date));
-    post.forEach((item) => markWeek(item.test_date));
+    ach.forEach((item) =>
+      markWeek(item.activity_date)
+    );
+
+    post.forEach((item) =>
+      markWeek(item.test_date)
+    );
+
     practice.forEach((item) =>
       markWeek(item.practice_date)
     );
+
     samapta.forEach((item) =>
       markWeek(item.test_date)
     );
@@ -977,25 +1088,27 @@ export default function OjtInsights({ id, mode }) {
         title: "Pencapaian Kompetensi OJT",
         detail:
           `${completedCategories} dari 6 kategori ` +
-          `mencapai target program`,
+          "mencapai target program",
         ok: completedCategories === 6,
       },
       {
         title: "Post-Test",
         detail:
-          `${validPost.length} hasil tes memiliki nilai valid`,
+          `${validPost.length} hasil tes ` +
+          "memiliki nilai valid",
         ok: validPost.length > 0,
       },
       {
         title: "Praktik Mingguan",
         detail:
-          `${validPractice.length} penilaian memiliki nilai valid`,
+          `${validPractice.length} penilaian ` +
+          "memiliki nilai valid",
         ok: validPractice.length > 0,
       },
       {
         title: "Samapta",
         detail: latestSamapta
-          ? `Tes lengkap terakhir: ` +
+          ? "Tes lengkap terakhir: " +
             `${dateText(latestSamapta.date)} · ` +
             (
               latestSamapta.outcome === "pass"
@@ -1013,14 +1126,15 @@ export default function OjtInsights({ id, mode }) {
           ? "SIMPER tercatat telah diterbitkan"
           : (
               `${simperProgress.percentage}% progres KMKOP; ` +
-              `status penerbitan belum terverifikasi`
+              "status penerbitan belum terverifikasi"
             ),
         ok: simperProgress.released,
       },
       {
         title: "Cakupan Aktivitas 25 Minggu",
         detail:
-          `${activityCount} dari 25 minggu memiliki catatan aktivitas`,
+          `${activityCount} dari 25 minggu ` +
+          "memiliki catatan aktivitas",
         ok: activityCount === TOTAL_WEEKS,
       },
     ];
@@ -1065,7 +1179,7 @@ export default function OjtInsights({ id, mode }) {
     );
   }
 
-  if (!data || !analysis) {
+  if (!data || (!isAdminReview && !analysis)) {
     return (
       <main className="oi-loading">
         <h2>Akses Tidak Tersedia</h2>
@@ -1076,9 +1190,9 @@ export default function OjtInsights({ id, mode }) {
 
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push("/dashboard-peserta")}
         >
-          Kembali
+          Kembali ke Dashboard
         </button>
       </main>
     );
@@ -1092,21 +1206,28 @@ export default function OjtInsights({ id, mode }) {
     simper,
   } = data;
 
+  const review = data.adminReview === true;
+
   const participant = getParticipant(program);
 
-  const participantName =
-    participant?.full_name || "Peserta OJT";
+  const participantName = review
+    ? "Belum Ada Peserta"
+    : participant?.full_name || "Peserta OJT";
 
   const role = normalizeRole(profile.role);
 
   const viewerIsManager =
     role === "mentor" || role === "admin";
 
-  const backPath = viewerIsManager
+  const backPath = review
+    ? "/dashboard-peserta"
+    : viewerIsManager
     ? `/peserta/${programId}`
     : "/dashboard-peserta";
 
-  const backLabel = viewerIsManager
+  const backLabel = review
+    ? "← Dashboard Peserta"
+    : viewerIsManager
     ? "← Detail Peserta"
     : "← Dashboard Peserta";
 
@@ -1114,779 +1235,39 @@ export default function OjtInsights({ id, mode }) {
     ? "Laporan Monitoring OJT"
     : "Evaluasi Kesiapan OJT";
 
-  // ==================================================
-  // TAMPILAN
-  // ==================================================
+  const progress = analysis?.simperProgress || null;
+
+  const displayCategories = review
+    ? CATEGORIES
+    : analysis.categories;
+
+  const displayIndicators = review
+    ? INDICATOR_TITLES.map((title) => ({
+        title,
+        detail:
+          "Belum ada data program peserta.",
+        ok: false,
+      }))
+    : analysis.indicators;
+
+  const unavailable = review;
+
+  const displayPct = (value) =>
+    unavailable ? "—" : `${value}%`;
+
+  const displayCount = (value) =>
+    unavailable ? "—" : String(value);
+
+  const displayStatus = (value) =>
+    unavailable
+      ? "Belum ada data"
+      : value
+      ? "Selesai"
+      : "Belum Selesai";
 
   return (
     <main className="oi-root">
-      <style>{`
-        .oi-root,
-        .oi-root * {
-          box-sizing: border-box;
-        }
-
-        .oi-root {
-          min-height: 100vh;
-          background: #f2f6f7;
-          color: #183b2d;
-          font-family: Arial, Helvetica, sans-serif;
-        }
-
-        .oi-root button {
-          font-family: inherit;
-        }
-
-        .oi-topbar {
-          background: #09232b;
-          color: white;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          padding: 15px 22px;
-        }
-
-        .oi-brand {
-          font-size: 21px;
-          font-weight: 900;
-        }
-
-        .oi-brand span {
-          color: #35c993;
-        }
-
-        .oi-container {
-          max-width: 1050px;
-          margin: auto;
-          padding: 20px;
-        }
-
-        .oi-hero {
-          padding: 30px;
-          border-radius: 18px;
-          margin-bottom: 15px;
-          color: white;
-          background:
-            linear-gradient(
-              90deg,
-              rgba(5,27,34,.98),
-              rgba(7,43,39,.86),
-              rgba(5,36,33,.35)
-            ),
-            url("/background-erg.png.PNG");
-          background-size: cover;
-          background-position: center;
-        }
-
-        .oi-hero small {
-          color: #ebc87f;
-          font-size: 10px;
-          font-weight: 800;
-          letter-spacing: 1.5px;
-        }
-
-        .oi-hero h1 {
-          font-size: 29px;
-          margin: 12px 0 8px;
-        }
-
-        .oi-hero p {
-          margin: 0;
-          font-size: 13px;
-          color: #dcebe4;
-        }
-
-        .oi-card {
-          background: white;
-          border: 1px solid #e2ebe5;
-          border-radius: 16px;
-          padding: 20px;
-          margin-bottom: 15px;
-          box-shadow: 0 4px 17px #123e2609;
-          min-width: 0;
-        }
-
-        .oi-card h2 {
-          font-size: 17px;
-          margin: 0 0 15px;
-        }
-
-        .oi-back {
-          border: 1px solid #ffffff35;
-          background: #ffffff16;
-          color: white;
-          border-radius: 10px;
-          padding: 10px 13px;
-          font-size: 12px;
-          font-weight: 800;
-          cursor: pointer;
-        }
-
-        .oi-person {
-          display: flex;
-          align-items: center;
-          gap: 13px;
-          background: #f5fbf7;
-          border: 1px solid #deefe4;
-          border-radius: 12px;
-          padding: 15px;
-        }
-
-        .oi-avatar {
-          width: 52px;
-          height: 52px;
-          flex-shrink: 0;
-          display: grid;
-          place-items: center;
-          border-radius: 13px;
-          background: #dbf5e7;
-          color: #087b51;
-          font-size: 18px;
-          font-weight: 900;
-        }
-
-        .oi-name {
-          font-size: 16px;
-          font-weight: 900;
-          overflow-wrap: anywhere;
-        }
-
-        .oi-meta {
-          color: #788b7e;
-          font-size: 11px;
-          margin-top: 5px;
-          line-height: 1.7;
-        }
-
-        .oi-lock {
-          background: #effaf3;
-          border: 1px solid #d5eddd;
-          border-radius: 11px;
-          padding: 12px;
-          margin-top: 12px;
-          font-size: 12px;
-          line-height: 1.6;
-          color: #0c7c54;
-        }
-
-        .oi-stats {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 11px;
-        }
-
-        .oi-stat {
-          background: #f7faf8;
-          border: 1px solid #e5eee8;
-          border-radius: 12px;
-          padding: 16px;
-          min-width: 0;
-        }
-
-        .oi-stat span {
-          color: #748a7c;
-          display: block;
-          font-size: 11px;
-        }
-
-        .oi-stat strong {
-          color: #0b8058;
-          display: block;
-          font-size: 26px;
-          margin: 10px 0 5px;
-        }
-
-        .oi-stat small {
-          color: #84978a;
-          font-size: 10px;
-          line-height: 1.5;
-        }
-
-        .oi-progress-track {
-          height: 11px;
-          background: #e5eee7;
-          border-radius: 20px;
-          overflow: hidden;
-          margin: 12px 0;
-        }
-
-        .oi-progress-fill {
-          height: 100%;
-          border-radius: 20px;
-          transition: width .2s;
-        }
-
-        .oi-progress-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .oi-progress-head strong {
-          font-size: 30px;
-          color: #087e55;
-        }
-
-        .oi-indicator {
-          display: flex;
-          align-items: center;
-          gap: 13px;
-          border-bottom: 1px solid #e9efea;
-          padding: 14px 0;
-        }
-
-        .oi-indicator-icon {
-          width: 38px;
-          height: 38px;
-          border-radius: 11px;
-          display: grid;
-          place-items: center;
-          background: #edf1ef;
-          color: #708375;
-          font-size: 19px;
-          font-weight: 900;
-          flex-shrink: 0;
-        }
-
-        .oi-indicator-icon.completed {
-          background: #dcf7e6;
-          color: #087d52;
-        }
-
-        .oi-indicator-content {
-          flex: 1;
-          min-width: 0;
-        }
-
-        .oi-indicator-content strong {
-          font-size: 13px;
-          display: block;
-          margin-bottom: 5px;
-        }
-
-        .oi-indicator-content span {
-          font-size: 11px;
-          color: #799080;
-          line-height: 1.5;
-        }
-
-        .oi-pill {
-          background: #edf2ef;
-          color: #647a6d;
-          padding: 7px 9px;
-          border-radius: 20px;
-          font-size: 10px;
-          font-weight: 800;
-          text-align: center;
-          flex-shrink: 0;
-        }
-
-        .oi-pill.completed {
-          background: #dff7e8;
-          color: #087950;
-        }
-
-        .oi-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 12px;
-          padding: 12px 0;
-          border-bottom: 1px solid #e8efea;
-          font-size: 12px;
-        }
-
-        .oi-row strong {
-          color: #0b7f55;
-          text-align: right;
-        }
-
-        .oi-alert {
-          border-radius: 11px;
-          padding: 15px;
-          background: #fff8e7;
-          border: 1px solid #f0e1b3;
-          color: #765b1c;
-          font-size: 12px;
-          line-height: 1.7;
-          margin-top: 15px;
-        }
-
-        .oi-error {
-          background: #fff0f1;
-          border-color: #fecdd3;
-          color: #b91c1c;
-        }
-
-        .oi-history {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 12px;
-          padding: 13px 0;
-          border-bottom: 1px solid #ebf0ec;
-        }
-
-        .oi-history-info {
-          flex: 1;
-          min-width: 0;
-          overflow-wrap: anywhere;
-        }
-
-        .oi-history strong {
-          display: block;
-          font-size: 12px;
-        }
-
-        .oi-history span,
-        .oi-history p {
-          display: block;
-          color: #819286;
-          font-size: 11px;
-          line-height: 1.6;
-          margin: 5px 0 0;
-          overflow-wrap: anywhere;
-        }
-
-        .oi-history-score {
-          font-weight: 900;
-          color: #0b8057;
-          font-size: 16px;
-          flex-shrink: 0;
-        }
-
-        .oi-empty {
-          text-align: center;
-          padding: 16px;
-          border-radius: 10px;
-          background: #f8faf9;
-          color: #84968a;
-          font-size: 12px;
-        }
-
-        .oi-actions {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-          gap: 10px;
-          margin-bottom: 15px;
-        }
-
-        .oi-button {
-          background: #0b9465;
-          color: white;
-          border: none;
-          border-radius: 10px;
-          padding: 12px 15px;
-          font-weight: 800;
-          font-size: 12px;
-          cursor: pointer;
-        }
-
-        .oi-button.secondary {
-          background: #eaf0ec;
-          color: #315b46;
-        }
-
-        .oi-button:disabled {
-          opacity: .6;
-          cursor: not-allowed;
-        }
-
-        .oi-competency {
-          display: grid;
-          grid-template-columns: 155px 1fr 95px;
-          gap: 12px;
-          align-items: center;
-          padding: 12px 0;
-          border-bottom: 1px solid #e8efea;
-        }
-
-        .oi-competency-name {
-          font-size: 12px;
-          font-weight: 800;
-        }
-
-        .oi-competency-name small {
-          display: block;
-          margin-top: 5px;
-          font-size: 10px;
-          font-weight: 400;
-          color: #819286;
-        }
-
-        .oi-competency .oi-progress-track {
-          margin: 0;
-        }
-
-        .oi-competency-middle small {
-          display: block;
-          font-size: 10px;
-          color: #84978a;
-          margin-top: 6px;
-        }
-
-        .oi-competency-score {
-          text-align: right;
-          font-size: 15px;
-          font-weight: 900;
-          color: #087e55;
-        }
-
-        .oi-competency-score small {
-          display: block;
-          font-size: 10px;
-          color: #84978a;
-          font-weight: 400;
-          margin-top: 5px;
-        }
-
-        .oi-signature {
-          margin-top: 35px;
-          font-size: 12px;
-        }
-
-        .oi-signature-space {
-          height: 65px;
-        }
-
-        .oi-footer {
-          color: #8a9c91;
-          font-size: 11px;
-          text-align: center;
-          padding: 20px;
-        }
-
-        .oi-loading {
-          padding: 25px;
-          min-height: 100vh;
-          background: #f2f6f7;
-          color: #173c2e;
-          font-family: Arial, sans-serif;
-        }
-
-        @media (max-width: 700px) {
-          .oi-topbar {
-            padding: 13px 15px;
-          }
-
-          .oi-brand {
-            font-size: 18px;
-          }
-
-          .oi-back {
-            padding: 9px;
-            font-size: 11px;
-          }
-
-          .oi-container {
-            padding: 12px;
-          }
-
-          .oi-hero {
-            padding: 24px 17px;
-            border-radius: 14px;
-          }
-
-          .oi-hero h1 {
-            font-size: 23px;
-          }
-
-          .oi-card {
-            padding: 15px;
-            border-radius: 14px;
-          }
-
-          .oi-person {
-            padding: 12px;
-          }
-
-          .oi-avatar {
-            width: 44px;
-            height: 44px;
-            font-size: 15px;
-          }
-
-          .oi-name {
-            font-size: 14px;
-          }
-
-          .oi-stats {
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-          }
-
-          .oi-stat {
-            padding: 12px;
-          }
-
-          .oi-stat strong {
-            font-size: 23px;
-          }
-
-          .oi-indicator {
-            flex-wrap: wrap;
-          }
-
-          .oi-pill {
-            margin-left: 50px;
-          }
-
-          .oi-competency {
-            grid-template-columns: 100px 1fr 65px;
-            gap: 8px;
-          }
-
-          .oi-competency-name {
-            font-size: 11px;
-          }
-
-          .oi-competency-score {
-            font-size: 13px;
-          }
-        }
-
-        @page {
-          size: A4 portrait;
-          margin: 12mm;
-        }
-
-        @media print {
-          html,
-          body {
-            width: auto !important;
-            min-width: 0 !important;
-            height: auto !important;
-            min-height: 0 !important;
-            overflow: visible !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #fff !important;
-          }
-
-          .oi-no-print {
-            display: none !important;
-          }
-
-          .oi-root {
-            width: 100% !important;
-            min-height: 0 !important;
-            height: auto !important;
-            overflow: visible !important;
-            background: #fff !important;
-            color: #183b2d;
-            font-size: 10px;
-            print-color-adjust: exact;
-            -webkit-print-color-adjust: exact;
-          }
-
-          .oi-container {
-            width: 100% !important;
-            max-width: none !important;
-            min-width: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: visible !important;
-          }
-
-          .oi-hero {
-            padding: 13px 15px !important;
-            margin-bottom: 8px !important;
-            border-radius: 8px !important;
-            min-height: 0 !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .oi-hero h1 {
-            font-size: 20px !important;
-            margin: 6px 0 !important;
-          }
-
-          .oi-hero p {
-            font-size: 10px !important;
-          }
-
-          .oi-card {
-            padding: 10px 12px !important;
-            margin-bottom: 8px !important;
-            border-radius: 7px !important;
-            box-shadow: none !important;
-            min-height: 0 !important;
-            height: auto !important;
-            overflow: visible !important;
-            break-inside: auto !important;
-            page-break-inside: auto !important;
-          }
-
-          .oi-card h2 {
-            font-size: 13px !important;
-            margin-bottom: 8px !important;
-            break-after: avoid;
-            page-break-after: avoid;
-          }
-
-          .oi-person {
-            padding: 8px !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .oi-avatar {
-            width: 35px !important;
-            height: 35px !important;
-            font-size: 12px !important;
-          }
-
-          .oi-name {
-            font-size: 12px !important;
-          }
-
-          .oi-meta {
-            font-size: 9px !important;
-          }
-
-          .oi-lock {
-            padding: 7px !important;
-            margin-top: 7px !important;
-            font-size: 9px !important;
-          }
-
-          .oi-stats {
-            grid-template-columns:
-              repeat(3, minmax(0, 1fr)) !important;
-            gap: 7px !important;
-          }
-
-          .oi-stat {
-            padding: 8px !important;
-            border-radius: 6px !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .oi-stat span,
-          .oi-stat small {
-            font-size: 9px !important;
-          }
-
-          .oi-stat strong {
-            font-size: 18px !important;
-            margin: 5px 0 !important;
-          }
-
-          .oi-progress-head strong {
-            font-size: 22px !important;
-          }
-
-          .oi-progress-track {
-            height: 7px !important;
-            margin: 7px 0 !important;
-          }
-
-          .oi-indicator {
-            padding: 7px 0 !important;
-            gap: 8px !important;
-            flex-wrap: nowrap !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .oi-indicator-icon {
-            width: 27px !important;
-            height: 27px !important;
-            font-size: 13px !important;
-          }
-
-          .oi-indicator-content strong {
-            font-size: 10px !important;
-          }
-
-          .oi-indicator-content span {
-            font-size: 9px !important;
-          }
-
-          .oi-pill {
-            font-size: 8px !important;
-            padding: 4px 6px !important;
-            margin-left: 0 !important;
-          }
-
-          .oi-row {
-            padding: 7px 0 !important;
-            font-size: 10px !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .oi-competency {
-            grid-template-columns:
-              120px 1fr 75px !important;
-            gap: 8px !important;
-            padding: 8px 0 !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .oi-competency-name,
-          .oi-competency-score {
-            font-size: 10px !important;
-          }
-
-          .oi-competency-name small,
-          .oi-competency-middle small,
-          .oi-competency-score small {
-            font-size: 8px !important;
-          }
-
-          .oi-alert {
-            padding: 9px !important;
-            margin-top: 8px !important;
-            font-size: 9px !important;
-            break-inside: auto !important;
-          }
-
-          .oi-history {
-            padding: 8px 0 !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .oi-history strong,
-          .oi-history-score {
-            font-size: 10px !important;
-          }
-
-          .oi-history span,
-          .oi-history p {
-            font-size: 9px !important;
-          }
-
-          .oi-empty {
-            padding: 9px !important;
-            font-size: 9px !important;
-          }
-
-          .oi-signature {
-            margin-top: 14px !important;
-            font-size: 10px !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .oi-signature-space {
-            height: 40px !important;
-          }
-
-          .oi-footer {
-            padding: 7px !important;
-            font-size: 8px !important;
-            break-inside: avoid;
-          }
-        }
-      `}</style>
+      <style>{css}</style>
 
       <header className="oi-topbar oi-no-print">
         <div className="oi-brand">
@@ -1917,10 +1298,31 @@ export default function OjtInsights({ id, mode }) {
           </p>
         </section>
 
+        {review && (
+          <section className="oi-review">
+            <strong>
+              Tinjauan Permanen Administrator
+            </strong>
+
+            <p>
+              Halaman ini menampilkan struktur
+              {isReport
+                ? " Laporan Monitoring"
+                : " Evaluasi Kesiapan"}
+              {" "}tanpa peserta atau program aktif.
+              Semua data monitoring belum tersedia.
+              Tidak ada data fiktif ataupun perubahan
+              pada database.
+            </p>
+          </section>
+        )}
+
         <section className="oi-card">
           <div className="oi-person">
             <div className="oi-avatar">
-              {initials(participantName)}
+              {review
+                ? "—"
+                : initials(participantName)}
             </div>
 
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -1929,48 +1331,75 @@ export default function OjtInsights({ id, mode }) {
               </div>
 
               <div className="oi-meta">
-                {participant?.department || "—"}
+                {review
+                  ? "Data peserta belum tersedia"
+                  : participant?.department || "—"}
                 {" · "}
-                {program.site || "—"}
-                <br />
-                {dateText(program.start_date)}
-                {" – "}
-                {dateText(program.end_date)}
+                {program?.site || "—"}
+
+                <div>
+                  {dateText(program?.start_date)}
+                  {" – "}
+                  {dateText(program?.end_date)}
+                </div>
+
+                {review && (
+                  <div>
+                    Dibuka oleh Admin:{" "}
+                    {profile.full_name || "Administrator"}
+                  </div>
+                )}
               </div>
             </div>
 
             <span
               className={
-                program.status === "active"
+                !review && program?.status === "active"
                   ? "oi-pill completed"
                   : "oi-pill"
               }
             >
-              {program.status === "active"
+              {review
+                ? "Belum Ada Program"
+                : program?.status === "active"
                 ? "Aktif"
                 : "Tidak Aktif"}
             </span>
           </div>
 
           <div className="oi-lock">
-            🔒 Identitas peserta otomatis dan
-            terkunci berdasarkan program OJT.
-
-            {!viewerIsManager && (
+            {review ? (
               <>
-                {" "}
-                Akses peserta hanya berlaku
-                untuk program OJT miliknya.
+                🛡 Akses tinjauan hanya tersedia
+                untuk Administrator. Tidak ada
+                identitas peserta yang digunakan.
+              </>
+            ) : (
+              <>
+                🔒 Identitas peserta otomatis dan
+                terkunci berdasarkan program OJT.
+
+                {!viewerIsManager && (
+                  <>
+                    {" "}Akses peserta hanya berlaku
+                    untuk program OJT miliknya.
+                  </>
+                )}
               </>
             )}
           </div>
         </section>
 
         {error && (
-          <div className="oi-alert oi-error" role="alert">
+          <div
+            className="oi-alert oi-error"
+            role="alert"
+          >
             {error}
           </div>
         )}
+
+        {/* RINGKASAN MONITORING */}
 
         <section className="oi-card">
           <h2>Ringkasan Monitoring</h2>
@@ -1978,54 +1407,81 @@ export default function OjtInsights({ id, mode }) {
           <div className="oi-stats">
             <Stat
               label="Progres Achievement OJT"
-              value={`${analysis.achievementPct}%`}
+              value={displayPct(
+                analysis?.achievementPct
+              )}
               helper={
-                `${analysis.completedCategories}/6 ` +
-                `kategori mencapai target`
+                unavailable
+                  ? "Belum ada data peserta"
+                  : `${analysis.completedCategories}/6 kategori mencapai target`
               }
             />
 
             <Stat
               label="Rata-rata Post-Test"
-              value={fmt(analysis.theoryAverage)}
-              helper={`${post.length} catatan nilai`}
+              value={fmt(
+                analysis?.theoryAverage
+              )}
+              helper={
+                unavailable
+                  ? "Belum ada data peserta"
+                  : `${post.length} catatan nilai`
+              }
             />
 
             <Stat
               label="Rata-rata Praktik"
-              value={fmt(analysis.practiceAverage)}
-              helper={`${practice.length} catatan nilai`}
+              value={fmt(
+                analysis?.practiceAverage
+              )}
+              helper={
+                unavailable
+                  ? "Belum ada data peserta"
+                  : `${practice.length} catatan nilai`
+              }
             />
 
             <Stat
               label="Nilai Samapta Terakhir"
               value={fmt(
-                analysis.latestSamapta?.final
+                analysis?.latestSamapta?.final
               )}
               helper={
-                `${analysis.samaptaResults.length} ` +
-                `tes lengkap`
+                unavailable
+                  ? "Belum ada data peserta"
+                  : `${analysis.samaptaResults.length} tes lengkap`
               }
             />
 
             <Stat
               label="Progres KMKOP / SIMPER"
               value={
-                `${analysis.simperProgress.percentage}%`
+                displayPct(progress?.percentage)
               }
               helper={
-                `${analysis.simperProgress.completedSteps}/3 ` +
-                `tahap selesai`
+                unavailable
+                  ? "Belum ada data peserta"
+                  : `${progress.completedSteps}/3 tahap selesai`
               }
             />
 
             <Stat
               label="Aktivitas OJT"
-              value={`${analysis.activityCount}/25`}
-              helper="Minggu memiliki catatan"
+              value={
+                unavailable
+                  ? "—"
+                  : `${analysis.activityCount}/25`
+              }
+              helper={
+                unavailable
+                  ? "Belum ada data peserta"
+                  : "Minggu memiliki catatan"
+              }
             />
           </div>
         </section>
+
+        {/* KELENGKAPAN INDIKATOR */}
 
         <section className="oi-card">
           <div className="oi-progress-head">
@@ -2034,92 +1490,90 @@ export default function OjtInsights({ id, mode }) {
                 Kelengkapan Indikator Monitoring
               </h2>
 
-              <span
-                style={{
-                  fontSize: 12,
-                  color: "#758b7c",
-                }}
-              >
-                {analysis.fulfilled} dari 6 indikator terpenuhi
+              <span className="oi-muted">
+                {unavailable
+                  ? "Belum ada data untuk dinilai"
+                  : `${analysis.fulfilled} dari 6 indikator terpenuhi`}
               </span>
             </div>
 
             <strong>
-              {analysis.completeness}%
+              {displayPct(
+                analysis?.completeness
+              )}
             </strong>
           </div>
 
-          <ProgressBar value={analysis.completeness} />
+          <ProgressBar
+            value={analysis?.completeness}
+            unavailable={unavailable}
+          />
 
-          <p
-            style={{
-              fontSize: 12,
-              color: "#748b7b",
-              lineHeight: 1.7,
-            }}
-          >
+          <p className="oi-description">
             Persentase ini menunjukkan kelengkapan
             enam indikator monitoring, bukan skor
             kesiapan operasional atau keputusan
             kelulusan OJT.
           </p>
 
-          {analysis.indicators.map((item) => (
+          {displayIndicators.map((item) => (
             <Indicator
               key={item.title}
               title={item.title}
               detail={item.detail}
               passed={item.ok}
+              unavailable={unavailable}
             />
           ))}
 
           <div className="oi-alert">
             <strong>
               Kesimpulan Monitoring:
-            </strong>{" "}
+            </strong>
 
-            {analysis.fulfilled === 6
-              ? (
-                "Seluruh indikator kelengkapan monitoring " +
-                "telah terpenuhi. Hasil dan kesiapan " +
-                "operasional tetap memerlukan pemeriksaan " +
-                "serta keputusan penanggung jawab."
-              )
-              : (
-                "Masih terdapat indikator monitoring " +
-                "yang belum terpenuhi. Mentor perlu " +
-                "memeriksa dan menindaklanjuti " +
-                "data atau tahapan yang belum lengkap."
-              )}
-
-            <br />
-            <br />
+            <p>
+              {unavailable
+                ? (
+                  "Belum ada peserta dan program OJT " +
+                  "yang dapat dinilai. Kesimpulan " +
+                  "monitoring belum dapat diterbitkan."
+                )
+                : analysis.fulfilled === 6
+                ? (
+                  "Seluruh indikator kelengkapan " +
+                  "monitoring telah terpenuhi. " +
+                  "Kesiapan operasional tetap " +
+                  "memerlukan keputusan penanggung jawab."
+                )
+                : (
+                  "Masih terdapat indikator monitoring " +
+                  "yang belum terpenuhi. Mentor perlu " +
+                  "memeriksa dan menindaklanjuti " +
+                  "data atau tahapan yang belum lengkap."
+                )}
+            </p>
 
             Kelengkapan indikator tidak otomatis
             menyatakan peserta lulus OJT atau
             berwenang menjalankan tugas operasional.
-            Keputusan akhir tetap mengikuti
-            SOP perusahaan.
+            Keputusan akhir mengikuti SOP perusahaan.
           </div>
         </section>
 
-        <section className="oi-card">
-          <h2>Rincian Pencapaian Kompetensi</h2>
+        {/* ENAM KOMPETENSI */}
 
-          <p
-            style={{
-              fontSize: 12,
-              color: "#748b7b",
-              lineHeight: 1.7,
-            }}
-          >
-            Progres dihitung berdasarkan target
-            kumulatif selama program OJT 25 minggu.
+        <section className="oi-card">
+          <h2>
+            Rincian Pencapaian Kompetensi
+          </h2>
+
+          <p className="oi-description">
+            Target kumulatif program OJT 25 minggu.
             Hanya aktivitas terverifikasi yang
-            berkontribusi terhadap pencapaian.
+            dihitung pada program asli.
           </p>
 
-          {analysis.categories.map((item) => (
+          {displayCategories.map((item) => (
             <div
               className="oi-competency"
               key={item.name}
@@ -2133,14 +1587,19 @@ export default function OjtInsights({ id, mode }) {
               </div>
 
               <div className="oi-competency-middle">
-                <ProgressBar value={item.percentage} />
+                <ProgressBar
+                  value={item.percentage}
+                  unavailable={unavailable}
+                />
 
                 <small>
                   Pencapaian:{" "}
-                  {fmtNumber(
-                    item.totalAchieved,
-                    item.name === "Fisik" ? 2 : 0
-                  )}
+                  {unavailable
+                    ? "—"
+                    : fmtNumber(
+                        item.totalAchieved,
+                        item.name === "Fisik" ? 2 : 0
+                      )}
                   {" / "}
                   {fmtNumber(item.target)}
                   {" "}
@@ -2149,38 +1608,45 @@ export default function OjtInsights({ id, mode }) {
               </div>
 
               <div className="oi-competency-score">
-                {item.percentage}%
+                {displayPct(item.percentage)}
 
                 <small>
-                  {item.verified} kegiatan
-                  terverifikasi
+                  {unavailable
+                    ? "Belum ada data"
+                    : `${item.verified} kegiatan terverifikasi`}
                 </small>
               </div>
             </div>
           ))}
 
           <div className="oi-alert">
-            <strong>Catatan Achievement:</strong>
-            <br />
-            Persentase setiap kategori dihitung
-            dari pencapaian kumulatif terhadap
-            target program, maksimal 100%.
+            <strong>
+              Catatan Achievement:
+            </strong>
 
-            <br />
-            <br />
+            <p>
+              Setiap kategori dihitung dari
+              pencapaian kumulatif terhadap
+              target program, maksimal 100%.
+            </p>
 
-            Untuk Fisik, pencapaian menggunakan
-            jumlah kilometer terverifikasi.
-            Kategori lainnya menggunakan jumlah
-            kegiatan terverifikasi.
-
-            <br />
-            <br />
+            <p>
+              Fisik menggunakan kilometer,
+              sedangkan kategori lainnya
+              menggunakan jumlah kegiatan
+              terverifikasi.
+            </p>
 
             Total kegiatan terverifikasi:{" "}
-            <strong>{analysis.totalVerified}</strong>.
+            <strong>
+              {displayCount(
+                analysis?.totalVerified
+              )}
+            </strong>.
           </div>
         </section>
+
+        {/* SIMPER */}
 
         <section className="oi-card">
           <h2>Rincian Tahapan SIMPER</h2>
@@ -2188,22 +1654,22 @@ export default function OjtInsights({ id, mode }) {
           {[
             [
               "KMKOP – Ujian Teori",
-              analysis.simperProgress.theory,
+              progress?.theory,
             ],
             [
               "KMKOP – Ujian Praktik",
-              analysis.simperProgress.practice,
+              progress?.practice,
             ],
             [
               "Orientasi Area",
-              analysis.simperProgress.orientation,
+              progress?.orientation,
             ],
           ].map(([title, complete]) => (
             <div className="oi-row" key={title}>
               <span>{title}</span>
 
               <strong>
-                {complete ? "Selesai" : "Belum Selesai"}
+                {displayStatus(complete)}
               </strong>
             </div>
           ))}
@@ -2212,7 +1678,9 @@ export default function OjtInsights({ id, mode }) {
             <span>Progres Tahapan KMKOP</span>
 
             <strong>
-              {analysis.simperProgress.percentage}%
+              {displayPct(
+                progress?.percentage
+              )}
             </strong>
           </div>
 
@@ -2220,7 +1688,9 @@ export default function OjtInsights({ id, mode }) {
             <span>Penerbitan SIMPER</span>
 
             <strong>
-              {analysis.simperProgress.released
+              {unavailable
+                ? "Belum ada data"
+                : progress.released
                 ? "Terbit"
                 : "Belum Terverifikasi Terbit"}
             </strong>
@@ -2230,13 +1700,13 @@ export default function OjtInsights({ id, mode }) {
             <span>Tanggal Terbit</span>
 
             <strong>
-              {analysis.simperProgress.released
+              {!unavailable && progress?.released
                 ? dateText(simper?.graduation_date)
                 : "—"}
             </strong>
           </div>
 
-          {analysis.simperProgress.legacy && (
+          {!unavailable && progress?.legacy && (
             <div className="oi-alert">
               Terdapat status lulus dari data
               SIMPER lama, tetapi metadata
@@ -2247,19 +1717,14 @@ export default function OjtInsights({ id, mode }) {
             </div>
           )}
 
-          <p
-            style={{
-              fontSize: 12,
-              color: "#748b7b",
-              lineHeight: 1.7,
-              marginTop: 15,
-            }}
-          >
+          <p className="oi-description">
             Penerbitan SIMPER ditampilkan terpisah
             dan tidak menambah persentase tiga
             tahap KMKOP.
           </p>
         </section>
+
+        {/* RIWAYAT DAN PENGESAHAN LAPORAN */}
 
         {isReport && (
           <>
@@ -2279,65 +1744,71 @@ export default function OjtInsights({ id, mode }) {
             <section className="oi-card oi-history-card">
               <h2>Riwayat Samapta</h2>
 
-              {!analysis.samaptaResults.length ? (
+              {!analysis?.samaptaResults?.length ? (
                 <div className="oi-empty">
                   Belum ada tes Samapta lengkap.
                 </div>
               ) : (
-                analysis.samaptaResults.map((item) => (
-                  <div
-                    className="oi-history"
-                    key={item.date}
-                  >
-                    <div className="oi-history-info">
-                      <strong>
-                        {dateText(item.date)}
-                      </strong>
+                analysis.samaptaResults.map(
+                  (item) => (
+                    <div
+                      className="oi-history"
+                      key={item.date}
+                    >
+                      <div className="oi-history-info">
+                        <strong>
+                          {dateText(item.date)}
+                        </strong>
 
-                      <span>
-                        Nilai A: {fmt(item.a)}
-                        {" · "}
-                        Nilai B: {fmt(item.b)}
-                      </span>
+                        <span>
+                          Nilai A: {fmt(item.a)}
+                          {" · "}
+                          Nilai B: {fmt(item.b)}
+                        </span>
 
-                      <span>
-                        Status lari:{" "}
-                        {item.outcome === "pass"
-                          ? "Lulus"
-                          : item.outcome === "fail"
-                          ? "Tidak Lulus"
-                          : "Belum Dinilai"}
-                      </span>
+                        <span>
+                          Status lari:{" "}
+                          {item.outcome === "pass"
+                            ? "Lulus"
+                            : item.outcome === "fail"
+                            ? "Tidak Lulus"
+                            : "Belum Dinilai"}
+                        </span>
+                      </div>
+
+                      <div className="oi-history-score">
+                        {fmt(item.final)}
+                      </div>
                     </div>
-
-                    <div className="oi-history-score">
-                      {fmt(item.final)}
-                    </div>
-                  </div>
-                ))
+                  )
+                )
               )}
             </section>
 
             <section className="oi-card">
               <h2>Catatan dan Pengesahan</h2>
 
-              <p
-                style={{
-                  fontSize: 12,
-                  color: "#6e8476",
-                  lineHeight: 1.7,
-                }}
-              >
+              <p className="oi-description">
                 Laporan ini merupakan rekap otomatis
                 data monitoring OJT. Keputusan akhir
-                kelulusan atau kesiapan operasional
                 memerlukan pemeriksaan dan pengesahan
                 sesuai ketentuan perusahaan.
               </p>
 
+              {unavailable && (
+                <div className="oi-alert">
+                  Belum ada laporan peserta yang
+                  dapat disahkan. Halaman ini hanya
+                  digunakan untuk pemeriksaan
+                  struktur dokumen oleh Admin.
+                </div>
+              )}
+
               <p style={{ fontSize: 12 }}>
                 Tanggal cetak:{" "}
-                {new Date().toLocaleDateString("id-ID")}
+                {new Date().toLocaleDateString(
+                  "id-ID"
+                )}
               </p>
 
               <div className="oi-signature">
@@ -2352,7 +1823,7 @@ export default function OjtInsights({ id, mode }) {
                 </strong>
 
                 <p>
-                  {role === "mentor"
+                  {!unavailable && role === "mentor"
                     ? profile.full_name
                     : "Nama Penanggung Jawab"}
                 </p>
@@ -2393,3 +1864,809 @@ export default function OjtInsights({ id, mode }) {
     </main>
   );
 }
+
+// ====================================================
+// CSS RESPONSIVE & PRINT
+// ====================================================
+
+const css = `
+.oi-root,
+.oi-root * {
+  box-sizing: border-box;
+}
+
+.oi-root {
+  min-height: 100vh;
+  background: #f2f6f7;
+  color: #183b2d;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.oi-root button {
+  font-family: inherit;
+}
+
+.oi-topbar {
+  background: #09232b;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 22px;
+}
+
+.oi-brand {
+  font-size: 21px;
+  font-weight: 900;
+}
+
+.oi-brand span {
+  color: #35c993;
+}
+
+.oi-container {
+  max-width: 1050px;
+  margin: auto;
+  padding: 20px;
+}
+
+.oi-hero {
+  padding: 30px;
+  border-radius: 18px;
+  margin-bottom: 15px;
+  color: white;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(5,27,34,.98),
+      rgba(7,43,39,.86),
+      rgba(5,36,33,.35)
+    ),
+    url("/background-erg.png.PNG");
+  background-size: cover;
+  background-position: center;
+}
+
+.oi-hero small {
+  color: #ebc87f;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+}
+
+.oi-hero h1 {
+  font-size: 29px;
+  margin: 12px 0 8px;
+}
+
+.oi-hero p {
+  margin: 0;
+  font-size: 13px;
+  color: #dcebe4;
+}
+
+.oi-review {
+  background: #e8f7ed;
+  border: 1px solid #b5dfc2;
+  color: #145b3e;
+  border-radius: 13px;
+  padding: 16px 18px;
+  margin-bottom: 15px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.oi-review strong {
+  font-size: 14px;
+}
+
+.oi-review p {
+  margin: 7px 0 0;
+}
+
+.oi-card {
+  background: white;
+  border: 1px solid #e2ebe5;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 15px;
+  box-shadow: 0 4px 17px #123e2609;
+  min-width: 0;
+}
+
+.oi-card h2 {
+  font-size: 17px;
+  margin: 0 0 15px;
+}
+
+.oi-back {
+  border: 1px solid #ffffff35;
+  background: #ffffff16;
+  color: white;
+  border-radius: 10px;
+  padding: 10px 13px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.oi-person {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 13px;
+  background: #f5fbf7;
+  border: 1px solid #deefe4;
+  border-radius: 12px;
+  padding: 15px;
+}
+
+.oi-avatar {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: #dbf5e7;
+  color: #087b51;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.oi-name {
+  font-size: 16px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.oi-meta {
+  color: #788b7e;
+  font-size: 11px;
+  margin-top: 5px;
+  line-height: 1.7;
+}
+
+.oi-lock {
+  background: #effaf3;
+  border: 1px solid #d5eddd;
+  border-radius: 11px;
+  padding: 12px;
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #0c7c54;
+}
+
+.oi-stats {
+  display: grid;
+  grid-template-columns:
+    repeat(3,minmax(0,1fr));
+  gap: 11px;
+}
+
+.oi-stat {
+  background: #f7faf8;
+  border: 1px solid #e5eee8;
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.oi-stat span {
+  color: #748a7c;
+  display: block;
+  font-size: 11px;
+}
+
+.oi-stat strong {
+  color: #0b8058;
+  display: block;
+  font-size: 26px;
+  margin: 10px 0 5px;
+  overflow-wrap: anywhere;
+}
+
+.oi-stat small {
+  color: #84978a;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.oi-progress-track {
+  height: 11px;
+  background: #e5eee7;
+  border-radius: 20px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.oi-progress-fill {
+  height: 100%;
+  border-radius: 20px;
+  transition: width .2s;
+}
+
+.oi-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.oi-progress-head strong {
+  font-size: 30px;
+  color: #087e55;
+}
+
+.oi-muted {
+  font-size: 12px;
+  color: #758b7c;
+}
+
+.oi-description {
+  font-size: 12px;
+  color: #748b7b;
+  line-height: 1.7;
+}
+
+.oi-indicator {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border-bottom: 1px solid #e9efea;
+  padding: 14px 0;
+}
+
+.oi-indicator-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: #edf1ef;
+  color: #708375;
+  font-size: 19px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.oi-indicator-icon.completed {
+  background: #dcf7e6;
+  color: #087d52;
+}
+
+.oi-indicator-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.oi-indicator-content strong {
+  font-size: 13px;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.oi-indicator-content span {
+  font-size: 11px;
+  color: #799080;
+  line-height: 1.5;
+}
+
+.oi-pill {
+  background: #edf2ef;
+  color: #647a6d;
+  padding: 7px 9px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.oi-pill.completed {
+  background: #dff7e8;
+  color: #087950;
+}
+
+.oi-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e8efea;
+  font-size: 12px;
+}
+
+.oi-row strong {
+  color: #0b7f55;
+  text-align: right;
+}
+
+.oi-alert {
+  border-radius: 11px;
+  padding: 15px;
+  background: #fff8e7;
+  border: 1px solid #f0e1b3;
+  color: #765b1c;
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 15px;
+}
+
+.oi-error {
+  background: #fff0f1;
+  border-color: #fecdd3;
+  color: #b91c1c;
+}
+
+.oi-history {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 0;
+  border-bottom: 1px solid #ebf0ec;
+}
+
+.oi-history-info {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oi-history strong {
+  display: block;
+  font-size: 12px;
+}
+
+.oi-history span,
+.oi-history p {
+  display: block;
+  color: #819286;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.oi-history-score {
+  font-weight: 900;
+  color: #0b8057;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.oi-empty {
+  text-align: center;
+  padding: 16px;
+  border-radius: 10px;
+  background: #f8faf9;
+  color: #84968a;
+  font-size: 12px;
+}
+
+.oi-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.oi-button {
+  background: #0b9465;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 15px;
+  font-weight: 800;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.oi-button.secondary {
+  background: #eaf0ec;
+  color: #315b46;
+}
+
+.oi-button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.oi-competency {
+  display: grid;
+  grid-template-columns:
+    155px minmax(0,1fr) 95px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #e8efea;
+}
+
+.oi-competency-name {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.oi-competency-name small {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 400;
+  color: #819286;
+}
+
+.oi-competency .oi-progress-track {
+  margin: 0;
+}
+
+.oi-competency-middle small {
+  display: block;
+  font-size: 10px;
+  color: #84978a;
+  margin-top: 6px;
+}
+
+.oi-competency-score {
+  text-align: right;
+  font-size: 15px;
+  font-weight: 900;
+  color: #087e55;
+}
+
+.oi-competency-score small {
+  display: block;
+  font-size: 10px;
+  color: #84978a;
+  font-weight: 400;
+  margin-top: 5px;
+}
+
+.oi-signature {
+  margin-top: 35px;
+  font-size: 12px;
+}
+
+.oi-signature-space {
+  height: 65px;
+}
+
+.oi-footer {
+  color: #8a9c91;
+  font-size: 11px;
+  text-align: center;
+  padding: 20px;
+}
+
+.oi-loading {
+  padding: 25px;
+  min-height: 100vh;
+  background: #f2f6f7;
+  color: #173c2e;
+  font-family: Arial,sans-serif;
+}
+
+.oi-loading button {
+  border: 0;
+  background: #0b9465;
+  color: #fff;
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+@media (max-width: 700px) {
+  .oi-topbar {
+    padding: 13px 15px;
+  }
+
+  .oi-brand {
+    font-size: 18px;
+  }
+
+  .oi-back {
+    padding: 9px;
+    font-size: 11px;
+  }
+
+  .oi-container {
+    padding: 12px;
+  }
+
+  .oi-hero {
+    padding: 24px 17px;
+    border-radius: 14px;
+  }
+
+  .oi-hero h1 {
+    font-size: 23px;
+  }
+
+  .oi-card {
+    padding: 15px;
+    border-radius: 14px;
+  }
+
+  .oi-person {
+    padding: 12px;
+  }
+
+  .oi-avatar {
+    width: 44px;
+    height: 44px;
+    font-size: 15px;
+  }
+
+  .oi-name {
+    font-size: 14px;
+  }
+
+  .oi-stats {
+    grid-template-columns:
+      repeat(2,minmax(0,1fr));
+    gap: 8px;
+  }
+
+  .oi-stat {
+    padding: 12px;
+  }
+
+  .oi-stat strong {
+    font-size: 23px;
+  }
+
+  .oi-indicator {
+    flex-wrap: wrap;
+  }
+
+  .oi-pill {
+    margin-left: 50px;
+  }
+
+  .oi-competency {
+    grid-template-columns:
+      100px minmax(0,1fr) 65px;
+    gap: 8px;
+  }
+
+  .oi-competency-name {
+    font-size: 11px;
+  }
+
+  .oi-competency-score {
+    font-size: 13px;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
+@media print {
+  html,
+  body {
+    width: auto !important;
+    min-width: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  .oi-no-print {
+    display: none !important;
+  }
+
+  .oi-root {
+    width: 100% !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #183b2d;
+    font-size: 10px;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .oi-container {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .oi-hero {
+    padding: 13px 15px !important;
+    margin-bottom: 8px !important;
+    border-radius: 8px !important;
+    break-inside: avoid;
+  }
+
+  .oi-hero h1 {
+    font-size: 20px !important;
+    margin: 6px 0 !important;
+  }
+
+  .oi-hero p {
+    font-size: 10px !important;
+  }
+
+  .oi-card {
+    padding: 10px 12px !important;
+    margin-bottom: 8px !important;
+    border-radius: 7px !important;
+    box-shadow: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    break-inside: auto !important;
+  }
+
+  .oi-card h2 {
+    font-size: 13px !important;
+    margin-bottom: 8px !important;
+    break-after: avoid;
+  }
+
+  .oi-person,
+  .oi-review,
+  .oi-stat,
+  .oi-indicator,
+  .oi-competency,
+  .oi-history,
+  .oi-signature {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .oi-person {
+    padding: 8px !important;
+  }
+
+  .oi-avatar {
+    width: 35px !important;
+    height: 35px !important;
+    font-size: 12px !important;
+  }
+
+  .oi-name {
+    font-size: 12px !important;
+  }
+
+  .oi-meta {
+    font-size: 9px !important;
+  }
+
+  .oi-lock {
+    padding: 7px !important;
+    margin-top: 7px !important;
+    font-size: 9px !important;
+  }
+
+  .oi-stats {
+    grid-template-columns:
+      repeat(3,minmax(0,1fr)) !important;
+    gap: 7px !important;
+  }
+
+  .oi-stat {
+    padding: 8px !important;
+  }
+
+  .oi-stat span,
+  .oi-stat small {
+    font-size: 9px !important;
+  }
+
+  .oi-stat strong {
+    font-size: 18px !important;
+    margin: 5px 0 !important;
+  }
+
+  .oi-progress-head strong {
+    font-size: 22px !important;
+  }
+
+  .oi-progress-track {
+    height: 7px !important;
+    margin: 7px 0 !important;
+  }
+
+  .oi-indicator {
+    padding: 7px 0 !important;
+    gap: 8px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .oi-indicator-icon {
+    width: 27px !important;
+    height: 27px !important;
+    font-size: 13px !important;
+  }
+
+  .oi-indicator-content strong {
+    font-size: 10px !important;
+  }
+
+  .oi-indicator-content span {
+    font-size: 9px !important;
+  }
+
+  .oi-pill {
+    font-size: 8px !important;
+    padding: 4px 6px !important;
+    margin-left: 0 !important;
+  }
+
+  .oi-row {
+    padding: 7px 0 !important;
+    font-size: 10px !important;
+    break-inside: avoid;
+  }
+
+  .oi-competency {
+    grid-template-columns:
+      120px minmax(0,1fr) 75px !important;
+    gap: 8px !important;
+    padding: 8px 0 !important;
+  }
+
+  .oi-competency-name,
+  .oi-competency-score {
+    font-size: 10px !important;
+  }
+
+  .oi-competency-name small,
+  .oi-competency-middle small,
+  .oi-competency-score small {
+    font-size: 8px !important;
+  }
+
+  .oi-alert {
+    padding: 9px !important;
+    margin-top: 8px !important;
+    font-size: 9px !important;
+  }
+
+  .oi-history {
+    padding: 8px 0 !important;
+  }
+
+  .oi-history strong,
+  .oi-history-score {
+    font-size: 10px !important;
+  }
+
+  .oi-history span,
+  .oi-history p {
+    font-size: 9px !important;
+  }
+
+  .oi-empty {
+    padding: 9px !important;
+    font-size: 9px !important;
+  }
+
+  .oi-signature {
+    margin-top: 14px !important;
+    font-size: 10px !important;
+  }
+
+  .oi-signature-space {
+    height: 40px !important;
+  }
+
+  .oi-footer {
+    padding: 7px !important;
+    font-size: 8px !important;
+  }
+}
+`;
