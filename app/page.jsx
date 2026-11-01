@@ -14,15 +14,8 @@ import { supabase } from "../lib/supabase";
 const TOTAL_WEEKS = 25;
 
 const SITES = [
-  "LMO",
-  "SMO",
-  "GMO NORTH",
-  "GMO SOUTH",
-  "BMO 1",
-  "BMO 2",
-  "BMO 3",
-  "SRN",
-  "HO",
+  "LMO", "SMO", "GMO NORTH", "GMO SOUTH",
+  "BMO 1", "BMO 2", "BMO 3", "SRN", "HO",
 ];
 
 const TARGETS = [
@@ -36,21 +29,9 @@ const TARGETS = [
 
 const NAV = [
   { label: "Dashboard", url: "/", icon: "home" },
-  {
-    label: "Peserta OJT",
-    url: "/mentor/monitoring-peserta",
-    icon: "users",
-  },
-  {
-    label: "Pendaftaran Peserta",
-    url: "/mentor/daftar-peserta",
-    icon: "file",
-  },
-  {
-    label: "Persetujuan",
-    url: "/mentor/persetujuan-peserta",
-    icon: "check",
-  },
+  { label: "Peserta OJT", url: "/mentor/monitoring-peserta", icon: "users" },
+  { label: "Pendaftaran Peserta", url: "/mentor/daftar-peserta", icon: "file" },
+  { label: "Persetujuan", url: "/mentor/persetujuan-peserta", icon: "check" },
 ];
 
 const META_START = "[[SIMPER_V2]]";
@@ -200,7 +181,6 @@ function currentGlobalWeek() {
 
 // =====================================================
 // RUMUS PROGRAM PESERTA
-// DIPERTAHANKAN SESUAI KODE SEBELUMNYA
 // =====================================================
 
 function weekOf(value, startValue) {
@@ -658,8 +638,7 @@ export default function MentorDashboard() {
   const [account, setAccount] = useState(null);
 
   const [programs, setPrograms] = useState([]);
-  const [achievementTypes, setAchievementTypes] =
-    useState([]);
+  const [achievementTypes, setAchievementTypes] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [postTests, setPostTests] = useState([]);
   const [practices, setPractices] = useState([]);
@@ -671,18 +650,15 @@ export default function MentorDashboard() {
   const [search, setSearch] = useState("");
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [presentationMode, setPresentationMode] =
-    useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
 
-  const [accessStatus, setAccessStatus] =
-    useState("checking");
-  const [maintenanceMode, setMaintenanceMode] =
-    useState(null);
+  const [accessStatus, setAccessStatus] = useState("checking");
+  const [maintenanceMode, setMaintenanceMode] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const isAdmin = normalize(account?.role) === "admin";
@@ -720,9 +696,12 @@ export default function MentorDashboard() {
 
   // ===================================================
   // SUPABASE DATA
+  // PERBAIKAN VALIDASI ROLE PESERTA
   // ===================================================
 
   async function fetchDashboardData() {
+    // 1. Ambil program aktif dan kategori
+
     const [programRes, typeRes] = await Promise.all([
       supabase
         .from("ojt_programs")
@@ -732,13 +711,7 @@ export default function MentorDashboard() {
           start_date,
           end_date,
           status,
-          site,
-          peserta:profiles!ojt_programs_participant_id_fkey(
-            id,
-            full_name,
-            department,
-            role
-          )
+          site
         `)
         .eq("status", "active")
         .order("start_date", { ascending: false }),
@@ -760,27 +733,23 @@ export default function MentorDashboard() {
       );
     }
 
-    const list = (programRes.data || [])
-      .filter((item) => {
-        const peserta = getPeserta(item);
+    const rawPrograms = programRes.data || [];
+    const types = typeRes.data || [];
 
-        return (
-          peserta &&
-          isParticipantRole(peserta.role) &&
-          peserta.id === item.participant_id
-        );
-      })
-      .map((item) => ({
-        ...item,
-        peserta: getPeserta(item),
-      }));
+    // 2. Ambil ID profil dari program aktif
 
-    const ids = list.map((item) => item.id);
+    const participantIds = [
+      ...new Set(
+        rawPrograms
+          .map((program) => program.participant_id)
+          .filter(Boolean)
+      ),
+    ];
 
-    if (!ids.length) {
+    if (!participantIds.length) {
       return {
         programs: [],
-        types: typeRes.data || [],
+        types,
         achievements: [],
         postTests: [],
         practices: [],
@@ -788,6 +757,74 @@ export default function MentorDashboard() {
         simper: [],
       };
     }
+
+    // 3. Ambil profil secara terpisah
+
+    const profileRes = await supabase
+      .from("profiles")
+      .select(`
+        id,
+        full_name,
+        department,
+        role
+      `)
+      .in("id", participantIds);
+
+    if (profileRes.error) {
+      throw new Error(
+        `Validasi Profil Peserta: ${profileRes.error.message}`
+      );
+    }
+
+    const profileMap = new Map(
+      (profileRes.data || []).map((profile) => [
+        profile.id,
+        profile,
+      ])
+    );
+
+    // 4. Validasi role berdasarkan tabel profiles
+
+    const list = rawPrograms
+      .map((program) => {
+        const profile = profileMap.get(
+          program.participant_id
+        );
+
+        return {
+          ...program,
+          peserta: profile || null,
+        };
+      })
+      .filter((program) => {
+        const profile = program.peserta;
+
+        return (
+          profile &&
+          profile.id === program.participant_id &&
+          isParticipantRole(profile.role)
+        );
+      });
+
+    // 5. Ambil ID program yang benar-benar milik peserta
+
+    const ids = [
+      ...new Set(list.map((program) => program.id)),
+    ];
+
+    if (!ids.length) {
+      return {
+        programs: [],
+        types,
+        achievements: [],
+        postTests: [],
+        practices: [],
+        samapta: [],
+        simper: [],
+      };
+    }
+
+    // 6. Ambil seluruh data monitoring
 
     const results = await Promise.all([
       supabase
@@ -847,9 +884,11 @@ export default function MentorDashboard() {
       }
     });
 
+    // 7. Kembalikan data yang sudah tervalidasi
+
     return {
       programs: list,
-      types: typeRes.data || [],
+      types,
       achievements: results[0].data || [],
       postTests: results[1].data || [],
       practices: results[2].data || [],
@@ -1075,15 +1114,19 @@ export default function MentorDashboard() {
       const a = achievements.filter(
         (row) => row.program_id === id
       );
+
       const pt = postTests.filter(
         (row) => row.program_id === id
       );
+
       const pr = practices.filter(
         (row) => row.program_id === id
       );
+
       const sm = samapta.filter(
         (row) => row.program_id === id
       );
+
       const sp = simper.filter(
         (row) => row.program_id === id
       );
@@ -1425,8 +1468,7 @@ export default function MentorDashboard() {
 
         const thisWeek = records.filter(
           (record) =>
-            globalWeekOf(record.activity_date) ===
-            selectedWeek
+            globalWeekOf(record.activity_date) === selectedWeek
         );
 
         const verifiedThisWeek = thisWeek.filter(
@@ -1678,8 +1720,6 @@ export default function MentorDashboard() {
     >
       <style>{dashboardCSS}</style>
 
-      {/* MOBILE OVERLAY */}
-
       {menuOpen && (
         <button
           type="button"
@@ -1689,9 +1729,7 @@ export default function MentorDashboard() {
         />
       )}
 
-      {/* =================================================
-          SIDEBAR PROFESSIONAL
-          ================================================= */}
+      {/* SIDEBAR */}
 
       <aside className={`mt-sidebar ${menuOpen ? "open" : ""}`}>
         <div className="mt-sidebar-top">
@@ -1791,8 +1829,6 @@ export default function MentorDashboard() {
           </nav>
         </div>
 
-        {/* SIDEBAR FOOTER */}
-
         <div className="mt-sidebar-bottom">
           <div className="mt-side-divider" />
 
@@ -1833,9 +1869,7 @@ export default function MentorDashboard() {
         </div>
       </aside>
 
-      {/* =================================================
-          MAIN AREA
-          ================================================= */}
+      {/* MAIN AREA */}
 
       <main className="mt-main">
         <div className="mt-mobile-header">
@@ -1905,9 +1939,7 @@ export default function MentorDashboard() {
 
               <div>
                 <small>Periode Program 25 Week</small>
-                <strong>
-                  12 Sep 2026 – 06 Mar 2027
-                </strong>
+                <strong>12 Sep 2026 – 06 Mar 2027</strong>
               </div>
             </div>
 
@@ -1970,7 +2002,6 @@ export default function MentorDashboard() {
                 disabled={refreshing}
               >
                 <Icon name="refresh" size={16} />
-
                 {refreshing ? "Memuat..." : "Refresh"}
               </button>
 
@@ -2077,13 +2108,10 @@ export default function MentorDashboard() {
                         key={item.site}
                       >
                         <strong>{item.site}</strong>
-
                         <Progress value={item.value} />
-
                         <strong className="mt-green-text">
                           {item.value}%
                         </strong>
-
                         <span>{item.count}</span>
                       </div>
                     ))}
@@ -2151,9 +2179,7 @@ export default function MentorDashboard() {
 
                   <div className="mt-selected-period">
                     <Icon name="calendar" size={15} />
-
                     <strong>{weekLabel(selectedWeek)}</strong>
-
                     <span>
                       {formatPeriod(
                         currentWeek.start,
@@ -2188,11 +2214,9 @@ export default function MentorDashboard() {
                     <span>
                       <b>{weeklySummary.verified}</b> Verified
                     </span>
-
                     <span>
                       <b>{weeklySummary.pending}</b> Pending
                     </span>
-
                     <span>
                       <b>{weeklyRecords.length}</b> Aktivitas
                     </span>
@@ -2221,24 +2245,15 @@ export default function MentorDashboard() {
                             </td>
 
                             <td>
-                              {amountText(
-                                item.target,
-                                item.unit
-                              )}
+                              {amountText(item.target, item.unit)}
                             </td>
 
                             <td>
-                              {amountText(
-                                item.weeklyAmount,
-                                item.unit
-                              )}
+                              {amountText(item.weeklyAmount, item.unit)}
                             </td>
 
                             <td>
-                              {amountText(
-                                item.cumulativeAmount,
-                                item.unit
-                              )}
+                              {amountText(item.cumulativeAmount, item.unit)}
                             </td>
 
                             <td>
@@ -2281,19 +2296,16 @@ export default function MentorDashboard() {
 
                   <div className="mt-chart-highlight">
                     <span>{weekLabel(selectedWeek)}</span>
-
                     <strong>
                       {weeklyChart[selectedWeek - 1]?.count || 0}
                     </strong>
-
                     <small>Kegiatan terverifikasi</small>
                   </div>
 
                   <div className="mt-chart-scroll">
                     <div className="mt-chart-bars">
                       {weeklyChart.map((item) => {
-                        const active =
-                          item.week === selectedWeek;
+                        const active = item.week === selectedWeek;
 
                         const height = item.count
                           ? Math.max(
@@ -2328,10 +2340,7 @@ export default function MentorDashboard() {
 
                             <small>
                               W
-                              {String(item.week).padStart(
-                                2,
-                                "0"
-                              )}
+                              {String(item.week).padStart(2, "0")}
                             </small>
                           </button>
                         );
@@ -2390,8 +2399,7 @@ export default function MentorDashboard() {
                         <Progress value={item.progress} />
 
                         <small>
-                          Target:{" "}
-                          {amountText(item.target, item.unit)}
+                          Target: {amountText(item.target, item.unit)}
                         </small>
                       </div>
                     ))}
@@ -2510,9 +2518,7 @@ export default function MentorDashboard() {
                       type="button"
                       className="mt-button-green"
                       onClick={() =>
-                        navigate(
-                          "/mentor/monitoring-peserta"
-                        )
+                        navigate("/mentor/monitoring-peserta")
                       }
                     >
                       Lihat Semua
@@ -2540,8 +2546,7 @@ export default function MentorDashboard() {
 
                     <tbody>
                       {filtered.map((program, index) => {
-                        const info =
-                          dataByProgram[program.id];
+                        const info = dataByProgram[program.id];
 
                         return (
                           <tr key={program.id}>
@@ -2553,20 +2558,15 @@ export default function MentorDashboard() {
                             </td>
 
                             <td>
-                              {program.peserta?.department ||
-                                "—"}
+                              {program.peserta?.department || "—"}
                             </td>
 
                             <td>{program.site || "—"}</td>
 
                             <td>
-                              {formatDate(
-                                program.start_date
-                              )}
+                              {formatDate(program.start_date)}
                               {" – "}
-                              {formatDate(
-                                program.end_date
-                              )}
+                              {formatDate(program.end_date)}
                             </td>
 
                             <td>
@@ -2599,9 +2599,7 @@ export default function MentorDashboard() {
                                 type="button"
                                 className="mt-detail-button"
                                 onClick={() =>
-                                  navigate(
-                                    `/peserta/${program.id}`
-                                  )
+                                  navigate(`/peserta/${program.id}`)
                                 }
                               >
                                 Lihat Detail
@@ -2630,8 +2628,7 @@ export default function MentorDashboard() {
 
                 <div className="mt-mobile-participants">
                   {filtered.map((program) => {
-                    const info =
-                      dataByProgram[program.id];
+                    const info = dataByProgram[program.id];
 
                     const name =
                       program.peserta?.full_name ||
@@ -2651,8 +2648,7 @@ export default function MentorDashboard() {
                             <strong>{name}</strong>
 
                             <small>
-                              {program.peserta?.department ||
-                                "—"}
+                              {program.peserta?.department || "—"}
                               {" · "}
                               {program.site || "—"}
                             </small>
@@ -2672,13 +2668,11 @@ export default function MentorDashboard() {
 
                         <div className="mt-person-meta">
                           <span>
-                            SIMPER:{" "}
-                            {info?.simperProgress || 0}%
+                            SIMPER: {info?.simperProgress || 0}%
                           </span>
 
                           <span>
-                            Aktivitas:{" "}
-                            {info?.activityWeeks || 0}/25
+                            Aktivitas: {info?.activityWeeks || 0}/25
                           </span>
                         </div>
 
@@ -2686,9 +2680,7 @@ export default function MentorDashboard() {
                           type="button"
                           className="mt-detail-button"
                           onClick={() =>
-                            navigate(
-                              `/peserta/${program.id}`
-                            )
+                            navigate(`/peserta/${program.id}`)
                           }
                         >
                           Lihat Detail
@@ -2748,25 +2740,19 @@ const dashboardCSS = `
     cursor: not-allowed;
   }
 
-  /* ============================================
-     SIDEBAR PROFESSIONAL COMPACT
-     ============================================ */
+  /* SIDEBAR */
 
   .mt-sidebar {
     position: fixed;
     inset: 0 auto 0 0;
     width: 245px;
     z-index: 50;
-
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-
     padding: 23px 13px 16px;
     overflow-y: auto;
-
     color: #fff;
-
     background: linear-gradient(
       180deg,
       #061920 0%,
@@ -2839,21 +2825,15 @@ const dashboardCSS = `
     gap: 12px;
     width: 100%;
     min-height: 46px;
-
     border: 1px solid transparent;
     border-radius: 10px;
     padding: 10px 12px;
-
     background: transparent;
     color: #d8e9e4;
-
     font-size: 12px;
     font-weight: 700;
     text-align: left;
-
-    transition:
-      background .18s ease,
-      color .18s ease;
+    transition: background .18s ease, color .18s ease;
   }
 
   .mt-nav:hover {
@@ -2863,11 +2843,7 @@ const dashboardCSS = `
 
   .mt-nav.active {
     color: white;
-    background: linear-gradient(
-      90deg,
-      #07986e,
-      #087451
-    );
+    background: linear-gradient(90deg, #07986e, #087451);
     border-color: #ffffff18;
     box-shadow: 0 4px 12px #00000012;
   }
@@ -2910,8 +2886,6 @@ const dashboardCSS = `
     color: #92400e;
   }
 
-  /* SIDEBAR BOTTOM */
-
   .mt-sidebar-bottom {
     margin-top: 28px;
   }
@@ -2926,22 +2900,16 @@ const dashboardCSS = `
     display: flex;
     align-items: center;
     gap: 12px;
-
     width: 100%;
     min-height: 43px;
     margin-bottom: 6px;
     padding: 11px 13px;
-
     border: 1px solid transparent;
     border-radius: 10px;
-
     text-align: left;
     font-size: 12px;
     font-weight: 750;
-
-    transition:
-      background .18s ease,
-      border-color .18s ease;
+    transition: background .18s ease, border-color .18s ease;
   }
 
   .mt-side-action.refresh {
@@ -2987,9 +2955,7 @@ const dashboardCSS = `
     font-size: 9px;
   }
 
-  /* ============================================
-     MAIN AREA
-     ============================================ */
+  /* MAIN AREA */
 
   .mt-main {
     margin-left: 245px;
@@ -3000,13 +2966,10 @@ const dashboardCSS = `
     display: none;
   }
 
-  /* HERO */
-
   .mt-hero {
     min-height: 225px;
     padding: 27px 28px 23px;
     color: #fff;
-
     background:
       linear-gradient(
         90deg,
@@ -3015,7 +2978,6 @@ const dashboardCSS = `
         rgba(2, 28, 35, .35)
       ),
       url("/background-erg.png.PNG");
-
     background-position: center;
     background-size: cover;
   }
@@ -3085,14 +3047,11 @@ const dashboardCSS = `
     width: 36px;
     height: 36px;
     flex-shrink: 0;
-
     display: grid;
     place-items: center;
-
     border-radius: 50%;
     color: #0b4938;
     background: #d2f0e2;
-
     font-size: 12px;
     font-weight: 900;
   }
@@ -3126,7 +3085,6 @@ const dashboardCSS = `
     align-items: center;
     gap: 10px;
     min-width: 178px;
-
     padding: 10px 12px;
     background: #fffffff0;
     color: #12343a;
@@ -3200,7 +3158,6 @@ const dashboardCSS = `
     align-items: center;
     justify-content: center;
     gap: 7px;
-
     padding: 11px 13px;
     border-radius: 9px;
     font-size: 11px;
@@ -3246,7 +3203,6 @@ const dashboardCSS = `
     min-height: 126px;
     min-width: 0;
     padding: 17px 13px;
-
     background: #fff;
     border: 1px solid #e4edf0;
     border-radius: 14px;
@@ -3258,10 +3214,8 @@ const dashboardCSS = `
     width: 44px;
     height: 44px;
     flex-shrink: 0;
-
     display: grid;
     place-items: center;
-
     color: #fff;
     border-radius: 11px;
   }
@@ -3296,14 +3250,11 @@ const dashboardCSS = `
     position: absolute;
     right: 9px;
     top: 9px;
-
     border: 0;
     background: #edf5f4;
     border-radius: 50%;
-
     width: 25px;
     height: 25px;
-
     display: grid;
     place-items: center;
   }
@@ -3312,7 +3263,6 @@ const dashboardCSS = `
     position: absolute;
     right: 13px;
     bottom: 13px;
-
     display: flex;
     align-items: flex-end;
     gap: 4px;
@@ -3337,7 +3287,6 @@ const dashboardCSS = `
   .mt-card {
     min-width: 0;
     padding: 17px;
-
     background: #fff;
     border: 1px solid #e4edf0;
     border-radius: 14px;
@@ -3357,7 +3306,6 @@ const dashboardCSS = `
     display: flex;
     align-items: center;
     gap: 9px;
-
     margin: 0;
     color: #142632;
     font-size: 15px;
@@ -3378,7 +3326,6 @@ const dashboardCSS = `
     width: 27px;
     height: 27px;
     flex-shrink: 0;
-
     border-radius: 7px;
     background: #079c6a;
     color: #fff;
@@ -3393,8 +3340,7 @@ const dashboardCSS = `
   .mt-site-head,
   .mt-site-row {
     display: grid;
-    grid-template-columns:
-      93px minmax(0, 1fr) 57px 48px;
+    grid-template-columns: 93px minmax(0, 1fr) 57px 48px;
     gap: 9px;
     align-items: center;
   }
@@ -3436,11 +3382,7 @@ const dashboardCSS = `
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(
-      90deg,
-      #20bd89,
-      #07956e
-    );
+    background: linear-gradient(90deg, #20bd89, #07956e);
   }
 
   /* WEEK CONTROLS */
@@ -3454,10 +3396,8 @@ const dashboardCSS = `
   .mt-week-controls button {
     display: grid;
     place-items: center;
-
     width: 27px;
     height: 30px;
-
     background: #f4f8f9;
     border: 1px solid #e2ecee;
     border-radius: 7px;
@@ -3473,12 +3413,10 @@ const dashboardCSS = `
     flex-wrap: wrap;
     align-items: center;
     gap: 7px;
-
     padding: 9px 10px;
     border-radius: 9px;
     background: #f1f8f5;
     color: #397060;
-
     font-size: 10px;
     margin-bottom: 12px;
   }
@@ -3614,7 +3552,6 @@ const dashboardCSS = `
     display: grid;
     justify-items: center;
     gap: 5px;
-
     padding: 12px;
     background: #eff8f4;
     border-radius: 10px;
@@ -3645,10 +3582,8 @@ const dashboardCSS = `
     display: flex;
     align-items: stretch;
     gap: 6px;
-
     min-width: max-content;
     height: 185px;
-
     border-bottom: 1px solid #dae5e6;
   }
 
@@ -3657,12 +3592,10 @@ const dashboardCSS = `
     flex-direction: column;
     align-items: center;
     justify-content: flex-end;
-
     width: 29px;
     gap: 6px;
     border: none;
     padding: 0;
-
     background: transparent;
     color: #748b95;
   }
@@ -3678,7 +3611,6 @@ const dashboardCSS = `
   .mt-chart-bar-area {
     width: 17px;
     height: 125px;
-
     display: flex;
     align-items: flex-end;
   }
@@ -3686,7 +3618,6 @@ const dashboardCSS = `
   .mt-chart-bar-area span {
     display: block;
     width: 100%;
-
     border-radius: 5px 5px 0 0;
     background: #46c89e;
   }
@@ -3808,13 +3739,10 @@ const dashboardCSS = `
   .mt-activity-percent {
     display: grid;
     place-items: center;
-
     width: 65px;
     height: 65px;
-
     border: 9px solid #c9eadf;
     border-radius: 50%;
-
     font-size: 18px;
     font-weight: 900;
     color: #068d65;
@@ -3831,7 +3759,6 @@ const dashboardCSS = `
     border-radius: 7px;
     background: #f4f7f8;
     color: #4e6870;
-
     padding: 9px 2px;
     font-size: 10px;
     font-weight: 800;
@@ -3894,7 +3821,6 @@ const dashboardCSS = `
     display: flex;
     align-items: center;
     gap: 7px;
-
     border: 1px solid #dbe5e9;
     padding: 0 10px;
     border-radius: 9px;
@@ -3905,10 +3831,8 @@ const dashboardCSS = `
     border: 0;
     background: transparent;
     outline: 0;
-
     padding: 10px 0;
     width: 170px;
-
     font-size: 11px;
     color: #183d31;
   }
@@ -3996,13 +3920,10 @@ const dashboardCSS = `
     display: flex;
     align-items: center;
     justify-content: center;
-
     min-height: 100vh;
     padding: 25px;
-
     background: #061e24;
     color: white;
-
     font-family: Arial, sans-serif;
     text-align: center;
   }
@@ -4019,21 +3940,16 @@ const dashboardCSS = `
   .mt-access button {
     display: inline-block;
     margin: 8px;
-
     border: 1px solid #b6d8c4;
     border-radius: 10px;
-
     background: #d8b45a;
     color: #082f26;
-
     padding: 13px 17px;
     font-weight: 800;
     cursor: pointer;
   }
 
-  /* ============================================
-     PRESENTATION MODE
-     ============================================ */
+  /* PRESENTATION MODE */
 
   .mt-presentation .mt-sidebar {
     display: none;
@@ -4052,9 +3968,7 @@ const dashboardCSS = `
     min-height: 190px;
   }
 
-  /* ============================================
-     RESPONSIVE
-     ============================================ */
+  /* RESPONSIVE */
 
   @media (max-width: 1450px) {
     .mt-overview-grid {
@@ -4264,8 +4178,7 @@ const dashboardCSS = `
 
     .mt-site-head,
     .mt-site-row {
-      grid-template-columns:
-        79px minmax(0, 1fr) 50px 37px;
+      grid-template-columns: 79px minmax(0, 1fr) 50px 37px;
       gap: 6px;
       font-size: 10px;
     }
@@ -4335,14 +4248,11 @@ const dashboardCSS = `
     .mt-person-avatar {
       width: 40px;
       height: 40px;
-
       display: grid;
       place-items: center;
-
       background: #daf4e8;
       color: #067a58;
       border-radius: 50%;
-
       font-size: 13px;
       font-weight: 900;
     }
@@ -4398,9 +4308,7 @@ const dashboardCSS = `
     }
   }
 
-  /* ============================================
-     PRINT
-     ============================================ */
+  /* PRINT */
 
   @media print {
     @page {
