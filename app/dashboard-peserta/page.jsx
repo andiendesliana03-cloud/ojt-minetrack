@@ -24,7 +24,6 @@ const C = {
   navy: "#081f38",
   navy2: "#103552",
   emerald: "#087d67",
-  emerald2: "#0b967b",
   turquoise: "#48e0bf",
   gold: "#efbd65",
   bg: "#edf4f9",
@@ -36,77 +35,94 @@ const C = {
   yellow: "#aa7623",
 };
 
-// PERBAIKAN ERROR CLIENT-SIDE
 function initials(name) {
-  return String(name || "Peserta")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word.charAt(0))
-    .join("")
-    .toUpperCase();
+  return (
+    String(name || "Peserta")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word.charAt(0))
+      .join("")
+      .toUpperCase() || "P"
+  );
 }
 
-function normalize(v) {
-  return String(v || "").trim().toLowerCase();
+function normalize(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
-function normalizeType(v) {
-  return normalize(v).replace(/[^a-z0-9]/g, "");
+function normalizeType(value) {
+  return normalize(value).replace(/[^a-z0-9]/g, "");
 }
 
 function isParticipantRole(role) {
-  return ["participant", "peserta"].includes(normalize(role));
+  return ["participant", "peserta"].includes(
+    normalize(role)
+  );
 }
 
 function formatDate(value) {
   if (!value) return "—";
-  const p = String(value).slice(0, 10).split("-");
-  return p.length === 3
-    ? `${p[2]}/${p[1]}/${p[0]}`
+
+  const parts = String(value).slice(0, 10).split("-");
+
+  return parts.length === 3
+    ? `${parts[2]}/${parts[1]}/${parts[0]}`
     : String(value);
 }
 
 function parseDate(value) {
   if (!value) return null;
 
-  const p = String(value)
+  const parts = String(value)
     .slice(0, 10)
     .split("-")
     .map(Number);
 
   if (
-    p.length !== 3 ||
-    p.some((n) => !Number.isInteger(n))
+    parts.length !== 3 ||
+    parts.some((n) => !Number.isInteger(n))
   ) {
     return null;
   }
 
-  const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  const date = new Date(
+    Date.UTC(parts[0], parts[1] - 1, parts[2])
+  );
 
-  return d.getUTCFullYear() === p[0] &&
-    d.getUTCMonth() === p[1] - 1 &&
-    d.getUTCDate() === p[2]
-    ? d
+  return date.getUTCFullYear() === parts[0] &&
+    date.getUTCMonth() === parts[1] - 1 &&
+    date.getUTCDate() === parts[2]
+    ? date
     : null;
-}
-
-function dateISO(date) {
-  return date.toISOString().slice(0, 10);
 }
 
 function addDays(value, days) {
   const date = parseDate(value);
   if (!date) return null;
 
-  return dateISO(
-    new Date(date.getTime() + days * 86400000)
-  );
+  return new Date(
+    date.getTime() + days * 86400000
+  )
+    .toISOString()
+    .slice(0, 10);
 }
 
-// JADWAL GLOBAL OJT
+// =====================================================
+// KALENDER GLOBAL OJT
+// Week 01 = 12–18 September 2026
+// Week 02 = 20–26 September 2026
+// Week 25 = 28 Februari–6 Maret 2027
+// =====================================================
+
 function getGlobalWeek(number) {
-  if (number < 1 || number > TOTAL_WEEKS) return null;
+  if (
+    !Number.isInteger(number) ||
+    number < 1 ||
+    number > TOTAL_WEEKS
+  ) {
+    return null;
+  }
 
   if (number === 1) {
     return {
@@ -144,18 +160,22 @@ function globalWeekOf(value) {
 }
 
 function getCurrentGlobalWeek() {
-  const now = new Date();
-
-  const today = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-  ].join("-");
+  const today = new Date()
+    .toLocaleDateString("en-CA", {
+      timeZone: "Asia/Makassar",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
 
   return globalWeekOf(today) || 1;
 }
 
-// Rumus asli menggunakan tanggal mulai program.
+// =====================================================
+// RUMUS MINGGU ASLI UNTUK PERHITUNGAN PROGRES
+// Menggunakan tanggal mulai masing-masing program.
+// =====================================================
+
 function weekOf(value, startValue) {
   const date = parseDate(value);
   const start = parseDate(startValue);
@@ -175,8 +195,11 @@ function weekOf(value, startValue) {
     : null;
 }
 
-function clamp(v) {
-  return Math.max(0, Math.min(100, Number(v) || 0));
+function clamp(value) {
+  return Math.max(
+    0,
+    Math.min(100, Number(value) || 0)
+  );
 }
 
 function emptyProgress() {
@@ -201,70 +224,82 @@ function emptyWeeklyData() {
 }
 
 // =====================================================
-// ACHIEVEMENT - PERHITUNGAN ASLI
+// ACHIEVEMENT — PERHITUNGAN ASLI
 // =====================================================
 
 function calculateAchievements(records, types, startDate) {
   const codes = new Map(
-    types.map((t) => [
-      normalizeType(t.name),
-      normalizeType(t.code),
+    types.map((type) => [
+      normalizeType(type.name),
+      normalizeType(type.code),
     ])
   );
 
   const verified = records.filter(
-    (r) =>
-      normalize(r.status) === "verified" &&
-      weekOf(r.activity_date, startDate) !== null
+    (record) =>
+      normalize(record.status) === "verified" &&
+      weekOf(record.activity_date, startDate) !== null
   );
 
-  const categories = TARGETS.map((item) => {
-    const code = codes.get(normalizeType(item.name));
+  const categories = TARGETS.map((target) => {
+    const code = codes.get(
+      normalizeType(target.name)
+    );
 
     const matching = code
       ? verified.filter(
-          (r) => normalizeType(r.type_code) === code
+          (record) =>
+            normalizeType(record.type_code) === code
         )
       : [];
 
     let amount = 0;
 
-    if (item.name === "Fisik") {
-      amount = matching.reduce((sum, r) => {
-        const km = Number(r.distance_km);
+    if (target.name === "Fisik") {
+      amount = matching.reduce((sum, record) => {
+        const km = Number(record.distance_km);
 
-        return sum +
-          (Number.isFinite(km) && km > 0 ? km : 0);
+        return (
+          sum +
+          (Number.isFinite(km) && km > 0 ? km : 0)
+        );
       }, 0);
     } else {
       amount = matching.length;
     }
 
     return {
-      ...item,
+      ...target,
       amount,
-      progress: clamp((amount / item.target) * 100),
-      completed: amount >= item.target,
+      progress: clamp(
+        (amount / target.target) * 100
+      ),
+      completed: amount >= target.target,
     };
   });
 
   const total = categories.reduce(
-    (sum, item) => sum + item.progress,
+    (sum, category) => sum + category.progress,
     0
   );
 
   return {
-    progress: Math.round(total / TARGETS.length),
-    completed: categories.filter((c) => c.completed).length,
+    progress: Math.round(
+      total / TARGETS.length
+    ),
+    completed: categories.filter(
+      (category) => category.completed
+    ).length,
   };
 }
 
 // =====================================================
-// SIMPER V2 - PERHITUNGAN ASLI
+// SIMPER V2 — PERHITUNGAN ASLI
 // =====================================================
 
 function parseSimperMetadata(notes) {
   const text = String(notes || "");
+
   const start = text.lastIndexOf(META_START);
   const end = text.lastIndexOf(META_END);
 
@@ -272,7 +307,10 @@ function parseSimperMetadata(notes) {
 
   try {
     const data = JSON.parse(
-      text.slice(start + META_START.length, end)
+      text.slice(
+        start + META_START.length,
+        end
+      )
     );
 
     return data &&
@@ -294,7 +332,9 @@ function calculateSimper(record) {
     };
   }
 
-  const meta = parseSimperMetadata(record.notes);
+  const meta = parseSimperMetadata(
+    record.notes
+  );
 
   const steps = [
     record.theory_status === "passed",
@@ -302,17 +342,22 @@ function calculateSimper(record) {
     meta?.orientation_status === "completed",
   ];
 
-  const completed = steps.filter(Boolean).length;
+  const completed = steps.filter(
+    Boolean
+  ).length;
 
   return {
-    progress: Math.round((completed / 3) * 100),
+    progress: Math.round(
+      (completed / 3) * 100
+    ),
     completed,
-    issued: meta?.issuance_status === "issued",
+    issued:
+      meta?.issuance_status === "issued",
   };
 }
 
 // =====================================================
-// RINGKASAN PROGRES - LOGIKA ASLI
+// RINGKASAN PROGRAM — PERHITUNGAN ASLI
 // =====================================================
 
 function buildProgress(program, data) {
@@ -322,42 +367,50 @@ function buildProgress(program, data) {
     program.start_date
   );
 
-  const chosenSimper =
-    data.simper.find((r) =>
-      parseSimperMetadata(r.notes)
+  const selectedSimper =
+    data.simper.find((record) =>
+      parseSimperMetadata(record.notes)
     ) ||
     data.simper[0] ||
     null;
 
-  const simper = calculateSimper(chosenSimper);
+  const simper = calculateSimper(
+    selectedSimper
+  );
 
   const weeks = new Set();
 
   function markWeek(date) {
-    const week = weekOf(date, program.start_date);
+    const week = weekOf(
+      date,
+      program.start_date
+    );
 
-    if (week !== null) weeks.add(week);
+    if (week !== null) {
+      weeks.add(week);
+    }
   }
 
-  data.achievements.forEach((r) =>
-    markWeek(r.activity_date)
+  data.achievements.forEach((record) =>
+    markWeek(record.activity_date)
   );
 
-  data.postTests.forEach((r) =>
-    markWeek(r.test_date)
+  data.postTests.forEach((record) =>
+    markWeek(record.test_date)
   );
 
-  data.practices.forEach((r) =>
-    markWeek(r.practice_date)
+  data.practices.forEach((record) =>
+    markWeek(record.practice_date)
   );
 
-  data.samapta.forEach((r) =>
-    markWeek(r.test_date)
+  data.samapta.forEach((record) =>
+    markWeek(record.test_date)
   );
 
   return {
     achievement: achievement.progress,
-    completedCategories: achievement.completed,
+    completedCategories:
+      achievement.completed,
     activityWeeks: weeks.size,
     activityPercent: Math.round(
       (weeks.size / TOTAL_WEEKS) * 100
@@ -373,36 +426,39 @@ function getStatusInfo(access) {
     pending: {
       label: "Menunggu Persetujuan Mentor",
       color: C.yellow,
-      bg: "#fff4df",
+      background: "#fff4df",
       icon: "clock",
     },
     rejected: {
       label: "Pengajuan Ditolak",
       color: C.red,
-      bg: "#fff0f2",
+      background: "#fff0f2",
       icon: "alert",
     },
     approved: {
       label: "Program OJT Aktif",
       color: C.emerald,
-      bg: "#dff8ec",
+      background: "#dff8ec",
       icon: "check",
     },
     no_program: {
       label: "Belum Ada Program",
       color: C.muted,
-      bg: "#eff3f6",
+      background: "#eff3f6",
       icon: "clock",
     },
     error: {
       label: "Terjadi Kesalahan",
       color: C.red,
-      bg: "#fff0f2",
+      background: "#fff0f2",
       icon: "alert",
     },
   };
 
-  return statuses[access] || statuses.no_program;
+  return (
+    statuses[access] ||
+    statuses.no_program
+  );
 }
 
 // =====================================================
@@ -410,14 +466,16 @@ function getStatusInfo(access) {
 // =====================================================
 
 function Icon({ name, size = 20 }) {
-  const shapes = {
+  const paths = {
     shield: (
       <>
         <path d="m12 2 9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z" />
         <path d="m8 12 3 3 5-6" />
       </>
     ),
-    check: <path d="m4 12 5 5L20 6" />,
+    check: (
+      <path d="m4 12 5 5L20 6" />
+    ),
     clock: (
       <>
         <circle cx="12" cy="12" r="9" />
@@ -438,7 +496,13 @@ function Icon({ name, size = 20 }) {
     ),
     calendar: (
       <>
-        <rect x="3" y="5" width="18" height="16" rx="2" />
+        <rect
+          x="3"
+          y="5"
+          width="18"
+          height="16"
+          rx="2"
+        />
         <path d="M7 3v4M17 3v4M3 10h18" />
       </>
     ),
@@ -450,8 +514,20 @@ function Icon({ name, size = 20 }) {
     ),
     clipboard: (
       <>
-        <rect x="5" y="5" width="14" height="16" rx="2" />
-        <rect x="9" y="3" width="6" height="5" rx="1" />
+        <rect
+          x="5"
+          y="5"
+          width="14"
+          height="16"
+          rx="2"
+        />
+        <rect
+          x="9"
+          y="3"
+          width="6"
+          height="5"
+          rx="1"
+        />
         <path d="M9 13h6M9 17h5" />
       </>
     ),
@@ -461,7 +537,9 @@ function Icon({ name, size = 20 }) {
         <path d="m8 12-2 9 6-3 6 3-2-9" />
       </>
     ),
-    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+    menu: (
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    ),
     grid: (
       <>
         <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -476,9 +554,15 @@ function Icon({ name, size = 20 }) {
         <path d="M14 2v5h5M9 12h7M9 16h7" />
       </>
     ),
-    arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
-    left: <path d="m15 18-6-6 6-6" />,
-    right: <path d="m9 18 6-6-6-6" />,
+    arrow: (
+      <path d="M5 12h14m-6-6 6 6-6 6" />
+    ),
+    left: (
+      <path d="m15 18-6-6 6-6" />
+    ),
+    right: (
+      <path d="m9 18 6-6-6-6" />
+    ),
     refresh: (
       <>
         <path d="M20 11a8 8 0 0 0-14-5L3 9" />
@@ -505,17 +589,21 @@ function Icon({ name, size = 20 }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {shapes[name] || shapes.clipboard}
+      {paths[name] || paths.clipboard}
     </svg>
   );
 }
 
-function PanelTitle({ icon, title, subtitle }) {
+function PanelTitle({
+  icon,
+  title,
+  subtitle,
+}) {
   return (
     <div className="ojt-panel-title">
-      <div className="ojt-panel-icon">
+      <span className="ojt-panel-icon">
         <Icon name={icon} size={21} />
-      </div>
+      </span>
 
       <div>
         <h2>{title}</h2>
@@ -525,16 +613,25 @@ function PanelTitle({ icon, title, subtitle }) {
   );
 }
 
-function StatCard({ icon, label, value, detail, tone }) {
+function StatCard({
+  icon,
+  label,
+  value,
+  detail,
+  tone = "blue",
+}) {
   return (
     <div className="ojt-stat">
-      <div className={`ojt-stat-icon ${tone || "blue"}`}>
+      <span
+        className={`ojt-stat-icon ${tone}`}
+      >
         <Icon name={icon} size={22} />
-      </div>
+      </span>
 
       <div className="ojt-stat-copy">
         <span>{label}</span>
         <strong>{value}</strong>
+
         {detail && <small>{detail}</small>}
       </div>
     </div>
@@ -555,26 +652,40 @@ function ProgressBar({
         <strong>{title}</strong>
 
         <strong className="ojt-progress-value">
-          {noData ? "Belum ada data" : `${safe}%`}
+          {noData
+            ? "Belum ada data"
+            : `${safe}%`}
         </strong>
       </div>
 
       <div
         className="ojt-progress-track"
-        role={noData ? undefined : "progressbar"}
-        aria-valuemin={noData ? undefined : 0}
-        aria-valuemax={noData ? undefined : 100}
-        aria-valuenow={noData ? undefined : safe}
+        role={
+          noData ? undefined : "progressbar"
+        }
+        aria-valuemin={
+          noData ? undefined : 0
+        }
+        aria-valuemax={
+          noData ? undefined : 100
+        }
+        aria-valuenow={
+          noData ? undefined : safe
+        }
       >
         {!noData && (
           <div
             className="ojt-progress-fill"
-            style={{ width: `${safe}%` }}
+            style={{
+              width: `${safe}%`,
+            }}
           />
         )}
       </div>
 
-      <p className="ojt-progress-desc">{description}</p>
+      <p className="ojt-progress-desc">
+        {description}
+      </p>
     </div>
   );
 }
@@ -620,17 +731,19 @@ function WeekSelector({
 }) {
   const weeks = Array.from(
     { length: TOTAL_WEEKS },
-    (_, i) => i + 1
+    (_, index) => index + 1
   );
 
   return (
     <div className="ojt-week-selector">
       <button
         type="button"
-        aria-label="Minggu sebelumnya"
         className="ojt-week-nav"
+        aria-label="Minggu sebelumnya"
         disabled={selectedWeek <= 1}
-        onClick={() => onSelect(selectedWeek - 1)}
+        onClick={() =>
+          onSelect(selectedWeek - 1)
+        }
       >
         <Icon name="left" size={18} />
       </button>
@@ -642,10 +755,16 @@ function WeekSelector({
             type="button"
             className={
               "ojt-week-button " +
-              (selectedWeek === week ? "selected" : "")
+              (selectedWeek === week
+                ? "selected"
+                : "")
             }
-            onClick={() => onSelect(week)}
-            aria-pressed={selectedWeek === week}
+            aria-pressed={
+              selectedWeek === week
+            }
+            onClick={() =>
+              onSelect(week)
+            }
           >
             <strong>
               W{String(week).padStart(2, "0")}
@@ -662,10 +781,14 @@ function WeekSelector({
 
       <button
         type="button"
-        aria-label="Minggu berikutnya"
         className="ojt-week-nav"
-        disabled={selectedWeek >= TOTAL_WEEKS}
-        onClick={() => onSelect(selectedWeek + 1)}
+        aria-label="Minggu berikutnya"
+        disabled={
+          selectedWeek >= TOTAL_WEEKS
+        }
+        onClick={() =>
+          onSelect(selectedWeek + 1)
+        }
       >
         <Icon name="right" size={18} />
       </button>
@@ -674,47 +797,78 @@ function WeekSelector({
 }
 
 // =====================================================
-// DASHBOARD PESERTA
+// KOMPONEN UTAMA
 // =====================================================
 
 export default function DashboardPeserta() {
   const router = useRouter();
 
-  const [account, setAccount] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [program, setProgram] = useState(null);
-  const [registration, setRegistration] = useState(null);
+  const [account, setAccount] =
+    useState(null);
 
-  const [participants, setParticipants] = useState([]);
+  const [profile, setProfile] =
+    useState(null);
+
+  const [program, setProgram] =
+    useState(null);
+
+  const [registration, setRegistration] =
+    useState(null);
+
+  const [participants, setParticipants] =
+    useState([]);
+
   const [
     selectedParticipantId,
     setSelectedParticipantId,
   ] = useState("");
 
-  const [access, setAccess] = useState("loading");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [error, setError] = useState("");
+  const [access, setAccess] =
+    useState("loading");
 
-  const [progress, setProgress] = useState(emptyProgress());
-  const [weeklyData, setWeeklyData] = useState(emptyWeeklyData());
-  const [selectedWeek, setSelectedWeek] = useState(1);
-  const [mobileMenu, setMobileMenu] = useState(false);
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [loggingOut, setLoggingOut] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [progress, setProgress] =
+    useState(emptyProgress());
+
+  const [weeklyData, setWeeklyData] =
+    useState(emptyWeeklyData());
+
+  const [selectedWeek, setSelectedWeek] =
+    useState(1);
+
+  const [mobileMenu, setMobileMenu] =
+    useState(false);
 
   const requestIdRef = useRef(0);
   const selectedIdRef = useRef("");
 
-  const isAdmin = normalize(account?.role) === "admin";
-  const isAdminEmptyView = isAdmin && !profile;
+  const isAdmin =
+    normalize(account?.role) === "admin";
+
+  const isAdminEmptyView =
+    isAdmin && !profile;
 
   const hasActiveProgram =
     access === "approved" &&
     !!program?.id &&
     !!profile;
 
+  // Deklarasi hanya sekali.
+  const noProgramData =
+    !hasActiveProgram;
+
   const status = getStatusInfo(access);
-  const noProgramData = !hasActiveProgram;
 
   function clearDashboard() {
     setProfile(null);
@@ -726,11 +880,14 @@ export default function DashboardPeserta() {
   }
 
   // ===================================================
-  // DAFTAR PESERTA ADMIN
+  // DAFTAR PESERTA UNTUK ADMIN
   // ===================================================
 
   async function fetchParticipantList() {
-    const { data, error: listError } = await supabase
+    const {
+      data,
+      error: listError,
+    } = await supabase
       .from("ojt_programs")
       .select(`
         participant_id,
@@ -751,35 +908,50 @@ export default function DashboardPeserta() {
     (data || []).forEach((item) => {
       if (!item.participant_id) return;
 
-      const peserta = Array.isArray(item.peserta)
-        ? item.peserta[0]
-        : item.peserta;
+      const peserta =
+        Array.isArray(item.peserta)
+          ? item.peserta[0]
+          : item.peserta;
 
-      if (!peserta || !isParticipantRole(peserta.role)) {
+      if (
+        !peserta ||
+        !isParticipantRole(peserta.role)
+      ) {
         return;
       }
 
       if (!unique.has(item.participant_id)) {
-        unique.set(item.participant_id, {
-          id: item.participant_id,
-          full_name: peserta.full_name || "Peserta OJT",
-          department: peserta.department || "",
-          site: item.site || "",
-          role: normalize(peserta.role),
-        });
+        unique.set(
+          item.participant_id,
+          {
+            id: item.participant_id,
+            full_name:
+              peserta.full_name ||
+              "Peserta OJT",
+            department:
+              peserta.department || "",
+            site: item.site || "",
+            role: normalize(peserta.role),
+          }
+        );
       }
     });
 
-    return [...unique.values()].sort((a, b) =>
-      a.full_name.localeCompare(b.full_name)
+    return [...unique.values()].sort(
+      (a, b) =>
+        a.full_name.localeCompare(
+          b.full_name
+        )
     );
   }
 
   // ===================================================
-  // DATA PROGRAM DAN PROGRES
+  // AMBIL PROGRES PROGRAM
   // ===================================================
 
-  async function fetchProgramProgress(activeProgram) {
+  async function fetchProgramProgress(
+    activeProgram
+  ) {
     if (!activeProgram?.id) {
       return {
         progress: emptyProgress(),
@@ -803,17 +975,23 @@ export default function DashboardPeserta() {
 
       supabase
         .from("post_test_scores")
-        .select("id,program_id,test_date")
+        .select(
+          "id,program_id,test_date"
+        )
         .eq("program_id", id),
 
       supabase
         .from("weekly_practice_scores")
-        .select("id,program_id,practice_date")
+        .select(
+          "id,program_id,practice_date"
+        )
         .eq("program_id", id),
 
       supabase
         .from("samapta_records")
-        .select("id,program_id,test_date")
+        .select(
+          "id,program_id,test_date"
+        )
         .eq("program_id", id),
 
       supabase
@@ -843,26 +1021,39 @@ export default function DashboardPeserta() {
 
     const data = {
       types: results[0].data || [],
-      achievements: results[1].data || [],
-      postTests: results[2].data || [],
-      practices: results[3].data || [],
-      samapta: results[4].data || [],
-      simper: results[5].data || [],
+      achievements:
+        results[1].data || [],
+      postTests:
+        results[2].data || [],
+      practices:
+        results[3].data || [],
+      samapta:
+        results[4].data || [],
+      simper:
+        results[5].data || [],
     };
 
     return {
-      progress: buildProgress(activeProgram, data),
+      progress: buildProgress(
+        activeProgram,
+        data
+      ),
+
       weekly: {
-        achievements: data.achievements,
-        postTests: data.postTests,
-        practices: data.practices,
-        samapta: data.samapta,
+        achievements:
+          data.achievements,
+        postTests:
+          data.postTests,
+        practices:
+          data.practices,
+        samapta:
+          data.samapta,
       },
     };
   }
 
   // ===================================================
-  // VALIDASI PENDAFTARAN DAN PROGRAM
+  // DATA DASHBOARD PESERTA
   // ===================================================
 
   async function fetchParticipantDashboard(
@@ -873,11 +1064,12 @@ export default function DashboardPeserta() {
     let currentProfile = null;
 
     if (adminPreview) {
-      const selected = previewParticipants.find(
-        (item) =>
-          item.id === participantId &&
-          isParticipantRole(item.role)
-      );
+      const selected =
+        previewParticipants.find(
+          (item) =>
+            item.id === participantId &&
+            isParticipantRole(item.role)
+        );
 
       if (!selected) {
         throw new Error(
@@ -887,22 +1079,32 @@ export default function DashboardPeserta() {
 
       currentProfile = {
         id: selected.id,
-        full_name: selected.full_name,
-        department: selected.department,
+        full_name:
+          selected.full_name,
+        department:
+          selected.department,
         role: selected.role,
       };
     } else {
-      const { data, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("id,full_name,department,role")
-          .eq("id", participantId)
-          .maybeSingle();
+      const {
+        data,
+        error: profileError,
+      } = await supabase
+        .from("profiles")
+        .select(
+          "id,full_name,department,role"
+        )
+        .eq("id", participantId)
+        .maybeSingle();
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        throw profileError;
+      }
 
       if (!data) {
-        throw new Error("Profil peserta tidak tersedia.");
+        throw new Error(
+          "Profil peserta tidak tersedia."
+        );
       }
 
       if (!isParticipantRole(data.role)) {
@@ -914,30 +1116,42 @@ export default function DashboardPeserta() {
       currentProfile = data;
     }
 
-    const { data: activePrograms, error: programError } =
-      await supabase
-        .from("ojt_programs")
-        .select(`
-          id,
-          participant_id,
-          start_date,
-          end_date,
-          status,
-          site,
-          legacy_access
-        `)
-        .eq("participant_id", participantId)
-        .eq("status", "active")
-        .order("start_date", { ascending: false })
-        .limit(1);
+    const {
+      data: activePrograms,
+      error: programError,
+    } = await supabase
+      .from("ojt_programs")
+      .select(`
+        id,
+        participant_id,
+        start_date,
+        end_date,
+        status,
+        site,
+        legacy_access
+      `)
+      .eq(
+        "participant_id",
+        participantId
+      )
+      .eq("status", "active")
+      .order("start_date", {
+        ascending: false,
+      })
+      .limit(1);
 
-    if (programError) throw programError;
+    if (programError) {
+      throw programError;
+    }
 
-    const activeProgram = activePrograms?.[0] || null;
+    const activeProgram =
+      activePrograms?.[0] || null;
 
     if (adminPreview) {
       const bundle = activeProgram
-        ? await fetchProgramProgress(activeProgram)
+        ? await fetchProgramProgress(
+            activeProgram
+          )
         : {
             progress: emptyProgress(),
             weekly: emptyWeeklyData(),
@@ -947,85 +1161,139 @@ export default function DashboardPeserta() {
         profile: currentProfile,
         registration: null,
         program: activeProgram,
-        access: activeProgram ? "approved" : "no_program",
+        access: activeProgram
+          ? "approved"
+          : "no_program",
         progress: bundle.progress,
         weekly: bundle.weekly,
       };
     }
 
-    const { data: newRequests, error: newError } =
-      await supabase
-        .from("ojt_registration_requests")
-        .select(`
-          id,status,rejection_reason,site,
-          start_date,end_date,created_at
-        `)
-        .eq("participant_id", participantId)
-        .order("created_at", { ascending: false });
+    const {
+      data: newRequests,
+      error: newError,
+    } = await supabase
+      .from(
+        "ojt_registration_requests"
+      )
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        start_date,
+        end_date,
+        created_at
+      `)
+      .eq(
+        "participant_id",
+        participantId
+      )
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (newError) throw newError;
 
-    const { data: oldRequests, error: oldError } =
-      await supabase
-        .from("participant_registrations")
-        .select(`
-          id,status,rejection_reason,site,created_at
-        `)
-        .eq("user_id", participantId)
-        .order("created_at", { ascending: false })
-        .limit(1);
+    const {
+      data: oldRequests,
+      error: oldError,
+    } = await supabase
+      .from(
+        "participant_registrations"
+      )
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        created_at
+      `)
+      .eq("user_id", participantId)
+      .order("created_at", {
+        ascending: false,
+      })
+      .limit(1);
 
     if (oldError) throw oldError;
 
-    const newList = newRequests || [];
-    const oldRegistration = oldRequests?.[0] || null;
-    const latestNew = newList[0] || null;
+    const newList =
+      newRequests || [];
+
+    const oldRegistration =
+      oldRequests?.[0] || null;
+
+    const latestNew =
+      newList[0] || null;
 
     const latestRegistration =
       latestNew && oldRegistration
-        ? new Date(latestNew.created_at || 0) >=
-          new Date(oldRegistration.created_at || 0)
+        ? new Date(
+            latestNew.created_at || 0
+          ) >=
+          new Date(
+            oldRegistration.created_at || 0
+          )
           ? latestNew
           : oldRegistration
         : latestNew || oldRegistration;
 
-    const hasPendingNew = newList.some(
-      (item) => normalize(item.status) === "pending"
-    );
+    const hasPendingNew =
+      newList.some(
+        (item) =>
+          normalize(item.status) ===
+          "pending"
+      );
 
-    const hasApprovedNew = newList.some(
-      (item) => normalize(item.status) === "approved"
-    );
+    const hasApprovedNew =
+      newList.some(
+        (item) =>
+          normalize(item.status) ===
+          "approved"
+      );
 
     const hasApprovedOld =
-      normalize(oldRegistration?.status) === "approved";
+      normalize(
+        oldRegistration?.status
+      ) === "approved";
 
     const hasPendingOld =
-      normalize(oldRegistration?.status) === "pending";
+      normalize(
+        oldRegistration?.status
+      ) === "pending";
 
     const approvedProgram =
       !!activeProgram &&
       (
         hasApprovedNew ||
         hasApprovedOld ||
-        activeProgram.legacy_access === true
+        activeProgram.legacy_access ===
+          true
       );
 
-    let nextAccess = "no_program";
+    let nextAccess =
+      "no_program";
 
     if (approvedProgram) {
       nextAccess = "approved";
-    } else if (hasPendingNew || hasPendingOld) {
+    } else if (
+      hasPendingNew ||
+      hasPendingOld
+    ) {
       nextAccess = "pending";
     } else if (
-      normalize(latestRegistration?.status) === "rejected"
+      normalize(
+        latestRegistration?.status
+      ) === "rejected"
     ) {
       nextAccess = "rejected";
     }
 
     const bundle =
       nextAccess === "approved"
-        ? await fetchProgramProgress(activeProgram)
+        ? await fetchProgramProgress(
+            activeProgram
+          )
         : {
             progress: emptyProgress(),
             weekly: emptyWeeklyData(),
@@ -1033,7 +1301,8 @@ export default function DashboardPeserta() {
 
     return {
       profile: currentProfile,
-      registration: latestRegistration || null,
+      registration:
+        latestRegistration || null,
       program:
         nextAccess === "approved"
           ? activeProgram
@@ -1046,10 +1315,18 @@ export default function DashboardPeserta() {
 
   function applyDashboard(data) {
     setProfile(data.profile);
-    setRegistration(data.registration);
+    setRegistration(
+      data.registration
+    );
     setProgram(data.program);
-    setProgress(data.progress || emptyProgress());
-    setWeeklyData(data.weekly || emptyWeeklyData());
+    setProgress(
+      data.progress ||
+        emptyProgress()
+    );
+    setWeeklyData(
+      data.weekly ||
+        emptyWeeklyData()
+    );
     setAccess(data.access);
   }
 
@@ -1061,7 +1338,8 @@ export default function DashboardPeserta() {
     isRefresh = false,
     requestedParticipantId = null
   ) {
-    const requestId = ++requestIdRef.current;
+    const requestId =
+      ++requestIdRef.current;
 
     if (isRefresh) {
       setRefreshing(true);
@@ -1076,9 +1354,15 @@ export default function DashboardPeserta() {
       const {
         data: { user },
         error: authError,
-      } = await supabase.auth.getUser();
+      } =
+        await supabase.auth.getUser();
 
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !==
+        requestIdRef.current
+      ) {
+        return;
+      }
 
       if (authError || !user) {
         setAccount(null);
@@ -1091,22 +1375,37 @@ export default function DashboardPeserta() {
         return;
       }
 
-      const { data: currentAccount, error: accountError } =
-        await supabase
-          .from("profiles")
-          .select("id,full_name,department,role")
-          .eq("id", user.id)
-          .maybeSingle();
+      const {
+        data: currentAccount,
+        error: accountError,
+      } = await supabase
+        .from("profiles")
+        .select(
+          "id,full_name,department,role"
+        )
+        .eq("id", user.id)
+        .maybeSingle();
 
-      if (requestId !== requestIdRef.current) return;
-
-      if (accountError) throw accountError;
-
-      if (!currentAccount) {
-        throw new Error("Profil akun tidak tersedia.");
+      if (
+        requestId !==
+        requestIdRef.current
+      ) {
+        return;
       }
 
-      const role = normalize(currentAccount.role);
+      if (accountError) {
+        throw accountError;
+      }
+
+      if (!currentAccount) {
+        throw new Error(
+          "Profil akun tidak tersedia."
+        );
+      }
+
+      const role = normalize(
+        currentAccount.role
+      );
 
       if (role === "mentor") {
         setAccount(null);
@@ -1115,18 +1414,30 @@ export default function DashboardPeserta() {
         return;
       }
 
-      if (role !== "admin" && !isParticipantRole(role)) {
+      if (
+        role !== "admin" &&
+        !isParticipantRole(role)
+      ) {
         throw new Error(
           "Akun tidak memiliki akses Dashboard Peserta."
         );
       }
 
-      setAccount({ ...currentAccount, role });
+      setAccount({
+        ...currentAccount,
+        role,
+      });
 
       if (role === "admin") {
-        const list = await fetchParticipantList();
+        const list =
+          await fetchParticipantList();
 
-        if (requestId !== requestIdRef.current) return;
+        if (
+          requestId !==
+          requestIdRef.current
+        ) {
+          return;
+        }
 
         setParticipants(list);
 
@@ -1158,24 +1469,37 @@ export default function DashboardPeserta() {
           return;
         }
 
-        const validSelection = list.some(
-          (item) => item.id === requestedId
+        const validSelection =
+          list.some(
+            (item) =>
+              item.id === requestedId
+          );
+
+        const targetId =
+          validSelection
+            ? requestedId
+            : list[0].id;
+
+        selectedIdRef.current =
+          targetId;
+
+        setSelectedParticipantId(
+          targetId
         );
 
-        const targetId = validSelection
-          ? requestedId
-          : list[0].id;
+        const next =
+          await fetchParticipantDashboard(
+            targetId,
+            true,
+            list
+          );
 
-        selectedIdRef.current = targetId;
-        setSelectedParticipantId(targetId);
-
-        const next = await fetchParticipantDashboard(
-          targetId,
-          true,
-          list
-        );
-
-        if (requestId !== requestIdRef.current) return;
+        if (
+          requestId !==
+          requestIdRef.current
+        ) {
+          return;
+        }
 
         applyDashboard(next);
       } else {
@@ -1183,25 +1507,42 @@ export default function DashboardPeserta() {
         setSelectedParticipantId("");
         selectedIdRef.current = "";
 
-        const next = await fetchParticipantDashboard(
-          user.id,
-          false
-        );
+        const next =
+          await fetchParticipantDashboard(
+            user.id,
+            false
+          );
 
-        if (requestId !== requestIdRef.current) return;
+        if (
+          requestId !==
+          requestIdRef.current
+        ) {
+          return;
+        }
 
         applyDashboard(next);
       }
     } catch (err) {
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !==
+        requestIdRef.current
+      ) {
+        return;
+      }
 
       clearDashboard();
+
       setError(
-        err?.message || "Gagal memuat Dashboard Peserta."
+        err?.message ||
+          "Gagal memuat Dashboard Peserta."
       );
+
       setAccess("error");
     } finally {
-      if (requestId === requestIdRef.current) {
+      if (
+        requestId ===
+        requestIdRef.current
+      ) {
         setLoading(false);
         setRefreshing(false);
       }
@@ -1209,7 +1550,10 @@ export default function DashboardPeserta() {
   }
 
   useEffect(() => {
-    setSelectedWeek(getCurrentGlobalWeek());
+    setSelectedWeek(
+      getCurrentGlobalWeek()
+    );
+
     loadDashboard();
 
     return () => {
@@ -1220,17 +1564,25 @@ export default function DashboardPeserta() {
   }, []);
 
   // ===================================================
-  // ADMIN PREVIEW
+  // PREVIEW ADMIN
   // ===================================================
 
-  async function changePreviewParticipant(id) {
-    if (!isAdmin || loading || refreshing) return;
+  async function changePreviewParticipant(
+    id
+  ) {
+    if (
+      !isAdmin ||
+      loading ||
+      refreshing
+    ) {
+      return;
+    }
 
-    const requestId = ++requestIdRef.current;
+    const requestId =
+      ++requestIdRef.current;
 
     selectedIdRef.current = id;
     setSelectedParticipantId(id);
-
     setRefreshing(true);
     setError("");
     clearDashboard();
@@ -1239,27 +1591,46 @@ export default function DashboardPeserta() {
       const {
         data: { user },
         error: authError,
-      } = await supabase.auth.getUser();
+      } =
+        await supabase.auth.getUser();
 
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !==
+        requestIdRef.current
+      ) {
+        return;
+      }
 
       if (authError || !user) {
         router.replace("/login");
         return;
       }
 
-      const { data: verifiedAccount, error: accountError } =
-        await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .maybeSingle();
+      const {
+        data: verifiedAccount,
+        error: accountError,
+      } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
 
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !==
+        requestIdRef.current
+      ) {
+        return;
+      }
 
-      if (accountError) throw accountError;
+      if (accountError) {
+        throw accountError;
+      }
 
-      if (normalize(verifiedAccount?.role) !== "admin") {
+      if (
+        normalize(
+          verifiedAccount?.role
+        ) !== "admin"
+      ) {
         throw new Error(
           "Hanya Admin yang dapat menggunakan tinjauan peserta."
         );
@@ -1275,56 +1646,82 @@ export default function DashboardPeserta() {
         return;
       }
 
-      const selected = participants.find(
-        (item) =>
-          item.id === id &&
-          isParticipantRole(item.role)
-      );
+      const selected =
+        participants.find(
+          (item) =>
+            item.id === id &&
+            isParticipantRole(
+              item.role
+            )
+        );
 
       if (!selected) {
-        throw new Error("Peserta tidak ditemukan.");
+        throw new Error(
+          "Peserta tidak ditemukan."
+        );
       }
 
-      const next = await fetchParticipantDashboard(
-        id,
-        true,
-        participants
-      );
+      const next =
+        await fetchParticipantDashboard(
+          id,
+          true,
+          participants
+        );
 
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !==
+        requestIdRef.current
+      ) {
+        return;
+      }
 
       applyDashboard(next);
     } catch (err) {
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !==
+        requestIdRef.current
+      ) {
+        return;
+      }
 
       clearDashboard();
+
       setError(
         err?.message ||
           "Gagal mengganti peserta tinjauan."
       );
+
       setAccess("error");
     } finally {
-      if (requestId === requestIdRef.current) {
+      if (
+        requestId ===
+        requestIdRef.current
+      ) {
         setRefreshing(false);
       }
     }
   }
 
   // ===================================================
-  // LOGOUT DAN NAVIGASI
+  // LOGOUT
   // ===================================================
 
   async function logout() {
     if (loggingOut) return;
 
     setLoggingOut(true);
+
     requestIdRef.current += 1;
 
     try {
-      const { error: logoutError } =
+      const {
+        error: logoutError,
+      } =
         await supabase.auth.signOut();
 
-      if (logoutError) throw logoutError;
+      if (logoutError) {
+        throw logoutError;
+      }
 
       setAccount(null);
       setParticipants([]);
@@ -1335,41 +1732,59 @@ export default function DashboardPeserta() {
       router.replace("/login");
       router.refresh();
     } catch {
-      setError("Gagal keluar. Silakan coba kembali.");
+      setError(
+        "Gagal keluar. Silakan coba kembali."
+      );
       setLoggingOut(false);
     }
   }
 
-  function openParticipantFeature(path) {
+  function openParticipantFeature(
+    path
+  ) {
     if (!hasActiveProgram) return;
+
     router.push(path);
   }
 
   // ===================================================
-  // DATA WEEKLY ACTIVITY HUB
+  // MONITORING MINGGUAN
   // ===================================================
 
-  const weekInfo = getGlobalWeek(selectedWeek);
+  const weekInfo =
+    getGlobalWeek(selectedWeek);
 
-  const weeklyAchievements = weeklyData.achievements.filter(
-    (row) =>
-      globalWeekOf(row.activity_date) === selectedWeek
-  );
+  const weeklyAchievements =
+    weeklyData.achievements.filter(
+      (record) =>
+        globalWeekOf(
+          record.activity_date
+        ) === selectedWeek
+    );
 
-  const weeklyPostTests = weeklyData.postTests.filter(
-    (row) =>
-      globalWeekOf(row.test_date) === selectedWeek
-  );
+  const weeklyPostTests =
+    weeklyData.postTests.filter(
+      (record) =>
+        globalWeekOf(
+          record.test_date
+        ) === selectedWeek
+    );
 
-  const weeklyPractices = weeklyData.practices.filter(
-    (row) =>
-      globalWeekOf(row.practice_date) === selectedWeek
-  );
+  const weeklyPractices =
+    weeklyData.practices.filter(
+      (record) =>
+        globalWeekOf(
+          record.practice_date
+        ) === selectedWeek
+    );
 
-  const weeklySamapta = weeklyData.samapta.filter(
-    (row) =>
-      globalWeekOf(row.test_date) === selectedWeek
-  );
+  const weeklySamapta =
+    weeklyData.samapta.filter(
+      (record) =>
+        globalWeekOf(
+          record.test_date
+        ) === selectedWeek
+    );
 
   const totalSelectedActivities =
     weeklyAchievements.length +
@@ -1379,31 +1794,46 @@ export default function DashboardPeserta() {
 
   const verifiedWeeklyAchievements =
     weeklyAchievements.filter(
-      (row) => normalize(row.status) === "verified"
+      (record) =>
+        normalize(
+          record.status
+        ) === "verified"
     ).length;
 
   const weeksWithData = new Set();
 
   if (hasActiveProgram) {
     const markGlobal = (date) => {
-      const week = globalWeekOf(date);
-      if (week !== null) weeksWithData.add(week);
+      const week =
+        globalWeekOf(date);
+
+      if (week !== null) {
+        weeksWithData.add(week);
+      }
     };
 
-    weeklyData.achievements.forEach((row) =>
-      markGlobal(row.activity_date)
+    weeklyData.achievements.forEach(
+      (record) =>
+        markGlobal(
+          record.activity_date
+        )
     );
 
-    weeklyData.postTests.forEach((row) =>
-      markGlobal(row.test_date)
+    weeklyData.postTests.forEach(
+      (record) =>
+        markGlobal(record.test_date)
     );
 
-    weeklyData.practices.forEach((row) =>
-      markGlobal(row.practice_date)
+    weeklyData.practices.forEach(
+      (record) =>
+        markGlobal(
+          record.practice_date
+        )
     );
 
-    weeklyData.samapta.forEach((row) =>
-      markGlobal(row.test_date)
+    weeklyData.samapta.forEach(
+      (record) =>
+        markGlobal(record.test_date)
     );
   }
 
@@ -1411,8 +1841,6 @@ export default function DashboardPeserta() {
     !loading &&
     !error &&
     (profile || isAdminEmptyView);
-
-  const noProgramData = !hasActiveProgram;
 
   const weekLabel =
     `Week ${String(selectedWeek).padStart(2, "0")}`;
@@ -1436,24 +1864,29 @@ export default function DashboardPeserta() {
     },
   ];
 
-  const status = getStatusInfo(access);
-
   // ===================================================
-  // RENDER
+  // TAMPILAN DASHBOARD
   // ===================================================
 
   return (
     <main className="ojt-dashboard">
       <style>{dashboardCSS}</style>
 
+      {/* HEADER */}
+
       <header className="ojt-topbar">
         <button
           type="button"
           className="ojt-brand"
-          onClick={() => router.push("/")}
+          onClick={() =>
+            router.push("/")
+          }
         >
           <span className="ojt-logo">
-            <Icon name="shield" size={24} />
+            <Icon
+              name="shield"
+              size={24}
+            />
           </span>
 
           <span className="ojt-brand-text">
@@ -1463,22 +1896,29 @@ export default function DashboardPeserta() {
             </strong>
 
             <span>
-              ON THE JOB TRAINING MANAGEMENT SYSTEM
+              ON THE JOB TRAINING
+              MANAGEMENT SYSTEM
             </span>
           </span>
         </button>
 
         <div className="ojt-topbar-right">
           <span className="ojt-topbar-avatar">
-            {initials(account?.full_name)}
+            {initials(
+              account?.full_name
+            )}
           </span>
 
           <span className="ojt-topbar-account">
             <strong>
-              {account?.full_name || "Peserta OJT"}
+              {account?.full_name ||
+                "Peserta OJT"}
             </strong>
+
             <small>
-              {isAdmin ? "Administrator" : "Peserta OJT"}
+              {isAdmin
+                ? "Administrator"
+                : "Peserta OJT"}
             </small>
           </span>
 
@@ -1486,12 +1926,21 @@ export default function DashboardPeserta() {
             type="button"
             className="ojt-menu-toggle"
             aria-label="Buka menu"
-            onClick={() => setMobileMenu((v) => !v)}
+            onClick={() =>
+              setMobileMenu(
+                (value) => !value
+              )
+            }
           >
-            <Icon name="menu" size={23} />
+            <Icon
+              name="menu"
+              size={23}
+            />
           </button>
         </div>
       </header>
+
+      {/* MENU RESPONSIVE */}
 
       {mobileMenu && (
         <nav className="ojt-mobile-menu">
@@ -1511,6 +1960,7 @@ export default function DashboardPeserta() {
                 type="button"
                 onClick={() => {
                   setMobileMenu(false);
+
                   openParticipantFeature(
                     `/analisis/${program.id}`
                   );
@@ -1523,6 +1973,7 @@ export default function DashboardPeserta() {
                 type="button"
                 onClick={() => {
                   setMobileMenu(false);
+
                   openParticipantFeature(
                     `/evaluasi/${program.id}`
                   );
@@ -1535,6 +1986,7 @@ export default function DashboardPeserta() {
                 type="button"
                 onClick={() => {
                   setMobileMenu(false);
+
                   openParticipantFeature(
                     `/laporan/${program.id}`
                   );
@@ -1545,15 +1997,17 @@ export default function DashboardPeserta() {
             </>
           )}
 
-          <button type="button" onClick={logout}>
+          <button
+            type="button"
+            onClick={logout}
+          >
             Keluar dari Akun
           </button>
         </nav>
       )}
 
       <div className="ojt-content">
-
-        {/* HERO */}
+        {/* BANNER */}
 
         <section
           className="ojt-hero"
@@ -1570,16 +2024,18 @@ export default function DashboardPeserta() {
           }}
         >
           <div className="ojt-eyebrow">
-            EMERGENCY RESPONSE GROUP · PT BERAU COAL
+            EMERGENCY RESPONSE GROUP ·
+            PT BERAU COAL
           </div>
 
           <h1>
-            Dashboard <span>Peserta OJT</span>
+            Dashboard{" "}
+            <span>Peserta OJT</span>
           </h1>
 
           <p className="ojt-hero-description">
-            Monitoring aktivitas mingguan, progres,
-            dan capaian OJT Anda.
+            Monitoring aktivitas mingguan,
+            progres, dan capaian OJT Anda.
           </p>
 
           <div className="ojt-hero-bottom">
@@ -1587,11 +2043,11 @@ export default function DashboardPeserta() {
               <div className="ojt-hero-avatar">
                 {initials(
                   profile?.full_name ||
-                  account?.full_name
+                    account?.full_name
                 )}
               </div>
 
-              <div>
+              <div className="ojt-identity-copy">
                 <strong>
                   {profile?.full_name ||
                     account?.full_name ||
@@ -1601,13 +2057,18 @@ export default function DashboardPeserta() {
                 <small>
                   {isAdmin
                     ? "Tinjauan Administrator"
-                    : profile?.department || "Peserta OJT"}
+                    : profile?.department ||
+                      "Peserta OJT"}
                 </small>
               </div>
 
               {access !== "loading" && (
                 <span className="ojt-hero-status">
-                  <Icon name={status.icon} size={16} />
+                  <Icon
+                    name={status.icon}
+                    size={16}
+                  />
+
                   {access === "approved"
                     ? "Aktif"
                     : isAdminEmptyView
@@ -1618,12 +2079,15 @@ export default function DashboardPeserta() {
             </div>
 
             <div className="ojt-hero-progress">
-              <small>AKTIVITAS MINGGUAN</small>
+              <small>
+                AKTIVITAS MINGGUAN
+              </small>
 
               <strong>
                 {hasActiveProgram
                   ? `${progress.activityWeeks}/${TOTAL_WEEKS}`
                   : `—/${TOTAL_WEEKS}`}
+
                 <span> Minggu</span>
               </strong>
 
@@ -1633,7 +2097,9 @@ export default function DashboardPeserta() {
                     style={{
                       width: `${
                         hasActiveProgram
-                          ? clamp(progress.activityPercent)
+                          ? clamp(
+                              progress.activityPercent
+                            )
                           : 0
                       }%`,
                     }}
@@ -1650,9 +2116,12 @@ export default function DashboardPeserta() {
           </div>
         </section>
 
+        {/* PESAN SISTEM */}
+
         {loading && (
           <div className="ojt-notice">
-            Memeriksa akun dan memuat Dashboard Peserta...
+            Memeriksa akun dan memuat
+            Dashboard Peserta...
           </div>
         )}
 
@@ -1663,24 +2132,37 @@ export default function DashboardPeserta() {
         )}
 
         {error && (
-          <div className="ojt-notice error" role="alert">
-            <Icon name="alert" size={18} />
+          <div
+            className="ojt-notice error"
+            role="alert"
+          >
+            <Icon
+              name="alert"
+              size={18}
+            />
+
             {error}
           </div>
         )}
 
-        {/* ADMIN PREVIEW */}
+        {/* PREVIEW ADMIN */}
 
         {isAdmin && (
           <section className="ojt-admin-panel">
             <div className="ojt-admin-heading">
-              <Icon name="shield" size={23} />
+              <Icon
+                name="shield"
+                size={23}
+              />
 
               <div>
-                <strong>Tinjauan Administrator</strong>
+                <strong>
+                  Tinjauan Administrator
+                </strong>
+
                 <p>
-                  Periksa Dashboard Peserta tanpa
-                  mengubah data program.
+                  Periksa Dashboard Peserta
+                  tanpa mengubah data program.
                 </p>
               </div>
             </div>
@@ -1691,10 +2173,16 @@ export default function DashboardPeserta() {
 
             <select
               id="admin-preview"
-              value={selectedParticipantId}
-              disabled={loading || refreshing}
+              value={
+                selectedParticipantId
+              }
+              disabled={
+                loading || refreshing
+              }
               onChange={(event) =>
-                changePreviewParticipant(event.target.value)
+                changePreviewParticipant(
+                  event.target.value
+                )
               }
             >
               <option value="">
@@ -1702,9 +2190,14 @@ export default function DashboardPeserta() {
               </option>
 
               {participants.map((item) => (
-                <option key={item.id} value={item.id}>
+                <option
+                  key={item.id}
+                  value={item.id}
+                >
                   {item.full_name}
-                  {item.site ? ` — ${item.site}` : ""}
+                  {item.site
+                    ? ` — ${item.site}`
+                    : ""}
                 </option>
               ))}
             </select>
@@ -1718,7 +2211,9 @@ export default function DashboardPeserta() {
             <button
               type="button"
               className="ojt-outline-button"
-              onClick={() => router.push("/")}
+              onClick={() =>
+                router.push("/")
+              }
             >
               Kembali ke Dashboard Mentor
             </button>
@@ -1727,95 +2222,131 @@ export default function DashboardPeserta() {
 
         {showDashboardContent && (
           <>
-            {/* STATUS PENDAFTARAN */}
+            {/* STATUS PENDING */}
 
-            {access === "pending" && profile && (
-              <section className="ojt-message amber">
-                <h2>
-                  <Icon name="clock" size={21} />
-                  Menunggu Persetujuan Mentor
-                </h2>
+            {access === "pending" &&
+              profile && (
+                <section className="ojt-message amber">
+                  <h2>
+                    <Icon
+                      name="clock"
+                      size={21}
+                    />
 
-                <p>
-                  Pengajuan OJT sudah tercatat dan
-                  menunggu keputusan mentor.
-                </p>
+                    Menunggu Persetujuan Mentor
+                  </h2>
 
-                <p>
-                  <strong>Site:</strong>{" "}
-                  {registration?.site || "—"}
-                </p>
-
-                <p>
-                  <strong>Periode:</strong>{" "}
-                  {formatDate(registration?.start_date)}
-                  {" – "}
-                  {formatDate(registration?.end_date)}
-                </p>
-
-                <p>
-                  Fitur monitoring tersedia setelah
-                  program disetujui mentor.
-                </p>
-              </section>
-            )}
-
-            {access === "rejected" && profile && (
-              <section className="ojt-message red">
-                <h2>
-                  <Icon name="alert" size={21} />
-                  Pengajuan Belum Disetujui
-                </h2>
-
-                <p>
-                  Mentor telah menolak pengajuan OJT.
-                </p>
-
-                <div className="ojt-rejection-reason">
-                  <strong>Alasan Penolakan</strong>
                   <p>
-                    {registration?.rejection_reason ||
-                      "Alasan belum tersedia."}
+                    Pengajuan OJT sudah
+                    tercatat dan menunggu
+                    keputusan mentor.
                   </p>
-                </div>
 
-                {!isAdmin && (
-                  <button
-                    type="button"
-                    className="ojt-primary-button"
-                    onClick={() =>
-                      router.push("/pengajuan-peserta")
-                    }
-                  >
-                    Lihat dan Perbaiki Pengajuan
-                  </button>
-                )}
-              </section>
-            )}
+                  <p>
+                    <strong>Site:</strong>{" "}
+                    {registration?.site ||
+                      "—"}
+                  </p>
+
+                  <p>
+                    <strong>
+                      Periode:
+                    </strong>{" "}
+                    {formatDate(
+                      registration?.start_date
+                    )}
+                    {" – "}
+                    {formatDate(
+                      registration?.end_date
+                    )}
+                  </p>
+
+                  <p>
+                    Fitur monitoring tersedia
+                    setelah program disetujui
+                    mentor.
+                  </p>
+                </section>
+              )}
+
+            {/* STATUS REJECTED */}
+
+            {access === "rejected" &&
+              profile && (
+                <section className="ojt-message red">
+                  <h2>
+                    <Icon
+                      name="alert"
+                      size={21}
+                    />
+
+                    Pengajuan Belum Disetujui
+                  </h2>
+
+                  <p>
+                    Mentor telah menolak
+                    pengajuan OJT.
+                  </p>
+
+                  <div className="ojt-rejection-reason">
+                    <strong>
+                      Alasan Penolakan
+                    </strong>
+
+                    <p>
+                      {registration?.rejection_reason ||
+                        "Alasan belum tersedia."}
+                    </p>
+                  </div>
+
+                  {!isAdmin && (
+                    <button
+                      type="button"
+                      className="ojt-primary-button"
+                      onClick={() =>
+                        router.push(
+                          "/pengajuan-peserta"
+                        )
+                      }
+                    >
+                      Lihat dan Perbaiki Pengajuan
+                    </button>
+                  )}
+                </section>
+              )}
+
+            {/* BELUM ADA PROGRAM */}
 
             {access === "no_program" &&
               profile &&
               !isAdminEmptyView && (
                 <section className="ojt-message neutral">
-                  <h2>Program OJT Belum Aktif</h2>
+                  <h2>
+                    Program OJT Belum Aktif
+                  </h2>
+
                   <p>
-                    Belum ada program OJT aktif yang
-                    dapat diakses. Gunakan Perbarui
-                    Status untuk memeriksa kembali.
+                    Belum ada program OJT aktif
+                    yang dapat diakses.
+                    Gunakan Perbarui Status
+                    untuk memeriksa kembali.
                   </p>
                 </section>
               )}
 
-            {(hasActiveProgram || isAdminEmptyView) && (
+            {(hasActiveProgram ||
+              isAdminEmptyView) && (
               <>
-                {/* KARTU INFORMASI */}
+                {/* INFORMASI PROGRAM */}
 
                 <section className="ojt-stats-grid">
                   <StatCard
                     icon="user"
                     tone="blue"
                     label="Site Penempatan"
-                    value={program?.site || "—"}
+                    value={
+                      program?.site || "—"
+                    }
                   />
 
                   <StatCard
@@ -1824,7 +2355,11 @@ export default function DashboardPeserta() {
                     label="Periode OJT"
                     value={
                       program
-                        ? `${formatDate(program.start_date)} – ${formatDate(program.end_date)}`
+                        ? `${formatDate(
+                            program.start_date
+                          )} – ${formatDate(
+                            program.end_date
+                          )}`
                         : "Belum tersedia"
                     }
                   />
@@ -1852,9 +2387,15 @@ export default function DashboardPeserta() {
                   />
 
                   <WeekSelector
-                    selectedWeek={selectedWeek}
-                    onSelect={setSelectedWeek}
-                    weeksWithData={weeksWithData}
+                    selectedWeek={
+                      selectedWeek
+                    }
+                    onSelect={
+                      setSelectedWeek
+                    }
+                    weeksWithData={
+                      weeksWithData
+                    }
                   />
 
                   <div className="ojt-selected-week">
@@ -1863,24 +2404,32 @@ export default function DashboardPeserta() {
                         MINGGU TERPILIH
                       </span>
 
-                      <strong>{weekLabel}</strong>
+                      <strong>
+                        {weekLabel}
+                      </strong>
 
                       <span>
-                        {formatDate(weekInfo?.start)}
+                        {formatDate(
+                          weekInfo?.start
+                        )}
                         {" – "}
-                        {formatDate(weekInfo?.end)}
+                        {formatDate(
+                          weekInfo?.end
+                        )}
                       </span>
 
                       <div
                         className={
                           "ojt-data-badge " +
-                          (totalSelectedActivities > 0
+                          (totalSelectedActivities >
+                          0
                             ? "has-data"
                             : "")
                         }
                       >
                         {hasActiveProgram
-                          ? totalSelectedActivities > 0
+                          ? totalSelectedActivities >
+                            0
                             ? "Memiliki catatan"
                             : "Belum ada catatan"
                           : "Tidak ada data program"}
@@ -1890,7 +2439,8 @@ export default function DashboardPeserta() {
                     <div className="ojt-week-details">
                       <div className="ojt-week-details-title">
                         <strong>
-                          Ringkasan Aktivitas Mingguan
+                          Ringkasan Aktivitas
+                          Mingguan
                         </strong>
 
                         <span>
@@ -1901,27 +2451,39 @@ export default function DashboardPeserta() {
                       </div>
 
                       <div className="ojt-week-metrics">
-                        {weeklyRows.map((item) => (
-                          <div
-                            key={item.label}
-                            className="ojt-week-metric"
-                          >
-                            <span>{item.label}</span>
+                        {weeklyRows.map(
+                          (item) => (
+                            <div
+                              key={
+                                item.label
+                              }
+                              className="ojt-week-metric"
+                            >
+                              <span>
+                                {
+                                  item.label
+                                }
+                              </span>
 
-                            <strong>
-                              {hasActiveProgram
-                                ? item.count
-                                : "—"}
-                            </strong>
-                          </div>
-                        ))}
+                              <strong>
+                                {hasActiveProgram
+                                  ? item.count
+                                  : "—"}
+                              </strong>
+                            </div>
+                          )
+                        )}
                       </div>
 
                       <div className="ojt-week-verification">
-                        <Icon name="check" size={17} />
+                        <Icon
+                          name="check"
+                          size={17}
+                        />
 
                         <span>
-                          Achievement terverifikasi:{" "}
+                          Achievement
+                          terverifikasi:{" "}
                           <strong>
                             {hasActiveProgram
                               ? verifiedWeeklyAchievements
@@ -1931,10 +2493,13 @@ export default function DashboardPeserta() {
                       </div>
 
                       <p className="ojt-week-note">
-                        Jumlah di atas merupakan catatan
-                        yang tanggalnya berada pada
-                        minggu terpilih. Bukan jumlah
-                        kehadiran atau nilai kelulusan.
+                        Angka di atas adalah
+                        jumlah catatan yang
+                        tanggalnya berada
+                        dalam minggu terpilih,
+                        bukan jumlah hari
+                        kehadiran atau nilai
+                        kelulusan.
                       </p>
 
                       {hasActiveProgram && (
@@ -1948,7 +2513,11 @@ export default function DashboardPeserta() {
                           }
                         >
                           Lihat Evaluasi Mingguan
-                          <Icon name="arrow" size={17} />
+
+                          <Icon
+                            name="arrow"
+                            size={17}
+                          />
                         </button>
                       )}
                     </div>
@@ -1967,8 +2536,12 @@ export default function DashboardPeserta() {
 
                     <ProgressBar
                       title="Progres Achievement"
-                      value={progress.achievement}
-                      noData={noProgramData}
+                      value={
+                        progress.achievement
+                      }
+                      noData={
+                        noProgramData
+                      }
                       description={
                         noProgramData
                           ? "Belum ada data program aktif."
@@ -1986,8 +2559,12 @@ export default function DashboardPeserta() {
 
                     <ProgressBar
                       title="Progres SIMPER"
-                      value={progress.simper}
-                      noData={noProgramData}
+                      value={
+                        progress.simper
+                      }
+                      noData={
+                        noProgramData
+                      }
                       description={
                         noProgramData
                           ? "Belum ada data persyaratan SIMPER."
@@ -1996,7 +2573,9 @@ export default function DashboardPeserta() {
                     />
 
                     <div className="ojt-simper-status">
-                      <strong>Status Penerbitan:</strong>{" "}
+                      <strong>
+                        Status Penerbitan:
+                      </strong>{" "}
                       {noProgramData
                         ? "Belum ada data"
                         : progress.simperIssued
@@ -2017,7 +2596,9 @@ export default function DashboardPeserta() {
 
                   <div className="ojt-summary-grid">
                     <div className="ojt-summary-item">
-                      <span>Minggu Beraktivitas</span>
+                      <span>
+                        Minggu Beraktivitas
+                      </span>
 
                       <strong>
                         {hasActiveProgram
@@ -2027,7 +2608,9 @@ export default function DashboardPeserta() {
                     </div>
 
                     <div className="ojt-summary-item">
-                      <span>Achievement Tercapai</span>
+                      <span>
+                        Achievement Tercapai
+                      </span>
 
                       <strong>
                         {hasActiveProgram
@@ -2037,7 +2620,9 @@ export default function DashboardPeserta() {
                     </div>
 
                     <div className="ojt-summary-item">
-                      <span>Persyaratan SIMPER</span>
+                      <span>
+                        Persyaratan SIMPER
+                      </span>
 
                       <strong>
                         {hasActiveProgram
@@ -2048,10 +2633,11 @@ export default function DashboardPeserta() {
                   </div>
 
                   <p className="ojt-summary-note">
-                    Perhitungan Achievement dan SIMPER
-                    mengikuti rumus yang sudah berjalan.
+                    Perhitungan Achievement
+                    dan SIMPER mengikuti
+                    rumus yang sudah berjalan.
                     Aktivitas mingguan dihitung
-                    berdasarkan catatan yang tersedia.
+                    dari catatan program peserta.
                   </p>
                 </section>
 
@@ -2069,7 +2655,9 @@ export default function DashboardPeserta() {
                       icon="chart"
                       title="Grafik Perkembangan"
                       description="Lihat grafik perkembangan OJT Anda."
-                      disabled={!hasActiveProgram}
+                      disabled={
+                        !hasActiveProgram
+                      }
                       onClick={() =>
                         openParticipantFeature(
                           `/analisis/${program.id}`
@@ -2081,7 +2669,9 @@ export default function DashboardPeserta() {
                       icon="check"
                       title="Evaluasi Kesiapan"
                       description="Buka evaluasi kesiapan OJT."
-                      disabled={!hasActiveProgram}
+                      disabled={
+                        !hasActiveProgram
+                      }
                       onClick={() =>
                         openParticipantFeature(
                           `/evaluasi/${program.id}`
@@ -2093,7 +2683,9 @@ export default function DashboardPeserta() {
                       icon="file"
                       title="Laporan OJT"
                       description="Lihat laporan OJT Anda."
-                      disabled={!hasActiveProgram}
+                      disabled={
+                        !hasActiveProgram
+                      }
                       onClick={() =>
                         openParticipantFeature(
                           `/laporan/${program.id}`
@@ -2106,7 +2698,9 @@ export default function DashboardPeserta() {
                         icon="calendar"
                         title="Evaluasi Mingguan"
                         description="Lihat evaluasi mingguan dan fasilitas cetak atau PDF."
-                        disabled={!hasActiveProgram}
+                        disabled={
+                          !hasActiveProgram
+                        }
                         onClick={() =>
                           openParticipantFeature(
                             `/mingguan/${program.id}`
@@ -2118,26 +2712,35 @@ export default function DashboardPeserta() {
 
                   {isAdmin && (
                     <p className="ojt-admin-note">
-                      Akses lanjutan tetap mengikuti
-                      validasi role dan kebijakan RLS.
-                      Preview Admin tidak memberikan
-                      izin penulisan tambahan.
+                      Akses lanjutan tetap
+                      mengikuti validasi role
+                      dan kebijakan RLS.
+                      Preview Admin tidak
+                      memberikan izin
+                      penulisan tambahan.
                     </p>
                   )}
                 </section>
               </>
             )}
 
-            {/* TOMBOL */}
+            {/* TOMBOL UTAMA */}
 
             <div className="ojt-actions">
               <button
                 type="button"
                 className="ojt-primary-button"
-                disabled={refreshing || loading}
-                onClick={() => loadDashboard(true)}
+                disabled={
+                  refreshing || loading
+                }
+                onClick={() =>
+                  loadDashboard(true)
+                }
               >
-                <Icon name="refresh" size={19} />
+                <Icon
+                  name="refresh"
+                  size={19}
+                />
 
                 {refreshing
                   ? "Memperbarui..."
@@ -2150,7 +2753,10 @@ export default function DashboardPeserta() {
                 disabled={loggingOut}
                 onClick={logout}
               >
-                <Icon name="logout" size={19} />
+                <Icon
+                  name="logout"
+                  size={19}
+                />
 
                 {loggingOut
                   ? "Sedang keluar..."
@@ -2160,11 +2766,13 @@ export default function DashboardPeserta() {
 
             <footer className="ojt-footer">
               <span>
-                OJT MineTrack v2.0 · Emergency Response Group
+                OJT MineTrack v2.0 ·
+                Emergency Response Group
               </span>
 
               <span>
-                PT Berau Coal · Program 2026–2027
+                PT Berau Coal ·
+                Program 2026–2027
               </span>
             </footer>
           </>
@@ -2174,6 +2782,10 @@ export default function DashboardPeserta() {
   );
 }
 
+// =====================================================
+// CSS RESPONSIVE
+// =====================================================
+
 const dashboardCSS = `
 .ojt-dashboard,
 .ojt-dashboard * {
@@ -2182,8 +2794,8 @@ const dashboardCSS = `
 
 .ojt-dashboard {
   min-height: 100vh;
-  background: ${C.bg};
-  color: ${C.text};
+  background: #edf4f9;
+  color: #173755;
   font-family: Inter, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   padding-bottom: 25px;
@@ -2212,7 +2824,7 @@ const dashboardCSS = `
 .ojt-topbar {
   min-height: 74px;
   padding: 12px 25px;
-  background: ${C.navy};
+  background: #081f38;
   color: white;
   display: flex;
   align-items: center;
@@ -2252,7 +2864,7 @@ const dashboardCSS = `
 }
 
 .ojt-brand-text em {
-  color: ${C.turquoise};
+  color: #48e0bf;
   font-style: normal;
 }
 
@@ -2261,8 +2873,8 @@ const dashboardCSS = `
   margin-left: 7px;
   padding: 4px 5px;
   border-radius: 5px;
-  background: ${C.turquoise};
-  color: ${C.navy};
+  background: #48e0bf;
+  color: #081f38;
   font-size: 9px;
   vertical-align: middle;
 }
@@ -2287,7 +2899,7 @@ const dashboardCSS = `
   height: 37px;
   border-radius: 50%;
   background: #d9fbed;
-  color: ${C.emerald};
+  color: #087d67;
   display: grid;
   place-items: center;
   font-size: 12px;
@@ -2322,7 +2934,7 @@ const dashboardCSS = `
 
 .ojt-mobile-menu {
   padding: 10px 20px;
-  background: ${C.navy2};
+  background: #103552;
   display: grid;
   gap: 5px;
 }
@@ -2350,7 +2962,7 @@ const dashboardCSS = `
 }
 
 .ojt-hero {
-  background-color: ${C.navy};
+  background-color: #081f38;
   background-size: cover;
   background-position: center;
   border-radius: 16px;
@@ -2360,7 +2972,7 @@ const dashboardCSS = `
 }
 
 .ojt-eyebrow {
-  color: ${C.gold};
+  color: #efbd65;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 1.3px;
@@ -2373,7 +2985,7 @@ const dashboardCSS = `
 }
 
 .ojt-hero h1 span {
-  color: ${C.turquoise};
+  color: #48e0bf;
 }
 
 .ojt-hero-description {
@@ -2406,26 +3018,26 @@ const dashboardCSS = `
   background: #d9faed;
   display: grid;
   place-items: center;
-  color: ${C.emerald};
+  color: #087d67;
   font-size: 20px;
   font-weight: 900;
 }
 
-.ojt-hero-identity > div:nth-child(2) {
+.ojt-identity-copy {
   min-width: 0;
 }
 
-.ojt-hero-identity strong,
-.ojt-hero-identity small {
+.ojt-identity-copy strong,
+.ojt-identity-copy small {
   display: block;
   overflow-wrap: anywhere;
 }
 
-.ojt-hero-identity strong {
+.ojt-identity-copy strong {
   font-size: 19px;
 }
 
-.ojt-hero-identity small {
+.ojt-identity-copy small {
   margin-top: 4px;
   color: #dceaf1;
   font-size: 11px;
@@ -2487,7 +3099,7 @@ const dashboardCSS = `
 .ojt-hero-track > div {
   height: 100%;
   border-radius: inherit;
-  background: ${C.turquoise};
+  background: #48e0bf;
 }
 
 .ojt-hero-progress-row b {
@@ -2499,15 +3111,15 @@ const dashboardCSS = `
 .ojt-notice {
   padding: 15px 17px;
   background: white;
-  border: 1px solid ${C.border};
+  border: 1px solid #d9e5ee;
   border-radius: 11px;
-  color: ${C.text};
+  color: #173755;
   font-size: 12px;
 }
 
 .ojt-notice.error {
   background: #fff0f2;
-  color: ${C.red};
+  color: #bc394a;
   border-color: #f5cbd1;
   display: flex;
   align-items: center;
@@ -2527,7 +3139,7 @@ const dashboardCSS = `
   display: flex;
   align-items: center;
   gap: 12px;
-  color: ${C.emerald};
+  color: #087d67;
 }
 
 .ojt-admin-heading strong {
@@ -2550,10 +3162,10 @@ const dashboardCSS = `
 .ojt-admin-panel select {
   width: 100%;
   padding: 12px;
-  border: 1px solid ${C.border};
+  border: 1px solid #d9e5ee;
   border-radius: 10px;
   background: white;
-  color: ${C.text};
+  color: #173755;
 }
 
 .ojt-message {
@@ -2561,7 +3173,7 @@ const dashboardCSS = `
   padding: 19px;
   font-size: 12px;
   line-height: 1.7;
-  border: 1px solid ${C.border};
+  border: 1px solid #d9e5ee;
 }
 
 .ojt-message h2 {
@@ -2590,7 +3202,7 @@ const dashboardCSS = `
 
 .ojt-message.neutral {
   background: white;
-  color: ${C.text};
+  color: #173755;
 }
 
 .ojt-rejection-reason {
@@ -2615,7 +3227,7 @@ const dashboardCSS = `
   align-items: center;
   gap: 13px;
   background: white;
-  border: 1px solid ${C.border};
+  border: 1px solid #d9e5ee;
   box-shadow: 0 5px 18px #1035500a;
 }
 
@@ -2639,7 +3251,7 @@ const dashboardCSS = `
 }
 
 .ojt-stat-icon.green {
-  color: ${C.emerald};
+  color: #087d67;
   background: #dcf7ec;
 }
 
@@ -2649,7 +3261,7 @@ const dashboardCSS = `
 
 .ojt-stat-copy > span {
   display: block;
-  color: ${C.muted};
+  color: #6c859d;
   font-size: 11px;
   font-weight: 700;
 }
@@ -2667,14 +3279,14 @@ const dashboardCSS = `
   display: block;
   margin-top: 4px;
   font-size: 10px;
-  color: ${C.muted};
+  color: #6c859d;
 }
 
 .ojt-panel {
   padding: 20px;
   border-radius: 16px;
   background: white;
-  border: 1px solid ${C.border};
+  border: 1px solid #d9e5ee;
   box-shadow: 0 5px 20px rgba(11,43,76,.045);
   min-width: 0;
 }
@@ -2705,7 +3317,7 @@ const dashboardCSS = `
 
 .ojt-panel-title p {
   margin: 5px 0 0;
-  color: ${C.muted};
+  color: #6c859d;
   font-size: 11px;
   line-height: 1.55;
 }
@@ -2723,7 +3335,7 @@ const dashboardCSS = `
   display: grid;
   place-items: center;
   background: white;
-  border: 1px solid ${C.border};
+  border: 1px solid #d9e5ee;
   border-radius: 10px;
   color: #1b4b76;
 }
@@ -2741,7 +3353,7 @@ const dashboardCSS = `
   flex: 0 0 76px;
   min-height: 70px;
   background: #f7fafc;
-  border: 1px solid ${C.border};
+  border: 1px solid #d9e5ee;
   border-radius: 11px;
   color: #174472;
   padding: 11px 7px;
@@ -2776,8 +3388,10 @@ const dashboardCSS = `
 
 .ojt-selected-week {
   display: grid;
-  grid-template-columns: minmax(190px, .8fr) minmax(0, 2fr);
-  border: 1px solid ${C.border};
+  grid-template-columns:
+    minmax(190px, .8fr)
+    minmax(0, 2fr);
+  border: 1px solid #d9e5ee;
   border-radius: 13px;
   overflow: hidden;
 }
@@ -2788,7 +3402,8 @@ const dashboardCSS = `
   flex-direction: column;
   gap: 11px;
   padding: 22px;
-  background: linear-gradient(140deg, #def7ed, #f1faf7);
+  background:
+    linear-gradient(140deg, #def7ed, #f1faf7);
   color: #0d5c4e;
 }
 
@@ -2865,7 +3480,7 @@ const dashboardCSS = `
 
 .ojt-week-metric span {
   display: block;
-  color: ${C.muted};
+  color: #6c859d;
   font-size: 10px;
 }
 
@@ -2891,7 +3506,7 @@ const dashboardCSS = `
 .ojt-week-note {
   font-size: 10px;
   line-height: 1.7;
-  color: ${C.muted};
+  color: #6c859d;
 }
 
 .ojt-week-detail-button {
@@ -2927,7 +3542,7 @@ const dashboardCSS = `
 }
 
 .ojt-progress-value {
-  color: ${C.emerald};
+  color: #087d67;
 }
 
 .ojt-progress-track {
@@ -2941,14 +3556,15 @@ const dashboardCSS = `
 
 .ojt-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #0b8068, #41c4a4);
+  background:
+    linear-gradient(90deg, #0b8068, #41c4a4);
   border-radius: 20px;
 }
 
 .ojt-progress-desc {
   font-size: 11px;
   line-height: 1.7;
-  color: ${C.muted};
+  color: #6c859d;
   margin: 9px 0 0;
 }
 
@@ -2977,7 +3593,7 @@ const dashboardCSS = `
 .ojt-summary-item > span {
   display: block;
   font-size: 10px;
-  color: ${C.muted};
+  color: #6c859d;
   font-weight: 700;
 }
 
@@ -2989,7 +3605,7 @@ const dashboardCSS = `
 }
 
 .ojt-summary-note {
-  color: ${C.muted};
+  color: #6c859d;
   font-size: 10px;
   line-height: 1.7;
   margin: 15px 0 0;
@@ -3007,7 +3623,7 @@ const dashboardCSS = `
   width: 100%;
   padding: 14px 15px;
   background: white;
-  border: 1px solid ${C.border};
+  border: 1px solid #d9e5ee;
   border-radius: 12px;
   color: #173f67;
   text-align: left;
@@ -3046,11 +3662,11 @@ const dashboardCSS = `
   font-size: 11px;
   line-height: 1.5;
   margin-top: 4px;
-  color: ${C.muted};
+  color: #6c859d;
 }
 
 .ojt-disabled-text {
-  color: ${C.yellow} !important;
+  color: #aa7623 !important;
   font-weight: 800;
 }
 
@@ -3061,7 +3677,7 @@ const dashboardCSS = `
 
 .ojt-admin-note {
   font-size: 10px;
-  color: ${C.muted};
+  color: #6c859d;
   line-height: 1.7;
   margin: 14px 0 0;
 }
@@ -3104,7 +3720,7 @@ const dashboardCSS = `
   flex-wrap: wrap;
   border-top: 1px solid #d7e4ec;
   padding: 17px 2px;
-  color: ${C.muted};
+  color: #6c859d;
   font-size: 10px;
 }
 
@@ -3189,7 +3805,7 @@ const dashboardCSS = `
     font-size: 17px;
   }
 
-  .ojt-hero-identity strong {
+  .ojt-identity-copy strong {
     font-size: 16px;
   }
 
@@ -3246,11 +3862,13 @@ const dashboardCSS = `
   }
 
   .ojt-week-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
   }
 
   .ojt-summary-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr));
     gap: 6px;
   }
 
