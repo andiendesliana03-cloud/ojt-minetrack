@@ -10,6 +10,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const LEGACY_SITES = [
+  "LMO",
+  "SMO",
+  "GMO NORTH",
+  "GMO SOUTH",
+  "BMO 1",
+  "BMO 2",
+  "BMO 3",
+  "SRN",
+  "HO",
+];
+
 function respond(data, status = 200) {
   return NextResponse.json(data, {
     status,
@@ -21,10 +33,7 @@ function respond(data, status = 200) {
 
 function fail(message, status = 400) {
   return respond(
-    {
-      success: false,
-      error: message,
-    },
+    { success: false, error: message },
     status
   );
 }
@@ -35,6 +44,22 @@ function isUuid(value) {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       value
     )
+  );
+}
+
+function isIsoDate(value) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
   );
 }
 
@@ -70,14 +95,22 @@ export async function POST(request) {
     const decision = body?.decision;
     const dryRun = body?.dry_run === true;
 
+    // Default new untuk kompatibilitas request lama.
+    const source = body?.source || "new";
+
     const reason =
       typeof body?.rejection_reason === "string"
         ? body.rejection_reason.trim()
         : "";
 
-    // 1. Validasi data permintaan.
+    // 1. VALIDASI PERMINTAAN
+
     if (!isUuid(requestId)) {
       return fail("ID pengajuan tidak valid.");
+    }
+
+    if (!["new", "legacy"].includes(source)) {
+      return fail("Sumber pengajuan tidak valid.");
     }
 
     if (
@@ -96,7 +129,8 @@ export async function POST(request) {
       );
     }
 
-    // 2. Verifikasi token mentor.
+    // 2. VALIDASI TOKEN
+
     const authorization =
       request.headers.get("authorization") || "";
 
@@ -124,8 +158,9 @@ export async function POST(request) {
       return fail("Sesi login tidak valid.", 401);
     }
 
-    // Identitas mentor selalu dari token.
     const mentorId = authData.user.id;
+
+    // 3. VALIDASI ROLE MENTOR
 
     const {
       data: mentor,
@@ -145,26 +180,55 @@ export async function POST(request) {
       );
     }
 
-    // 3. Ambil pengajuan sistem baru.
-    const {
-      data: registration,
-      error: registrationError,
-    } = await admin
-      .from("ojt_registration_requests")
-      .select(`
-        id,
-        participant_id,
-        department,
-        site,
-        start_date,
-        end_date,
-        status
-      `)
-      .eq("id", requestId)
-      .maybeSingle();
+    // 4. AMBIL DATA BERDASARKAN SUMBER
 
-    if (registrationError) {
-      throw registrationError;
+    let registration = null;
+    let participantId = null;
+
+    if (source === "new") {
+      const {
+        data,
+        error,
+      } = await admin
+        .from("ojt_registration_requests")
+        .select(`
+          id,
+          participant_id,
+          department,
+          site,
+          start_date,
+          end_date,
+          status
+        `)
+        .eq("id", requestId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      registration = data;
+      participantId = data?.participant_id || null;
+    }
+
+    if (source === "legacy") {
+      const {
+        data,
+        error,
+      } = await admin
+        .from("participant_registrations")
+        .select(`
+          id,
+          user_id,
+          department,
+          site,
+          status
+        `)
+        .eq("id", requestId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      registration = data;
+      participantId = data?.user_id || null;
     }
 
     if (!registration) {
@@ -178,21 +242,57 @@ export async function POST(request) {
       );
     }
 
-    if (registration.participant_id === mentorId) {
+    if (!participantId || !isUuid(participantId)) {
+      return fail(
+        "Identitas peserta tidak valid.",
+        409
+      );
+    }
+
+    if (participantId === mentorId) {
       return fail(
         "Mentor tidak boleh memproses pengajuan sendiri.",
         403
       );
     }
 
-    // 4. Pengaman aktivasi pada server.
-    // Simulasi tidak mengubah database.
-    // Transaksi nyata wajib lolos canReviewOjt.
+    // 5. DATA PROGRAM UNTUK SISTEM LAMA
+
+    let legacySite = null;
+    let legacyStartDate = null;
+    let legacyEndDate = null;
+
+    if (source === "legacy" && decision === "approved") {
+      legacySite =
+        typeof body?.site === "string"
+          ? body.site.trim()
+          : registration.site;
+
+      legacyStartDate = body?.start_date;
+      legacyEndDate = body?.end_date;
+
+      if (!LEGACY_SITES.includes(legacySite)) {
+        return fail("Site OJT tidak valid.");
+      }
+
+      if (
+        !isIsoDate(legacyStartDate) ||
+        !isIsoDate(legacyEndDate) ||
+        legacyEndDate < legacyStartDate
+      ) {
+        return fail(
+          "Periode OJT tidak valid."
+        );
+      }
+    }
+
+    // 6. PENGAMAN TRANSAKSI SERVER
+
     if (
       !dryRun &&
       !canReviewOjt(
         mentorId,
-        registration.participant_id,
+        participantId,
         decision
       )
     ) {
@@ -202,19 +302,18 @@ export async function POST(request) {
       );
     }
 
-    // 5. Validasi profil peserta.
+    // 7. VALIDASI PROFIL PESERTA
+
     const {
       data: participant,
       error: participantError,
     } = await admin
       .from("profiles")
       .select("id,full_name,role")
-      .eq("id", registration.participant_id)
+      .eq("id", participantId)
       .maybeSingle();
 
-    if (participantError) {
-      throw participantError;
-    }
+    if (participantError) throw participantError;
 
     if (
       !participant ||
@@ -226,12 +325,13 @@ export async function POST(request) {
       );
     }
 
-    // Verifikasi email peserta.
+    // 8. VALIDASI EMAIL PESERTA
+
     const {
       data: participantAuth,
       error: participantAuthError,
     } = await admin.auth.admin.getUserById(
-      registration.participant_id
+      participantId
     );
 
     if (
@@ -245,32 +345,44 @@ export async function POST(request) {
       );
     }
 
-    // 6. Cegah persetujuan program aktif ganda.
+    // 9. CEGAH PROGRAM GANDA
+
     if (decision === "approved") {
-      const {
-        data: activePrograms,
-        error: programError,
-      } = await admin
+      let programQuery = admin
         .from("ojt_programs")
         .select("id")
-        .eq(
-          "participant_id",
-          registration.participant_id
-        )
-        .eq("status", "active")
-        .limit(1);
+        .eq("participant_id", participantId);
+
+      if (source === "new") {
+        // Sistem baru hanya mencegah
+        // program yang masih aktif.
+        programQuery = programQuery.eq(
+          "status",
+          "active"
+        );
+      }
+
+      // Sistem lama mengikuti fungsi SQL:
+      // tidak boleh ada program sebelumnya.
+      const {
+        data: existingPrograms,
+        error: programError,
+      } = await programQuery.limit(1);
 
       if (programError) throw programError;
 
-      if (activePrograms?.length) {
+      if (existingPrograms?.length) {
         return fail(
-          "Peserta sudah memiliki program OJT aktif.",
+          source === "legacy"
+            ? "Peserta sudah memiliki program OJT."
+            : "Peserta sudah memiliki program OJT aktif.",
           409
         );
       }
     }
 
-    // 7. Simulasi tanpa perubahan database.
+    // 10. SIMULASI TANPA DATABASE WRITE
+
     if (dryRun) {
       return respond({
         success: true,
@@ -279,25 +391,36 @@ export async function POST(request) {
         message:
           "Simulasi keputusan mentor berhasil. Database tidak berubah.",
         preview: {
+          source,
           registration_id: requestId,
           participant_name: participant.full_name,
           mentor_name: mentor.full_name,
           decision,
           rejection_reason:
             decision === "rejected" ? reason : null,
-          site: registration.site,
-          start_date: registration.start_date,
-          end_date: registration.end_date,
+          site:
+            source === "legacy"
+              ? legacySite || registration.site
+              : registration.site,
+          start_date:
+            source === "legacy"
+              ? legacyStartDate
+              : registration.start_date,
+          end_date:
+            source === "legacy"
+              ? legacyEndDate
+              : registration.end_date,
           participant_email_verified: true,
         },
       });
     }
 
-    // 8. Periksa ulang pengaman tepat sebelum RPC.
+    // 11. VALIDASI ULANG SEBELUM TRANSAKSI
+
     if (
       !canReviewOjt(
         mentorId,
-        registration.participant_id,
+        participantId,
         decision
       )
     ) {
@@ -307,8 +430,6 @@ export async function POST(request) {
       );
     }
 
-    // Dalam mode pengujian, pastikan kedua ID
-    // sudah ditentukan melalui konfigurasi server.
     const accessConfig = getOjtAccessConfig();
 
     if (
@@ -324,23 +445,48 @@ export async function POST(request) {
       );
     }
 
-    // 9. Keputusan nyata melalui fungsi SQL.
-    // Fungsi SQL mengunci pengajuan, mencatat
-    // mentor dan waktu, serta membuat program
-    // ketika disetujui.
-    const {
-      data: rpcResult,
-      error: rpcError,
-    } = await admin.rpc(
-      "review_ojt_registration",
-      {
-        p_request_id: requestId,
-        p_mentor_id: mentorId,
-        p_decision: decision,
-        p_rejection_reason:
-          decision === "rejected" ? reason : null,
-      }
-    );
+    // 12. RPC SESUAI SUMBER DATA
+
+    let rpcResult;
+    let rpcError;
+
+    if (source === "new") {
+      const result = await admin.rpc(
+        "review_ojt_registration",
+        {
+          p_request_id: requestId,
+          p_mentor_id: mentorId,
+          p_decision: decision,
+          p_rejection_reason:
+            decision === "rejected" ? reason : null,
+        }
+      );
+
+      rpcResult = result.data;
+      rpcError = result.error;
+    }
+
+    if (source === "legacy") {
+      const result = await admin.rpc(
+        "review_ojt_registration",
+        {
+          p_registration_id: requestId,
+          p_mentor_id: mentorId,
+          p_action:
+            decision === "approved"
+              ? "approve"
+              : "reject",
+          p_site: legacySite || registration.site || null,
+          p_start_date: legacyStartDate || null,
+          p_end_date: legacyEndDate || null,
+          p_rejection_reason:
+            decision === "rejected" ? reason : null,
+        }
+      );
+
+      rpcResult = result.data;
+      rpcError = result.error;
+    }
 
     if (rpcError) {
       console.error(
@@ -354,15 +500,33 @@ export async function POST(request) {
       );
     }
 
+    // 13. NORMALISASI HASIL RPC
+
     const result = Array.isArray(rpcResult)
       ? rpcResult[0]
       : rpcResult;
 
+    const resultRegistrationId =
+      result?.registration_id ??
+      result?.result_registration_id;
+
+    const resultStatus =
+      result?.registration_status ??
+      result?.result_status;
+
+    const programId =
+      result?.program_id ??
+      result?.result_program_id ??
+      null;
+
     if (
       !result ||
-      result.registration_status !== decision ||
-      (decision === "approved" &&
-        !result.program_id)
+      resultStatus !== decision ||
+      !resultRegistrationId ||
+      (
+        decision === "approved" &&
+        !programId
+      )
     ) {
       return fail(
         "Hasil keputusan belum dapat dipastikan. Periksa database sebelum mengulangi.",
@@ -370,17 +534,21 @@ export async function POST(request) {
       );
     }
 
+    // 14. RESPONS SUKSES
+
     return respond({
       success: true,
       dry_run: false,
-      registration_id: result.registration_id,
-      status: result.registration_status,
-      program_id: result.program_id || null,
+      source,
+      registration_id: resultRegistrationId,
+      status: resultStatus,
+      program_id: programId,
       message:
         decision === "approved"
           ? "Pengajuan disetujui. Program OJT aktif telah dibuat."
           : "Pengajuan ditolak dan alasan penolakan berhasil disimpan.",
     });
+
   } catch (error) {
     console.error(
       "Mentor review API error:",
