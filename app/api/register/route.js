@@ -9,19 +9,20 @@ export const dynamic = "force-dynamic";
  * OJT MineTrack v2.0
  * Registration API
  *
- * Pengaturan:
+ * Environment Variables:
  * OJT_REGISTRATION_ENABLED
  * OJT_TEST_AUTO_CONFIRM_EMAIL
  *
- * Khusus pengujian:
- * - Pendaftaran dibuka melalui environment Vercel.
- * - Email akun pengujian dapat dikonfirmasi oleh server.
- * - Role selalu participant.
- * - Pengajuan tetap pending.
- * - Tidak membuat program OJT aktif.
+ * Ketentuan:
  * - Tidak mengubah struktur database.
+ * - Role selalu participant.
+ * - Status pengajuan selalu pending.
+ * - Tidak otomatis mengaktifkan program OJT.
+ * - Tidak melewati persetujuan Mentor.
+ * - Kalender global 25 minggu tidak diubah.
  *
- * MATIKAN kembali kedua flag setelah pengujian.
+ * Mode auto-confirm email hanya untuk pengujian
+ * pada deployment dengan akses terbatas.
  */
 
 const REGISTRATION_ENABLED =
@@ -73,6 +74,7 @@ function errorResponse(message, status = 400) {
 }
 
 export async function POST(request) {
+  // Server registration lock.
   if (!REGISTRATION_ENABLED) {
     return errorResponse(
       "Pendaftaran peserta sementara dinonaktifkan.",
@@ -80,13 +82,7 @@ export async function POST(request) {
     );
   }
 
-  /*
-   * Implementasi ini menggunakan konfirmasi email
-   * langsung khusus akun pengujian.
-   *
-   * Jangan digunakan sebagai alur pendaftaran
-   * publik permanen.
-   */
+  // Konfirmasi otomatis khusus pengujian terbatas.
   if (!TEST_AUTO_CONFIRM_EMAIL) {
     return errorResponse(
       "Pendaftaran pengujian belum dikonfigurasi. Hubungi administrator.",
@@ -131,7 +127,10 @@ export async function POST(request) {
       .trim()
       .toUpperCase();
 
-    // VALIDASI NAMA
+    // ================================================
+    // VALIDASI INPUT
+    // ================================================
+
     if (
       fullName.length < 3 ||
       fullName.length > 120
@@ -141,7 +140,6 @@ export async function POST(request) {
       );
     }
 
-    // VALIDASI EMAIL
     if (
       email.length > 254 ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -151,7 +149,6 @@ export async function POST(request) {
       );
     }
 
-    // VALIDASI PASSWORD
     if (
       password.length < 8 ||
       password.length > 128
@@ -161,21 +158,22 @@ export async function POST(request) {
       );
     }
 
-    // VALIDASI DEPARTEMEN
     if (!ALLOWED_DEPARTMENTS.includes(department)) {
       return errorResponse(
         "Departemen tidak valid."
       );
     }
 
-    // VALIDASI SITE
     if (!ALLOWED_SITES.includes(site)) {
       return errorResponse(
         "Site tidak valid."
       );
     }
 
-    // SUPABASE SERVER CONFIGURATION
+    // ================================================
+    // SUPABASE SERVER CONNECTION
+    // ================================================
+
     const supabaseUrl =
       process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -184,7 +182,7 @@ export async function POST(request) {
 
     if (!supabaseUrl || !secretKey) {
       console.error(
-        "Supabase server configuration incomplete."
+        "Konfigurasi Supabase server belum lengkap."
       );
 
       return errorResponse(
@@ -204,14 +202,9 @@ export async function POST(request) {
       }
     );
 
-    /*
-     * BUAT AKUN PESERTA
-     *
-     * email_confirm: true hanya digunakan karena
-     * mode pengujian secara eksplisit diaktifkan.
-     *
-     * Role tidak diambil dari input pengguna.
-     */
+    // ================================================
+    // CREATE USER
+    // ================================================
 
     const {
       data: created,
@@ -257,30 +250,33 @@ export async function POST(request) {
       );
     }
 
-    /*
-     * ROLLBACK AKUN
-     * Bila penyimpanan profil/pengajuan gagal.
-     */
+    // ================================================
+    // ROLLBACK
+    // ================================================
+
     async function rollbackAccount() {
       const { error } =
         await admin.auth.admin.deleteUser(userId);
 
       if (error) {
         console.error(
-          "Rollback failed:",
+          "Rollback participant failed:",
           error
         );
+
         return false;
       }
 
       return true;
     }
 
-    /*
-     * PROFIL PESERTA
-     * Role selalu participant.
-     */
-    const { error: profileError } = await admin
+    // ================================================
+    // PROFILE
+    // ================================================
+
+    const {
+      error: profileError,
+    } = await admin
       .from("profiles")
       .upsert(
         {
@@ -296,11 +292,12 @@ export async function POST(request) {
 
     if (profileError) {
       console.error(
-        "Profile creation failed:",
+        "Participant profile failed:",
         profileError
       );
 
-      const rolledBack = await rollbackAccount();
+      const rolledBack =
+        await rollbackAccount();
 
       return errorResponse(
         rolledBack
@@ -310,11 +307,13 @@ export async function POST(request) {
       );
     }
 
-    /*
-     * PENGAJUAN PENDAFTARAN
-     * Tetap melalui alur persetujuan Mentor.
-     */
-    const { error: registrationError } = await admin
+    // ================================================
+    // PENDING REGISTRATION
+    // ================================================
+
+    const {
+      error: registrationError,
+    } = await admin
       .from("participant_registrations")
       .insert({
         user_id: userId,
@@ -331,7 +330,8 @@ export async function POST(request) {
         registrationError
       );
 
-      const rolledBack = await rollbackAccount();
+      const rolledBack =
+        await rollbackAccount();
 
       return errorResponse(
         rolledBack
@@ -341,13 +341,10 @@ export async function POST(request) {
       );
     }
 
-    /*
-     * SUKSES
-     *
-     * Akun bisa digunakan untuk autentikasi.
-     * Persetujuan Mentor tetap wajib.
-     * Tidak ada program OJT yang otomatis aktif.
-     */
+    // ================================================
+    // SUCCESS
+    // ================================================
+
     return jsonResponse(
       {
         success: true,
@@ -358,6 +355,7 @@ export async function POST(request) {
       },
       201
     );
+
   } catch (error) {
     console.error(
       "OJT registration error:",
