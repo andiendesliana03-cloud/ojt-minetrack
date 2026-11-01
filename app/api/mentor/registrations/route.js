@@ -15,9 +15,26 @@ function respond(data, status = 200) {
   });
 }
 
+function fail(message, status = 400) {
+  return respond(
+    {
+      success: false,
+      error: message,
+    },
+    status
+  );
+}
+
 function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = (
+    process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+  ).trim();
+
+  const key = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    ""
+  ).trim();
 
   if (!url || !key) {
     throw new Error(
@@ -29,29 +46,140 @@ function getAdminClient() {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
+      detectSessionInUrl: false,
     },
   });
 }
 
+function normalizeStatus(value) {
+  const status = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    status === "pending" ||
+    status === "approved" ||
+    status === "rejected"
+  ) {
+    return status;
+  }
+
+  return status || "unknown";
+}
+
+function normalizeDate(value) {
+  if (!value) return null;
+
+  return String(value).slice(0, 10);
+}
+
+function normalizeNew(row, profile) {
+  return {
+    id: row.id,
+
+    source: "new",
+
+    participant_id: row.participant_id,
+
+    full_name:
+      profile?.full_name ||
+      "Peserta OJT",
+
+    email: null,
+
+    department:
+      row.department ||
+      profile?.department ||
+      null,
+
+    site: row.site || null,
+
+    start_date: normalizeDate(
+      row.start_date
+    ),
+
+    end_date: normalizeDate(
+      row.end_date
+    ),
+
+    status: normalizeStatus(row.status),
+
+    created_at: row.created_at || null,
+
+    reviewed_by: row.reviewed_by || null,
+
+    reviewed_at: row.reviewed_at || null,
+
+    rejection_reason:
+      row.rejection_reason || null,
+  };
+}
+
+function normalizeLegacy(row, profile) {
+  return {
+    id: row.id,
+
+    source: "legacy",
+
+    participant_id: row.user_id,
+
+    full_name:
+      row.full_name ||
+      profile?.full_name ||
+      "Peserta OJT",
+
+    email: row.email || null,
+
+    department:
+      row.department ||
+      profile?.department ||
+      null,
+
+    site: row.site || null,
+
+    // Tabel participant_registrations
+    // tidak memiliki kolom tanggal.
+    // Jangan mengarang periode individual.
+    start_date: null,
+
+    end_date: null,
+
+    status: normalizeStatus(row.status),
+
+    created_at: row.created_at || null,
+
+    reviewed_by: row.reviewed_by || null,
+
+    reviewed_at: row.reviewed_at || null,
+
+    rejection_reason:
+      row.rejection_reason || null,
+  };
+}
+
 export async function GET(request) {
   try {
-    // ==============================================
-    // 1. VALIDASI TOKEN LOGIN
-    // ==============================================
+    // ===========================================
+    // 1. VERIFIKASI TOKEN
+    // ===========================================
 
     const authorization =
       request.headers.get("authorization") || "";
 
-    const token = authorization.startsWith("Bearer ")
-      ? authorization.slice(7).trim()
-      : "";
+    if (!authorization.startsWith("Bearer ")) {
+      return fail(
+        "Silakan login sebagai Mentor.",
+        401
+      );
+    }
+
+    const token = authorization
+      .slice(7)
+      .trim();
 
     if (!token) {
-      return respond(
-        {
-          success: false,
-          error: "Silakan login terlebih dahulu.",
-        },
+      return fail(
+        "Token login tidak tersedia.",
         401
       );
     }
@@ -63,50 +191,51 @@ export async function GET(request) {
       error: authError,
     } = await admin.auth.getUser(token);
 
-    if (authError || !authData?.user) {
-      return respond(
-        {
-          success: false,
-          error: "Sesi login tidak valid.",
-        },
+    if (
+      authError ||
+      !authData?.user?.id
+    ) {
+      return fail(
+        "Sesi login tidak valid.",
         401
       );
     }
 
-    // ==============================================
+    const mentorId = authData.user.id;
+
+    // ===========================================
     // 2. VALIDASI ROLE MENTOR
-    // ==============================================
+    // ===========================================
 
     const {
       data: mentor,
       error: mentorError,
     } = await admin
       .from("profiles")
-      .select("id,role")
-      .eq("id", authData.user.id)
+      .select("id,full_name,role")
+      .eq("id", mentorId)
       .maybeSingle();
 
     if (mentorError) {
       throw mentorError;
     }
 
-    if (!mentor || mentor.role !== "mentor") {
-      return respond(
-        {
-          success: false,
-          error: "Akses hanya untuk mentor.",
-        },
+    if (
+      !mentor ||
+      mentor.role !== "mentor"
+    ) {
+      return fail(
+        "Hanya Mentor yang dapat melihat daftar pengajuan.",
         403
       );
     }
 
-    // ==============================================
-    // 3. PENGAJUAN SISTEM BARU
-    // HANYA ROLE PARTICIPANT
-    // ==============================================
+    // ===========================================
+    // 3. AMBIL PENDAFTARAN SISTEM BARU
+    // ===========================================
 
     const {
-      data: newRequests,
+      data: newRegistrations,
       error: newError,
     } = await admin
       .from("ojt_registration_requests")
@@ -118,14 +247,10 @@ export async function GET(request) {
         start_date,
         end_date,
         status,
-        rejection_reason,
+        created_at,
         reviewed_by,
         reviewed_at,
-        created_at,
-        peserta:profiles!ojt_registration_requests_participant_id_fkey(
-          full_name,
-          role
-        )
+        rejection_reason
       `)
       .order("created_at", {
         ascending: false,
@@ -133,60 +258,23 @@ export async function GET(request) {
 
     if (newError) {
       console.error(
-        "New registration query failed:",
-        newError
+        "[MENTOR REGISTRATIONS] New:",
+        newError.message
       );
 
-      return respond(
-        {
-          success: false,
-          error:
-            "Gagal membaca pengajuan dari sistem baru.",
-        },
+      return fail(
+        "Gagal membaca pengajuan OJT baru.",
         500
       );
     }
 
-    // Filter berdasarkan role profil.
-    const currentRegistrations = (
-      newRequests || []
-    )
-      .filter(
-        (item) =>
-          item.peserta?.role === "participant"
-      )
-      .map((item) => ({
-        id: item.id,
-        participant_id: item.participant_id,
-        user_id: item.participant_id,
-
-        full_name:
-          item.peserta?.full_name ||
-          "Nama belum tersedia",
-
-        email: null,
-        department: item.department,
-        site: item.site,
-        start_date: item.start_date,
-        end_date: item.end_date,
-        status: item.status,
-        reviewed_by: item.reviewed_by,
-        reviewed_at: item.reviewed_at,
-
-        rejection_reason:
-          item.rejection_reason || null,
-
-        created_at: item.created_at,
-        source: "new",
-      }));
-
-    // ==============================================
-    // 4. RIWAYAT PENDAFTARAN SISTEM LAMA
-    // ==============================================
+    // ===========================================
+    // 4. AMBIL PENDAFTARAN SISTEM LAMA
+    // ===========================================
 
     const {
-      data: oldRequests,
-      error: oldError,
+      data: legacyRegistrations,
+      error: legacyError,
     } = await admin
       .from("participant_registrations")
       .select(`
@@ -197,154 +285,196 @@ export async function GET(request) {
         department,
         site,
         status,
+        created_at,
         reviewed_by,
         reviewed_at,
-        rejection_reason,
-        created_at
+        rejection_reason
       `)
       .order("created_at", {
         ascending: false,
       });
 
-    if (oldError) {
+    if (legacyError) {
       console.error(
-        "Old registration query failed:",
-        oldError
+        "[MENTOR REGISTRATIONS] Legacy:",
+        legacyError.message
       );
 
-      return respond(
-        {
-          success: false,
-          error:
-            "Gagal membaca riwayat pendaftaran lama.",
-        },
+      return fail(
+        "Gagal membaca pendaftaran peserta.",
         500
       );
     }
 
-    // ==============================================
-    // 5. VERIFIKASI ROLE RIWAYAT LAMA
-    // ==============================================
+    const newRows = newRegistrations || [];
+    const legacyRows = legacyRegistrations || [];
 
-    const oldUserIds = [
+    // ===========================================
+    // 5. AMBIL IDENTITAS PESERTA
+    // ===========================================
+
+    const participantIds = [
       ...new Set(
-        (oldRequests || [])
-          .map((item) => item.user_id)
-          .filter(Boolean)
+        [
+          ...newRows.map(
+            (row) => row.participant_id
+          ),
+          ...legacyRows.map(
+            (row) => row.user_id
+          ),
+        ].filter(Boolean)
       ),
     ];
 
-    let participantIds = new Set();
+    const profilesById = new Map();
 
-    if (oldUserIds.length > 0) {
-      const {
-        data: oldProfiles,
-        error: profileError,
-      } = await admin
-        .from("profiles")
-        .select("id,role")
-        .in("id", oldUserIds);
+    if (participantIds.length > 0) {
+      // Batasi jumlah ID per permintaan agar
+      // tidak membuat query terlalu besar.
+      const batchSize = 100;
 
-      if (profileError) {
-        console.error(
-          "Legacy profile query failed:",
-          profileError
+      for (
+        let index = 0;
+        index < participantIds.length;
+        index += batchSize
+      ) {
+        const batch = participantIds.slice(
+          index,
+          index + batchSize
         );
 
-        return respond(
-          {
-            success: false,
-            error:
-              "Gagal memverifikasi identitas riwayat pendaftaran.",
-          },
-          500
-        );
-      }
-
-      participantIds = new Set(
-        (oldProfiles || [])
-          .filter(
-            (profile) =>
-              profile.role === "participant"
+        const {
+          data: profiles,
+          error: profileError,
+        } = await admin
+          .from("profiles")
+          .select(
+            "id,full_name,department,role"
           )
-          .map((profile) => profile.id)
-      );
+          .in("id", batch);
+
+        if (profileError) {
+          throw profileError;
+        }
+
+        for (const profile of profiles || []) {
+          profilesById.set(
+            profile.id,
+            profile
+          );
+        }
+      }
     }
 
-    // Hanya riwayat milik peserta.
-    const legacyRegistrations = (
-      oldRequests || []
-    )
-      .filter((item) =>
-        participantIds.has(item.user_id)
-      )
-      .map((item) => ({
-        id: item.id,
-        participant_id: item.user_id,
-        user_id: item.user_id,
-        full_name: item.full_name,
-        email: item.email,
-        department: item.department,
-        site: item.site,
+    // ===========================================
+    // 6. NORMALISASI SUMBER DATA
+    // ===========================================
 
-        start_date: null,
-        end_date: null,
+    const normalizedNew = newRows.map(
+      (row) =>
+        normalizeNew(
+          row,
+          profilesById.get(
+            row.participant_id
+          )
+        )
+    );
 
-        status: item.status,
-        reviewed_by: item.reviewed_by,
-        reviewed_at: item.reviewed_at,
+    const normalizedLegacy = legacyRows.map(
+      (row) =>
+        normalizeLegacy(
+          row,
+          profilesById.get(
+            row.user_id
+          )
+        )
+    );
 
-        rejection_reason:
-          item.rejection_reason || null,
-
-        created_at: item.created_at,
-        source: "legacy",
-      }));
-
-    // ==============================================
-    // 6. GABUNGKAN DATA PESERTA
-    // ==============================================
-
+    // Tetap tampilkan kedua sumber agar
+    // riwayat pendaftaran tidak hilang.
     const registrations = [
-      ...currentRegistrations,
-      ...legacyRegistrations,
+      ...normalizedNew,
+      ...normalizedLegacy,
     ].sort((a, b) => {
-      return (
-        new Date(b.created_at).getTime() -
-        new Date(a.created_at).getTime()
-      );
+      const priority = {
+        pending: 0,
+        approved: 1,
+        rejected: 2,
+      };
+
+      const priorityA =
+        priority[a.status] ?? 3;
+
+      const priorityB =
+        priority[b.status] ?? 3;
+
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+
+      const timeA = a.created_at
+        ? new Date(a.created_at).getTime()
+        : 0;
+
+      const timeB = b.created_at
+        ? new Date(b.created_at).getTime()
+        : 0;
+
+      return timeB - timeA;
     });
 
-    // ==============================================
-    // 7. RESPONSE
-    // ==============================================
+    // ===========================================
+    // 7. STATISTIK
+    // ===========================================
+
+    const summary = {
+      total: registrations.length,
+
+      pending: registrations.filter(
+        (row) => row.status === "pending"
+      ).length,
+
+      approved: registrations.filter(
+        (row) => row.status === "approved"
+      ).length,
+
+      rejected: registrations.filter(
+        (row) => row.status === "rejected"
+      ).length,
+
+      new: normalizedNew.length,
+
+      legacy: normalizedLegacy.length,
+    };
+
+    // ===========================================
+    // 8. RESPONSE
+    // ===========================================
 
     return respond({
       success: true,
 
       registrations,
 
-      total: registrations.length,
+      summary,
 
-      new_count:
-        currentRegistrations.length,
+      total: summary.total,
 
-      legacy_count:
-        legacyRegistrations.length,
+      mentor: {
+        id: mentor.id,
+        full_name:
+          mentor.full_name || "Mentor OJT",
+        role: "mentor",
+      },
     });
-
   } catch (error) {
     console.error(
-      "GET mentor registrations:",
+      "[MENTOR REGISTRATIONS] Server:",
       error
     );
 
-    return respond(
-      {
-        success: false,
-        error:
-          "Terjadi kesalahan saat mengambil daftar pengajuan.",
-      },
+    return fail(
+      "Terjadi kesalahan server saat mengambil pengajuan.",
       500
     );
   }
