@@ -6,11 +6,8 @@ import { useRouter } from "next/navigation";
 
 // ======================================================
 // OJT MINETRACK V2.0
-// DASHBOARD PENDAFTARAN PESERTA OJT
+// PENDAFTARAN PESERTA OJT
 // CORPORATE NAVY & EMERALD
-//
-// FRONTEND TERHUBUNG KE /api/register
-// SERVER REGISTRATION LOCK TETAP DIHORMATI
 // ======================================================
 
 const BACKGROUND = "/background-erg.png.PNG";
@@ -50,7 +47,36 @@ const EMPTY_FORM = {
   confirmPassword: "",
   department: "",
   site: "",
+  startDate: "",
+  endDate: "",
 };
+
+// ======================================================
+// HELPERS
+// ======================================================
+
+function formatDate(value) {
+  if (!value) return "—";
+
+  const parts = String(value).slice(0, 10).split("-");
+
+  if (parts.length !== 3) return value;
+
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function isValidDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
 
 // ======================================================
 // ICON
@@ -198,12 +224,14 @@ function FormField({
   label,
   icon,
   children,
+  required = true,
 }) {
   return (
     <div className="reg-field">
-      <label className="reg-field-label">
-        {label} <em>*</em>
-      </label>
+      <div className="reg-field-label">
+        {label}
+        {required && <em> *</em>}
+      </div>
 
       <div className="reg-field-control">
         <Icon name={icon} size={18} />
@@ -229,22 +257,31 @@ export default function DaftarPesertaOJT() {
     useState(false);
 
   const [agreed, setAgreed] = useState(false);
-
   const [loading, setLoading] = useState(false);
 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [success, setSuccess] = useState(false);
-
-  // ====================================================
-  // FORM HELPERS
-  // ====================================================
+  const [registeredPeriod, setRegisteredPeriod] =
+    useState(null);
 
   function update(name, value) {
-    setForm((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
+    setForm((previous) => {
+      const next = {
+        ...previous,
+        [name]: value,
+      };
+
+      if (
+        name === "startDate" &&
+        next.endDate &&
+        next.endDate < value
+      ) {
+        next.endDate = "";
+      }
+
+      return next;
+    });
 
     setError("");
     setNotice("");
@@ -293,14 +330,24 @@ export default function DaftarPesertaOJT() {
     }
 
     if (
-      !form.department ||
-      form.department.length > 100
+      !DEPARTMENTS.includes(form.department)
     ) {
       return "Departemen wajib dipilih.";
     }
 
     if (!SITES.includes(form.site)) {
       return "Pilih site penempatan OJT.";
+    }
+
+    if (
+      !isValidDate(form.startDate) ||
+      !isValidDate(form.endDate)
+    ) {
+      return "Tanggal mulai dan selesai OJT wajib diisi.";
+    }
+
+    if (form.endDate < form.startDate) {
+      return "Tanggal selesai OJT tidak boleh lebih awal daripada tanggal mulai.";
     }
 
     if (!agreed) {
@@ -312,11 +359,6 @@ export default function DaftarPesertaOJT() {
 
   // ====================================================
   // REGISTRATION SUBMIT
-  //
-  // MENGGUNAKAN ENDPOINT SERVER YANG SUDAH ADA.
-  // TIDAK MENGGUNAKAN auth.signUp LANGSUNG.
-  //
-  // SERVER MENENTUKAN APAKAH PENDAFTARAN AKTIF.
   // ====================================================
 
   async function handleSubmit(event) {
@@ -346,11 +388,12 @@ export default function DaftarPesertaOJT() {
       password: form.password,
 
       department: form.department,
-
       site: form.site,
 
-      // Periode global ditampilkan pada UI.
-      // Endpoint saat ini belum menerima tanggal.
+      // Disimpan pada ojt_registration_requests
+      // melalui /api/register.
+      start_date: form.startDate,
+      end_date: form.endDate,
     };
 
     setLoading(true);
@@ -365,7 +408,7 @@ export default function DaftarPesertaOJT() {
         body: JSON.stringify(payload),
       });
 
-      let result = null;
+      let result;
 
       try {
         result = await response.json();
@@ -375,45 +418,64 @@ export default function DaftarPesertaOJT() {
         );
       }
 
-      // SERVER REGISTRATION LOCK
       if (response.status === 503) {
         throw new Error(
           result?.error ||
-          "Pendaftaran peserta belum diaktifkan oleh Administrator."
+            result?.message ||
+            "Pendaftaran peserta belum diaktifkan oleh Administrator."
         );
       }
 
       if (response.status === 409) {
         throw new Error(
           result?.error ||
-          "Email sudah terdaftar. Silakan login."
+            result?.message ||
+            "Email sudah terdaftar. Silakan login."
         );
       }
 
       if (!response.ok) {
         throw new Error(
           result?.error ||
-          "Pendaftaran gagal diproses."
+            result?.message ||
+            "Pendaftaran gagal diproses."
         );
       }
 
-      // HANYA RESPONS SUKSES SERVER
-      // YANG BOLEH MENANDAI PENDAFTARAN BERHASIL.
-
-      if (result?.success !== true) {
+      if (
+        result?.success !== true ||
+        !result?.registration_id
+      ) {
         throw new Error(
-          "Server belum mengonfirmasi pendaftaran."
+          "Server belum mengonfirmasi penyimpanan pengajuan."
         );
       }
+
+      // Periode harus tersimpan pada jalur baru.
+      // Jika tidak, jangan tampilkan konfirmasi
+      // seolah-olah tanggal sudah berhasil disimpan.
+      if (
+        result.source !== "new" ||
+        result.start_date !== payload.start_date ||
+        result.end_date !== payload.end_date
+      ) {
+        throw new Error(
+          "Pendaftaran diterima, tetapi penyimpanan periode OJT belum dapat dipastikan. Jangan mendaftar ulang dengan email yang sama; hubungi Administrator."
+        );
+      }
+
+      setRegisteredPeriod({
+        startDate: result.start_date,
+        endDate: result.end_date,
+      });
 
       setSuccess(true);
 
       setNotice(
         result.message ||
-        "Pengajuan pendaftaran berhasil tersimpan."
+          "Pengajuan pendaftaran berhasil tersimpan."
       );
 
-      // Kosongkan password dari state.
       setForm((previous) => ({
         ...previous,
         password: "",
@@ -422,7 +484,7 @@ export default function DaftarPesertaOJT() {
     } catch (err) {
       setError(
         err?.message ||
-        "Terjadi kesalahan saat mendaftar."
+          "Terjadi kesalahan saat mendaftar."
       );
     } finally {
       setLoading(false);
@@ -513,8 +575,8 @@ export default function DaftarPesertaOJT() {
             Daftarkan diri Anda untuk mengikuti program
             On The Job Training (OJT) di lingkungan
             Emergency Response Group PT Berau Coal.
-            Lengkapi data dengan benar dan ikuti
-            proses persetujuan.
+            Lengkapi data, tentukan periode OJT sesuai
+            penugasan, dan ikuti proses persetujuan Mentor.
           </p>
 
           <div className="reg-hero-tags">
@@ -524,7 +586,6 @@ export default function DaftarPesertaOJT() {
             </span>
 
             <span>Safe Operation</span>
-
             <span>Sustainable Mining</span>
           </div>
         </section>
@@ -538,8 +599,8 @@ export default function DaftarPesertaOJT() {
             title="Pendaftaran Peserta OJT"
             color="green"
           >
-            Pengajuan disimpan setelah server
-            menerima dan memvalidasi pendaftaran.
+            Data identitas dan periode peserta
+            disimpan setelah validasi server.
           </InfoCard>
 
           <InfoCard
@@ -548,7 +609,7 @@ export default function DaftarPesertaOJT() {
             title="12 Sep 2026 – 06 Mar 2027"
             color="blue"
           >
-            Kalender Global OJT Week 01–25.
+            Kalender monitoring global Week 01–25.
           </InfoCard>
 
           <InfoCard
@@ -567,8 +628,8 @@ export default function DaftarPesertaOJT() {
             title="Week 01 – Week 25"
             color="teal"
           >
-            Program monitoring dan evaluasi
-            selama 25 minggu kalender global.
+            Monitoring dan evaluasi program
+            menggunakan kalender global.
           </InfoCard>
         </section>
 
@@ -610,9 +671,7 @@ export default function DaftarPesertaOJT() {
                 <p>{notice}</p>
 
                 <div className="reg-success-detail">
-                  <strong>
-                    {form.fullName.trim()}
-                  </strong>
+                  <strong>{form.fullName.trim()}</strong>
 
                   <span>
                     {form.email.trim().toLowerCase()}
@@ -621,12 +680,29 @@ export default function DaftarPesertaOJT() {
                   <span>
                     {form.department} · {form.site}
                   </span>
+
+                  <div className="reg-saved-period">
+                    <Icon name="calendar" size={18} />
+
+                    <span>
+                      Periode OJT Peserta
+                      <strong>
+                        {formatDate(
+                          registeredPeriod?.startDate
+                        )}
+                        {" – "}
+                        {formatDate(
+                          registeredPeriod?.endDate
+                        )}
+                      </strong>
+                    </span>
+                  </div>
                 </div>
 
                 <p>
-                  Status pengajuan menunggu keputusan
-                  sesuai alur yang berlaku. Pendaftaran
-                  belum berarti program telah aktif.
+                  Pengajuan masih menunggu keputusan
+                  Mentor. Pendaftaran belum berarti
+                  program OJT telah aktif.
                 </p>
 
                 <button
@@ -652,6 +728,7 @@ export default function DaftarPesertaOJT() {
                       minLength={3}
                       maxLength={120}
                       autoComplete="name"
+                      aria-label="Nama Lengkap"
                       placeholder="Nama lengkap peserta"
                       value={form.fullName}
                       disabled={loading}
@@ -673,6 +750,7 @@ export default function DaftarPesertaOJT() {
                       type="email"
                       maxLength={254}
                       autoComplete="email"
+                      aria-label="Email"
                       placeholder="Alamat email aktif"
                       value={form.email}
                       disabled={loading}
@@ -699,6 +777,7 @@ export default function DaftarPesertaOJT() {
                       minLength={8}
                       maxLength={128}
                       autoComplete="new-password"
+                      aria-label="Password"
                       placeholder="Minimal 8 karakter"
                       value={form.password}
                       disabled={loading}
@@ -744,6 +823,7 @@ export default function DaftarPesertaOJT() {
                       minLength={8}
                       maxLength={128}
                       autoComplete="new-password"
+                      aria-label="Konfirmasi Password"
                       placeholder="Ulangi password"
                       value={form.confirmPassword}
                       disabled={loading}
@@ -781,6 +861,7 @@ export default function DaftarPesertaOJT() {
                   >
                     <select
                       required
+                      aria-label="Departemen"
                       value={form.department}
                       disabled={loading}
                       onChange={(event) =>
@@ -811,6 +892,7 @@ export default function DaftarPesertaOJT() {
                   >
                     <select
                       required
+                      aria-label="Site Penempatan"
                       value={form.site}
                       disabled={loading}
                       onChange={(event) =>
@@ -836,7 +918,84 @@ export default function DaftarPesertaOJT() {
                   </FormField>
                 </div>
 
-                {/* FIXED GLOBAL CALENDAR */}
+                {/* PERIODE INDIVIDUAL PESERTA */}
+
+                <div className="reg-individual-program">
+                  <h3>
+                    <Icon name="calendar" size={19} />
+                    Periode OJT Peserta
+                  </h3>
+
+                  <p className="reg-individual-desc">
+                    Masukkan tanggal mulai dan selesai
+                    sesuai penugasan OJT Anda. Periode
+                    ini akan disimpan bersama pengajuan
+                    dan diperiksa oleh Mentor.
+                  </p>
+
+                  <div className="reg-form-grid">
+                    <FormField
+                      label="Tanggal Mulai OJT"
+                      icon="calendar"
+                    >
+                      <input
+                        type="date"
+                        required
+                        aria-label="Tanggal Mulai OJT"
+                        value={form.startDate}
+                        disabled={loading}
+                        onChange={(event) =>
+                          update(
+                            "startDate",
+                            event.target.value
+                          )
+                        }
+                      />
+                    </FormField>
+
+                    <FormField
+                      label="Tanggal Selesai OJT"
+                      icon="flag"
+                    >
+                      <input
+                        type="date"
+                        required
+                        aria-label="Tanggal Selesai OJT"
+                        min={
+                          form.startDate || undefined
+                        }
+                        value={form.endDate}
+                        disabled={loading}
+                        onChange={(event) =>
+                          update(
+                            "endDate",
+                            event.target.value
+                          )
+                        }
+                      />
+                    </FormField>
+                  </div>
+
+                  {form.startDate &&
+                    form.endDate &&
+                    isValidDate(form.startDate) &&
+                    isValidDate(form.endDate) &&
+                    form.endDate >= form.startDate && (
+                      <div className="reg-period-preview">
+                        <Icon name="check" size={17} />
+                        <span>
+                          Periode yang akan diajukan:
+                          <strong>
+                            {formatDate(form.startDate)}
+                            {" – "}
+                            {formatDate(form.endDate)}
+                          </strong>
+                        </span>
+                      </div>
+                    )}
+                </div>
+
+                {/* GLOBAL CALENDAR */}
 
                 <div className="reg-fixed-program">
                   <h3>
@@ -847,39 +1006,41 @@ export default function DaftarPesertaOJT() {
                   <div className="reg-fixed-grid">
                     <div>
                       <Icon name="calendar" size={21} />
+
                       <div>
                         <span>Awal Kalender OJT</span>
                         <strong>
                           12 September 2026
                         </strong>
-                        <small>
-                          Week 01 · Sabtu
-                        </small>
+                        <small>Week 01 · Sabtu</small>
                       </div>
+
                       <Icon name="lock" size={15} />
                     </div>
 
                     <div>
                       <Icon name="flag" size={21} />
+
                       <div>
                         <span>Akhir Kalender OJT</span>
                         <strong>
                           6 Maret 2027
                         </strong>
-                        <small>
-                          Week 25 · Sabtu
-                        </small>
+                        <small>Week 25 · Sabtu</small>
                       </div>
+
                       <Icon name="lock" size={15} />
                     </div>
                   </div>
 
                   <p>
                     <Icon name="info" size={16} />
-                    Kalender global bersifat tetap.
-                    Tanggal individual program peserta
-                    belum disimpan oleh endpoint
-                    pendaftaran ini.
+                    Kalender global tetap dari{" "}
+                    {formatDate(PROGRAM_START)}
+                    {" hingga "}
+                    {formatDate(PROGRAM_END)}.
+                    Kalender ini berbeda dari periode
+                    individual yang Anda isi di atas.
                   </p>
                 </div>
 
@@ -897,14 +1058,14 @@ export default function DaftarPesertaOJT() {
                   />
 
                   <span>
-                    Saya menyatakan seluruh data yang
-                    diisi adalah benar dan bersedia
-                    mengikuti ketentuan program OJT
-                    MineTrack PT Berau Coal.
+                    Saya menyatakan seluruh data dan
+                    periode OJT yang diisi adalah benar
+                    dan bersedia mengikuti ketentuan
+                    program OJT MineTrack PT Berau Coal.
                   </span>
                 </label>
 
-                {/* ERROR */}
+                {/* MESSAGES */}
 
                 {error && (
                   <div
@@ -959,9 +1120,9 @@ export default function DaftarPesertaOJT() {
                 </div>
 
                 <p className="reg-form-footnote">
-                  Pengajuan hanya berhasil apabila
-                  server mengonfirmasi bahwa data
-                  telah tersimpan.
+                  Data identitas dan periode OJT hanya
+                  dinyatakan tersimpan setelah
+                  dikonfirmasi oleh server.
                 </p>
               </form>
             )}
@@ -1032,9 +1193,7 @@ export default function DaftarPesertaOJT() {
 
                 <div>
                   <h2>Ketentuan Pendaftaran</h2>
-                  <p>
-                    Tahapan pengajuan peserta.
-                  </p>
+                  <p>Tahapan pengajuan peserta.</p>
                 </div>
               </div>
 
@@ -1042,7 +1201,7 @@ export default function DaftarPesertaOJT() {
                 {[
                   [
                     "Mengisi Formulir",
-                    "Peserta mengisi data diri sesuai identitas.",
+                    "Peserta mengisi identitas, site, dan periode OJT.",
                   ],
                   [
                     "Validasi Server",
@@ -1050,15 +1209,15 @@ export default function DaftarPesertaOJT() {
                   ],
                   [
                     "Pengajuan Tersimpan",
-                    "Pengajuan yang berhasil diterima berstatus menunggu.",
+                    "Data peserta dan tanggal OJT disimpan sebagai pengajuan.",
                   ],
                   [
                     "Persetujuan Mentor",
-                    "Mentor meninjau pengajuan melalui dashboard.",
+                    "Mentor memeriksa pengajuan dan periode peserta.",
                   ],
                   [
                     "Program OJT",
-                    "Aktivasi program mengikuti proses persetujuan sistem.",
+                    "Aktivasi dilakukan setelah persetujuan berhasil diproses.",
                   ],
                 ].map(
                   ([title, description], index) => (
@@ -1560,6 +1719,58 @@ const css = `
   color: #7893a9;
 }
 
+/* INDIVIDUAL PROGRAM */
+
+.reg-individual-program {
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid #bfe5d9;
+  border-radius: 9px;
+  background: #effaf6;
+}
+
+.reg-individual-program h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: #08765e;
+  font-size: 13px;
+}
+
+.reg-individual-desc {
+  margin: 0 0 14px;
+  color: #4b7b70;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.reg-individual-program .reg-field-control {
+  background: white;
+}
+
+.reg-period-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 13px;
+  padding: 12px;
+  border: 1px solid #bde4cf;
+  border-radius: 8px;
+  background: white;
+  color: #087b5e;
+}
+
+.reg-period-preview > span {
+  display: grid;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.reg-period-preview strong {
+  font-size: 12px;
+}
+
 /* FIXED CALENDAR */
 
 .reg-fixed-program {
@@ -1758,13 +1969,35 @@ const css = `
   overflow-wrap: anywhere;
 }
 
-.reg-success-detail strong {
+.reg-success-detail > strong {
   color: #173c51;
 }
 
-.reg-success-detail span {
+.reg-success-detail > span {
   color: #6d8895;
   font-size: 11px;
+}
+
+.reg-saved-period {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #e9f8f0;
+  color: #087854;
+  font-size: 11px;
+}
+
+.reg-saved-period span {
+  display: grid;
+  gap: 6px;
+}
+
+.reg-saved-period strong {
+  font-size: 12px;
 }
 
 .reg-success-card button {
