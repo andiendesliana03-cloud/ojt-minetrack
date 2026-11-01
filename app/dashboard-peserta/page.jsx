@@ -87,17 +87,26 @@ function formatDate(value) {
 
 function parseDate(value) {
   if (!value) return null;
-  const p = String(value).slice(0, 10).split("-").map(Number);
 
-  if (p.length !== 3 || p.some(n => !Number.isInteger(n))) {
+  const p = String(value)
+    .slice(0, 10)
+    .split("-")
+    .map(Number);
+
+  if (
+    p.length !== 3 ||
+    p.some((n) => !Number.isInteger(n))
+  ) {
     return null;
   }
 
   const d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
 
-  return d.getUTCFullYear() === p[0] &&
+  return (
+    d.getUTCFullYear() === p[0] &&
     d.getUTCMonth() === p[1] - 1 &&
     d.getUTCDate() === p[2]
+  )
     ? d
     : null;
 }
@@ -139,28 +148,29 @@ function emptyProgress() {
 
 // ====================================================
 // ACHIEVEMENT
-// SAMA DENGAN DASHBOARD MENTOR TAHAP 6.1
+// PERHITUNGAN ASLI DIPERTAHANKAN
 // ====================================================
 
 function calculateAchievements(records, types, startDate) {
   const codes = new Map(
-    types.map(t => [
+    types.map((t) => [
       normalizeType(t.name),
       normalizeType(t.code),
     ])
   );
 
-  const verified = records.filter(r =>
-    normalize(r.status) === "verified" &&
-    weekOf(r.activity_date, startDate) !== null
+  const verified = records.filter(
+    (r) =>
+      normalize(r.status) === "verified" &&
+      weekOf(r.activity_date, startDate) !== null
   );
 
-  const categories = TARGETS.map(item => {
+  const categories = TARGETS.map((item) => {
     const code = codes.get(normalizeType(item.name));
 
     const matching = code
-      ? verified.filter(r =>
-          normalizeType(r.type_code) === code
+      ? verified.filter(
+          (r) => normalizeType(r.type_code) === code
         )
       : [];
 
@@ -169,8 +179,10 @@ function calculateAchievements(records, types, startDate) {
     if (item.name === "Fisik") {
       amount = matching.reduce((sum, r) => {
         const km = Number(r.distance_km);
-        return sum + (
-          Number.isFinite(km) && km > 0 ? km : 0
+
+        return (
+          sum +
+          (Number.isFinite(km) && km > 0 ? km : 0)
         );
       }, 0);
     } else {
@@ -192,13 +204,13 @@ function calculateAchievements(records, types, startDate) {
 
   return {
     progress: Math.round(total / TARGETS.length),
-    completed: categories.filter(c => c.completed).length,
+    completed: categories.filter((c) => c.completed).length,
   };
 }
 
 // ====================================================
 // SIMPER V2
-// 3 PERSYARATAN, PENERBITAN TERPISAH
+// PERHITUNGAN ASLI DIPERTAHANKAN
 // ====================================================
 
 function parseSimperMetadata(notes) {
@@ -213,9 +225,11 @@ function parseSimperMetadata(notes) {
       text.slice(start + META_START.length, end)
     );
 
-    return data &&
+    return (
+      data &&
       typeof data === "object" &&
       !Array.isArray(data)
+    )
       ? data
       : null;
   } catch {
@@ -250,7 +264,8 @@ function calculateSimper(record) {
 }
 
 // ====================================================
-// RINGKASAN PER PROGRAM
+// RINGKASAN PROGRAM
+// PERHITUNGAN ASLI DIPERTAHANKAN
 // ====================================================
 
 function buildProgress(program, data) {
@@ -261,7 +276,9 @@ function buildProgress(program, data) {
   );
 
   const chosenSimper =
-    data.simper.find(r => parseSimperMetadata(r.notes)) ||
+    data.simper.find((r) =>
+      parseSimperMetadata(r.notes)
+    ) ||
     data.simper[0] ||
     null;
 
@@ -271,13 +288,27 @@ function buildProgress(program, data) {
 
   function markWeek(date) {
     const week = weekOf(date, program.start_date);
-    if (week !== null) weeks.add(week);
+
+    if (week !== null) {
+      weeks.add(week);
+    }
   }
 
-  data.achievements.forEach(r => markWeek(r.activity_date));
-  data.postTests.forEach(r => markWeek(r.test_date));
-  data.practices.forEach(r => markWeek(r.practice_date));
-  data.samapta.forEach(r => markWeek(r.test_date));
+  data.achievements.forEach((r) =>
+    markWeek(r.activity_date)
+  );
+
+  data.postTests.forEach((r) =>
+    markWeek(r.test_date)
+  );
+
+  data.practices.forEach((r) =>
+    markWeek(r.practice_date)
+  );
+
+  data.samapta.forEach((r) =>
+    markWeek(r.test_date)
+  );
 
   return {
     achievement: achievement.progress,
@@ -293,7 +324,7 @@ function buildProgress(program, data) {
 }
 
 // ====================================================
-// STATUS PENDAFTARAN
+// STATUS PROGRAM
 // ====================================================
 
 function getStatusInfo(access) {
@@ -334,14 +365,21 @@ function getStatusInfo(access) {
 }
 
 // ====================================================
-// KOMPONEN MENU ASLI
+// KOMPONEN MENU
 // ====================================================
 
-function MenuCard({ icon, title, description, onClick }) {
+function MenuCard({
+  icon,
+  title,
+  description,
+  onClick,
+  disabled = false,
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       style={{
         display: "flex",
         alignItems: "center",
@@ -349,88 +387,129 @@ function MenuCard({ icon, title, description, onClick }) {
         textAlign: "left",
         padding: 15,
         width: "100%",
-        background: C.white,
+        background: disabled ? "#fafcfb" : C.white,
         border: `1px solid ${C.border}`,
         borderRadius: 14,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
         color: C.text,
+        opacity: disabled ? 0.7 : 1,
       }}
     >
-      <span style={{
-        width: 44,
-        height: 44,
-        flexShrink: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: C.goldLight,
-        color: C.green,
-        borderRadius: 12,
-        fontSize: 22,
-        fontWeight: 800,
-      }}>
+      <span
+        style={{
+          width: 44,
+          height: 44,
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: C.goldLight,
+          color: C.green,
+          borderRadius: 12,
+          fontSize: 22,
+          fontWeight: 800,
+        }}
+      >
         {icon}
       </span>
 
       <span style={{ flex: 1, minWidth: 0 }}>
-        <strong style={{
-          display: "block",
-          marginBottom: 5,
-          fontSize: 14,
-        }}>
+        <strong
+          style={{
+            display: "block",
+            marginBottom: 5,
+            fontSize: 14,
+          }}
+        >
           {title}
         </strong>
 
-        <span style={{
-          display: "block",
-          color: C.muted,
-          fontSize: 12,
-          lineHeight: 1.5,
-        }}>
+        <span
+          style={{
+            display: "block",
+            color: C.muted,
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}
+        >
           {description}
         </span>
+
+        {disabled && (
+          <span
+            style={{
+              display: "block",
+              color: C.yellow,
+              fontSize: 11,
+              fontWeight: 700,
+              marginTop: 6,
+            }}
+          >
+            Tersedia setelah ada program aktif
+          </span>
+        )}
       </span>
 
-      <span style={{ color: C.green3, fontSize: 20 }}>
-        ›
+      <span
+        style={{
+          color: C.green3,
+          fontSize: 20,
+        }}
+      >
+        {disabled ? "○" : "›"}
       </span>
     </button>
   );
 }
 
 // ====================================================
-// KOMPONEN PROGRES BAR
+// KOMPONEN PROGRES
+// TAMBAHAN EMPTY STATE TANPA DATA PALSU
 // ====================================================
 
-function ProgressItem({ title, value, description }) {
+function ProgressItem({
+  title,
+  value,
+  description,
+  noData = false,
+}) {
   const safe = clamp(value);
 
   return (
     <div style={{ marginTop: 20 }}>
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 10,
-        marginBottom: 9,
-      }}>
-        <strong style={{ fontSize: 13, color: C.text }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 9,
+        }}
+      >
+        <strong
+          style={{
+            fontSize: 13,
+            color: C.text,
+          }}
+        >
           {title}
         </strong>
 
-        <strong style={{
-          fontSize: 17,
-          color: C.green3,
-        }}>
-          {safe}%
+        <strong
+          style={{
+            fontSize: noData ? 12 : 17,
+            color: noData ? C.muted : C.green3,
+          }}
+        >
+          {noData ? "Belum ada data" : `${safe}%`}
         </strong>
       </div>
 
       <div
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={safe}
+        role={noData ? undefined : "progressbar"}
+        aria-valuemin={noData ? undefined : 0}
+        aria-valuemax={noData ? undefined : 100}
+        aria-valuenow={noData ? undefined : safe}
         style={{
           height: 11,
           width: "100%",
@@ -439,20 +518,27 @@ function ProgressItem({ title, value, description }) {
           background: "#e7eee8",
         }}
       >
-        <div style={{
-          height: "100%",
-          width: `${safe}%`,
-          background: `linear-gradient(90deg, ${C.green3}, #45a777)`,
-          borderRadius: 20,
-        }} />
+        {!noData && (
+          <div
+            style={{
+              height: "100%",
+              width: `${safe}%`,
+              background:
+                `linear-gradient(90deg, ${C.green3}, #45a777)`,
+              borderRadius: 20,
+            }}
+          />
+        )}
       </div>
 
-      <div style={{
-        fontSize: 11,
-        color: C.muted,
-        lineHeight: 1.7,
-        marginTop: 7,
-      }}>
+      <div
+        style={{
+          fontSize: 11,
+          color: C.muted,
+          lineHeight: 1.7,
+          marginTop: 7,
+        }}
+      >
         {description}
       </div>
     </div>
@@ -472,7 +558,10 @@ export default function DashboardPeserta() {
   const [registration, setRegistration] = useState(null);
 
   const [participants, setParticipants] = useState([]);
-  const [selectedParticipantId, setSelectedParticipantId] = useState("");
+  const [
+    selectedParticipantId,
+    setSelectedParticipantId,
+  ] = useState("");
 
   const [access, setAccess] = useState("loading");
   const [loading, setLoading] = useState(true);
@@ -480,13 +569,22 @@ export default function DashboardPeserta() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
 
-  // BARU: ringkasan perkembangan.
   const [progress, setProgress] = useState(emptyProgress());
 
   const requestIdRef = useRef(0);
   const selectedIdRef = useRef("");
 
   const isAdmin = normalize(account?.role) === "admin";
+
+  // Admin selalu bisa meninjau kerangka dashboard,
+  // meskipun belum ada peserta maupun program.
+  const isAdminEmptyView = isAdmin && !profile;
+
+  // Hanya program asli yang dapat membuka halaman detail.
+  const hasActiveProgram =
+    access === "approved" &&
+    !!program?.id &&
+    !!profile;
 
   function clearDashboard() {
     setProfile(null);
@@ -497,7 +595,7 @@ export default function DashboardPeserta() {
   }
 
   // ====================================================
-  // DAFTAR PESERTA PREVIEW ADMIN
+  // DAFTAR PESERTA AKTIF
   // LOGIKA ASLI DIPERTAHANKAN
   // ====================================================
 
@@ -520,7 +618,7 @@ export default function DashboardPeserta() {
 
     const unique = new Map();
 
-    (data || []).forEach(item => {
+    (data || []).forEach((item) => {
       if (!item.participant_id) return;
 
       const peserta = Array.isArray(item.peserta)
@@ -534,7 +632,8 @@ export default function DashboardPeserta() {
       if (!unique.has(item.participant_id)) {
         unique.set(item.participant_id, {
           id: item.participant_id,
-          full_name: peserta.full_name || "Peserta OJT",
+          full_name:
+            peserta.full_name || "Peserta OJT",
           department: peserta.department || "",
           site: item.site || "",
           role: normalize(peserta.role),
@@ -542,20 +641,19 @@ export default function DashboardPeserta() {
       }
     });
 
-    return [...unique.values()].sort(
-      (a, b) => a.full_name.localeCompare(b.full_name)
+    return [...unique.values()].sort((a, b) =>
+      a.full_name.localeCompare(b.full_name)
     );
   }
 
   // ====================================================
-  // PENGAMBILAN PROGRES SATU PROGRAM
-  //
-  // Data tidak diubah, hanya dibaca.
-  // Sesuai target Dashboard Mentor Tahap 6.1.
+  // PROGRES PROGRAM ASLI
   // ====================================================
 
   async function fetchProgramProgress(activeProgram) {
-    if (!activeProgram?.id) return emptyProgress();
+    if (!activeProgram?.id) {
+      return emptyProgress();
+    }
 
     const id = activeProgram.id;
 
@@ -622,8 +720,8 @@ export default function DashboardPeserta() {
   }
 
   // ====================================================
-  // PENGAMBILAN DASHBOARD PESERTA
-  // ATURAN PERSETUJUAN TETAP DIPERTAHANKAN
+  // DATA DASHBOARD PESERTA
+  // VALIDASI PENDAFTARAN DIPERTAHANKAN
   // ====================================================
 
   async function fetchParticipantDashboard(
@@ -635,7 +733,7 @@ export default function DashboardPeserta() {
 
     if (adminPreview) {
       const selected = previewParticipants.find(
-        item =>
+        (item) =>
           item.id === participantId &&
           isParticipantRole(item.role)
       );
@@ -653,7 +751,10 @@ export default function DashboardPeserta() {
         role: selected.role,
       };
     } else {
-      const { data, error: profileError } = await supabase
+      const {
+        data,
+        error: profileError,
+      } = await supabase
         .from("profiles")
         .select("id,full_name,department,role")
         .eq("id", participantId)
@@ -662,7 +763,9 @@ export default function DashboardPeserta() {
       if (profileError) throw profileError;
 
       if (!data) {
-        throw new Error("Profil peserta tidak tersedia.");
+        throw new Error(
+          "Profil peserta tidak tersedia."
+        );
       }
 
       if (!isParticipantRole(data.role)) {
@@ -697,8 +800,6 @@ export default function DashboardPeserta() {
 
     const activeProgram = activePrograms?.[0] || null;
 
-    // Preview Admin tidak memerlukan
-    // pemeriksaan ulang registrasi.
     if (adminPreview) {
       const nextProgress = activeProgram
         ? await fetchProgramProgress(activeProgram)
@@ -708,12 +809,17 @@ export default function DashboardPeserta() {
         profile: currentProfile,
         registration: null,
         program: activeProgram,
-        access: activeProgram ? "approved" : "no_program",
+        access: activeProgram
+          ? "approved"
+          : "no_program",
         progress: nextProgress,
       };
     }
 
-    const { data: newRequests, error: newError } = await supabase
+    const {
+      data: newRequests,
+      error: newError,
+    } = await supabase
       .from("ojt_registration_requests")
       .select(`
         id,status,rejection_reason,site,
@@ -724,7 +830,10 @@ export default function DashboardPeserta() {
 
     if (newError) throw newError;
 
-    const { data: oldRequests, error: oldError } = await supabase
+    const {
+      data: oldRequests,
+      error: oldError,
+    } = await supabase
       .from("participant_registrations")
       .select(`
         id,status,rejection_reason,site,created_at
@@ -748,11 +857,11 @@ export default function DashboardPeserta() {
         : latestNew || oldRegistration;
 
     const hasPendingNew = newList.some(
-      item => normalize(item.status) === "pending"
+      (item) => normalize(item.status) === "pending"
     );
 
     const hasApprovedNew = newList.some(
-      item => normalize(item.status) === "approved"
+      (item) => normalize(item.status) === "approved"
     );
 
     const hasApprovedOld =
@@ -781,10 +890,10 @@ export default function DashboardPeserta() {
       nextAccess = "rejected";
     }
 
-    // Hanya baca progres setelah akses program disetujui.
-    const nextProgress = nextAccess === "approved"
-      ? await fetchProgramProgress(activeProgram)
-      : emptyProgress();
+    const nextProgress =
+      nextAccess === "approved"
+        ? await fetchProgramProgress(activeProgram)
+        : emptyProgress();
 
     return {
       profile: currentProfile,
@@ -807,7 +916,7 @@ export default function DashboardPeserta() {
   }
 
   // ====================================================
-  // MEMUAT DASHBOARD
+  // LOAD DASHBOARD
   // ====================================================
 
   async function loadDashboard(
@@ -890,6 +999,9 @@ export default function DashboardPeserta() {
 
         setParticipants(list);
 
+        // BARU:
+        // Admin dapat meninjau kerangka dashboard
+        // meskipun daftar peserta masih kosong.
         if (!list.length) {
           selectedIdRef.current = "";
           setSelectedParticipantId("");
@@ -902,11 +1014,23 @@ export default function DashboardPeserta() {
         }
 
         const requestedId =
-          requestedParticipantId ||
+          requestedParticipantId ??
           selectedIdRef.current;
 
+        // Pilihan kosong = tinjauan tanpa peserta.
+        if (requestedId === "") {
+          selectedIdRef.current = "";
+          setSelectedParticipantId("");
+          setProfile(null);
+          setRegistration(null);
+          setProgram(null);
+          setProgress(emptyProgress());
+          setAccess("no_program");
+          return;
+        }
+
         const validSelection = list.some(
-          item => item.id === requestedId
+          (item) => item.id === requestedId
         );
 
         const targetId = validSelection
@@ -917,7 +1041,9 @@ export default function DashboardPeserta() {
         setSelectedParticipantId(targetId);
 
         const next = await fetchParticipantDashboard(
-          targetId, true, list
+          targetId,
+          true,
+          list
         );
 
         if (requestId !== requestIdRef.current) return;
@@ -929,7 +1055,8 @@ export default function DashboardPeserta() {
         selectedIdRef.current = "";
 
         const next = await fetchParticipantDashboard(
-          user.id, false
+          user.id,
+          false
         );
 
         if (requestId !== requestIdRef.current) return;
@@ -942,7 +1069,8 @@ export default function DashboardPeserta() {
       clearDashboard();
 
       setError(
-        err?.message || "Gagal memuat Dashboard Peserta."
+        err?.message ||
+          "Gagal memuat Dashboard Peserta."
       );
 
       setAccess("error");
@@ -965,11 +1093,11 @@ export default function DashboardPeserta() {
   }, []);
 
   // ====================================================
-  // PREVIEW ADMIN
+  // PILIH PESERTA / TINJAUAN KOSONG
   // ====================================================
 
   async function changePreviewParticipant(id) {
-    if (!isAdmin || !id || loading || refreshing) return;
+    if (!isAdmin || loading || refreshing) return;
 
     const requestId = ++requestIdRef.current;
 
@@ -989,7 +1117,6 @@ export default function DashboardPeserta() {
       if (requestId !== requestIdRef.current) return;
 
       if (authError || !user) {
-        clearDashboard();
         router.replace("/login");
         return;
       }
@@ -1009,22 +1136,38 @@ export default function DashboardPeserta() {
 
       if (normalize(verifiedAccount?.role) !== "admin") {
         throw new Error(
-          "Hanya Admin yang dapat menggunakan preview peserta."
+          "Hanya Admin yang dapat menggunakan tinjauan peserta."
         );
       }
 
+      // BARU:
+      // Tidak membutuhkan ID peserta untuk
+      // menampilkan kerangka dashboard.
+      if (!id) {
+        setProfile(null);
+        setRegistration(null);
+        setProgram(null);
+        setProgress(emptyProgress());
+        setAccess("no_program");
+        return;
+      }
+
       const selected = participants.find(
-        item =>
+        (item) =>
           item.id === id &&
           isParticipantRole(item.role)
       );
 
       if (!selected) {
-        throw new Error("Peserta tidak ditemukan.");
+        throw new Error(
+          "Peserta tidak ditemukan."
+        );
       }
 
       const next = await fetchParticipantDashboard(
-        id, true, participants
+        id,
+        true,
+        participants
       );
 
       if (requestId !== requestIdRef.current) return;
@@ -1033,13 +1176,11 @@ export default function DashboardPeserta() {
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
 
-      setProfile(null);
-      setRegistration(null);
-      setProgram(null);
-      setProgress(emptyProgress());
+      clearDashboard();
 
       setError(
-        err?.message || "Gagal mengganti peserta preview."
+        err?.message ||
+          "Gagal mengganti peserta tinjauan."
       );
 
       setAccess("error");
@@ -1075,19 +1216,32 @@ export default function DashboardPeserta() {
       router.replace("/login");
       router.refresh();
     } catch {
-      setError("Gagal keluar. Silakan coba kembali.");
+      setError(
+        "Gagal keluar. Silakan coba kembali."
+      );
       setLoggingOut(false);
     }
   }
 
   function openParticipantFeature(path) {
+    if (!hasActiveProgram) return;
     router.push(path);
   }
 
   const status = getStatusInfo(access);
 
+  // Ditampilkan apabila Admin membuka tinjauan
+  // tanpa memilih peserta sungguhan.
+  const showDashboardContent =
+    !loading &&
+    !error &&
+    (profile || isAdminEmptyView);
+
+  // Nilai tidak dianggap 0% jika belum ada program.
+  const noProgramData = !hasActiveProgram;
+
   // ====================================================
-  // TAMPILAN DASHBOARD PESERTA
+  // TAMPILAN
   // ====================================================
 
   return (
@@ -1149,7 +1303,7 @@ export default function DashboardPeserta() {
               M
             </div>
 
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 style={{
                   fontSize: 19,
@@ -1206,7 +1360,7 @@ export default function DashboardPeserta() {
             }}
           >
             {isAdmin
-              ? "Preview Dashboard Peserta"
+              ? "Tinjauan Dashboard Peserta"
               : "Pantau Perjalanan OJT Anda"}
           </h1>
 
@@ -1232,6 +1386,10 @@ export default function DashboardPeserta() {
           position: "relative",
         }}
       >
+        {/* ========================================
+            PANEL ADMIN PERMANEN
+            ======================================== */}
+
         {isAdmin && (
           <section
             style={{
@@ -1257,7 +1415,7 @@ export default function DashboardPeserta() {
                     fontSize: 15,
                   }}
                 >
-                  Mode Administrator
+                  Tinjauan Administrator
                 </strong>
 
                 <div
@@ -1267,7 +1425,7 @@ export default function DashboardPeserta() {
                     marginTop: 4,
                   }}
                 >
-                  Preview Dashboard Peserta
+                  Akses pemeriksaan permanen
                 </div>
               </div>
             </div>
@@ -1279,10 +1437,26 @@ export default function DashboardPeserta() {
                 color: C.green2,
               }}
             >
-              Kamu sedang masuk sebagai Admin.
-              Pilih peserta untuk memeriksa tampilan
-              dashboard tanpa mengganti akun.
+              Admin dapat memeriksa susunan Dashboard
+              Peserta kapan saja, termasuk sebelum
+              peserta pertama mendaftar.
             </p>
+
+            <div
+              style={{
+                background: C.white,
+                padding: 12,
+                borderRadius: 12,
+                marginBottom: 15,
+                fontSize: 12,
+                lineHeight: 1.7,
+              }}
+            >
+              <strong>Akun Admin:</strong>
+              <div>
+                {account?.full_name || "Administrator"}
+              </div>
+            </div>
 
             <label
               htmlFor="admin-participant"
@@ -1293,20 +1467,16 @@ export default function DashboardPeserta() {
                 marginBottom: 8,
               }}
             >
-              Pilih Peserta OJT
+              Pilih Tampilan Dashboard
             </label>
 
             <select
               id="admin-participant"
               value={selectedParticipantId}
-              onChange={event =>
+              onChange={(event) =>
                 changePreviewParticipant(event.target.value)
               }
-              disabled={
-                loading ||
-                refreshing ||
-                !participants.length
-              }
+              disabled={loading || refreshing}
               style={{
                 width: "100%",
                 padding: "13px 12px",
@@ -1318,19 +1488,38 @@ export default function DashboardPeserta() {
                 marginBottom: 12,
               }}
             >
-              {!participants.length && (
-                <option value="">
-                  Belum ada peserta aktif
-                </option>
-              )}
+              <option value="">
+                Tinjauan Dashboard Peserta
+              </option>
 
-              {participants.map(item => (
-                <option key={item.id} value={item.id}>
+              {participants.map((item) => (
+                <option
+                  key={item.id}
+                  value={item.id}
+                >
                   {item.full_name}
-                  {item.site ? ` — ${item.site}` : ""}
+                  {item.site
+                    ? ` — ${item.site}`
+                    : ""}
                 </option>
               ))}
             </select>
+
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                background: C.white,
+                fontSize: 12,
+                lineHeight: 1.7,
+                color: C.green2,
+                marginBottom: 14,
+              }}
+            >
+              {selectedParticipantId
+                ? "Menampilkan data program peserta yang dipilih."
+                : "Menampilkan struktur dashboard tanpa menggunakan data peserta atau program fiktif."}
+            </div>
 
             <button
               type="button"
@@ -1339,19 +1528,6 @@ export default function DashboardPeserta() {
             >
               ← Kembali ke Dashboard Mentor
             </button>
-
-            <p
-              style={{
-                fontSize: 11,
-                color: C.muted,
-                lineHeight: 1.7,
-                marginBottom: 0,
-              }}
-            >
-              Preview menggunakan data asli.
-              Hindari mengubah data produksi
-              ketika melakukan pengujian.
-            </p>
           </section>
         )}
 
@@ -1389,35 +1565,11 @@ export default function DashboardPeserta() {
           </section>
         )}
 
-        {!loading &&
-          isAdmin &&
-          !participants.length &&
-          !error && (
-            <section style={card}>
-              <h2
-                style={{
-                  fontSize: 18,
-                  color: C.green,
-                }}
-              >
-                Belum Ada Peserta untuk Preview
-              </h2>
+        {/* ========================================
+            DASHBOARD SELALU TERLIHAT UNTUK ADMIN
+            ======================================== */}
 
-              <p
-                style={{
-                  fontSize: 13,
-                  lineHeight: 1.7,
-                }}
-              >
-                Daftar preview diambil dari program
-                OJT aktif milik akun peserta.
-                Periksa data program dan
-                kebijakan RLS jika daftar kosong.
-              </p>
-            </section>
-          )}
-
-        {!loading && profile && (
+        {showDashboardContent && (
           <>
             <section style={card}>
               <div
@@ -1443,13 +1595,15 @@ export default function DashboardPeserta() {
                     fontWeight: 900,
                   }}
                 >
-                  {(profile.full_name || "P")
-                    .trim()
-                    .charAt(0)
-                    .toUpperCase()}
+                  {profile
+                    ? (profile.full_name || "P")
+                        .trim()
+                        .charAt(0)
+                        .toUpperCase()
+                    : "P"}
                 </div>
 
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div
                     style={{
                       color: C.muted,
@@ -1457,7 +1611,7 @@ export default function DashboardPeserta() {
                     }}
                   >
                     {isAdmin
-                      ? "PREVIEW DATA PESERTA"
+                      ? "TINJAUAN DATA PESERTA"
                       : "SELAMAT DATANG"}
                   </div>
 
@@ -1468,8 +1622,8 @@ export default function DashboardPeserta() {
                       margin: "5px 0",
                     }}
                   >
-                    {profile.full_name ||
-                      "Peserta OJT"}
+                    {profile?.full_name ||
+                      "Belum Ada Peserta"}
                   </h2>
 
                   <div
@@ -1478,7 +1632,9 @@ export default function DashboardPeserta() {
                       fontSize: 13,
                     }}
                   >
-                    {profile.department || "ER & SS"}
+                    {profile
+                      ? profile.department || "ER & SS"
+                      : "Data peserta belum tersedia"}
                   </div>
                 </div>
               </div>
@@ -1500,11 +1656,17 @@ export default function DashboardPeserta() {
                   {status.icon}
                 </span>
 
-                {status.label}
+                {isAdminEmptyView
+                  ? "Belum Ada Data Peserta"
+                  : status.label}
               </div>
             </section>
 
-            {access === "pending" && (
+            {/* ====================================
+                STATUS PENDAFTARAN PESERTA ASLI
+                ==================================== */}
+
+            {access === "pending" && profile && (
               <section
                 style={{
                   ...card,
@@ -1546,7 +1708,7 @@ export default function DashboardPeserta() {
               </section>
             )}
 
-            {access === "rejected" && (
+            {access === "rejected" && profile && (
               <section
                 style={{
                   ...card,
@@ -1598,31 +1760,39 @@ export default function DashboardPeserta() {
               </section>
             )}
 
-            {access === "no_program" && (
-              <section style={card}>
-                <h2
-                  style={{
-                    color: C.green,
-                    fontSize: 18,
-                  }}
-                >
-                  Program OJT Belum Aktif
-                </h2>
+            {access === "no_program" &&
+              !isAdminEmptyView &&
+              profile && (
+                <section style={card}>
+                  <h2
+                    style={{
+                      color: C.green,
+                      fontSize: 18,
+                    }}
+                  >
+                    Program OJT Belum Aktif
+                  </h2>
 
-                <p style={{ lineHeight: 1.8 }}>
-                  Belum ada program OJT aktif
-                  yang dapat diakses.
-                </p>
+                  <p style={{ lineHeight: 1.8 }}>
+                    Belum ada program OJT aktif
+                    yang dapat diakses.
+                  </p>
 
-                <p>
-                  Jika kamu baru mendaftar,
-                  gunakan tombol Perbarui Status
-                  untuk melihat keputusan mentor.
-                </p>
-              </section>
-            )}
+                  <p>
+                    Jika kamu baru mendaftar,
+                    gunakan tombol Perbarui Status
+                    untuk melihat keputusan mentor.
+                  </p>
+                </section>
+              )}
 
-            {access === "approved" && program && (
+            {/* ====================================
+                INFORMASI PROGRAM
+                TAMPIL MESKIPUN TANPA PESERTA
+                KHUSUS ADMIN
+                ==================================== */}
+
+            {(hasActiveProgram || isAdminEmptyView) && (
               <>
                 <section style={card}>
                   <h2
@@ -1664,7 +1834,7 @@ export default function DashboardPeserta() {
                           fontSize: 17,
                         }}
                       >
-                        {program.site || "-"}
+                        {program?.site || "-"}
                       </strong>
                     </div>
 
@@ -1685,9 +1855,15 @@ export default function DashboardPeserta() {
                       </div>
 
                       <strong
-                        style={{ color: C.green3 }}
+                        style={{
+                          color: hasActiveProgram
+                            ? C.green3
+                            : C.muted,
+                        }}
                       >
-                        Aktif
+                        {hasActiveProgram
+                          ? "Aktif"
+                          : "Belum ada program"}
                       </strong>
                     </div>
                   </div>
@@ -1711,16 +1887,16 @@ export default function DashboardPeserta() {
                     </div>
 
                     <strong>
-                      {formatDate(program.start_date)}
+                      {formatDate(program?.start_date)}
                       {" → "}
-                      {formatDate(program.end_date)}
+                      {formatDate(program?.end_date)}
                     </strong>
                   </div>
                 </section>
 
-                {/* =====================================
-                    BARU: RINGKASAN PERKEMBANGAN OJT
-                    ===================================== */}
+                {/* =================================
+                    RINGKASAN PROGRES
+                    ================================= */}
 
                 <section style={card}>
                   <h2
@@ -1749,27 +1925,33 @@ export default function DashboardPeserta() {
                   <ProgressItem
                     title="Progres Achievement"
                     value={progress.achievement}
+                    noData={noProgramData}
                     description={
-                      `${progress.completedCategories} dari 6 kategori mencapai target. ` +
-                      "Hanya aktivitas terverifikasi yang dihitung."
+                      noProgramData
+                        ? "Belum ada program aktif untuk dihitung."
+                        : `${progress.completedCategories} dari 6 kategori mencapai target. Hanya aktivitas terverifikasi yang dihitung.`
                     }
                   />
 
                   <ProgressItem
                     title="Aktivitas Mingguan"
                     value={progress.activityPercent}
+                    noData={noProgramData}
                     description={
-                      `${progress.activityWeeks} dari 25 minggu ` +
-                      "memiliki catatan aktivitas."
+                      noProgramData
+                        ? "Belum ada catatan aktivitas program."
+                        : `${progress.activityWeeks} dari 25 minggu memiliki catatan aktivitas.`
                     }
                   />
 
                   <ProgressItem
                     title="Progres SIMPER"
                     value={progress.simper}
+                    noData={noProgramData}
                     description={
-                      `${progress.simperCompleted} dari 3 persyaratan ` +
-                      "SIMPER terpenuhi."
+                      noProgramData
+                        ? "Belum ada persyaratan SIMPER yang dapat diperiksa."
+                        : `${progress.simperCompleted} dari 3 persyaratan SIMPER terpenuhi.`
                     }
                   />
 
@@ -1784,16 +1966,21 @@ export default function DashboardPeserta() {
                       color: C.green2,
                     }}
                   >
-                    <strong>Status Penerbitan SIMPER: </strong>
-                    {progress.simperIssued
+                    <strong>
+                      Status Penerbitan SIMPER:{" "}
+                    </strong>
+
+                    {noProgramData
+                      ? "Belum ada data"
+                      : progress.simperIssued
                       ? "Sudah Terbit"
                       : "Belum Terbit"}
                   </div>
                 </section>
 
-                {/* =====================================
-                    MENU PESERTA ASLI
-                    ===================================== */}
+                {/* =================================
+                    MENU DASHBOARD PESERTA
+                    ================================= */}
 
                 <section style={card}>
                   <h2
@@ -1828,6 +2015,7 @@ export default function DashboardPeserta() {
                       icon="↗"
                       title="Grafik Perkembangan"
                       description="Lihat grafik perkembangan OJT."
+                      disabled={!hasActiveProgram}
                       onClick={() =>
                         openParticipantFeature(
                           `/analisis/${program.id}`
@@ -1839,6 +2027,7 @@ export default function DashboardPeserta() {
                       icon="✓"
                       title="Evaluasi Kesiapan"
                       description="Buka evaluasi kesiapan OJT."
+                      disabled={!hasActiveProgram}
                       onClick={() =>
                         openParticipantFeature(
                           `/evaluasi/${program.id}`
@@ -1850,6 +2039,7 @@ export default function DashboardPeserta() {
                       icon="▤"
                       title="Laporan OJT"
                       description="Lihat laporan OJT Anda."
+                      disabled={!hasActiveProgram}
                       onClick={() =>
                         openParticipantFeature(
                           `/laporan/${program.id}`
@@ -1862,6 +2052,7 @@ export default function DashboardPeserta() {
                         icon="▦"
                         title="Evaluasi Mingguan"
                         description="Lihat evaluasi mingguan dan unduh/cetak PDF peserta."
+                        disabled={!hasActiveProgram}
                         onClick={() =>
                           openParticipantFeature(
                             `/mingguan/${program.id}`
@@ -1880,15 +2071,20 @@ export default function DashboardPeserta() {
                         lineHeight: 1.7,
                       }}
                     >
-                      Catatan Admin: akses ke menu
-                      lanjutan tetap bergantung pada
-                      validasi role dan kebijakan RLS
-                      masing-masing halaman.
+                      Akses menu lanjutan tetap
+                      bergantung pada validasi role
+                      dan kebijakan RLS masing-masing
+                      halaman. Tinjauan ini tidak
+                      memberikan akses penulisan data.
                     </p>
                   )}
                 </section>
               </>
             )}
+
+            {/* =================================
+                TOMBOL UTAMA
+                ================================= */}
 
             <button
               type="button"
