@@ -10,12 +10,21 @@ import {
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// =======================================================
+// =====================================================
 // OJT MINETRACK V2.0
-// GRAFIK PERKEMBANGAN - GLOBAL CALENDAR
-// =======================================================
+// GRAFIK PERKEMBANGAN
+//
+// ADMIN REVIEW PERMANEN:
+// /analisis/admin-review
+//
+// - Tanpa peserta atau program fiktif
+// - Tidak menulis ke database
+// - Peserta dan Mentor menggunakan program asli
+// - Kalender global 25 minggu dipertahankan
+// =====================================================
 
 const TOTAL_WEEKS = 25;
+const ADMIN_REVIEW_ID = "admin-review";
 
 const CATEGORIES = [
   {
@@ -30,11 +39,7 @@ const CATEGORIES = [
     target: 4,
     unit: "kegiatan",
     icon: "📚",
-    aliases: [
-      "training",
-      "internaltraining",
-      "pelatihan",
-    ],
+    aliases: ["training", "internaltraining", "pelatihan"],
   },
   {
     name: "Sosialisasi",
@@ -90,9 +95,9 @@ const WEEK_OPTIONS = [
   { key: "custom", label: "Pilih Minggu" },
 ];
 
-// =======================================================
+// =====================================================
 // UTILITIES
-// =======================================================
+// =====================================================
 
 function normalize(value) {
   return String(value ?? "")
@@ -134,26 +139,19 @@ function parseDate(value) {
 
 function addDays(value, days) {
   const date = parseDate(value);
-
   if (!date) return null;
 
-  date.setUTCDate(
-    date.getUTCDate() + days
-  );
-
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
 function todayWITA() {
-  const parts = new Intl.DateTimeFormat(
-    "en-US",
-    {
-      timeZone: "Asia/Makassar",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }
-  ).formatToParts(new Date());
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Makassar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
   const get = (type) =>
     parts.find((item) => item.type === type)?.value || "";
@@ -163,7 +161,6 @@ function todayWITA() {
 
 function formatDate(value) {
   const date = parseDate(value);
-
   if (!date) return "—";
 
   return new Intl.DateTimeFormat("id-ID", {
@@ -176,6 +173,24 @@ function formatDate(value) {
 
 function weekLabel(value) {
   return `Week ${String(value).padStart(2, "0")}`;
+}
+
+function numberText(value, digits = 0) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "—";
+  }
+
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+
+  return number.toLocaleString("id-ID", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
 }
 
 function scoreText(value) {
@@ -195,18 +210,9 @@ function scoreText(value) {
 }
 
 function percentText(value) {
-  return `${numberText(value, 2)}%`;
-}
-
-function numberText(value, digits = 0) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) return "—";
-
-  return number.toLocaleString("id-ID", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits,
-  });
+  return value === null || value === undefined
+    ? "—"
+    : `${numberText(value, 2)}%`;
 }
 
 function initials(name) {
@@ -247,16 +253,13 @@ function cappedPercent(actual, target) {
   );
 }
 
-// =======================================================
+// =====================================================
 // KALENDER GLOBAL
-//
 // WEEK 01 = 12-18 SEPTEMBER 2026
 // 19 SEPTEMBER 2026 DIKECUALIKAN
 // WEEK 02 = 20-26 SEPTEMBER 2026
-// WEEK 07 = 25-31 OKTOBER 2026
-// WEEK 08 = 01-07 NOVEMBER 2026
-// WEEK 25 = 28 FEB-06 MARET 2027
-// =======================================================
+// WEEK 25 = 28 FEBRUARI-06 MARET 2027
+// =====================================================
 
 const GLOBAL_WEEKS = Array.from(
   { length: TOTAL_WEEKS },
@@ -264,7 +267,10 @@ const GLOBAL_WEEKS = Array.from(
     const start =
       index === 0
         ? "2026-09-12"
-        : addDays("2026-09-20", (index - 1) * 7);
+        : addDays(
+            "2026-09-20",
+            (index - 1) * 7
+          );
 
     return {
       week: index + 1,
@@ -347,13 +353,17 @@ function insideProgram(value, program) {
     return false;
   }
 
-  if (date < String(program.start_date).slice(0, 10)) {
+  if (
+    date <
+    String(program.start_date).slice(0, 10)
+  ) {
     return false;
   }
 
   if (
     parseDate(program.end_date) &&
-    date > String(program.end_date).slice(0, 10)
+    date >
+      String(program.end_date).slice(0, 10)
   ) {
     return false;
   }
@@ -405,9 +415,9 @@ function initialGlobalWeek(program, records = []) {
     : available[available.length - 1].week;
 }
 
-// =======================================================
-// CATEGORY RESOLVER
-// =======================================================
+// =====================================================
+// KATEGORI ACHIEVEMENT
+// =====================================================
 
 function resolveCategory(typeCode, types) {
   const match = types.find(
@@ -437,28 +447,26 @@ function actualAchievement(category, records) {
     return records.length;
   }
 
-  const meters = records.reduce(
-    (sum, item) => {
-      const distance = Number(item.distance_km);
+  const meters = records.reduce((sum, item) => {
+    const distance = Number(item.distance_km);
 
-      if (
-        !Number.isFinite(distance) ||
-        distance <= 0
-      ) {
-        return sum;
-      }
+    if (
+      !Number.isFinite(distance) ||
+      distance <= 0
+    ) {
+      return sum;
+    }
 
-      return sum + Math.round(distance * 1000);
-    },
-    0
-  );
+    return sum + Math.round(distance * 1000);
+  }, 0);
 
   return meters / 1000;
 }
 
-// =======================================================
+// =====================================================
 // SAMAPTA
-// =======================================================
+// FORMULA ASLI DIPERTAHANKAN
+// =====================================================
 
 function calculateSamapta(records) {
   const byDate = new Map();
@@ -536,9 +544,9 @@ function calculateSamapta(records) {
   );
 }
 
-// =======================================================
-// WEEKLY SCORES
-// =======================================================
+// =====================================================
+// NILAI MINGGUAN
+// =====================================================
 
 function buildWeeklyScores(
   program,
@@ -601,8 +609,6 @@ function buildWeeklyScores(
     );
   });
 
-  // Tes Samapta lengkap terakhir pada minggu
-  // yang sama, mengikuti logika sebelumnya.
   samaptaResults.forEach((item) => {
     if (!insideProgram(item.date, program)) {
       return;
@@ -637,9 +643,9 @@ function latestValue(data, key) {
     : null;
 }
 
-// =======================================================
-// CHARTS
-// =======================================================
+// =====================================================
+// GRAFIK
+// =====================================================
 
 function Legend({ series }) {
   return (
@@ -664,6 +670,7 @@ function TrendChart({
 
   const width = 760;
   const height = compact ? 245 : 300;
+
   const left = 48;
   const right = 22;
   const top = 24;
@@ -694,9 +701,12 @@ function TrendChart({
 
   const y = (value) =>
     top +
-    ((100 - Math.max(0, Math.min(100, value))) /
-      100) *
-      innerHeight;
+    (
+      (
+        100 -
+        Math.max(0, Math.min(100, value))
+      ) / 100
+    ) * innerHeight;
 
   const ticks = [0, 25, 50, 75, 100];
 
@@ -726,12 +736,6 @@ function TrendChart({
       item.available
   );
 
-  function chooseWeek(week) {
-    setActiveWeek((previous) =>
-      previous === week ? null : week
-    );
-  }
-
   return (
     <div className="gr-chart-wrap">
       <Legend series={series} />
@@ -752,6 +756,7 @@ function TrendChart({
               stroke="#e5eee9"
               strokeDasharray="4 5"
             />
+
             <text
               x={left - 10}
               y={y(tick) + 4}
@@ -814,7 +819,6 @@ function TrendChart({
               if (current.length > 1) {
                 segments.push(current);
               }
-
               current = [];
             }
 
@@ -832,9 +836,8 @@ function TrendChart({
                 <polyline
                   key={index}
                   points={segment
-                    .map(
-                      (point) =>
-                        `${point.x},${point.y}`
+                    .map((point) =>
+                      `${point.x},${point.y}`
                     )
                     .join(" ")}
                   fill="none"
@@ -860,7 +863,11 @@ function TrendChart({
                   strokeWidth="2"
                   style={{ cursor: "pointer" }}
                   onClick={() =>
-                    chooseWeek(point.week)
+                    setActiveWeek((previous) =>
+                      previous === point.week
+                        ? null
+                        : point.week
+                    )
                   }
                 >
                   <title>
@@ -927,9 +934,12 @@ function BarChart({ data, series }) {
 
   const y = (value) =>
     top +
-    ((100 - Math.max(0, Math.min(100, value))) /
-      100) *
-      innerHeight;
+    (
+      (
+        100 -
+        Math.max(0, Math.min(100, value))
+      ) / 100
+    ) * innerHeight;
 
   const ticks = [0, 25, 50, 75, 100];
 
@@ -1026,9 +1036,7 @@ function BarChart({ data, series }) {
                       width={barWidth}
                       height={Math.max(
                         0,
-                        top +
-                          innerHeight -
-                          y(bounded)
+                        top + innerHeight - y(bounded)
                       )}
                       rx="3"
                       fill={s.color}
@@ -1046,8 +1054,7 @@ function BarChart({ data, series }) {
                 {(
                   data.length <= 13 ||
                   index %
-                    Math.ceil(data.length / 12) ===
-                    0 ||
+                    Math.ceil(data.length / 12) === 0 ||
                   index === data.length - 1
                 ) && (
                   <text
@@ -1076,9 +1083,9 @@ function BarChart({ data, series }) {
   );
 }
 
-// =======================================================
-// STAT CARD
-// =======================================================
+// =====================================================
+// KOMPONEN RINGKASAN
+// =====================================================
 
 function StatCard({
   icon,
@@ -1102,13 +1109,10 @@ function StatCard({
   );
 }
 
-// =======================================================
-// COMPETENCY PROGRESS
-// =======================================================
-
 function CompetencyProgress({
   items,
   weekCount,
+  adminReview = false,
 }) {
   return (
     <div className="gr-competency-list">
@@ -1124,26 +1128,34 @@ function CompetencyProgress({
 
           <div className="gr-competency-middle">
             <div className="gr-competency-track">
-              <div
-                className="gr-competency-fill"
-                style={{
-                  width: `${item.percent}%`,
-                }}
-              />
+              {!adminReview && (
+                <div
+                  className="gr-competency-fill"
+                  style={{
+                    width: `${item.percent}%`,
+                  }}
+                />
+              )}
             </div>
 
             <small>
-              {item.completedWeeks}/{weekCount}
-              {" "}minggu aktif mencapai target
+              {adminReview
+                ? "Belum ada data peserta"
+                : `${item.completedWeeks}/${weekCount} minggu aktif mencapai target`}
             </small>
           </div>
 
           <div className="gr-competency-result">
             <strong>
-              {percentText(item.percent)}
+              {adminReview
+                ? "—"
+                : percentText(item.percent)}
             </strong>
+
             <small>
-              {item.verified} kegiatan
+              {adminReview
+                ? "— kegiatan"
+                : `${item.verified} kegiatan`}
             </small>
           </div>
         </div>
@@ -1152,14 +1164,11 @@ function CompetencyProgress({
   );
 }
 
-// =======================================================
-// HEATMAP
-// =======================================================
-
 function Heatmap({
   items,
   selectedWeeks,
   onSelectWeek,
+  adminReview = false,
 }) {
   return (
     <div>
@@ -1183,6 +1192,13 @@ function Heatmap({
           <i className="heat-outside" />
           Di luar periode OJT
         </span>
+
+        {adminReview && (
+          <span>
+            <i className="heat-unavailable" />
+            Belum ada data peserta
+          </span>
+        )}
       </div>
 
       <div className="gr-heat-scroll">
@@ -1219,7 +1235,9 @@ function Heatmap({
               </div>
 
               {item.weekly.map((week) => {
-                const state = !week.available
+                const state = adminReview
+                  ? "unavailable"
+                  : !week.available
                   ? "outside"
                   : week.completed
                   ? "done"
@@ -1231,7 +1249,10 @@ function Heatmap({
                   <button
                     type="button"
                     key={week.week}
-                    disabled={!week.available}
+                    disabled={
+                      !adminReview &&
+                      !week.available
+                    }
                     className={
                       `gr-heat-cell ${state} ` +
                       (
@@ -1241,18 +1262,19 @@ function Heatmap({
                       )
                     }
                     title={
-                      `${item.name} · ${weekLabel(week.week)} ` +
-                      `(${formatDate(week.start)}–` +
-                      `${formatDate(week.end)}): ` +
-                      (
-                        !week.available
-                          ? "Di luar periode OJT"
-                          : `${numberText(
-                              week.achieved,
-                              item.name === "Fisik" ? 3 : 0
-                            )} ${item.unit}, ` +
-                            `${percentText(week.percent)} dari target`
-                      )
+                      adminReview
+                        ? `${item.name} · ${weekLabel(week.week)}: Belum ada data peserta`
+                        : `${item.name} · ${weekLabel(week.week)} (${formatDate(week.start)}–${formatDate(week.end)}): ` +
+                          (
+                            !week.available
+                              ? "Di luar periode OJT"
+                              : `${numberText(
+                                  week.achieved,
+                                  item.name === "Fisik"
+                                    ? 3
+                                    : 0
+                                )} ${item.unit}, ${percentText(week.percent)} dari target`
+                          )
                     }
                     onClick={() =>
                       onSelectWeek(week.week)
@@ -1266,20 +1288,19 @@ function Heatmap({
       </div>
 
       <p className="gr-hint">
-        Heatmap memakai Kalender Global
-        Week 01–25. Minggu di luar periode
-        OJT ditandai abu-abu bergaris,
-        sedangkan minggu aktif tanpa
-        kegiatan tetap bernilai 0%.
-        Klik kotak aktif untuk melihat detail.
+        Kalender Global Week 01–25 digunakan
+        untuk seluruh program.
+        {adminReview
+          ? " Semua kotak saat ini menunjukkan belum adanya data peserta, bukan nilai 0%."
+          : " Minggu di luar periode OJT tidak dihitung. Minggu aktif tanpa kegiatan bernilai 0%."}
       </p>
     </div>
   );
 }
 
-// =======================================================
+// =====================================================
 // MAIN PAGE
-// =======================================================
+// =====================================================
 
 export default function GrafikPerkembanganOJT() {
   const router = useRouter();
@@ -1288,6 +1309,9 @@ export default function GrafikPerkembanganOJT() {
   const programId = Array.isArray(params?.id)
     ? params.id[0]
     : params?.id;
+
+  const isAdminReview =
+    programId === ADMIN_REVIEW_ID;
 
   const [program, setProgram] = useState(null);
   const [viewer, setViewer] = useState(null);
@@ -1314,13 +1338,15 @@ export default function GrafikPerkembanganOJT() {
     role === "admin" ||
     role === "mentor";
 
-  const backPath = isManager
+  const backPath = isAdminReview
+    ? "/dashboard-peserta"
+    : isManager
     ? `/peserta/${programId}`
     : "/dashboard-peserta";
 
-  // =====================================================
-  // SUPABASE
-  // =====================================================
+  // ===================================================
+  // DATABASE - PEMBACAAN PROGRAM ASLI
+  // ===================================================
 
   const fetchData = useCallback(async (id) => {
     const results = await Promise.all([
@@ -1378,6 +1404,13 @@ export default function GrafikPerkembanganOJT() {
     };
   }, []);
 
+  // ===================================================
+  // VALIDASI AKSES
+  //
+  // admin-review hanya boleh dibuka Admin.
+  // Tidak mengambil data peserta untuk rute ini.
+  // ===================================================
+
   const verifyAccess = useCallback(async (id) => {
     const {
       data: { user },
@@ -1409,9 +1442,25 @@ export default function GrafikPerkembanganOJT() {
 
     const currentRole = normalizeRole(profile.role);
 
-    const manager = ["admin", "mentor"].includes(
-      currentRole
-    );
+    if (id === ADMIN_REVIEW_ID) {
+      if (currentRole !== "admin") {
+        throw new Error(
+          "Tinjauan Grafik Perkembangan hanya dapat dibuka oleh Admin."
+        );
+      }
+
+      return {
+        user,
+        profile,
+        programData: null,
+        adminReview: true,
+      };
+    }
+
+    const manager = [
+      "admin",
+      "mentor",
+    ].includes(currentRole);
 
     const participant = [
       "participant",
@@ -1499,6 +1548,7 @@ export default function GrafikPerkembanganOJT() {
       user,
       profile,
       programData,
+      adminReview: false,
     };
   }, []);
 
@@ -1510,9 +1560,17 @@ export default function GrafikPerkembanganOJT() {
     setSamapta(data.samapta);
   }, []);
 
-  // =====================================================
+  const clearData = useCallback(() => {
+    setCategories([]);
+    setAchievements([]);
+    setPostTests([]);
+    setPractice([]);
+    setSamapta([]);
+  }, []);
+
+  // ===================================================
   // INITIAL LOAD
-  // =====================================================
+  // ===================================================
 
   useEffect(() => {
     if (!programId) {
@@ -1528,11 +1586,22 @@ export default function GrafikPerkembanganOJT() {
       setError("");
       setProgram(null);
       setViewer(null);
+      clearData();
 
       try {
-        const access = await verifyAccess(
-          programId
-        );
+        const access = await verifyAccess(programId);
+
+        if (!active) return;
+
+        // Admin Review tidak mengakses catatan
+        // peserta ataupun program fiktif.
+        if (access.adminReview) {
+          setViewer(access.profile);
+          setProgram(null);
+          setSelectedWeek(1);
+          setCustomWeeks([1]);
+          return;
+        }
 
         const data = await fetchData(
           access.programData.id
@@ -1553,6 +1622,9 @@ export default function GrafikPerkembanganOJT() {
         setCustomWeeks([initialWeek]);
       } catch (err) {
         if (active) {
+          setProgram(null);
+          setViewer(null);
+          clearData();
           setError(
             err?.message ||
             "Gagal memuat Grafik Perkembangan."
@@ -1570,32 +1642,36 @@ export default function GrafikPerkembanganOJT() {
     };
   }, [
     programId,
-    fetchData,
     verifyAccess,
+    fetchData,
     applyData,
+    clearData,
   ]);
 
+  // ===================================================
+  // REFRESH
+  // ===================================================
+
   async function refresh() {
-    if (
-      !program?.id ||
-      loading ||
-      refreshing
-    ) {
-      return;
-    }
+    if (loading || refreshing || !viewer) return;
 
     setRefreshing(true);
     setError("");
 
     try {
-      const access = await verifyAccess(
-        programId
-      );
+      const access = await verifyAccess(programId);
 
-      if (access.user.id !== viewer?.id) {
+      if (access.user.id !== viewer.id) {
         throw new Error(
           "Akun login berubah. Buka ulang halaman."
         );
+      }
+
+      if (access.adminReview) {
+        setProgram(null);
+        clearData();
+        setViewer(access.profile);
+        return;
       }
 
       const data = await fetchData(
@@ -1619,9 +1695,9 @@ export default function GrafikPerkembanganOJT() {
         );
       }
     } catch (err) {
-      // Jangan terus menampilkan data lama apabila
-      // otorisasi atau refresh gagal.
       setProgram(null);
+      setViewer(null);
+      clearData();
       setError(
         err?.message ||
         "Gagal memperbarui data."
@@ -1631,19 +1707,23 @@ export default function GrafikPerkembanganOJT() {
     }
   }
 
-  // =====================================================
-  // AVAILABLE WEEKS
-  // =====================================================
+  // ===================================================
+  // MINGGU YANG DAPAT DITINJAU
+  // ===================================================
 
   const availableWeeks = useMemo(
-    () => availableGlobalWeeks(program),
-    [program]
+    () =>
+      isAdminReview
+        ? GLOBAL_WEEKS
+        : availableGlobalWeeks(program),
+    [isAdminReview, program]
   );
 
   const allowedWeeks = useMemo(
-    () => new Set(
-      availableWeeks.map((item) => item.week)
-    ),
+    () =>
+      new Set(
+        availableWeeks.map((item) => item.week)
+      ),
     [availableWeeks]
   );
 
@@ -1720,32 +1800,45 @@ export default function GrafikPerkembanganOJT() {
     });
   }
 
-  // =====================================================
-  // TEORI / PRAKTIK / SAMAPTA
-  // =====================================================
+  // ===================================================
+  // DATA NILAI
+  // ===================================================
 
   const samaptaResults = useMemo(
     () => calculateSamapta(samapta),
     [samapta]
   );
 
-  const weeklyData = useMemo(
-    () =>
-      program
-        ? buildWeeklyScores(
-            program,
-            postTests,
-            practice,
-            samaptaResults
-          )
-        : [],
-    [
-      program,
-      postTests,
-      practice,
-      samaptaResults,
-    ]
-  );
+  const weeklyData = useMemo(() => {
+    if (isAdminReview) {
+      // Kalender saja, tanpa program fiktif.
+      // Nilai seluruhnya null.
+      return GLOBAL_WEEKS.map((item) => ({
+        ...item,
+        available: true,
+        theory: null,
+        practice: null,
+        a: null,
+        b: null,
+        final: null,
+      }));
+    }
+
+    return program
+      ? buildWeeklyScores(
+          program,
+          postTests,
+          practice,
+          samaptaResults
+        )
+      : [];
+  }, [
+    isAdminReview,
+    program,
+    postTests,
+    practice,
+    samaptaResults,
+  ]);
 
   const filteredData = useMemo(
     () =>
@@ -1754,10 +1847,7 @@ export default function GrafikPerkembanganOJT() {
           item.available &&
           selectedWeeks.includes(item.week)
       ),
-    [
-      weeklyData,
-      selectedWeeks,
-    ]
+    [weeklyData, selectedWeeks]
   );
 
   const theoryLatest = latestValue(
@@ -1793,9 +1883,9 @@ export default function GrafikPerkembanganOJT() {
       item.final !== null
   ).length;
 
-  // =====================================================
-  // COMPETENCY DATA
-  // =====================================================
+  // ===================================================
+  // KOMPETENSI
+  // ===================================================
 
   const categoryData = useMemo(() => {
     const verifiedRecords = achievements.filter(
@@ -1825,28 +1915,35 @@ export default function GrafikPerkembanganOJT() {
 
       const weekly = GLOBAL_WEEKS.map(
         (global) => {
-          const available = Boolean(
-            programWeekRange(
-              program,
-              global.week
-            )
-          );
+          const available = isAdminReview
+            ? true
+            : Boolean(
+                programWeekRange(
+                  program,
+                  global.week
+                )
+              );
 
-          const records = available
-            ? matching.filter(
-                (item) =>
-                  item.globalWeek === global.week
-              )
-            : [];
+          const records =
+            available && !isAdminReview
+              ? matching.filter(
+                  (item) =>
+                    item.globalWeek === global.week
+                )
+              : [];
 
-          const achieved = available
+          const achieved = isAdminReview
+            ? null
+            : available
             ? actualAchievement(
                 category,
                 records
               )
             : 0;
 
-          const percent = available
+          const percent = isAdminReview
+            ? null
+            : available
             ? cappedPercent(
                 achieved,
                 category.target
@@ -1859,9 +1956,12 @@ export default function GrafikPerkembanganOJT() {
             end: global.end,
             available,
             achieved,
-            count: records.length,
+            count: isAdminReview
+              ? null
+              : records.length,
             percent,
             completed:
+              !isAdminReview &&
               available &&
               achieved >= category.target,
           };
@@ -1872,7 +1972,9 @@ export default function GrafikPerkembanganOJT() {
         (item) => item.available
       );
 
-      const percent = active.length
+      const percent = isAdminReview
+        ? null
+        : active.length
         ? active.reduce(
             (sum, item) =>
               sum + item.percent,
@@ -1882,12 +1984,16 @@ export default function GrafikPerkembanganOJT() {
 
       return {
         ...category,
-        verified: matching.length,
+        verified: isAdminReview
+          ? null
+          : matching.length,
         weekly,
         activeWeeks: active.length,
-        completedWeeks: active.filter(
-          (item) => item.completed
-        ).length,
+        completedWeeks: isAdminReview
+          ? null
+          : active.filter(
+              (item) => item.completed
+            ).length,
         percent,
       };
     });
@@ -1895,11 +2001,14 @@ export default function GrafikPerkembanganOJT() {
     achievements,
     categories,
     program,
+    isAdminReview,
   ]);
 
   const totalAvailableWeeks = availableWeeks.length;
 
-  const overall = categoryData.length
+  const overall = isAdminReview
+    ? null
+    : categoryData.length
     ? categoryData.reduce(
         (sum, category) =>
           sum + category.percent,
@@ -1907,21 +2016,25 @@ export default function GrafikPerkembanganOJT() {
       ) / categoryData.length
     : 0;
 
-  const completedCategories = categoryData.filter(
-    (item) =>
-      item.activeWeeks > 0 &&
-      item.completedWeeks === item.activeWeeks
-  ).length;
+  const completedCategories = isAdminReview
+    ? null
+    : categoryData.filter(
+        (item) =>
+          item.activeWeeks > 0 &&
+          item.completedWeeks === item.activeWeeks
+      ).length;
 
-  const totalVerified = categoryData.reduce(
-    (sum, item) =>
-      sum + item.verified,
-    0
-  );
+  const totalVerified = isAdminReview
+    ? null
+    : categoryData.reduce(
+        (sum, item) =>
+          sum + item.verified,
+        0
+      );
 
-  // =====================================================
-  // WEEKLY SUMMARY
-  // =====================================================
+  // ===================================================
+  // RINGKASAN MINGGUAN
+  // ===================================================
 
   const weeklySummary = useMemo(
     () =>
@@ -1936,6 +2049,17 @@ export default function GrafikPerkembanganOJT() {
           })
         );
 
+        if (isAdminReview) {
+          return {
+            ...item,
+            details,
+            totalActivities: null,
+            activeCategories: null,
+            completedThisWeek: null,
+            progress: null,
+          };
+        }
+
         const totalActivities = details.reduce(
           (sum, detail) =>
             sum + detail.count,
@@ -1948,8 +2072,7 @@ export default function GrafikPerkembanganOJT() {
         ).length;
 
         const completedThisWeek = details.filter(
-          (detail) =>
-            detail.completed
+          (detail) => detail.completed
         ).length;
 
         const progress = item.available
@@ -1972,6 +2095,7 @@ export default function GrafikPerkembanganOJT() {
     [
       weeklyData,
       categoryData,
+      isAdminReview,
     ]
   );
 
@@ -2027,13 +2151,22 @@ export default function GrafikPerkembanganOJT() {
     },
   ];
 
+  const canShowContent =
+    !loading &&
+    !error &&
+    !!viewer &&
+    (
+      (isAdminReview && role === "admin") ||
+      (!isAdminReview && !!program)
+    );
+
   function printPage() {
     window.print();
   }
 
-  // =====================================================
+  // ===================================================
   // UI
-  // =====================================================
+  // ===================================================
 
   return (
     <main className="gr-root">
@@ -2048,12 +2181,12 @@ export default function GrafikPerkembanganOJT() {
           <button
             type="button"
             className="gr-back"
-            onClick={() =>
-              router.push(backPath)
-            }
+            onClick={() => router.push(backPath)}
           >
             ←{" "}
-            {isManager
+            {isAdminReview
+              ? "Dashboard Peserta"
+              : isManager
               ? "Detail Peserta"
               : "Dashboard Peserta"}
           </button>
@@ -2075,16 +2208,43 @@ export default function GrafikPerkembanganOJT() {
             </p>
           </div>
 
-          {program && (
+          {isAdminReview && viewer && (
+            <div className="gr-review-person">
+              <div className="gr-avatar">
+                A
+              </div>
+
+              <div>
+                <div className="gr-person-name">
+                  Tinjauan Administrator
+                </div>
+
+                <div className="gr-person-meta">
+                  {viewer.full_name || "Admin"}
+                  <br />
+                  Belum ada peserta atau program
+                  yang dipilih
+                </div>
+              </div>
+
+              <span className="gr-status">
+                ADMIN
+              </span>
+            </div>
+          )}
+
+          {!isAdminReview && program && (
             <div className="gr-hero-person">
               <div className="gr-avatar">
                 {initials(participantName)}
               </div>
 
-              <div style={{
-                minWidth: 0,
-                flex: 1,
-              }}>
+              <div
+                style={{
+                  minWidth: 0,
+                  flex: 1,
+                }}
+              >
                 <div className="gr-person-name">
                   {participantName}
                 </div>
@@ -2118,12 +2278,15 @@ export default function GrafikPerkembanganOJT() {
 
         {loading ? (
           <section className="gr-card">
-            <h2>Memuat Grafik Perkembangan...</h2>
+            <h2>
+              Memuat Grafik Perkembangan...
+            </h2>
+
             <p className="gr-hint">
-              Mengambil data monitoring dari Supabase.
+              Memeriksa akun dan hak akses.
             </p>
           </section>
-        ) : !program ? (
+        ) : !canShowContent ? (
           <section className="gr-card">
             <h2>
               Grafik Tidak Dapat Ditampilkan
@@ -2136,31 +2299,38 @@ export default function GrafikPerkembanganOJT() {
             <button
               type="button"
               className="gr-btn"
-              onClick={() =>
-                router.push(backPath)
-              }
+              onClick={() => router.push(backPath)}
             >
               Kembali
             </button>
           </section>
         ) : (
           <>
-            <div className="gr-lock">
-              🔒 Grafik menampilkan data program{" "}
-              <strong>{participantName}</strong>
-              {" "}berdasarkan Kalender Global.
-              {!isManager &&
-                " Peserta hanya dapat melihat program miliknya."}
-              {" "}Periode aktif peserta:
-              {" "}
-              <strong>
-                {totalAvailableWeeks} minggu global
-              </strong>.
-            </div>
+            {isAdminReview ? (
+              <div className="gr-review-notice">
+                <strong>
+                  Tinjauan Grafik Perkembangan — Admin
+                </strong>
 
-            {error && (
-              <div className="gr-error">
-                {error}
+                <p>
+                  Seluruh komponen grafik dapat
+                  diperiksa tanpa peserta aktif.
+                  Angka dan grafik sengaja kosong
+                  karena belum ada data aktual.
+                  Tidak ada perubahan pada database.
+                </p>
+              </div>
+            ) : (
+              <div className="gr-lock">
+                🔒 Grafik menampilkan data program{" "}
+                <strong>{participantName}</strong>
+                {" "}berdasarkan Kalender Global.
+                {!isManager &&
+                  " Peserta hanya dapat melihat program miliknya."}
+                {" "}Periode aktif peserta:{" "}
+                <strong>
+                  {totalAvailableWeeks} minggu global
+                </strong>.
               </div>
             )}
 
@@ -2191,7 +2361,9 @@ export default function GrafikPerkembanganOJT() {
               ))}
             </nav>
 
-            {/* FILTER */}
+            {/* ===============================
+                FILTER MINGGU
+                =============================== */}
 
             <section className="gr-card">
               <h2>Pilih Periode Grafik</h2>
@@ -2222,8 +2394,7 @@ export default function GrafikPerkembanganOJT() {
                 <div className="gr-filter-custom">
                   <p className="gr-subtitle">
                     Pilih minggu global yang ingin
-                    dibandingkan. Minggu di luar
-                    periode OJT tidak dapat dipilih.
+                    diperiksa.
                   </p>
 
                   <div className="gr-week-buttons">
@@ -2268,7 +2439,7 @@ export default function GrafikPerkembanganOJT() {
                         )
                       }
                     >
-                      Pilih Semua Minggu Aktif
+                      Pilih Semua Minggu
                     </button>
 
                     <button
@@ -2285,59 +2456,79 @@ export default function GrafikPerkembanganOJT() {
               )}
 
               <p className="gr-hint">
-                {selectedWeeks.length} minggu aktif
-                dipilih dari {totalAvailableWeeks}
-                {" "}minggu global program.
-                Filter berlaku pada grafik nilai,
-                grafik batang, dan tabel.
-                Ringkasan keseluruhan serta
-                heatmap menggunakan semua minggu
-                dalam periode OJT.
+                {selectedWeeks.length} dari{" "}
+                {totalAvailableWeeks} minggu dipilih.
+                {isAdminReview
+                  ? " Kalender ditampilkan untuk pemeriksaan struktur halaman; tidak menunjukkan adanya program aktif."
+                  : " Filter berlaku pada grafik dan tabel. Heatmap mencakup seluruh periode OJT."}
               </p>
             </section>
 
-            {/* SUMMARY */}
+            {/* ===============================
+                RINGKASAN
+                =============================== */}
 
-            <section id="gr-summary">
-              <div className="gr-stats">
-                <StatCard
-                  icon="📘"
-                  label="Nilai Teori Terakhir"
-                  value={scoreText(theoryLatest)}
-                  caption={`${theoryWeeks} minggu memiliki nilai`}
-                  tone="blue"
-                />
+            <section
+              id="gr-summary"
+              className="gr-stats"
+            >
+              <StatCard
+                icon="📘"
+                label="Nilai Teori Terakhir"
+                value={scoreText(theoryLatest)}
+                caption={
+                  isAdminReview
+                    ? "Belum ada data peserta"
+                    : `${theoryWeeks} minggu memiliki nilai`
+                }
+                tone="blue"
+              />
 
-                <StatCard
-                  icon="⚙️"
-                  label="Nilai Praktik Terakhir"
-                  value={scoreText(practiceLatest)}
-                  caption={`${practiceWeeks} minggu memiliki nilai`}
-                />
+              <StatCard
+                icon="⚙️"
+                label="Nilai Praktik Terakhir"
+                value={scoreText(practiceLatest)}
+                caption={
+                  isAdminReview
+                    ? "Belum ada data peserta"
+                    : `${practiceWeeks} minggu memiliki nilai`
+                }
+              />
 
-                <StatCard
-                  icon="🏃"
-                  label="Nilai Samapta Terakhir"
-                  value={scoreText(samaptaLatest)}
-                  caption={`${samaptaWeeks} minggu memiliki tes lengkap`}
-                  tone="orange"
-                />
+              <StatCard
+                icon="🏃"
+                label="Nilai Samapta Terakhir"
+                value={scoreText(samaptaLatest)}
+                caption={
+                  isAdminReview
+                    ? "Belum ada data peserta"
+                    : `${samaptaWeeks} minggu memiliki tes lengkap`
+                }
+                tone="orange"
+              />
 
-                <StatCard
-                  icon="📊"
-                  label="Progres Achievement OJT"
-                  value={percentText(overall)}
-                  caption={`${completedCategories} dari 6 kategori memenuhi semua minggu aktif`}
-                />
-              </div>
+              <StatCard
+                icon="📊"
+                label="Progres Achievement OJT"
+                value={percentText(overall)}
+                caption={
+                  isAdminReview
+                    ? "Belum ada data peserta"
+                    : `${completedCategories} dari 6 kategori memenuhi semua minggu aktif`
+                }
+              />
             </section>
 
-            {/* SCORES */}
+            {/* ===============================
+                GRAFIK NILAI
+                =============================== */}
 
             <div id="gr-scores">
               <div className="gr-two-col">
                 <section className="gr-card">
-                  <h2>Perkembangan Nilai OJT</h2>
+                  <h2>
+                    Perkembangan Nilai OJT
+                  </h2>
 
                   <p className="gr-subtitle">
                     Grafik Teori, Praktik, dan Samapta
@@ -2353,7 +2544,7 @@ export default function GrafikPerkembanganOJT() {
                   <p className="gr-hint">
                     Tekan titik untuk melihat rincian.
                     Garis tidak menyambungkan minggu
-                    kosong yang belum memiliki nilai.
+                    tanpa nilai.
                   </p>
                 </section>
 
@@ -2411,7 +2602,9 @@ export default function GrafikPerkembanganOJT() {
               </div>
             </div>
 
-            {/* COMPETENCY */}
+            {/* ===============================
+                KOMPETENSI
+                =============================== */}
 
             <section id="gr-competency">
               <div className="gr-two-col">
@@ -2421,21 +2614,21 @@ export default function GrafikPerkembanganOJT() {
                   </h2>
 
                   <p className="gr-subtitle">
-                    Rata-rata target mingguan
-                    hanya pada minggu global yang
-                    termasuk periode OJT peserta.
+                    Target kompetensi mengikuti
+                    ketentuan program OJT.
                   </p>
 
                   <CompetencyProgress
                     items={categoryData}
                     weekCount={totalAvailableWeeks}
+                    adminReview={isAdminReview}
                   />
 
                   <p className="gr-hint">
-                    Realisasi Fisik dihitung dalam
-                    kilometer. Kategori lain
-                    menggunakan jumlah kegiatan.
-                    Persentase setiap minggu
+                    Fisik dihitung dalam kilometer.
+                    Kategori lain berdasarkan
+                    jumlah kegiatan.
+                    Persentase tiap minggu
                     dibatasi maksimal 100%.
                   </p>
                 </section>
@@ -2450,14 +2643,26 @@ export default function GrafikPerkembanganOJT() {
                       icon="✅"
                       label="Kegiatan Terverifikasi"
                       value={numberText(totalVerified)}
-                      caption="Total enam kategori"
+                      caption={
+                        isAdminReview
+                          ? "Belum ada data"
+                          : "Total enam kategori"
+                      }
                     />
 
                     <StatCard
                       icon="🎯"
                       label="Kategori Lengkap"
-                      value={`${completedCategories}/6`}
-                      caption="Semua minggu aktif mencapai target"
+                      value={
+                        isAdminReview
+                          ? "—"
+                          : `${completedCategories}/6`
+                      }
+                      caption={
+                        isAdminReview
+                          ? "Belum ada data"
+                          : "Semua minggu aktif mencapai target"
+                      }
                     />
                   </div>
 
@@ -2467,25 +2672,34 @@ export default function GrafikPerkembanganOJT() {
                     </strong>
 
                     <p>
-                      Nomor minggu mengikuti Kalender
-                      Global OJT, bukan tanggal mulai
-                      masing-masing peserta.
+                      Nomor minggu mengikuti
+                      Kalender Global OJT, bukan
+                      tanggal mulai masing-masing
+                      peserta.
                     </p>
 
                     <p>
-                      Minggu yang berada sebelum tanggal
-                      mulai atau setelah tanggal selesai
-                      OJT ditandai sebagai di luar
-                      periode, bukan 0%.
+                      Minggu sebelum tanggal mulai
+                      atau setelah tanggal selesai
+                      peserta ditandai sebagai
+                      di luar periode, bukan 0%.
                     </p>
 
                     <p>
                       Minggu aktif tanpa kegiatan
                       dihitung 0% untuk Achievement.
-                      Perhitungan tidak membulatkan
-                      persentase mingguan sebelum
-                      mengambil rata-rata.
+                      Persentase mingguan tidak
+                      dibulatkan sebelum dirata-ratakan.
                     </p>
+
+                    {isAdminReview && (
+                      <p>
+                        Pada tinjauan tanpa peserta,
+                        seluruh persentase tidak
+                        dihitung dan ditampilkan
+                        sebagai belum ada data.
+                      </p>
+                    )}
                   </div>
                 </section>
               </div>
@@ -2496,20 +2710,21 @@ export default function GrafikPerkembanganOJT() {
                 </h2>
 
                 <p className="gr-subtitle">
-                  Semua Week Global tetap terlihat,
-                  dengan pembedaan minggu aktif dan
-                  minggu di luar periode peserta.
+                  Seluruh Week Global tetap terlihat.
                 </p>
 
                 <Heatmap
                   items={categoryData}
                   selectedWeeks={selectedWeeks}
                   onSelectWeek={showWeek}
+                  adminReview={isAdminReview}
                 />
               </section>
             </section>
 
-            {/* WEEKLY DETAIL */}
+            {/* ===============================
+                DETAIL MINGGUAN
+                =============================== */}
 
             <section id="gr-weekly">
               <div className="gr-two-col">
@@ -2597,19 +2812,27 @@ export default function GrafikPerkembanganOJT() {
                           ],
                           [
                             "Kegiatan Terverifikasi",
-                            activeWeekData.totalActivities,
+                            numberText(
+                              activeWeekData.totalActivities
+                            ),
                           ],
                           [
                             "Kategori Memiliki Kegiatan",
-                            `${activeWeekData.activeCategories}/6`,
+                            isAdminReview
+                              ? "—"
+                              : `${activeWeekData.activeCategories}/6`,
                           ],
                           [
                             "Kategori Tercapai",
-                            `${activeWeekData.completedThisWeek}/6`,
+                            isAdminReview
+                              ? "—"
+                              : `${activeWeekData.completedThisWeek}/6`,
                           ],
                           [
-                            "Progress Achievement",
-                            percentText(activeWeekData.progress),
+                            "Progres Achievement",
+                            percentText(
+                              activeWeekData.progress
+                            ),
                           ],
                         ].map(([label, value]) => (
                           <div
@@ -2639,16 +2862,14 @@ export default function GrafikPerkembanganOJT() {
                               </span>
 
                               <strong>
-                                {numberText(
-                                  item.achieved,
-                                  item.name === "Fisik"
-                                    ? 3
-                                    : 0
-                                )}
-                                {" "}
-                                {item.unit}
-                                {" · "}
-                                {percentText(item.percent)}
+                                {isAdminReview
+                                  ? "Belum ada data"
+                                  : `${numberText(
+                                      item.achieved,
+                                      item.name === "Fisik"
+                                        ? 3
+                                        : 0
+                                    )} ${item.unit} · ${percentText(item.percent)}`}
                               </strong>
                             </div>
                           )
@@ -2687,7 +2908,9 @@ export default function GrafikPerkembanganOJT() {
                           .filter(
                             (item) =>
                               item.available &&
-                              selectedWeeks.includes(item.week)
+                              selectedWeeks.includes(
+                                item.week
+                              )
                           )
                           .map((item) => (
                             <tr
@@ -2701,27 +2924,42 @@ export default function GrafikPerkembanganOJT() {
                               <td>
                                 {weekLabel(item.week)}
                               </td>
+
                               <td>
                                 {scoreText(item.theory)}
                               </td>
+
                               <td>
                                 {scoreText(item.practice)}
                               </td>
+
                               <td>
                                 {scoreText(item.final)}
                               </td>
+
                               <td>
-                                {item.totalActivities}
+                                {numberText(
+                                  item.totalActivities
+                                )}
                               </td>
+
                               <td>
-                                {percentText(item.progress)}
+                                {percentText(
+                                  item.progress
+                                )}
                               </td>
+
                               <td>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    setSelectedWeek(item.week)
-                                  }
+                                  onClick={() => {
+                                    setSelectedWeek(
+                                      item.week
+                                    );
+                                    setActiveTab(
+                                      "weekly"
+                                    );
+                                  }}
                                 >
                                   Detail
                                 </button>
@@ -2734,7 +2972,7 @@ export default function GrafikPerkembanganOJT() {
                     {!selectedWeeks.length && (
                       <div className="gr-empty">
                         Pilih minimal satu minggu
-                        aktif untuk menampilkan rekap.
+                        untuk menampilkan rekap.
                       </div>
                     )}
                   </div>
@@ -2742,57 +2980,92 @@ export default function GrafikPerkembanganOJT() {
               </div>
             </section>
 
-            {/* CONCLUSION */}
+            {/* ===============================
+                KESIMPULAN
+                =============================== */}
 
             <section className="gr-card">
-              <h2>
-                Kesimpulan Monitoring
-              </h2>
+              <h2>Kesimpulan Monitoring</h2>
 
               <div className="gr-note">
-                Data Post-Test tersedia pada{" "}
-                <strong>{theoryWeeks}</strong>
-                {" "}minggu, Praktik pada{" "}
-                <strong>{practiceWeeks}</strong>
-                {" "}minggu, dan tes Samapta lengkap
-                pada{" "}
-                <strong>{samaptaWeeks}</strong>
-                {" "}minggu.
+                {isAdminReview ? (
+                  <>
+                    <strong>
+                      Belum Ada Data Monitoring
+                    </strong>
 
-                <p>
-                  Jumlah kegiatan Achievement
-                  terverifikasi selama periode OJT
-                  adalah{" "}
-                  <strong>{totalVerified}</strong>.
-                  Rata-rata progres enam kompetensi
-                  pada{" "}
-                  <strong>
-                    {totalAvailableWeeks} minggu aktif
-                  </strong>
-                  {" "}adalah{" "}
-                  <strong>{percentText(overall)}</strong>.
-                </p>
+                    <p>
+                      Belum ada program peserta
+                      yang dipilih. Struktur grafik,
+                      kompetensi, heatmap, dan rekap
+                      mingguan tersedia untuk
+                      pemeriksaan Admin.
+                    </p>
 
-                <p>
-                  <strong>
-                    {completedCategories} dari 6
-                  </strong>
-                  {" "}kategori telah memenuhi target
-                  pada seluruh minggu global yang
-                  termasuk periode OJT.
-                </p>
+                    <p>
+                      Nilai yang belum tersedia
+                      tidak dianggap 0% dan tidak
+                      memengaruhi data produksi.
+                    </p>
 
-                <p>
-                  Heatmap menunjukkan keseluruhan
-                  25 minggu. Minggu yang berada di
-                  luar periode peserta tidak
-                  memengaruhi nilai progres.
-                </p>
+                    <p>
+                      Setelah ada program OJT aktif,
+                      grafik peserta sebenarnya
+                      dapat dibuka menggunakan
+                      ID program tersebut.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    Data Post-Test tersedia pada{" "}
+                    <strong>{theoryWeeks}</strong>
+                    {" "}minggu, Praktik pada{" "}
+                    <strong>{practiceWeeks}</strong>
+                    {" "}minggu, dan tes Samapta
+                    lengkap pada{" "}
+                    <strong>{samaptaWeeks}</strong>
+                    {" "}minggu.
 
-                <p>
-                  Grafik merupakan sarana monitoring,
-                  bukan keputusan kelulusan akhir.
-                </p>
+                    <p>
+                      Jumlah kegiatan Achievement
+                      terverifikasi selama periode
+                      OJT adalah{" "}
+                      <strong>{totalVerified}</strong>.
+                      Rata-rata progres enam
+                      kompetensi pada{" "}
+                      <strong>
+                        {totalAvailableWeeks} minggu
+                        aktif
+                      </strong>
+                      {" "}adalah{" "}
+                      <strong>
+                        {percentText(overall)}
+                      </strong>.
+                    </p>
+
+                    <p>
+                      <strong>
+                        {completedCategories} dari 6
+                      </strong>
+                      {" "}kategori telah memenuhi
+                      target pada seluruh minggu
+                      global dalam periode OJT.
+                    </p>
+
+                    <p>
+                      Heatmap menunjukkan keseluruhan
+                      25 minggu. Minggu di luar
+                      periode tidak memengaruhi
+                      progres peserta.
+                    </p>
+
+                    <p>
+                      Grafik merupakan sarana
+                      monitoring, bukan keputusan
+                      kelulusan akhir.
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="gr-actions">
@@ -2829,9 +3102,9 @@ export default function GrafikPerkembanganOJT() {
   );
 }
 
-// =======================================================
+// =====================================================
 // CSS
-// =======================================================
+// =====================================================
 
 const css = `
 .gr-root,
@@ -2931,7 +3204,8 @@ const css = `
   margin: 0;
 }
 
-.gr-hero-person {
+.gr-hero-person,
+.gr-review-person {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -3013,6 +3287,21 @@ const css = `
   font-size: 12px;
   line-height: 1.6;
   margin-bottom: 15px;
+}
+
+.gr-review-notice {
+  padding: 15px 17px;
+  background: #e9f8ee;
+  color: #126344;
+  border: 1px solid #b9e5ca;
+  border-radius: 12px;
+  margin-bottom: 15px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.gr-review-notice p {
+  margin: 7px 0 0;
 }
 
 .gr-tabs {
@@ -3377,6 +3666,11 @@ const css = `
   );
 }
 
+.heat-unavailable {
+  background: #f6f8f7;
+  border: 1px dashed #aebeb4;
+}
+
 .gr-heat-scroll {
   overflow-x: auto;
   width: 100%;
@@ -3445,6 +3739,11 @@ const css = `
     #f2f5f3 3px,
     #f2f5f3 6px
   );
+}
+
+.gr-heat-cell.unavailable {
+  background: #f7f9f8;
+  border: 1px dashed #c4d1c9;
 }
 
 .gr-heat-cell:disabled {
@@ -3615,10 +3914,12 @@ const css = `
     font-size: 23px;
   }
 
-  .gr-hero-person {
+  .gr-hero-person,
+  .gr-review-person {
     background: #ffffff10;
     border-radius: 11px;
     padding: 10px;
+    flex-wrap: wrap;
   }
 
   .gr-avatar {
