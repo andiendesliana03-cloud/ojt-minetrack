@@ -10,20 +10,30 @@ import {
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// ====================================================
+// ======================================================
 // OJT MINETRACK V2.0
-// SKETSA 2 - KEGIATAN & NILAI PESERTA
+// SKETSA 2 - FOKUS KEGIATAN & NILAI
+// FILE: app/analisis/[id]/page.jsx
 //
-// Perbaikan:
-// - Metadata OJT_FILE_V1 tidak tampil sebagai teks
-// - Nama dan jumlah lampiran ditampilkan terpisah
-// - Deskripsi kegiatan dibersihkan
-// - Detail dan format koreksi ikut dibersihkan
-// - Tidak mengubah database
-// - Kalender global dan rumus asli dipertahankan
-// ====================================================
+// FITUR:
+// - Kalender Global Week 01–25
+// - Daftar kegiatan dan status verifikasi
+// - Deskripsi bersih dari metadata OJT_FILE_V1
+// - Lihat bukti foto melalui Supabase signed URL
+// - Rincian Post-Test, Praktik, Samapta
+// - Target enam kategori Achievement
+// - Grafik tren nilai
+// - Rekap nilai mingguan
+// - Salin format koreksi
+// - Admin Review tanpa data fiktif
+//
+// DATABASE: READ ONLY
+// Tidak mengubah rumus, tabel, atau policy.
+// ======================================================
 
+const TOTAL_WEEKS = 25;
 const ADMIN_REVIEW_ID = "admin-review";
+const STORAGE_BUCKET = "achievement-files";
 
 const CATEGORIES = [
   {
@@ -36,11 +46,7 @@ const CATEGORIES = [
     name: "Training",
     target: 4,
     unit: "kegiatan",
-    aliases: [
-      "training",
-      "internaltraining",
-      "pelatihan",
-    ],
+    aliases: ["training", "internaltraining", "pelatihan"],
   },
   {
     name: "Sosialisasi",
@@ -58,50 +64,34 @@ const CATEGORIES = [
     name: "Orientasi Area",
     target: 2,
     unit: "kegiatan",
-    aliases: [
-      "orientasi",
-      "orientasiarea",
-      "areaorientation",
-    ],
+    aliases: ["orientasi", "orientasiarea", "areaorientation"],
   },
   {
     name: "Hazard",
     target: 2,
     unit: "kegiatan",
-    aliases: [
-      "hazard",
-      "hazardidentification",
-      "identifikasibahaya",
-    ],
+    aliases: ["hazard", "hazardidentification", "identifikasibahaya"],
   },
 ];
 
 const SERIES = [
-  {
-    key: "theory",
-    name: "Teori",
-    color: "#2670d6",
-  },
-  {
-    key: "practice",
-    name: "Praktik",
-    color: "#119b80",
-  },
-  {
-    key: "final",
-    name: "Samapta",
-    color: "#e7a53c",
-  },
+  { key: "theory", name: "Teori", color: "#2670d6" },
+  { key: "practice", name: "Praktik", color: "#119b80" },
+  { key: "final", name: "Samapta", color: "#e7a53c" },
 ];
 
-// ====================================================
-// UTILITIES
-// ====================================================
+// ======================================================
+// HELPERS
+// ======================================================
 
 function normalize(value) {
   return String(value ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeRole(value) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
 function parseDate(value) {
@@ -114,10 +104,7 @@ function parseDate(value) {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-
-  const date = new Date(
-    Date.UTC(year, month - 1, day)
-  );
+  const date = new Date(Date.UTC(year, month - 1, day));
 
   if (
     date.getUTCFullYear() !== year ||
@@ -135,8 +122,19 @@ function addDays(value, days) {
   if (!date) return null;
 
   date.setUTCDate(date.getUTCDate() + days);
-
   return date.toISOString().slice(0, 10);
+}
+
+function formatDate(value) {
+  const date = parseDate(value);
+  if (!date) return "—";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 function todayWITA() {
@@ -153,20 +151,8 @@ function todayWITA() {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function formatDate(value) {
-  const date = parseDate(value);
-  if (!date) return "—";
-
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
-}
-
-function weekLabel(value) {
-  return `Week ${String(value).padStart(2, "0")}`;
+function weekLabel(week) {
+  return `Week ${String(week).padStart(2, "0")}`;
 }
 
 function numberText(value, digits = 0) {
@@ -221,7 +207,7 @@ function initials(name) {
 }
 
 function average(records) {
-  const values = records
+  const numbers = records
     .filter(
       (item) =>
         item.score !== null &&
@@ -231,11 +217,11 @@ function average(records) {
     .map((item) => Number(item.score))
     .filter(Number.isFinite);
 
-  if (!values.length) return null;
+  if (!numbers.length) return null;
 
   return (
-    values.reduce((sum, value) => sum + value, 0) /
-    values.length
+    numbers.reduce((sum, value) => sum + value, 0) /
+    numbers.length
   );
 }
 
@@ -248,138 +234,17 @@ function cappedPercent(actual, target) {
   );
 }
 
-// ====================================================
-// PARSER LAMPIRAN
-//
-// Menangani:
-// [[OJT_FILE_V1:%7B...%7D]]
-//
-// Metadata dipisahkan dari deskripsi.
-// Tidak menebak URL ataupun bucket Supabase.
-// ====================================================
-
-function validFileUrl(value) {
-  if (typeof value !== "string") return null;
-
-  try {
-    const url = new URL(value);
-
-    if (
-      url.protocol !== "https:" &&
-      url.protocol !== "http:"
-    ) {
-      return null;
-    }
-
-    return url.href;
-  } catch {
-    return null;
-  }
-}
-
-function extractFileMetadata(description) {
-  const original = String(description ?? "");
-
-  const regex =
-    /\[\[OJT_FILE_V1:([\s\S]*?)\]\]/g;
-
-  const files = [];
-
-  const cleaned = original.replace(
-    regex,
-    (_, encoded) => {
-      try {
-        let decoded = encoded.trim();
-
-        try {
-          decoded = decodeURIComponent(decoded);
-        } catch {
-          // Jika sudah berupa JSON, gunakan langsung.
-        }
-
-        const parsed = JSON.parse(decoded);
-
-        const entries = Array.isArray(parsed)
-          ? parsed
-          : Array.isArray(parsed?.files)
-          ? parsed.files
-          : [parsed];
-
-        entries.forEach((entry) => {
-          if (!entry || typeof entry !== "object") {
-            return;
-          }
-
-          const rawName =
-            entry.name ||
-            entry.file_name ||
-            entry.filename ||
-            "Lampiran kegiatan";
-
-          const name =
-            String(rawName).split(/[\\/]/).pop() ||
-            "Lampiran kegiatan";
-
-          const path =
-            typeof entry.path === "string"
-              ? entry.path
-              : "";
-
-          // Hanya URL lengkap yang tersedia
-          // di metadata yang boleh dibuka.
-          const url = validFileUrl(
-            entry.url ||
-              entry.publicUrl ||
-              entry.public_url ||
-              entry.signedUrl ||
-              entry.signed_url ||
-              ""
-          );
-
-          files.push({
-            name,
-            path,
-            url,
-          });
-        });
-      } catch {
-        files.push({
-          name: "Lampiran kegiatan",
-          path: "",
-          url: null,
-          unreadable: true,
-        });
-      }
-
-      return " ";
-    }
-  );
-
-  return {
-    description: cleaned
-      .replace(/\n[ \t]*\n[ \t]*\n/g, "\n\n")
-      .trim(),
-    files,
-  };
-}
-
-// ====================================================
-// KALENDER GLOBAL
-// WEEK 01 = 12-18 SEPTEMBER 2026
-// WEEK 02 = 20-26 SEPTEMBER 2026
-// WEEK 25 = 28 FEB - 06 MAR 2027
-// ====================================================
+// ======================================================
+// KALENDER GLOBAL ASLI
+// ======================================================
 
 const GLOBAL_WEEKS = Array.from(
-  { length: 25 },
+  { length: TOTAL_WEEKS },
   (_, index) => {
     const start =
       index === 0
         ? "2026-09-12"
-        : addDays(
-            "2026-09-20",
-            (index - 1) * 7
-          );
+        : addDays("2026-09-20", (index - 1) * 7);
 
     return {
       week: index + 1,
@@ -391,14 +256,11 @@ const GLOBAL_WEEKS = Array.from(
 
 function globalWeekOf(value) {
   const date = String(value ?? "").slice(0, 10);
-
   if (!parseDate(date)) return null;
 
   return (
     GLOBAL_WEEKS.find(
-      (item) =>
-        date >= item.start &&
-        date <= item.end
+      (item) => date >= item.start && date <= item.end
     )?.week ?? null
   );
 }
@@ -408,34 +270,25 @@ function programWeekRange(program, week) {
     (item) => item.week === Number(week)
   );
 
-  if (
-    !global ||
-    !parseDate(program?.start_date)
-  ) {
+  if (!global || !parseDate(program?.start_date)) {
     return null;
   }
 
-  const startDate = String(
-    program.start_date
-  ).slice(0, 10);
+  const startDate = String(program.start_date).slice(0, 10);
 
   const endDate = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
 
   const start =
-    global.start > startDate
-      ? global.start
-      : startDate;
+    global.start > startDate ? global.start : startDate;
 
   const end =
     endDate && endDate < global.end
       ? endDate
       : global.end;
 
-  return start > end
-    ? null
-    : { start, end };
+  return start > end ? null : { start, end };
 }
 
 function availableGlobalWeeks(program) {
@@ -456,17 +309,13 @@ function insideProgram(value, program) {
     return false;
   }
 
-  if (
-    date <
-    String(program.start_date).slice(0, 10)
-  ) {
+  if (date < String(program.start_date).slice(0, 10)) {
     return false;
   }
 
   if (
     parseDate(program.end_date) &&
-    date >
-      String(program.end_date).slice(0, 10)
+    date > String(program.end_date).slice(0, 10)
   ) {
     return false;
   }
@@ -476,16 +325,12 @@ function insideProgram(value, program) {
 
 function initialGlobalWeek(program, records = []) {
   const available = availableGlobalWeeks(program);
-
   if (!available.length) return 1;
 
   const now = todayWITA();
 
   const current = available.find((item) => {
-    const range = programWeekRange(
-      program,
-      item.week
-    );
+    const range = programWeekRange(program, item.week);
 
     return (
       range &&
@@ -500,27 +345,147 @@ function initialGlobalWeek(program, records = []) {
     .filter((item) =>
       insideProgram(item.activity_date, program)
     )
-    .map((item) =>
-      globalWeekOf(item.activity_date)
-    )
+    .map((item) => globalWeekOf(item.activity_date))
     .filter(Boolean);
 
-  if (recorded.length) {
-    return Math.max(...recorded);
-  }
+  if (recorded.length) return Math.max(...recorded);
 
-  const upcoming = available.find(
-    (item) => item.end >= now
-  );
+  const upcoming = available.find((item) => item.end >= now);
 
   return upcoming
     ? upcoming.week
     : available[available.length - 1].week;
 }
 
-// ====================================================
-// ACHIEVEMENT ASLI
-// ====================================================
+// ======================================================
+// PARSER FILE OJT_FILE_V1
+// ======================================================
+
+function validHttpUrl(value) {
+  if (typeof value !== "string") return null;
+
+  try {
+    const url = new URL(value);
+
+    return ["https:", "http:"].includes(url.protocol)
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function cleanStoragePath(value) {
+  if (typeof value !== "string") return "";
+
+  let path = value.trim();
+
+  if (!path || path.startsWith("/") || path.includes("\\")) {
+    return "";
+  }
+
+  if (path.includes("?") || path.includes("#")) {
+    return "";
+  }
+
+  const parts = path.split("/");
+
+  if (
+    parts.some(
+      (part) =>
+        !part ||
+        part === "." ||
+        part === ".."
+    )
+  ) {
+    return "";
+  }
+
+  return path;
+}
+
+function extractFileMetadata(description) {
+  const original = String(description ?? "");
+
+  const files = [];
+
+  const cleaned = original.replace(
+    /\[\[OJT_FILE_V1:([\s\S]*?)\]\]/g,
+    (_, encoded) => {
+      try {
+        let decoded = encoded.trim();
+
+        try {
+          decoded = decodeURIComponent(decoded);
+        } catch {
+          // Metadata mungkin sudah berbentuk JSON.
+        }
+
+        const parsed = JSON.parse(decoded);
+
+        const entries = Array.isArray(parsed)
+          ? parsed
+          : Array.isArray(parsed?.files)
+          ? parsed.files
+          : [parsed];
+
+        entries.forEach((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return;
+          }
+
+          const rawName =
+            entry.name ||
+            entry.file_name ||
+            entry.filename ||
+            "Lampiran Kegiatan";
+
+          const name =
+            String(rawName).split(/[\\/]/).pop() ||
+            "Lampiran Kegiatan";
+
+          const path = cleanStoragePath(entry.path);
+
+          const url = validHttpUrl(
+            entry.url ||
+              entry.publicUrl ||
+              entry.public_url ||
+              entry.signedUrl ||
+              entry.signed_url ||
+              ""
+          );
+
+          files.push({
+            name,
+            path,
+            url,
+            unreadable: false,
+          });
+        });
+      } catch {
+        files.push({
+          name: "Lampiran Kegiatan",
+          path: "",
+          url: null,
+          unreadable: true,
+        });
+      }
+
+      return " ";
+    }
+  );
+
+  return {
+    description: cleaned
+      .replace(/\n[ \t]*\n[ \t]*\n/g, "\n\n")
+      .trim(),
+    files,
+  };
+}
+
+// ======================================================
+// RUMUS ACHIEVEMENT ASLI
+// ======================================================
 
 function resolveCategory(typeCode, types) {
   const match = types.find(
@@ -528,10 +493,7 @@ function resolveCategory(typeCode, types) {
       normalize(item.code) === normalize(typeCode)
   );
 
-  const candidates = [
-    typeCode,
-    match?.name,
-  ].filter(Boolean);
+  const candidates = [typeCode, match?.name].filter(Boolean);
 
   return (
     CATEGORIES.find((category) =>
@@ -550,28 +512,22 @@ function actualAchievement(category, records) {
     return records.length;
   }
 
-  const meters = records.reduce(
-    (sum, item) => {
-      const distance = Number(item.distance_km);
+  const meters = records.reduce((sum, item) => {
+    const distance = Number(item.distance_km);
 
-      if (
-        !Number.isFinite(distance) ||
-        distance <= 0
-      ) {
-        return sum;
-      }
+    if (!Number.isFinite(distance) || distance <= 0) {
+      return sum;
+    }
 
-      return sum + Math.round(distance * 1000);
-    },
-    0
-  );
+    return sum + Math.round(distance * 1000);
+  }, 0);
 
   return meters / 1000;
 }
 
-// ====================================================
-// SAMAPTA ASLI
-// ====================================================
+// ======================================================
+// RUMUS SAMAPTA ASLI
+// ======================================================
 
 function calculateSamapta(records) {
   const byDate = new Map();
@@ -579,8 +535,7 @@ function calculateSamapta(records) {
   records.forEach((record) => {
     if (!parseDate(record.test_date)) return;
 
-    const date = String(record.test_date)
-      .slice(0, 10);
+    const date = String(record.test_date).slice(0, 10);
 
     if (!byDate.has(date)) {
       byDate.set(date, []);
@@ -595,8 +550,7 @@ function calculateSamapta(records) {
     function get(type) {
       const record = items.find(
         (item) =>
-          normalize(item.test_type) ===
-          normalize(type)
+          normalize(item.test_type) === normalize(type)
       );
 
       if (
@@ -610,9 +564,7 @@ function calculateSamapta(records) {
 
       const score = Number(record.score);
 
-      return Number.isFinite(score)
-        ? score
-        : null;
+      return Number.isFinite(score) ? score : null;
     }
 
     const a = get("Lari 12 Menit");
@@ -632,10 +584,8 @@ function calculateSamapta(records) {
     }
 
     const b =
-      components.reduce(
-        (sum, value) => sum + value,
-        0
-      ) / components.length;
+      components.reduce((sum, value) => sum + value, 0) /
+      components.length;
 
     results.push({
       date,
@@ -645,14 +595,14 @@ function calculateSamapta(records) {
     });
   });
 
-  return results.sort(
-    (a, b) => a.date.localeCompare(b.date)
+  return results.sort((a, b) =>
+    a.date.localeCompare(b.date)
   );
 }
 
-// ====================================================
-// NILAI MINGGUAN ASLI
-// ====================================================
+// ======================================================
+// PERHITUNGAN NILAI PER MINGGU
+// ======================================================
 
 function buildWeeklyScores(
   program,
@@ -676,57 +626,36 @@ function buildWeeklyScores(
   const practiceByWeek = new Map();
 
   function addRecord(map, record, dateField) {
-    if (
-      !insideProgram(record[dateField], program)
-    ) {
-      return;
-    }
+    if (!insideProgram(record[dateField], program)) return;
 
-    const week = globalWeekOf(
-      record[dateField]
-    );
+    const week = globalWeekOf(record[dateField]);
 
     if (week === null) return;
 
-    if (!map.has(week)) {
-      map.set(week, []);
-    }
+    if (!map.has(week)) map.set(week, []);
 
     map.get(week).push(record);
   }
 
   postTests.forEach((item) =>
-    addRecord(
-      postByWeek,
-      item,
-      "test_date"
-    )
+    addRecord(postByWeek, item, "test_date")
   );
 
   practices.forEach((item) =>
-    addRecord(
-      practiceByWeek,
-      item,
-      "practice_date"
-    )
+    addRecord(practiceByWeek, item, "practice_date")
   );
 
   weeks.forEach((item) => {
     if (!item.available) return;
 
-    item.theory = average(
-      postByWeek.get(item.week) || []
-    );
-
+    item.theory = average(postByWeek.get(item.week) || []);
     item.practice = average(
       practiceByWeek.get(item.week) || []
     );
   });
 
   samaptaResults.forEach((item) => {
-    if (!insideProgram(item.date, program)) {
-      return;
-    }
+    if (!insideProgram(item.date, program)) return;
 
     const week = globalWeekOf(item.date);
 
@@ -748,7 +677,8 @@ function latestValue(data, key) {
   const available = data.filter(
     (item) =>
       item.available &&
-      item[key] != null
+      item[key] !== null &&
+      item[key] !== undefined
   );
 
   return available.length
@@ -756,9 +686,19 @@ function latestValue(data, key) {
     : null;
 }
 
-// ====================================================
-// UI COMPONENTS
-// ====================================================
+// ======================================================
+// KOMPONEN TAMPILAN
+// ======================================================
+
+function Metric({ label, value, detail }) {
+  return (
+    <div className="wa-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
 
 function StatusTag({ status }) {
   const value = normalize(status);
@@ -786,111 +726,186 @@ function StatusTag({ status }) {
   );
 }
 
-function Metric({ label, value, detail }) {
-  return (
-    <div className="wa-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </div>
-  );
-}
+// ======================================================
+// LAMPIRAN - SIGNED URL SUPABASE
+// ======================================================
 
-function AttachmentList({ files }) {
+function AttachmentList({ files, programId }) {
+  const [opening, setOpening] = useState(null);
+  const [fileError, setFileError] = useState("");
+
   if (!files?.length) return null;
+
+  async function openEvidence(file, index) {
+    const path = cleanStoragePath(file.path);
+
+    if (!path) {
+      setFileError(
+        "Path bukti tidak tersedia. File tidak dapat dibuka."
+      );
+      return;
+    }
+
+    // Pastikan file berada pada folder program
+    // yang sedang ditampilkan.
+    if (path.split("/")[0] !== String(programId)) {
+      setFileError(
+        "Lokasi bukti tidak sesuai dengan program OJT."
+      );
+      return;
+    }
+
+    setOpening(index);
+    setFileError("");
+
+    // Dibuka langsung dari interaksi pengguna agar
+    // tidak terblokir oleh popup blocker.
+    const tab = window.open("", "_blank");
+
+    if (tab) {
+      tab.opener = null;
+    }
+
+    try {
+      const { data, error } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .createSignedUrl(path, 60);
+
+      if (error) throw error;
+
+      if (!data?.signedUrl) {
+        throw new Error(
+          "Tautan bukti tidak berhasil dibuat."
+        );
+      }
+
+      const url = validHttpUrl(data.signedUrl);
+
+      if (!url) {
+        throw new Error(
+          "Tautan bukti yang diterima tidak valid."
+        );
+      }
+
+      if (tab) {
+        tab.location.replace(url);
+      } else {
+        window.location.assign(url);
+      }
+    } catch (error) {
+      if (tab) tab.close();
+
+      setFileError(
+        error?.message ||
+          "Bukti kegiatan gagal dibuka."
+      );
+    } finally {
+      setOpening(null);
+    }
+  }
 
   return (
     <div className="wa-attachments">
-      <strong>
-        <span aria-hidden="true">📎</span>{" "}
-        Bukti Kegiatan ({files.length})
-      </strong>
+      <div className="wa-attachment-heading">
+        <strong>
+          📎 Bukti Kegiatan ({files.length})
+        </strong>
+        <small>Supabase Storage</small>
+      </div>
 
-      {files.map((file, index) => (
-        <div
-          className="wa-file"
-          key={`${file.name}-${index}`}
-        >
-          <span aria-hidden="true">🖼️</span>
+      {files.map((file, index) => {
+        const validPath = cleanStoragePath(file.path);
+        const canOpen =
+          validPath &&
+          validPath.split("/")[0] === String(programId);
 
-          <div className="wa-file-info">
-            <strong>{file.name}</strong>
+        return (
+          <div
+            className="wa-file"
+            key={`${file.name}-${index}`}
+          >
+            <span className="wa-file-icon">🖼️</span>
 
-            {file.unreadable ? (
+            <div className="wa-file-info">
+              <strong>{file.name}</strong>
+
               <small>
-                Metadata lampiran tidak dapat dibaca.
+                {file.unreadable
+                  ? "Metadata tidak dapat dibaca"
+                  : canOpen
+                  ? "File tersimpan di Storage"
+                  : "Lokasi file belum dapat digunakan"}
               </small>
-            ) : !file.url ? (
-              <small>
-                File tercatat. Pratinjau belum tersedia.
-              </small>
-            ) : (
-              <small>Pratinjau tersedia</small>
-            )}
-          </div>
+            </div>
 
-          {file.url && (
-            <a
-              href={file.url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
               className="wa-file-link"
+              disabled={!canOpen || opening !== null}
+              onClick={() => openEvidence(file, index)}
             >
-              Lihat Bukti
-            </a>
-          )}
+              {opening === index
+                ? "Membuka..."
+                : "Lihat Bukti"}
+            </button>
+          </div>
+        );
+      })}
+
+      {fileError && (
+        <div className="wa-file-error" role="alert">
+          {fileError}
         </div>
-      ))}
+      )}
+
+      <p className="wa-hint">
+        Bukti dibuka menggunakan tautan sementara.
+        Akses mengikuti kebijakan Supabase Storage.
+      </p>
     </div>
   );
 }
 
-function TrendChart({
+// ======================================================
+// GRAFIK NILAI
+// ======================================================
+
+function ScoreChart({
   data,
   selectedWeek,
   onSelectWeek,
 }) {
-  const width = 760;
-  const height = 245;
-
-  const left = 42;
-  const right = 17;
+  const width = 780;
+  const height = 270;
+  const left = 44;
+  const right = 20;
   const top = 20;
-  const bottom = 35;
+  const bottom = 40;
 
   const x = (week) =>
     left +
-    ((week - 1) / 24) *
+    ((week - 1) / (TOTAL_WEEKS - 1)) *
       (width - left - right);
 
   const y = (value) =>
     top +
-    ((100 - Math.max(
-      0,
-      Math.min(100, Number(value))
-    )) / 100) *
+    ((100 - Math.max(0, Math.min(100, Number(value)))) /
+      100) *
       (height - top - bottom);
 
   const hasData = data.some(
     (item) =>
       item.available &&
-      SERIES.some(
-        (series) =>
-          item[series.key] != null
-      )
+      SERIES.some((series) => item[series.key] != null)
   );
 
   return (
     <div>
       <div className="wa-legend">
-        {SERIES.map((series) => (
-          <span key={series.key}>
-            <i
-              style={{
-                background: series.color,
-              }}
-            />
-            {series.name}
+        {SERIES.map((item) => (
+          <span key={item.key}>
+            <i style={{ background: item.color }} />
+            {item.name}
           </span>
         ))}
       </div>
@@ -899,7 +914,7 @@ function TrendChart({
         className="wa-chart"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="Tren Teori, Praktik, dan Samapta"
+        aria-label="Grafik Teori, Praktik dan Samapta"
       >
         {[0, 25, 50, 75, 100].map((tick) => (
           <g key={tick}>
@@ -908,47 +923,43 @@ function TrendChart({
               x2={width - right}
               y1={y(tick)}
               y2={y(tick)}
-              stroke="#e0eaf1"
+              stroke="#dfebf1"
               strokeDasharray="4 5"
             />
 
             <text
-              x={left - 8}
+              x={left - 9}
               y={y(tick) + 4}
               textAnchor="end"
-              fontSize="11"
-              fill="#8094a4"
+              fontSize="12"
+              fill="#7a91a3"
             >
               {tick}
             </text>
           </g>
         ))}
 
-        {[1, 5, 9, 13, 17, 21, 25].map(
-          (week) => (
-            <text
-              key={week}
-              x={x(week)}
-              y={height - 8}
-              textAnchor="middle"
-              fontSize="11"
-              fill="#8094a4"
-            >
-              W{week}
-            </text>
-          )
-        )}
+        {[1, 5, 9, 13, 17, 21, 25].map((week) => (
+          <text
+            key={week}
+            x={x(week)}
+            y={height - 11}
+            textAnchor="middle"
+            fontSize="12"
+            fill="#7a91a3"
+          >
+            W{week}
+          </text>
+        ))}
 
-        {data.some(
-          (item) => item.week === selectedWeek
-        ) && (
+        {data.some((item) => item.week === selectedWeek) && (
           <line
             x1={x(selectedWeek)}
             x2={x(selectedWeek)}
             y1={top}
             y2={height - bottom}
-            stroke="#9aafbd"
-            strokeDasharray="5 5"
+            stroke="#b3c5d0"
+            strokeDasharray="4 5"
           />
         )}
 
@@ -967,44 +978,42 @@ function TrendChart({
             }));
 
           const segments = [];
-          let segment = [];
-          let previous = null;
+          let current = [];
+          let previousWeek = null;
 
           points.forEach((point) => {
             if (
-              previous !== null &&
-              point.week !== previous + 1
+              previousWeek !== null &&
+              point.week !== previousWeek + 1
             ) {
-              if (segment.length > 1) {
-                segments.push(segment);
+              if (current.length > 1) {
+                segments.push(current);
               }
 
-              segment = [];
+              current = [];
             }
 
-            segment.push(point);
-            previous = point.week;
+            current.push(point);
+            previousWeek = point.week;
           });
 
-          if (segment.length > 1) {
-            segments.push(segment);
+          if (current.length > 1) {
+            segments.push(current);
           }
 
           return (
             <g key={series.key}>
-              {segments.map((part, index) => (
+              {segments.map((segment, index) => (
                 <polyline
                   key={index}
-                  points={part
-                    .map(
-                      (point) =>
-                        `${point.x},${point.y}`
-                    )
+                  points={segment
+                    .map((point) => `${point.x},${point.y}`)
                     .join(" ")}
                   fill="none"
                   stroke={series.color}
                   strokeWidth="3"
                   strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
               ))}
 
@@ -1013,22 +1022,16 @@ function TrendChart({
                   key={point.week}
                   cx={point.x}
                   cy={point.y}
-                  r={
-                    point.week === selectedWeek
-                      ? 7
-                      : 4.5
-                  }
+                  r={point.week === selectedWeek ? 7 : 5}
                   fill={series.color}
                   stroke="white"
                   strokeWidth="2"
                   style={{ cursor: "pointer" }}
-                  onClick={() =>
-                    onSelectWeek(point.week)
-                  }
+                  onClick={() => onSelectWeek(point.week)}
                 >
                   <title>
-                    {series.name} ·{" "}
-                    {weekLabel(point.week)} ·{" "}
+                    {series.name} · {weekLabel(point.week)}
+                    {" · "}
                     {scoreText(point.value)}
                   </title>
                 </circle>
@@ -1047,9 +1050,9 @@ function TrendChart({
   );
 }
 
-// ====================================================
-// MAIN PAGE
-// ====================================================
+// ======================================================
+// HALAMAN UTAMA
+// ======================================================
 
 export default function GrafikPerkembanganOJT() {
   const router = useRouter();
@@ -1059,8 +1062,7 @@ export default function GrafikPerkembanganOJT() {
     ? params.id[0]
     : params?.id;
 
-  const isAdminReview =
-    programId === ADMIN_REVIEW_ID;
+  const isAdminReview = programId === ADMIN_REVIEW_ID;
 
   const [viewer, setViewer] = useState(null);
   const [program, setProgram] = useState(null);
@@ -1072,29 +1074,20 @@ export default function GrafikPerkembanganOJT() {
   const [samapta, setSamapta] = useState([]);
 
   const [selectedWeek, setSelectedWeek] = useState(1);
-  const [activeTab, setActiveTab] =
-    useState("activities");
-
-  const [expandedActivity, setExpandedActivity] =
-    useState(null);
-
+  const [activeTab, setActiveTab] = useState("activities");
+  const [selectedActivity, setSelectedActivity] = useState(null);
   const [showTrend, setShowTrend] = useState(true);
   const [showAllWeeks, setShowAllWeeks] = useState(false);
-  const [showCalculation, setShowCalculation] =
-    useState(false);
+  const [showCalculation, setShowCalculation] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const role = String(
-    viewer?.role || ""
-  ).toLowerCase();
-
+  const role = normalizeRole(viewer?.role);
   const isManager =
-    role === "admin" ||
-    role === "mentor";
+    role === "admin" || role === "mentor";
 
   const backPath = isAdminReview
     ? "/dashboard-peserta"
@@ -1102,9 +1095,9 @@ export default function GrafikPerkembanganOJT() {
     ? `/peserta/${programId}`
     : "/dashboard-peserta";
 
-  // ==================================================
-  // DATABASE READ
-  // ==================================================
+  // ====================================================
+  // DATA SUPABASE
+  // ====================================================
 
   const fetchData = useCallback(async (id) => {
     const results = await Promise.all([
@@ -1138,7 +1131,7 @@ export default function GrafikPerkembanganOJT() {
     ]);
 
     const labels = [
-      "Kategori",
+      "Jenis Achievement",
       "Achievement",
       "Post-Test",
       "Praktik",
@@ -1170,7 +1163,7 @@ export default function GrafikPerkembanganOJT() {
 
     if (authError || !user) {
       throw new Error(
-        "Sesi login tidak tersedia."
+        "Sesi login tidak tersedia. Silakan login kembali."
       );
     }
 
@@ -1186,19 +1179,15 @@ export default function GrafikPerkembanganOJT() {
     if (profileError) throw profileError;
 
     if (!profile) {
-      throw new Error(
-        "Profil pengguna tidak ditemukan."
-      );
+      throw new Error("Profil pengguna tidak ditemukan.");
     }
 
-    const currentRole = String(
-      profile.role || ""
-    ).toLowerCase();
+    const currentRole = normalizeRole(profile.role);
 
     if (id === ADMIN_REVIEW_ID) {
       if (currentRole !== "admin") {
         throw new Error(
-          "Mode tinjauan hanya tersedia untuk Admin."
+          "Tinjauan hanya dapat dibuka oleh Admin."
         );
       }
 
@@ -1210,19 +1199,17 @@ export default function GrafikPerkembanganOJT() {
       };
     }
 
-    const manager = [
-      "admin",
-      "mentor",
-    ].includes(currentRole);
+    const manager = ["admin", "mentor"].includes(
+      currentRole
+    );
 
-    const participant = [
-      "participant",
-      "peserta",
-    ].includes(currentRole);
+    const participant = ["participant", "peserta"].includes(
+      currentRole
+    );
 
     if (!manager && !participant) {
       throw new Error(
-        "Akun tidak memiliki akses."
+        "Akun tidak memiliki akses Grafik Perkembangan."
       );
     }
 
@@ -1244,17 +1231,11 @@ export default function GrafikPerkembanganOJT() {
       .eq("id", id);
 
     if (currentRole === "mentor") {
-      query = query.eq(
-        "mentor_id",
-        user.id
-      );
+      query = query.eq("mentor_id", user.id);
     }
 
     if (participant) {
-      query = query.eq(
-        "participant_id",
-        user.id
-      );
+      query = query.eq("participant_id", user.id);
     }
 
     const {
@@ -1266,34 +1247,31 @@ export default function GrafikPerkembanganOJT() {
 
     if (!programData) {
       throw new Error(
-        "Program tidak ditemukan atau akses ditolak."
+        "Program OJT tidak ditemukan atau akses ditolak."
       );
     }
 
     if (!parseDate(programData.start_date)) {
-      throw new Error(
-        "Tanggal mulai OJT tidak valid."
-      );
+      throw new Error("Tanggal mulai OJT tidak valid.");
     }
 
     if (
       programData.end_date &&
       !parseDate(programData.end_date)
     ) {
-      throw new Error(
-        "Tanggal selesai OJT tidak valid."
-      );
+      throw new Error("Tanggal selesai OJT tidak valid.");
     }
 
-    if (
-      participant &&
-      !["active", "approved", "aktif"].includes(
-        normalize(programData.status)
-      )
-    ) {
-      throw new Error(
-        "Grafik peserta hanya tersedia untuk program aktif."
-      );
+    if (participant) {
+      const status = normalize(programData.status);
+
+      if (
+        !["active", "approved", "aktif"].includes(status)
+      ) {
+        throw new Error(
+          "Grafik hanya tersedia untuk program aktif."
+        );
+      }
     }
 
     return {
@@ -1304,97 +1282,27 @@ export default function GrafikPerkembanganOJT() {
     };
   }, []);
 
-  // ==================================================
-  // LOADING
-  // ==================================================
+  const applyData = useCallback((data) => {
+    setTypes(data.types);
+    setAchievements(data.achievements);
+    setPostTests(data.postTests);
+    setPractices(data.practices);
+    setSamapta(data.samapta);
+  }, []);
 
-  const load = useCallback(
-    async (refreshOnly = false) => {
-      if (!programId) {
-        setError("ID program tidak tersedia.");
-        setLoading(false);
-        return;
-      }
+  const clearData = useCallback(() => {
+    setTypes([]);
+    setAchievements([]);
+    setPostTests([]);
+    setPractices([]);
+    setSamapta([]);
+  }, []);
 
-      if (refreshOnly) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
-      setError("");
-
-      try {
-        const access = await verifyAccess(
-          programId
-        );
-
-        if (access.adminReview) {
-          setViewer(access.profile);
-          setProgram(null);
-          setTypes([]);
-          setAchievements([]);
-          setPostTests([]);
-          setPractices([]);
-          setSamapta([]);
-          setSelectedWeek(1);
-          return;
-        }
-
-        const data = await fetchData(
-          access.programData.id
-        );
-
-        setViewer(access.profile);
-        setProgram(access.programData);
-
-        setTypes(data.types);
-        setAchievements(data.achievements);
-        setPostTests(data.postTests);
-        setPractices(data.practices);
-        setSamapta(data.samapta);
-
-        const allowed = availableGlobalWeeks(
-          access.programData
-        ).map((item) => item.week);
-
-        if (
-          !refreshOnly ||
-          !allowed.includes(selectedWeek)
-        ) {
-          setSelectedWeek(
-            initialGlobalWeek(
-              access.programData,
-              data.achievements
-            )
-          );
-        }
-      } catch (err) {
-        setError(
-          err?.message ||
-          "Gagal memuat Grafik Perkembangan."
-        );
-
-        if (!refreshOnly) {
-          setViewer(null);
-          setProgram(null);
-        }
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [
-      programId,
-      verifyAccess,
-      fetchData,
-      selectedWeek,
-    ]
-  );
+  // ====================================================
+  // INITIAL LOAD
+  // ====================================================
 
   useEffect(() => {
-    // Load awal hanya saat ID program berubah.
-    // Refresh manual menggunakan tombol.
     let active = true;
 
     async function initialize() {
@@ -1403,43 +1311,28 @@ export default function GrafikPerkembanganOJT() {
 
       try {
         if (!programId) {
-          throw new Error(
-            "ID program tidak tersedia."
-          );
+          throw new Error("ID program tidak tersedia.");
         }
 
-        const access = await verifyAccess(
-          programId
-        );
-
-        if (!active) return;
-
-        if (access.adminReview) {
-          setViewer(access.profile);
-          setProgram(null);
-          setTypes([]);
-          setAchievements([]);
-          setPostTests([]);
-          setPractices([]);
-          setSamapta([]);
-          setSelectedWeek(1);
-          return;
-        }
-
-        const data = await fetchData(
-          access.programData.id
-        );
+        const access = await verifyAccess(programId);
 
         if (!active) return;
 
         setViewer(access.profile);
-        setProgram(access.programData);
 
-        setTypes(data.types);
-        setAchievements(data.achievements);
-        setPostTests(data.postTests);
-        setPractices(data.practices);
-        setSamapta(data.samapta);
+        if (access.adminReview) {
+          setProgram(null);
+          clearData();
+          setSelectedWeek(1);
+          return;
+        }
+
+        const data = await fetchData(access.programData.id);
+
+        if (!active) return;
+
+        setProgram(access.programData);
+        applyData(data);
 
         setSelectedWeek(
           initialGlobalWeek(
@@ -1450,9 +1343,13 @@ export default function GrafikPerkembanganOJT() {
       } catch (err) {
         if (!active) return;
 
+        setProgram(null);
+        setViewer(null);
+        clearData();
+
         setError(
           err?.message ||
-          "Gagal memuat data."
+            "Gagal memuat Grafik Perkembangan."
         );
       } finally {
         if (active) setLoading(false);
@@ -1468,11 +1365,64 @@ export default function GrafikPerkembanganOJT() {
     programId,
     verifyAccess,
     fetchData,
+    applyData,
+    clearData,
   ]);
 
-  // ==================================================
-  // DATA TERHITUNG
-  // ==================================================
+  async function refresh() {
+    if (loading || refreshing || !viewer) return;
+
+    setRefreshing(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const access = await verifyAccess(programId);
+
+      if (access.user.id !== viewer.id) {
+        throw new Error(
+          "Akun login berubah. Buka ulang halaman."
+        );
+      }
+
+      setViewer(access.profile);
+
+      if (access.adminReview) {
+        setProgram(null);
+        clearData();
+        setSelectedWeek(1);
+        return;
+      }
+
+      const data = await fetchData(access.programData.id);
+
+      setProgram(access.programData);
+      applyData(data);
+
+      const allowed = availableGlobalWeeks(
+        access.programData
+      ).map((item) => item.week);
+
+      if (!allowed.includes(selectedWeek)) {
+        setSelectedWeek(
+          initialGlobalWeek(
+            access.programData,
+            data.achievements
+          )
+        );
+      }
+    } catch (err) {
+      setError(
+        err?.message || "Gagal memperbarui data."
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  // ====================================================
+  // CALCULATED DATA
+  // ====================================================
 
   const availableWeeks = useMemo(
     () =>
@@ -1485,9 +1435,7 @@ export default function GrafikPerkembanganOJT() {
   const allowedWeeks = useMemo(
     () =>
       new Set(
-        availableWeeks.map(
-          (item) => item.week
-        )
+        availableWeeks.map((item) => item.week)
       ),
     [availableWeeks]
   );
@@ -1527,86 +1475,61 @@ export default function GrafikPerkembanganOJT() {
   ]);
 
   const categoryData = useMemo(() => {
-    const verified = achievements.filter(
+    const verifiedRecords = achievements.filter(
       (item) =>
         normalize(item.status) === "verified" &&
-        insideProgram(
-          item.activity_date,
-          program
-        )
+        insideProgram(item.activity_date, program)
     );
 
-    const categorized = verified.map(
-      (item) => ({
-        ...item,
-        category: resolveCategory(
-          item.type_code,
-          types
-        ),
-        week: globalWeekOf(
-          item.activity_date
-        ),
-      })
-    );
+    const categorized = verifiedRecords.map((item) => ({
+      ...item,
+      category: resolveCategory(item.type_code, types),
+      week: globalWeekOf(item.activity_date),
+    }));
 
     return CATEGORIES.map((category) => {
       const matching = categorized.filter(
-        (item) =>
-          item.category === category.name
+        (item) => item.category === category.name
       );
 
-      const weekly = GLOBAL_WEEKS.map(
-        (global) => {
-          const available = isAdminReview
-            ? true
-            : Boolean(
-                programWeekRange(
-                  program,
-                  global.week
-                )
-              );
+      const weekly = GLOBAL_WEEKS.map((global) => {
+        const available = isAdminReview
+          ? true
+          : Boolean(
+              programWeekRange(program, global.week)
+            );
 
-          const records =
-            available && !isAdminReview
-              ? matching.filter(
-                  (item) =>
-                    item.week === global.week
-                )
-              : [];
-
-          const achieved = isAdminReview
-            ? null
-            : available
-            ? actualAchievement(
-                category,
-                records
+        const records =
+          available && !isAdminReview
+            ? matching.filter(
+                (item) => item.week === global.week
               )
-            : 0;
+            : [];
 
-          const percent = isAdminReview
-            ? null
-            : available
-            ? cappedPercent(
-                achieved,
-                category.target
-              )
-            : null;
+        const achieved = isAdminReview
+          ? null
+          : available
+          ? actualAchievement(category, records)
+          : 0;
 
-          return {
-            week: global.week,
-            available,
-            achieved,
-            count: isAdminReview
-              ? null
-              : records.length,
-            percent,
-            completed:
-              !isAdminReview &&
-              available &&
-              achieved >= category.target,
-          };
-        }
-      );
+        const percent = isAdminReview
+          ? null
+          : available
+          ? cappedPercent(achieved, category.target)
+          : null;
+
+        return {
+          week: global.week,
+          available,
+          achieved,
+          count: isAdminReview ? null : records.length,
+          percent,
+          completed:
+            !isAdminReview &&
+            available &&
+            achieved >= category.target,
+        };
+      });
 
       const active = weekly.filter(
         (item) => item.available
@@ -1619,8 +1542,7 @@ export default function GrafikPerkembanganOJT() {
           ? null
           : active.length
           ? active.reduce(
-              (sum, item) =>
-                sum + item.percent,
+              (sum, item) => sum + item.percent,
               0
             ) / active.length
           : 0,
@@ -1636,14 +1558,12 @@ export default function GrafikPerkembanganOJT() {
   const weeklySummary = useMemo(
     () =>
       weeklyScores.map((item) => {
-        const details = categoryData.map(
-          (category) => ({
-            name: category.name,
-            target: category.target,
-            unit: category.unit,
-            ...category.weekly[item.week - 1],
-          })
-        );
+        const details = categoryData.map((category) => ({
+          name: category.name,
+          target: category.target,
+          unit: category.unit,
+          ...category.weekly[item.week - 1],
+        }));
 
         if (isAdminReview) {
           return {
@@ -1658,8 +1578,7 @@ export default function GrafikPerkembanganOJT() {
           ...item,
           details,
           totalActivities: details.reduce(
-            (sum, detail) =>
-              sum + detail.count,
+            (sum, detail) => sum + detail.count,
             0
           ),
           progress: item.available
@@ -1678,24 +1597,20 @@ export default function GrafikPerkembanganOJT() {
     ]
   );
 
-  const activeWeekData = weeklySummary.find(
-    (item) =>
-      item.week === selectedWeek &&
-      item.available
-  );
+  const activeWeekData =
+    weeklySummary.find(
+      (item) =>
+        item.week === selectedWeek &&
+        item.available
+    ) || null;
 
   const filteredAchievements = useMemo(
     () =>
       achievements
         .filter(
           (item) =>
-            insideProgram(
-              item.activity_date,
-              program
-            ) &&
-            globalWeekOf(
-              item.activity_date
-            ) === selectedWeek
+            insideProgram(item.activity_date, program) &&
+            globalWeekOf(item.activity_date) === selectedWeek
         )
         .map((item) => {
           const extracted = extractFileMetadata(
@@ -1705,14 +1620,10 @@ export default function GrafikPerkembanganOJT() {
           return {
             ...item,
             category:
-              resolveCategory(
-                item.type_code,
-                types
-              ) || item.type_code,
-            cleanDescription:
-              extracted.description,
-            attachments:
-              extracted.files,
+              resolveCategory(item.type_code, types) ||
+              item.type_code,
+            cleanDescription: extracted.description,
+            attachments: extracted.files,
           };
         })
         .sort((a, b) =>
@@ -1731,25 +1642,19 @@ export default function GrafikPerkembanganOJT() {
   const filteredPostTests = postTests.filter(
     (item) =>
       insideProgram(item.test_date, program) &&
-      globalWeekOf(item.test_date) ===
-        selectedWeek
+      globalWeekOf(item.test_date) === selectedWeek
   );
 
   const filteredPractices = practices.filter(
     (item) =>
-      insideProgram(
-        item.practice_date,
-        program
-      ) &&
-      globalWeekOf(item.practice_date) ===
-        selectedWeek
+      insideProgram(item.practice_date, program) &&
+      globalWeekOf(item.practice_date) === selectedWeek
   );
 
   const filteredSamapta = samapta.filter(
     (item) =>
       insideProgram(item.test_date, program) &&
-      globalWeekOf(item.test_date) ===
-        selectedWeek
+      globalWeekOf(item.test_date) === selectedWeek
   );
 
   const verifiedCount = filteredAchievements.filter(
@@ -1762,19 +1667,15 @@ export default function GrafikPerkembanganOJT() {
       normalize(item.status) === "pending"
   ).length;
 
-  const participant = Array.isArray(
-    program?.peserta
-  )
+  const participant = Array.isArray(program?.peserta)
     ? program.peserta[0]
     : program?.peserta;
 
   const participantName =
-    participant?.full_name ||
-    "Peserta OJT";
+    participant?.full_name || "Peserta OJT";
 
   const selectedPeriod = GLOBAL_WEEKS.find(
-    (item) =>
-      item.week === selectedWeek
+    (item) => item.week === selectedWeek
   );
 
   const canShowContent =
@@ -1787,39 +1688,32 @@ export default function GrafikPerkembanganOJT() {
     );
 
   function changeWeek(week) {
-    const value = Number(week);
+    const number = Number(week);
 
-    if (!allowedWeeks.has(value)) return;
+    if (!allowedWeeks.has(number)) return;
 
-    setSelectedWeek(value);
-    setExpandedActivity(null);
+    setSelectedWeek(number);
+    setSelectedActivity(null);
     setNotice("");
   }
 
-  // ==================================================
-  // FORMAT KOREKSI
-  // Metadata lampiran tidak disalin sebagai kode.
-  // ==================================================
+  // ====================================================
+  // COPY CORRECTION
+  // ====================================================
 
   async function copyCorrection(item = null) {
     if (isAdminReview) return;
 
-    const itemDetails = item
+    const details = item
       ? [
-          `Tanggal: ${formatDate(
-            item.activity_date
-          )}`,
+          `Tanggal: ${formatDate(item.activity_date)}`,
           `Kategori: ${item.category}`,
           `Deskripsi: ${
-            item.cleanDescription ||
-            "Belum tersedia"
+            item.cleanDescription || "Belum tersedia"
           }`,
           `Realisasi: ${
             item.category === "Fisik"
-              ? `${numberText(
-                  item.distance_km,
-                  3
-                )} km`
+              ? `${numberText(item.distance_km, 3)} km`
               : "1 kegiatan"
           }`,
           `Status: ${item.status || "—"}`,
@@ -1836,16 +1730,14 @@ export default function GrafikPerkembanganOJT() {
     const message = [
       "PERMOHONAN PEMERIKSAAN DATA OJT",
       "",
-      `Nama: ${participantName}`,
+      `Nama Peserta: ${participantName}`,
       `Site: ${program?.site || "—"}`,
       `Minggu: ${weekLabel(selectedWeek)}`,
       `Periode: ${formatDate(
         selectedPeriod?.start
-      )} - ${formatDate(
-        selectedPeriod?.end
-      )}`,
+      )} - ${formatDate(selectedPeriod?.end)}`,
       "",
-      itemDetails,
+      details,
       "",
       "Data yang seharusnya: [Isi koreksi]",
       "Bukti pendukung: [Jika tersedia]",
@@ -1855,29 +1747,25 @@ export default function GrafikPerkembanganOJT() {
 
     try {
       if (!navigator.clipboard?.writeText) {
-        throw new Error(
-          "Clipboard tidak tersedia"
-        );
+        throw new Error("Clipboard tidak tersedia.");
       }
 
-      await navigator.clipboard.writeText(
-        message
-      );
+      await navigator.clipboard.writeText(message);
 
       setNotice(
-        "Format koreksi berhasil disalin. Silakan kirim ke grup koordinasi."
+        "Format koreksi berhasil disalin."
       );
     } catch {
       window.prompt(
-        "Salin pesan koreksi berikut:",
+        "Salin format koreksi berikut:",
         message
       );
     }
   }
 
-  // ==================================================
+  // ====================================================
   // RENDER
-  // ==================================================
+  // ====================================================
 
   return (
     <main className="wa-root">
@@ -1902,9 +1790,7 @@ export default function GrafikPerkembanganOJT() {
         <button
           type="button"
           className="wa-back"
-          onClick={() =>
-            router.push(backPath)
-          }
+          onClick={() => router.push(backPath)}
         >
           ← Kembali
         </button>
@@ -1914,8 +1800,7 @@ export default function GrafikPerkembanganOJT() {
         <section className="wa-hero">
           <div>
             <small>
-              EMERGENCY RESPONSE GROUP ·
-              PT BERAU COAL
+              EMERGENCY RESPONSE GROUP · PT BERAU COAL
             </small>
 
             <h1>
@@ -1924,19 +1809,19 @@ export default function GrafikPerkembanganOJT() {
 
             <p>
               Monitoring kegiatan, nilai,
-              dan capaian OJT peserta.
+              dan capaian peserta OJT.
             </p>
           </div>
 
           {viewer && (
             <div className="wa-person">
-              <div className="wa-avatar">
+              <span className="wa-avatar">
                 {initials(
                   isAdminReview
                     ? viewer.full_name
                     : participantName
                 )}
-              </div>
+              </span>
 
               <div>
                 <strong>
@@ -1949,22 +1834,15 @@ export default function GrafikPerkembanganOJT() {
                   {isAdminReview
                     ? "Tinjauan Administrator"
                     : `${
-                        participant?.department ||
-                        "—"
-                      } · ${
-                        program?.site || "—"
-                      }`}
+                        participant?.department || "—"
+                      } · ${program?.site || "—"}`}
                 </small>
 
                 {!isAdminReview && (
                   <small>
-                    {formatDate(
-                      program?.start_date
-                    )}
+                    {formatDate(program?.start_date)}
                     {" – "}
-                    {formatDate(
-                      program?.end_date
-                    )}
+                    {formatDate(program?.end_date)}
                   </small>
                 )}
               </div>
@@ -1974,34 +1852,26 @@ export default function GrafikPerkembanganOJT() {
 
         {loading ? (
           <section className="wa-card">
-            Memuat Grafik Perkembangan...
+            Memuat data Grafik Perkembangan...
           </section>
         ) : !canShowContent ? (
           <section className="wa-card">
-            <h2>
-              Grafik Tidak Dapat Ditampilkan
-            </h2>
-
+            <h2>Grafik Tidak Dapat Ditampilkan</h2>
             <p className="wa-error">
-              {error ||
-                "Data tidak tersedia."}
+              {error || "Data tidak tersedia."}
             </p>
           </section>
         ) : (
           <>
             {isAdminReview && (
               <div className="wa-notice">
-                Mode tinjauan Admin.
-                Tidak menggunakan data peserta
-                atau program fiktif.
+                Mode tinjauan Administrator.
+                Tidak menampilkan data peserta fiktif.
               </div>
             )}
 
             {notice && (
-              <div
-                className="wa-notice"
-                role="status"
-              >
+              <div className="wa-notice" role="status">
                 {notice}
               </div>
             )}
@@ -2012,7 +1882,6 @@ export default function GrafikPerkembanganOJT() {
               <div className="wa-heading">
                 <div>
                   <h2>Monitoring Mingguan</h2>
-
                   <p>
                     Pilih minggu untuk melihat
                     kegiatan dan nilai.
@@ -2027,9 +1896,7 @@ export default function GrafikPerkembanganOJT() {
                       : ""
                   }
                   onChange={(event) =>
-                    changeWeek(
-                      event.target.value
-                    )
+                    changeWeek(event.target.value)
                   }
                 >
                   {!availableWeeks.length && (
@@ -2059,30 +1926,20 @@ export default function GrafikPerkembanganOJT() {
                         ? "active"
                         : ""
                     }
-                    onClick={() =>
-                      changeWeek(item.week)
-                    }
+                    onClick={() => changeWeek(item.week)}
                   >
-                    W{String(
-                      item.week
-                    ).padStart(2, "0")}
+                    W{String(item.week).padStart(2, "0")}
                   </button>
                 ))}
               </div>
 
               <div className="wa-period">
-                <strong>
-                  {weekLabel(selectedWeek)}
-                </strong>
+                <strong>{weekLabel(selectedWeek)}</strong>
 
                 <span>
-                  {formatDate(
-                    selectedPeriod?.start
-                  )}
+                  {formatDate(selectedPeriod?.start)}
                   {" – "}
-                  {formatDate(
-                    selectedPeriod?.end
-                  )}
+                  {formatDate(selectedPeriod?.end)}
                 </span>
               </div>
             </section>
@@ -2107,22 +1964,18 @@ export default function GrafikPerkembanganOJT() {
                     ? "—"
                     : numberText(pendingCount)
                 }
-                detail="Perlu pemeriksaan Mentor"
+                detail="Pemeriksaan Mentor"
               />
 
               <Metric
                 label="Nilai Teori"
-                value={scoreText(
-                  activeWeekData?.theory
-                )}
+                value={scoreText(activeWeekData?.theory)}
                 detail="Rata-rata Post-Test"
               />
 
               <Metric
                 label="Nilai Praktik"
-                value={scoreText(
-                  activeWeekData?.practice
-                )}
+                value={scoreText(activeWeekData?.practice)}
                 detail="Rata-rata Praktik"
               />
             </section>
@@ -2135,13 +1988,10 @@ export default function GrafikPerkembanganOJT() {
             >
               <div className="wa-heading">
                 <div>
-                  <h2>
-                    Kegiatan dan Nilai Mingguan
-                  </h2>
-
+                  <h2>Kegiatan dan Nilai Mingguan</h2>
                   <p>
-                    Periksa kegiatan dan nilai
-                    yang diinput.
+                    Periksa kegiatan, lampiran,
+                    dan nilai yang telah diinput.
                   </p>
                 </div>
               </div>
@@ -2155,9 +2005,7 @@ export default function GrafikPerkembanganOJT() {
                       : ""
                   }
                   onClick={() =>
-                    setActiveTab(
-                      "activities"
-                    )
+                    setActiveTab("activities")
                   }
                 >
                   Daftar Kegiatan
@@ -2217,154 +2065,125 @@ export default function GrafikPerkembanganOJT() {
                     </div>
                   ) : (
                     <div className="wa-list">
-                      {filteredAchievements.map(
-                        (item) => {
-                          const expanded =
-                            expandedActivity ===
-                            item.id;
+                      {filteredAchievements.map((item) => {
+                        const expanded =
+                          selectedActivity === item.id;
 
-                          return (
-                            <article
-                              className="wa-activity"
-                              key={item.id}
+                        return (
+                          <article
+                            className="wa-activity"
+                            key={item.id}
+                          >
+                            <button
+                              type="button"
+                              className="wa-activity-main"
+                              onClick={() =>
+                                setSelectedActivity(
+                                  expanded ? null : item.id
+                                )
+                              }
                             >
-                              <button
-                                type="button"
-                                className="wa-activity-main"
-                                onClick={() =>
-                                  setExpandedActivity(
-                                    expanded
-                                      ? null
-                                      : item.id
-                                  )
-                                }
-                              >
-                                <div className="wa-activity-info">
+                              <div className="wa-activity-info">
+                                <strong>
+                                  {item.category}
+                                </strong>
+
+                                <small>
+                                  {formatDate(
+                                    item.activity_date
+                                  )}
+                                </small>
+
+                                <p>
+                                  {item.cleanDescription ||
+                                    (item.attachments.length
+                                      ? "Bukti kegiatan terlampir."
+                                      : "Deskripsi kegiatan belum tersedia.")}
+                                </p>
+
+                                {item.attachments.length > 0 && (
+                                  <span className="wa-attachment-count">
+                                    📎 {item.attachments.length}
+                                    {" "}lampiran
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="wa-activity-status">
+                                <StatusTag
+                                  status={item.status}
+                                />
+
+                                <span>
+                                  {expanded ? "⌃" : "⌄"}
+                                </span>
+                              </div>
+                            </button>
+
+                            {expanded && (
+                              <div className="wa-expanded">
+                                <div className="wa-detail">
+                                  <span>Kategori</span>
                                   <strong>
                                     {item.category}
                                   </strong>
+                                </div>
 
-                                  <small>
+                                <div className="wa-detail">
+                                  <span>Tanggal</span>
+                                  <strong>
                                     {formatDate(
                                       item.activity_date
                                     )}
-                                  </small>
-
-                                  <p>
-                                    {item.cleanDescription ||
-                                      (
-                                        item.attachments.length
-                                          ? "Bukti kegiatan terlampir."
-                                          : "Deskripsi kegiatan belum tersedia."
-                                      )}
-                                  </p>
-
-                                  {item.attachments.length >
-                                    0 && (
-                                    <span className="wa-attachment-count">
-                                      📎{" "}
-                                      {
-                                        item.attachments.length
-                                      }{" "}
-                                      lampiran
-                                    </span>
-                                  )}
+                                  </strong>
                                 </div>
 
-                                <div className="wa-activity-status">
+                                <div className="wa-detail">
+                                  <span>Deskripsi</span>
+                                  <strong>
+                                    {item.cleanDescription ||
+                                      "Belum tersedia"}
+                                  </strong>
+                                </div>
+
+                                <div className="wa-detail">
+                                  <span>Realisasi</span>
+                                  <strong>
+                                    {item.category === "Fisik"
+                                      ? `${numberText(
+                                          item.distance_km,
+                                          3
+                                        )} km`
+                                      : "1 kegiatan"}
+                                  </strong>
+                                </div>
+
+                                <div className="wa-detail">
+                                  <span>Status</span>
                                   <StatusTag
                                     status={item.status}
                                   />
-
-                                  <span>
-                                    {expanded
-                                      ? "⌃"
-                                      : "⌄"}
-                                  </span>
                                 </div>
-                              </button>
 
-                              {expanded && (
-                                <div className="wa-expanded">
-                                  <div className="wa-detail">
-                                    <span>
-                                      Kategori
-                                    </span>
-                                    <strong>
-                                      {item.category}
-                                    </strong>
-                                  </div>
+                                <AttachmentList
+                                  files={item.attachments}
+                                  programId={programId}
+                                />
 
-                                  <div className="wa-detail">
-                                    <span>
-                                      Tanggal
-                                    </span>
-                                    <strong>
-                                      {formatDate(
-                                        item.activity_date
-                                      )}
-                                    </strong>
-                                  </div>
-
-                                  <div className="wa-detail">
-                                    <span>
-                                      Deskripsi
-                                    </span>
-                                    <strong>
-                                      {item.cleanDescription ||
-                                        "Belum tersedia"}
-                                    </strong>
-                                  </div>
-
-                                  <div className="wa-detail">
-                                    <span>
-                                      Realisasi
-                                    </span>
-                                    <strong>
-                                      {item.category ===
-                                      "Fisik"
-                                        ? `${numberText(
-                                            item.distance_km,
-                                            3
-                                          )} km`
-                                        : "1 kegiatan"}
-                                    </strong>
-                                  </div>
-
-                                  <div className="wa-detail">
-                                    <span>
-                                      Status
-                                    </span>
-                                    <StatusTag
-                                      status={
-                                        item.status
-                                      }
-                                    />
-                                  </div>
-
-                                  <AttachmentList
-                                    files={
-                                      item.attachments
-                                    }
-                                  />
-
-                                  <button
-                                    type="button"
-                                    className="wa-primary"
-                                    onClick={() =>
-                                      copyCorrection(
-                                        item
-                                      )
-                                    }
-                                  >
-                                    Salin Format Koreksi
-                                  </button>
-                                </div>
-                              )}
-                            </article>
-                          );
-                        }
-                      )}
+                                <button
+                                  type="button"
+                                  className="wa-primary"
+                                  onClick={() =>
+                                    copyCorrection(item)
+                                  }
+                                >
+                                  Salin Format Koreksi
+                                </button>
+                              </div>
+                            )}
+                          </article>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2376,9 +2195,7 @@ export default function GrafikPerkembanganOJT() {
                 <div className="wa-scores">
                   <section className="wa-score-block">
                     <div className="wa-score-title">
-                      <h3>
-                        Post-Test / Teori
-                      </h3>
+                      <h3>Post-Test / Teori</h3>
 
                       <strong>
                         {scoreText(
@@ -2392,44 +2209,32 @@ export default function GrafikPerkembanganOJT() {
                         Belum ada input nilai Teori.
                       </p>
                     ) : (
-                      filteredPostTests.map(
-                        (item, index) => (
-                          <div
-                            className="wa-score-row"
-                            key={
-                              item.id ||
-                              index
-                            }
-                          >
-                            <div>
-                              <strong>
-                                Post-Test{" "}
-                                {index + 1}
-                              </strong>
-
-                              <small>
-                                {formatDate(
-                                  item.test_date
-                                )}
-                              </small>
-                            </div>
-
+                      filteredPostTests.map((item, index) => (
+                        <div
+                          className="wa-score-row"
+                          key={item.id || index}
+                        >
+                          <div>
                             <strong>
-                              {scoreText(
-                                item.score
-                              )}
+                              Post-Test {index + 1}
                             </strong>
+
+                            <small>
+                              {formatDate(item.test_date)}
+                            </small>
                           </div>
-                        )
-                      )
+
+                          <strong>
+                            {scoreText(item.score)}
+                          </strong>
+                        </div>
+                      ))
                     )}
                   </section>
 
                   <section className="wa-score-block">
                     <div className="wa-score-title">
-                      <h3>
-                        Praktik Mingguan
-                      </h3>
+                      <h3>Praktik Mingguan</h3>
 
                       <strong>
                         {scoreText(
@@ -2443,36 +2248,28 @@ export default function GrafikPerkembanganOJT() {
                         Belum ada input nilai Praktik.
                       </p>
                     ) : (
-                      filteredPractices.map(
-                        (item, index) => (
-                          <div
-                            className="wa-score-row"
-                            key={
-                              item.id ||
-                              index
-                            }
-                          >
-                            <div>
-                              <strong>
-                                Praktik{" "}
-                                {index + 1}
-                              </strong>
-
-                              <small>
-                                {formatDate(
-                                  item.practice_date
-                                )}
-                              </small>
-                            </div>
-
+                      filteredPractices.map((item, index) => (
+                        <div
+                          className="wa-score-row"
+                          key={item.id || index}
+                        >
+                          <div>
                             <strong>
-                              {scoreText(
-                                item.score
-                              )}
+                              Praktik {index + 1}
                             </strong>
+
+                            <small>
+                              {formatDate(
+                                item.practice_date
+                              )}
+                            </small>
                           </div>
-                        )
-                      )
+
+                          <strong>
+                            {scoreText(item.score)}
+                          </strong>
+                        </div>
+                      ))
                     )}
                   </section>
 
@@ -2492,73 +2289,56 @@ export default function GrafikPerkembanganOJT() {
                         Belum ada catatan Samapta.
                       </p>
                     ) : (
-                      filteredSamapta.map(
-                        (item, index) => (
-                          <div
-                            className="wa-score-row"
-                            key={
-                              item.id ||
-                              index
-                            }
-                          >
-                            <div>
-                              <strong>
-                                {item.test_type}
-                              </strong>
-
-                              <small>
-                                {formatDate(
-                                  item.test_date
-                                )}
-                              </small>
-
-                              {item.result_value != null &&
-                                item.result_value !==
-                                  "" && (
-                                  <small>
-                                    Hasil:{" "}
-                                    {
-                                      item.result_value
-                                    }
-                                  </small>
-                                )}
-                            </div>
-
+                      filteredSamapta.map((item, index) => (
+                        <div
+                          className="wa-score-row"
+                          key={item.id || index}
+                        >
+                          <div>
                             <strong>
-                              {scoreText(
-                                item.score
-                              )}
+                              {item.test_type}
                             </strong>
+
+                            <small>
+                              {formatDate(
+                                item.test_date
+                              )}
+                            </small>
+
+                            {item.result_value != null &&
+                              item.result_value !== "" && (
+                                <small>
+                                  Hasil: {item.result_value}
+                                </small>
+                              )}
                           </div>
-                        )
-                      )
+
+                          <strong>
+                            {scoreText(item.score)}
+                          </strong>
+                        </div>
+                      ))
                     )}
 
                     <div className="wa-samapta">
                       <span>
                         Nilai A:{" "}
                         <strong>
-                          {scoreText(
-                            activeWeekData?.a
-                          )}
+                          {scoreText(activeWeekData?.a)}
                         </strong>
                       </span>
 
                       <span>
                         Nilai B:{" "}
                         <strong>
-                          {scoreText(
-                            activeWeekData?.b
-                          )}
+                          {scoreText(activeWeekData?.b)}
                         </strong>
                       </span>
 
                       <span>
                         Akhir:{" "}
                         <strong>
-                          {scoreText(
-                            activeWeekData?.final
-                          )}
+                          {scoreText(activeWeekData?.final)}
                         </strong>
                       </span>
                     </div>
@@ -2568,9 +2348,7 @@ export default function GrafikPerkembanganOJT() {
                     <button
                       type="button"
                       className="wa-primary"
-                      onClick={() =>
-                        copyCorrection()
-                      }
+                      onClick={() => copyCorrection()}
                     >
                       Salin Format Koreksi Nilai
                     </button>
@@ -2588,112 +2366,87 @@ export default function GrafikPerkembanganOJT() {
                     </strong>
 
                     <span>
-                      {weekLabel(
-                        selectedWeek
-                      )}
+                      {weekLabel(selectedWeek)}
                     </span>
                   </div>
 
-                  {categoryData.map(
-                    (category) => {
-                      const weekly =
-                        category.weekly[
-                          selectedWeek - 1
-                        ];
+                  {categoryData.map((category) => {
+                    const weekly =
+                      category.weekly[selectedWeek - 1];
 
-                      const actual =
-                        isAdminReview
-                          ? null
-                          : weekly?.achieved ??
-                            null;
+                    const actual = isAdminReview
+                      ? null
+                      : weekly?.achieved ?? null;
 
-                      const percent =
-                        isAdminReview
-                          ? null
-                          : weekly?.percent ??
-                            null;
+                    const percent = isAdminReview
+                      ? null
+                      : weekly?.percent ?? null;
 
-                      const missing =
-                        actual === null
-                          ? null
-                          : Math.max(
-                              0,
-                              category.target -
-                                actual
-                            );
+                    const missing =
+                      actual === null
+                        ? null
+                        : Math.max(
+                            0,
+                            category.target - actual
+                          );
 
-                      return (
-                        <div
-                          className="wa-target"
-                          key={
-                            category.name
-                          }
-                        >
-                          <div className="wa-target-head">
-                            <strong>
-                              {category.name}
-                            </strong>
+                    return (
+                      <div
+                        className="wa-target"
+                        key={category.name}
+                      >
+                        <div className="wa-target-head">
+                          <strong>
+                            {category.name}
+                          </strong>
 
-                            <span>
-                              {actual === null
-                                ? "—"
-                                : `${numberText(
-                                    actual,
-                                    category.name ===
-                                      "Fisik"
-                                      ? 3
-                                      : 0
-                                  )} / ${
-                                    category.target
-                                  } ${
-                                    category.unit
-                                  }`}
-                            </span>
-                          </div>
-
-                          <div className="wa-track">
-                            <div
-                              style={{
-                                width: `${
-                                  percent ||
-                                  0
-                                }%`,
-                              }}
-                            />
-                          </div>
-
-                          <div className="wa-target-foot">
-                            <span>
-                              {percentText(
-                                percent
-                              )}
-                            </span>
-
-                            <span>
-                              {missing === null
-                                ? "Belum ada data"
-                                : missing <= 0
-                                ? "Target tercapai"
-                                : `Kurang ${numberText(
-                                    missing,
-                                    category.name ===
-                                      "Fisik"
-                                      ? 3
-                                      : 0
-                                  )} ${
-                                    category.unit
-                                  }`}
-                            </span>
-                          </div>
+                          <span>
+                            {actual === null
+                              ? "—"
+                              : `${numberText(
+                                  actual,
+                                  category.name === "Fisik"
+                                    ? 3
+                                    : 0
+                                )} / ${category.target} ${
+                                  category.unit
+                                }`}
+                          </span>
                         </div>
-                      );
-                    }
-                  )}
+
+                        <div className="wa-track">
+                          <div
+                            style={{
+                              width: `${percent || 0}%`,
+                            }}
+                          />
+                        </div>
+
+                        <div className="wa-target-foot">
+                          <span>
+                            {percentText(percent)}
+                          </span>
+
+                          <span>
+                            {missing === null
+                              ? "Belum ada data"
+                              : missing <= 0
+                              ? "Target tercapai"
+                              : `Kurang ${numberText(
+                                  missing,
+                                  category.name === "Fisik"
+                                    ? 3
+                                    : 0
+                                )} ${category.unit}`}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
 
                   <p className="wa-hint">
-                    Target ditampilkan per minggu.
                     Hanya kegiatan terverifikasi
-                    yang diperhitungkan.
+                    yang dihitung sebagai Achievement.
                   </p>
                 </div>
               )}
@@ -2704,10 +2457,7 @@ export default function GrafikPerkembanganOJT() {
             <section className="wa-card">
               <div className="wa-heading">
                 <div>
-                  <h2>
-                    Tren Perkembangan Nilai
-                  </h2>
-
+                  <h2>Tren Perkembangan Nilai</h2>
                   <p>
                     Teori, Praktik, dan Samapta
                     dalam satu grafik.
@@ -2718,10 +2468,7 @@ export default function GrafikPerkembanganOJT() {
                   type="button"
                   className="wa-secondary"
                   onClick={() =>
-                    setShowTrend(
-                      (previous) =>
-                        !previous
-                    )
+                    setShowTrend((previous) => !previous)
                   }
                 >
                   {showTrend
@@ -2767,19 +2514,14 @@ export default function GrafikPerkembanganOJT() {
                     />
                   </div>
 
-                  <TrendChart
+                  <ScoreChart
                     data={weeklyScores}
-                    selectedWeek={
-                      selectedWeek
-                    }
-                    onSelectWeek={
-                      changeWeek
-                    }
+                    selectedWeek={selectedWeek}
+                    onSelectWeek={changeWeek}
                   />
 
                   <p className="wa-hint">
-                    Minggu tanpa nilai tidak
-                    dianggap bernilai nol.
+                    Minggu tanpa nilai tidak dianggap nol.
                   </p>
                 </>
               )}
@@ -2790,14 +2532,10 @@ export default function GrafikPerkembanganOJT() {
             <section className="wa-card">
               <div className="wa-heading">
                 <div>
-                  <h2>
-                    Rekap Nilai Mingguan
-                  </h2>
-
+                  <h2>Rekap Nilai Mingguan</h2>
                   <p>
                     Klik Detail untuk memeriksa
-                    kegiatan dan nilai minggu
-                    terkait.
+                    data minggu terkait.
                   </p>
                 </div>
 
@@ -2805,10 +2543,7 @@ export default function GrafikPerkembanganOJT() {
                   type="button"
                   className="wa-secondary"
                   onClick={() =>
-                    setShowAllWeeks(
-                      (previous) =>
-                        !previous
-                    )
+                    setShowAllWeeks((previous) => !previous)
                   }
                 >
                   {showAllWeeks
@@ -2838,42 +2573,32 @@ export default function GrafikPerkembanganOJT() {
                           item.available &&
                           (
                             showAllWeeks ||
-                            item.week ===
-                              selectedWeek
+                            item.week === selectedWeek
                           )
                       )
                       .map((item) => (
                         <tr
                           key={item.week}
                           className={
-                            selectedWeek ===
-                            item.week
+                            selectedWeek === item.week
                               ? "selected"
                               : ""
                           }
                         >
                           <td>
-                            {weekLabel(
-                              item.week
-                            )}
+                            {weekLabel(item.week)}
                           </td>
 
                           <td>
-                            {scoreText(
-                              item.theory
-                            )}
+                            {scoreText(item.theory)}
                           </td>
 
                           <td>
-                            {scoreText(
-                              item.practice
-                            )}
+                            {scoreText(item.practice)}
                           </td>
 
                           <td>
-                            {scoreText(
-                              item.final
-                            )}
+                            {scoreText(item.final)}
                           </td>
 
                           <td>
@@ -2883,32 +2608,23 @@ export default function GrafikPerkembanganOJT() {
                           </td>
 
                           <td>
-                            {percentText(
-                              item.progress
-                            )}
+                            {percentText(item.progress)}
                           </td>
 
                           <td>
                             <button
                               type="button"
                               onClick={() => {
-                                changeWeek(
-                                  item.week
-                                );
-
-                                setActiveTab(
-                                  "activities"
-                                );
+                                changeWeek(item.week);
+                                setActiveTab("activities");
 
                                 document
                                   .getElementById(
                                     "wa-activity-section"
                                   )
                                   ?.scrollIntoView({
-                                    behavior:
-                                      "smooth",
-                                    block:
-                                      "start",
+                                    behavior: "smooth",
+                                    block: "start",
                                   });
                               }}
                             >
@@ -2922,42 +2638,32 @@ export default function GrafikPerkembanganOJT() {
               </div>
             </section>
 
-            {/* KOREKSI */}
+            {/* FORMAT KOREKSI */}
 
             <section className="wa-correction">
               <div>
-                <h2>
-                  Ada Data yang Tidak Sesuai?
-                </h2>
-
+                <h2>Ada Data yang Tidak Sesuai?</h2>
                 <p>
-                  Periksa kegiatan, nilai, dan
-                  lampiran. Jika terdapat
-                  kesalahan input, salin format
-                  koreksi untuk disampaikan
-                  kepada Mentor melalui grup
-                  koordinasi.
+                  Periksa kegiatan, nilai, dan foto bukti.
+                  Jika ada kesalahan input, salin format
+                  koreksi untuk disampaikan kepada Mentor.
                 </p>
-
                 <small>
-                  Peserta tidak mengubah data
-                  secara langsung.
+                  Peserta tidak mengubah data secara langsung.
                 </small>
               </div>
 
               {!isAdminReview && (
                 <button
                   type="button"
-                  onClick={() =>
-                    copyCorrection()
-                  }
+                  onClick={() => copyCorrection()}
                 >
                   Salin Format Koreksi
                 </button>
               )}
             </section>
 
-            {/* INFO PERHITUNGAN */}
+            {/* INFORMASI PERHITUNGAN */}
 
             <section className="wa-card">
               <button
@@ -2965,52 +2671,46 @@ export default function GrafikPerkembanganOJT() {
                 className="wa-info-toggle"
                 onClick={() =>
                   setShowCalculation(
-                    (previous) =>
-                      !previous
+                    (previous) => !previous
                   )
                 }
               >
                 <span>
                   ⓘ Informasi Perhitungan
                 </span>
-
                 <span>
-                  {showCalculation
-                    ? "−"
-                    : "+"}
+                  {showCalculation ? "−" : "+"}
                 </span>
               </button>
 
               {showCalculation && (
                 <div className="wa-info-content">
                   <p>
-                    Kalender global Week 01–25
-                    berlaku untuk seluruh program.
-                    Week 01 adalah 12–18 September
-                    2026 dan Week 25 berakhir
-                    6 Maret 2027.
-                  </p>
-
-                  <p>
-                    Minggu di luar periode OJT
-                    tidak dihitung. Minggu aktif
-                    tanpa kegiatan dihitung 0%
-                    untuk Achievement.
+                    Kalender Global Week 01–25 berlaku
+                    untuk seluruh program OJT.
+                    Week 01 dimulai 12 September 2026,
+                    sedangkan Week 25 berakhir 6 Maret 2027.
                   </p>
 
                   <p>
                     Fisik dihitung dalam kilometer.
                     Lima kategori lainnya dihitung
-                    berdasarkan kegiatan
-                    terverifikasi. Persentase
-                    mingguan dibatasi 100%.
+                    berdasarkan jumlah kegiatan
+                    terverifikasi.
                   </p>
 
                   <p>
-                    Nilai Samapta Akhir adalah
+                    Persentase Achievement setiap minggu
+                    dibatasi maksimal 100%.
+                    Minggu aktif tanpa kegiatan dihitung 0%.
+                  </p>
+
+                  <p>
+                    Nilai Samapta Akhir merupakan
                     rata-rata Nilai A dan Nilai B.
                     Nilai B merupakan rata-rata
-                    empat komponen Samapta B.
+                    Pull-Up, Push-Up, Sit-Up,
+                    dan Shuttle Run.
                   </p>
                 </div>
               )}
@@ -3020,9 +2720,7 @@ export default function GrafikPerkembanganOJT() {
               <button
                 type="button"
                 disabled={refreshing}
-                onClick={() =>
-                  load(true)
-                }
+                onClick={refresh}
               >
                 {refreshing
                   ? "Memperbarui..."
@@ -3031,9 +2729,7 @@ export default function GrafikPerkembanganOJT() {
 
               <button
                 type="button"
-                onClick={() =>
-                  window.print()
-                }
+                onClick={() => window.print()}
               >
                 Cetak / Simpan
               </button>
@@ -3051,9 +2747,9 @@ export default function GrafikPerkembanganOJT() {
   );
 }
 
-// ====================================================
-// STYLING
-// ====================================================
+// ======================================================
+// CSS
+// ======================================================
 
 const css = `
 .wa-root,
@@ -3065,12 +2761,8 @@ const css = `
   min-height: 100vh;
   background: #edf4f9;
   color: #173755;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: Inter, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .wa-root button,
@@ -3105,16 +2797,16 @@ const css = `
 }
 
 .wa-logo {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 11px;
   background: #0d675c;
   border: 1px solid #279f8e;
   color: #79ebd0;
-  width: 42px;
-  height: 42px;
-  border-radius: 11px;
   display: grid;
   place-items: center;
   font-size: 23px;
-  flex-shrink: 0;
 }
 
 .wa-brand strong {
@@ -3124,8 +2816,8 @@ const css = `
 }
 
 .wa-brand em {
-  color: #48e0bf;
   font-style: normal;
+  color: #48e0bf;
 }
 
 .wa-brand strong small {
@@ -3139,10 +2831,10 @@ const css = `
 
 .wa-brand > div > span {
   display: block;
-  font-size: 8px;
-  color: #bdd5e2;
-  letter-spacing: 1px;
   margin-top: 4px;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: #bdd5e2;
 }
 
 .wa-back {
@@ -3213,13 +2905,13 @@ const css = `
 .wa-avatar {
   width: 49px;
   height: 49px;
+  flex-shrink: 0;
+  border-radius: 13px;
   background: #def9ed;
   color: #087c65;
   font-weight: 900;
-  border-radius: 13px;
   display: grid;
   place-items: center;
-  flex-shrink: 0;
 }
 
 .wa-person strong {
@@ -3236,14 +2928,14 @@ const css = `
   border-radius: 15px;
   padding: 20px;
   margin-bottom: 15px;
-  box-shadow: 0 4px 16px #123b500a;
   min-width: 0;
+  box-shadow: 0 4px 16px #123b500a;
 }
 
 .wa-card h2 {
+  margin: 0 0 7px;
   color: #123d71;
   font-size: 18px;
-  margin: 0 0 7px;
 }
 
 .wa-heading {
@@ -3255,10 +2947,10 @@ const css = `
 }
 
 .wa-heading p {
+  margin: 0;
   color: #758b9e;
   font-size: 11px;
   line-height: 1.6;
-  margin: 0;
 }
 
 .wa-select {
@@ -3310,23 +3002,21 @@ const css = `
 .wa-metrics,
 .wa-trend-metrics {
   display: grid;
-  grid-template-columns:
-    repeat(4,minmax(0,1fr));
+  grid-template-columns: repeat(4,minmax(0,1fr));
   gap: 11px;
   margin-bottom: 15px;
 }
 
 .wa-trend-metrics {
-  grid-template-columns:
-    repeat(3,minmax(0,1fr));
+  grid-template-columns: repeat(3,minmax(0,1fr));
 }
 
 .wa-metric {
+  min-width: 0;
+  padding: 15px;
   background: white;
   border: 1px solid #dce7ef;
   border-radius: 12px;
-  padding: 15px;
-  min-width: 0;
 }
 
 .wa-metric span,
@@ -3346,8 +3036,7 @@ const css = `
 
 .wa-tabs {
   display: grid;
-  grid-template-columns:
-    repeat(3,minmax(0,1fr));
+  grid-template-columns: repeat(3,minmax(0,1fr));
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -3391,27 +3080,27 @@ const css = `
 }
 
 .wa-activity {
+  overflow: hidden;
   border: 1px solid #dce7ef;
   border-radius: 12px;
-  overflow: hidden;
 }
 
 .wa-activity-main {
-  border: 0;
-  background: white;
-  color: #173755;
   width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
   padding: 15px;
+  border: 0;
+  background: white;
+  color: #173755;
   text-align: left;
 }
 
 .wa-activity-info {
-  flex: 1;
   min-width: 0;
+  flex: 1;
 }
 
 .wa-activity-info > strong {
@@ -3421,27 +3110,27 @@ const css = `
 
 .wa-activity-info > small {
   display: block;
-  color: #8496a4;
   margin-top: 5px;
+  color: #8496a4;
   font-size: 11px;
 }
 
 .wa-activity-info p {
+  margin: 10px 0;
   color: #637c90;
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  margin: 10px 0;
 }
 
 .wa-attachment-count {
   display: inline-block;
-  font-size: 11px;
-  background: #edf6fc;
-  color: #2b6989;
   border-radius: 8px;
   padding: 6px 9px;
+  background: #edf6fc;
+  color: #2b6989;
+  font-size: 11px;
 }
 
 .wa-activity-status {
@@ -3454,9 +3143,9 @@ const css = `
 .wa-status {
   display: inline-block;
   border-radius: 20px;
+  padding: 6px 9px;
   font-size: 10px;
   font-weight: 800;
-  padding: 6px 9px;
   white-space: nowrap;
 }
 
@@ -3476,17 +3165,17 @@ const css = `
 }
 
 .wa-expanded {
+  padding: 14px;
   background: #f8fbfd;
   border-top: 1px solid #e3edf2;
-  padding: 14px;
 }
 
 .wa-detail {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid #e7eef3;
   padding: 11px 0;
+  border-bottom: 1px solid #e7eef3;
   font-size: 12px;
 }
 
@@ -3495,11 +3184,13 @@ const css = `
 }
 
 .wa-detail > strong {
+  max-width: 70%;
   text-align: right;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-width: 70%;
 }
+
+/* BUKTI KEGIATAN */
 
 .wa-attachments {
   border: 1px solid #d9e7ee;
@@ -3509,11 +3200,22 @@ const css = `
   margin-top: 15px;
 }
 
-.wa-attachments > strong {
-  display: block;
+.wa-attachment-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.wa-attachment-heading strong {
   color: #164669;
   font-size: 13px;
-  margin-bottom: 10px;
+}
+
+.wa-attachment-heading small {
+  color: #7890a1;
+  font-size: 10px;
 }
 
 .wa-file {
@@ -3524,8 +3226,9 @@ const css = `
   padding: 12px 0;
 }
 
-.wa-file > span {
+.wa-file-icon {
   font-size: 23px;
+  flex-shrink: 0;
 }
 
 .wa-file-info {
@@ -3542,30 +3245,47 @@ const css = `
 
 .wa-file-info small {
   display: block;
+  margin-top: 4px;
   color: #8597a4;
   font-size: 10px;
-  margin-top: 4px;
 }
 
 .wa-file-link {
-  display: inline-block;
+  flex-shrink: 0;
+  border: 0;
+  cursor: pointer;
   background: #e4f6ef;
   color: #087b64;
-  padding: 8px;
+  padding: 10px 12px;
   border-radius: 8px;
   font-size: 11px;
   font-weight: 800;
-  text-decoration: none;
 }
 
-.wa-primary {
-  background: #087d67;
-  border: 0;
-  border-radius: 9px;
-  color: white;
+.wa-file-link:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.wa-file-error {
+  background: #fff0f1;
+  color: #b42336;
   padding: 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+/* RINCIAN NILAI */
+
+.wa-primary {
   width: 100%;
   margin-top: 14px;
+  background: #087d67;
+  color: white;
+  border: 0;
+  border-radius: 9px;
+  padding: 12px;
   font-size: 12px;
   font-weight: 800;
 }
@@ -3590,14 +3310,14 @@ const css = `
 }
 
 .wa-score-title {
-  border-bottom: 1px solid #e8eff3;
   padding-bottom: 12px;
+  border-bottom: 1px solid #e8eff3;
 }
 
 .wa-score-title h3 {
+  margin: 0;
   color: #153e67;
   font-size: 14px;
-  margin: 0;
 }
 
 .wa-score-title > strong,
@@ -3606,16 +3326,16 @@ const css = `
 }
 
 .wa-score-row {
-  border-bottom: 1px solid #edf1f4;
   padding: 12px 0;
+  border-bottom: 1px solid #edf1f4;
   font-size: 12px;
 }
 
 .wa-score-row small {
   display: block;
+  margin-top: 4px;
   color: #8094a4;
   font-size: 10px;
-  margin-top: 4px;
 }
 
 .wa-score-block > p {
@@ -3627,12 +3347,14 @@ const css = `
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  background: #eff8f5;
+  margin-top: 13px;
   padding: 12px;
   border-radius: 9px;
-  margin-top: 13px;
+  background: #eff8f5;
   font-size: 12px;
 }
+
+/* TARGET */
 
 .wa-targets {
   display: grid;
@@ -3659,18 +3381,22 @@ const css = `
 
 .wa-track {
   height: 10px;
-  background: #e6eef1;
-  border-radius: 20px;
   overflow: hidden;
+  border-radius: 20px;
+  background: #e6eef1;
 }
 
 .wa-track > div {
   height: 100%;
   background: linear-gradient(
-    90deg,#0b9479,#4bc9a9
+    90deg,
+    #0b9479,
+    #4bc9a9
   );
   border-radius: 20px;
 }
+
+/* GRAFIK */
 
 .wa-legend {
   display: flex;
@@ -3682,15 +3408,15 @@ const css = `
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
   color: #688297;
+  font-size: 11px;
 }
 
 .wa-legend i {
+  display: inline-block;
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  display: inline-block;
 }
 
 .wa-chart {
@@ -3711,6 +3437,8 @@ const css = `
   white-space: nowrap;
 }
 
+/* REKAP */
+
 .wa-table-scroll {
   overflow-x: auto;
 }
@@ -3723,8 +3451,8 @@ const css = `
 
 .wa-table th,
 .wa-table td {
-  padding: 12px;
   text-align: left;
+  padding: 12px;
   white-space: nowrap;
 }
 
@@ -3743,25 +3471,27 @@ const css = `
 }
 
 .wa-table button {
-  background: #e0f5e9;
-  color: #087a5c;
   border: 0;
   border-radius: 8px;
+  background: #e0f5e9;
+  color: #087a5c;
   padding: 8px 10px;
   font-size: 11px;
   font-weight: 800;
 }
 
+/* KOREKSI */
+
 .wa-correction {
-  background: #e0f3eb;
-  border: 1px solid #b9e5d5;
-  border-radius: 14px;
-  padding: 20px;
-  margin-bottom: 15px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 20px;
+  padding: 20px;
+  margin-bottom: 15px;
+  border-radius: 14px;
+  background: #e0f3eb;
+  border: 1px solid #b9e5d5;
 }
 
 .wa-correction h2 {
@@ -3771,9 +3501,9 @@ const css = `
 }
 
 .wa-correction p {
+  color: #376b5c;
   font-size: 12px;
   line-height: 1.7;
-  color: #376b5c;
 }
 
 .wa-correction small {
@@ -3782,6 +3512,7 @@ const css = `
 }
 
 .wa-correction button {
+  flex-shrink: 0;
   background: #087d67;
   color: white;
   border: 0;
@@ -3789,8 +3520,9 @@ const css = `
   padding: 12px 15px;
   font-size: 12px;
   font-weight: 800;
-  flex-shrink: 0;
 }
+
+/* INFORMASI */
 
 .wa-info-toggle {
   display: flex;
@@ -3799,18 +3531,18 @@ const css = `
   border: 0;
   background: transparent;
   color: #184c72;
-  font-weight: 800;
   font-size: 13px;
+  font-weight: 800;
 }
 
 .wa-info-content {
-  background: #f1f8f5;
-  border-radius: 10px;
+  margin-top: 14px;
   padding: 14px;
+  border-radius: 10px;
+  background: #f1f8f5;
   color: #55776d;
   font-size: 12px;
   line-height: 1.8;
-  margin-top: 14px;
 }
 
 .wa-actions {
@@ -3824,8 +3556,8 @@ const css = `
   background: #087d67;
   color: white;
   border: 1px solid #087d67;
-  padding: 12px 16px;
   border-radius: 10px;
+  padding: 12px 16px;
   font-size: 12px;
   font-weight: 800;
 }
@@ -3856,13 +3588,13 @@ const css = `
 
 .wa-empty {
   padding: 17px;
+  margin-top: 10px;
   background: #f9fbfc;
   border: 1px dashed #d2e0e8;
   border-radius: 10px;
   text-align: center;
   color: #8196a5;
   font-size: 12px;
-  margin-top: 10px;
 }
 
 .wa-hint {
@@ -3879,7 +3611,7 @@ const css = `
   font-size: 10px;
 }
 
-@media(max-width:900px) {
+@media (max-width: 900px) {
   .wa-hero {
     flex-direction: column;
     align-items: stretch;
@@ -3896,7 +3628,7 @@ const css = `
   }
 }
 
-@media(max-width:600px) {
+@media (max-width: 600px) {
   .wa-topbar {
     padding: 12px;
   }
@@ -3983,6 +3715,14 @@ const css = `
     font-size: 9px;
   }
 
+  .wa-file {
+    flex-wrap: wrap;
+  }
+
+  .wa-file-link {
+    margin-left: auto;
+  }
+
   .wa-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -4006,6 +3746,7 @@ const css = `
   .wa-tabs,
   .wa-secondary,
   .wa-primary,
+  .wa-file-link,
   .wa-actions,
   .wa-correction button {
     display: none !important;
