@@ -10,18 +10,19 @@ import {
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// ======================================================
+// ====================================================
 // OJT MINETRACK V2.0
-// SKETSA 2 - FOKUS KEGIATAN & NILAI
-// FILE: app/analisis/[id]/page.jsx
+// SKETSA 2 - KEGIATAN & NILAI PESERTA
 //
-// Hanya membaca database.
-// Kalender global Week 01-25.
-// Rumus Achievement dan Samapta dipertahankan.
-// Admin Review: /analisis/admin-review
-// ======================================================
+// Perbaikan:
+// - Metadata OJT_FILE_V1 tidak tampil sebagai teks
+// - Nama dan jumlah lampiran ditampilkan terpisah
+// - Deskripsi kegiatan dibersihkan
+// - Detail dan format koreksi ikut dibersihkan
+// - Tidak mengubah database
+// - Kalender global dan rumus asli dipertahankan
+// ====================================================
 
-const TOTAL_WEEKS = 25;
 const ADMIN_REVIEW_ID = "admin-review";
 
 const CATEGORIES = [
@@ -35,7 +36,11 @@ const CATEGORIES = [
     name: "Training",
     target: 4,
     unit: "kegiatan",
-    aliases: ["training", "internaltraining", "pelatihan"],
+    aliases: [
+      "training",
+      "internaltraining",
+      "pelatihan",
+    ],
   },
   {
     name: "Sosialisasi",
@@ -53,30 +58,50 @@ const CATEGORIES = [
     name: "Orientasi Area",
     target: 2,
     unit: "kegiatan",
-    aliases: ["orientasi", "orientasiarea", "areaorientation"],
+    aliases: [
+      "orientasi",
+      "orientasiarea",
+      "areaorientation",
+    ],
   },
   {
     name: "Hazard",
     target: 2,
     unit: "kegiatan",
-    aliases: ["hazard", "hazardidentification", "identifikasibahaya"],
+    aliases: [
+      "hazard",
+      "hazardidentification",
+      "identifikasibahaya",
+    ],
   },
 ];
 
 const SERIES = [
-  { key: "theory", name: "Teori", color: "#2670d6" },
-  { key: "practice", name: "Praktik", color: "#119b80" },
-  { key: "final", name: "Samapta", color: "#e7a53c" },
+  {
+    key: "theory",
+    name: "Teori",
+    color: "#2670d6",
+  },
+  {
+    key: "practice",
+    name: "Praktik",
+    color: "#119b80",
+  },
+  {
+    key: "final",
+    name: "Samapta",
+    color: "#e7a53c",
+  },
 ];
+
+// ====================================================
+// UTILITIES
+// ====================================================
 
 function normalize(value) {
   return String(value ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
-}
-
-function normalizeRole(value) {
-  return String(value ?? "").trim().toLowerCase();
 }
 
 function parseDate(value) {
@@ -89,7 +114,10 @@ function parseDate(value) {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
+
+  const date = new Date(
+    Date.UTC(year, month - 1, day)
+  );
 
   if (
     date.getUTCFullYear() !== year ||
@@ -107,19 +135,8 @@ function addDays(value, days) {
   if (!date) return null;
 
   date.setUTCDate(date.getUTCDate() + days);
+
   return date.toISOString().slice(0, 10);
-}
-
-function formatDate(value) {
-  const date = parseDate(value);
-  if (!date) return "—";
-
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
 }
 
 function todayWITA() {
@@ -136,12 +153,28 @@ function todayWITA() {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function weekLabel(week) {
-  return `Week ${String(week).padStart(2, "0")}`;
+function formatDate(value) {
+  const date = parseDate(value);
+  if (!date) return "—";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function weekLabel(value) {
+  return `Week ${String(value).padStart(2, "0")}`;
 }
 
 function numberText(value, digits = 0) {
-  if (value === null || value === undefined || value === "") {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
     return "—";
   }
 
@@ -188,7 +221,7 @@ function initials(name) {
 }
 
 function average(records) {
-  const numbers = records
+  const values = records
     .filter(
       (item) =>
         item.score !== null &&
@@ -198,11 +231,11 @@ function average(records) {
     .map((item) => Number(item.score))
     .filter(Number.isFinite);
 
-  if (!numbers.length) return null;
+  if (!values.length) return null;
 
   return (
-    numbers.reduce((sum, value) => sum + value, 0) /
-    numbers.length
+    values.reduce((sum, value) => sum + value, 0) /
+    values.length
   );
 }
 
@@ -215,17 +248,138 @@ function cappedPercent(actual, target) {
   );
 }
 
-// ======================================================
-// KALENDER GLOBAL ASLI
-// ======================================================
+// ====================================================
+// PARSER LAMPIRAN
+//
+// Menangani:
+// [[OJT_FILE_V1:%7B...%7D]]
+//
+// Metadata dipisahkan dari deskripsi.
+// Tidak menebak URL ataupun bucket Supabase.
+// ====================================================
+
+function validFileUrl(value) {
+  if (typeof value !== "string") return null;
+
+  try {
+    const url = new URL(value);
+
+    if (
+      url.protocol !== "https:" &&
+      url.protocol !== "http:"
+    ) {
+      return null;
+    }
+
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function extractFileMetadata(description) {
+  const original = String(description ?? "");
+
+  const regex =
+    /\[\[OJT_FILE_V1:([\s\S]*?)\]\]/g;
+
+  const files = [];
+
+  const cleaned = original.replace(
+    regex,
+    (_, encoded) => {
+      try {
+        let decoded = encoded.trim();
+
+        try {
+          decoded = decodeURIComponent(decoded);
+        } catch {
+          // Jika sudah berupa JSON, gunakan langsung.
+        }
+
+        const parsed = JSON.parse(decoded);
+
+        const entries = Array.isArray(parsed)
+          ? parsed
+          : Array.isArray(parsed?.files)
+          ? parsed.files
+          : [parsed];
+
+        entries.forEach((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return;
+          }
+
+          const rawName =
+            entry.name ||
+            entry.file_name ||
+            entry.filename ||
+            "Lampiran kegiatan";
+
+          const name =
+            String(rawName).split(/[\\/]/).pop() ||
+            "Lampiran kegiatan";
+
+          const path =
+            typeof entry.path === "string"
+              ? entry.path
+              : "";
+
+          // Hanya URL lengkap yang tersedia
+          // di metadata yang boleh dibuka.
+          const url = validFileUrl(
+            entry.url ||
+              entry.publicUrl ||
+              entry.public_url ||
+              entry.signedUrl ||
+              entry.signed_url ||
+              ""
+          );
+
+          files.push({
+            name,
+            path,
+            url,
+          });
+        });
+      } catch {
+        files.push({
+          name: "Lampiran kegiatan",
+          path: "",
+          url: null,
+          unreadable: true,
+        });
+      }
+
+      return " ";
+    }
+  );
+
+  return {
+    description: cleaned
+      .replace(/\n[ \t]*\n[ \t]*\n/g, "\n\n")
+      .trim(),
+    files,
+  };
+}
+
+// ====================================================
+// KALENDER GLOBAL
+// WEEK 01 = 12-18 SEPTEMBER 2026
+// WEEK 02 = 20-26 SEPTEMBER 2026
+// WEEK 25 = 28 FEB - 06 MAR 2027
+// ====================================================
 
 const GLOBAL_WEEKS = Array.from(
-  { length: TOTAL_WEEKS },
+  { length: 25 },
   (_, index) => {
     const start =
       index === 0
         ? "2026-09-12"
-        : addDays("2026-09-20", (index - 1) * 7);
+        : addDays(
+            "2026-09-20",
+            (index - 1) * 7
+          );
 
     return {
       week: index + 1,
@@ -242,7 +396,9 @@ function globalWeekOf(value) {
 
   return (
     GLOBAL_WEEKS.find(
-      (item) => date >= item.start && date <= item.end
+      (item) =>
+        date >= item.start &&
+        date <= item.end
     )?.week ?? null
   );
 }
@@ -252,25 +408,34 @@ function programWeekRange(program, week) {
     (item) => item.week === Number(week)
   );
 
-  if (!global || !parseDate(program?.start_date)) {
+  if (
+    !global ||
+    !parseDate(program?.start_date)
+  ) {
     return null;
   }
 
-  const startDate = String(program.start_date).slice(0, 10);
+  const startDate = String(
+    program.start_date
+  ).slice(0, 10);
 
   const endDate = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
 
   const start =
-    global.start > startDate ? global.start : startDate;
+    global.start > startDate
+      ? global.start
+      : startDate;
 
   const end =
     endDate && endDate < global.end
       ? endDate
       : global.end;
 
-  return start > end ? null : { start, end };
+  return start > end
+    ? null
+    : { start, end };
 }
 
 function availableGlobalWeeks(program) {
@@ -291,13 +456,17 @@ function insideProgram(value, program) {
     return false;
   }
 
-  if (date < String(program.start_date).slice(0, 10)) {
+  if (
+    date <
+    String(program.start_date).slice(0, 10)
+  ) {
     return false;
   }
 
   if (
     parseDate(program.end_date) &&
-    date > String(program.end_date).slice(0, 10)
+    date >
+      String(program.end_date).slice(0, 10)
   ) {
     return false;
   }
@@ -307,12 +476,16 @@ function insideProgram(value, program) {
 
 function initialGlobalWeek(program, records = []) {
   const available = availableGlobalWeeks(program);
+
   if (!available.length) return 1;
 
   const now = todayWITA();
 
   const current = available.find((item) => {
-    const range = programWeekRange(program, item.week);
+    const range = programWeekRange(
+      program,
+      item.week
+    );
 
     return (
       range &&
@@ -327,21 +500,27 @@ function initialGlobalWeek(program, records = []) {
     .filter((item) =>
       insideProgram(item.activity_date, program)
     )
-    .map((item) => globalWeekOf(item.activity_date))
+    .map((item) =>
+      globalWeekOf(item.activity_date)
+    )
     .filter(Boolean);
 
-  if (recorded.length) return Math.max(...recorded);
+  if (recorded.length) {
+    return Math.max(...recorded);
+  }
 
-  const upcoming = available.find((item) => item.end >= now);
+  const upcoming = available.find(
+    (item) => item.end >= now
+  );
 
   return upcoming
     ? upcoming.week
     : available[available.length - 1].week;
 }
 
-// ======================================================
-// ACHIEVEMENT: RUMUS ASLI
-// ======================================================
+// ====================================================
+// ACHIEVEMENT ASLI
+// ====================================================
 
 function resolveCategory(typeCode, types) {
   const match = types.find(
@@ -371,25 +550,28 @@ function actualAchievement(category, records) {
     return records.length;
   }
 
-  const meters = records.reduce((sum, item) => {
-    const distance = Number(item.distance_km);
+  const meters = records.reduce(
+    (sum, item) => {
+      const distance = Number(item.distance_km);
 
-    if (!Number.isFinite(distance) || distance <= 0) {
-      return sum;
-    }
+      if (
+        !Number.isFinite(distance) ||
+        distance <= 0
+      ) {
+        return sum;
+      }
 
-    return sum + Math.round(distance * 1000);
-  }, 0);
+      return sum + Math.round(distance * 1000);
+    },
+    0
+  );
 
   return meters / 1000;
 }
 
-// ======================================================
-// SAMAPTA: RUMUS ASLI
-// A = LARI 12 MENIT
-// B = RATA-RATA 4 KOMPONEN
-// FINAL = (A + B) / 2
-// ======================================================
+// ====================================================
+// SAMAPTA ASLI
+// ====================================================
 
 function calculateSamapta(records) {
   const byDate = new Map();
@@ -397,7 +579,8 @@ function calculateSamapta(records) {
   records.forEach((record) => {
     if (!parseDate(record.test_date)) return;
 
-    const date = String(record.test_date).slice(0, 10);
+    const date = String(record.test_date)
+      .slice(0, 10);
 
     if (!byDate.has(date)) {
       byDate.set(date, []);
@@ -412,7 +595,8 @@ function calculateSamapta(records) {
     function get(type) {
       const record = items.find(
         (item) =>
-          normalize(item.test_type) === normalize(type)
+          normalize(item.test_type) ===
+          normalize(type)
       );
 
       if (
@@ -426,7 +610,9 @@ function calculateSamapta(records) {
 
       const score = Number(record.score);
 
-      return Number.isFinite(score) ? score : null;
+      return Number.isFinite(score)
+        ? score
+        : null;
     }
 
     const a = get("Lari 12 Menit");
@@ -446,8 +632,10 @@ function calculateSamapta(records) {
     }
 
     const b =
-      components.reduce((sum, value) => sum + value, 0) /
-      components.length;
+      components.reduce(
+        (sum, value) => sum + value,
+        0
+      ) / components.length;
 
     results.push({
       date,
@@ -457,14 +645,14 @@ function calculateSamapta(records) {
     });
   });
 
-  return results.sort((a, b) =>
-    a.date.localeCompare(b.date)
+  return results.sort(
+    (a, b) => a.date.localeCompare(b.date)
   );
 }
 
-// ======================================================
-// NILAI PER MINGGU: RUMUS ASLI
-// ======================================================
+// ====================================================
+// NILAI MINGGUAN ASLI
+// ====================================================
 
 function buildWeeklyScores(
   program,
@@ -488,36 +676,57 @@ function buildWeeklyScores(
   const practiceByWeek = new Map();
 
   function addRecord(map, record, dateField) {
-    if (!insideProgram(record[dateField], program)) return;
+    if (
+      !insideProgram(record[dateField], program)
+    ) {
+      return;
+    }
 
-    const week = globalWeekOf(record[dateField]);
+    const week = globalWeekOf(
+      record[dateField]
+    );
 
     if (week === null) return;
 
-    if (!map.has(week)) map.set(week, []);
+    if (!map.has(week)) {
+      map.set(week, []);
+    }
 
     map.get(week).push(record);
   }
 
   postTests.forEach((item) =>
-    addRecord(postByWeek, item, "test_date")
+    addRecord(
+      postByWeek,
+      item,
+      "test_date"
+    )
   );
 
   practices.forEach((item) =>
-    addRecord(practiceByWeek, item, "practice_date")
+    addRecord(
+      practiceByWeek,
+      item,
+      "practice_date"
+    )
   );
 
   weeks.forEach((item) => {
     if (!item.available) return;
 
-    item.theory = average(postByWeek.get(item.week) || []);
+    item.theory = average(
+      postByWeek.get(item.week) || []
+    );
+
     item.practice = average(
       practiceByWeek.get(item.week) || []
     );
   });
 
   samaptaResults.forEach((item) => {
-    if (!insideProgram(item.date, program)) return;
+    if (!insideProgram(item.date, program)) {
+      return;
+    }
 
     const week = globalWeekOf(item.date);
 
@@ -539,8 +748,7 @@ function latestValue(data, key) {
   const available = data.filter(
     (item) =>
       item.available &&
-      item[key] !== null &&
-      item[key] !== undefined
+      item[key] != null
   );
 
   return available.length
@@ -548,32 +756,17 @@ function latestValue(data, key) {
     : null;
 }
 
-// ======================================================
-// KOMPONEN ANTARMUKA
-// ======================================================
-
-function Metric({
-  label,
-  value,
-  detail,
-  tone = "",
-}) {
-  return (
-    <div className={`wa-metric ${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {detail && <small>{detail}</small>}
-    </div>
-  );
-}
+// ====================================================
+// UI COMPONENTS
+// ====================================================
 
 function StatusTag({ status }) {
-  const normalized = normalize(status);
+  const value = normalize(status);
 
   const label =
-    normalized === "verified"
+    value === "verified"
       ? "Terverifikasi"
-      : normalized === "pending"
+      : value === "pending"
       ? "Menunggu Verifikasi"
       : status || "Belum tersedia";
 
@@ -581,9 +774,9 @@ function StatusTag({ status }) {
     <span
       className={
         "wa-status " +
-        (normalized === "verified"
+        (value === "verified"
           ? "verified"
-          : normalized === "pending"
+          : value === "pending"
           ? "pending"
           : "neutral")
       }
@@ -593,46 +786,111 @@ function StatusTag({ status }) {
   );
 }
 
-function ScoreChart({
+function Metric({ label, value, detail }) {
+  return (
+    <div className="wa-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function AttachmentList({ files }) {
+  if (!files?.length) return null;
+
+  return (
+    <div className="wa-attachments">
+      <strong>
+        <span aria-hidden="true">📎</span>{" "}
+        Bukti Kegiatan ({files.length})
+      </strong>
+
+      {files.map((file, index) => (
+        <div
+          className="wa-file"
+          key={`${file.name}-${index}`}
+        >
+          <span aria-hidden="true">🖼️</span>
+
+          <div className="wa-file-info">
+            <strong>{file.name}</strong>
+
+            {file.unreadable ? (
+              <small>
+                Metadata lampiran tidak dapat dibaca.
+              </small>
+            ) : !file.url ? (
+              <small>
+                File tercatat. Pratinjau belum tersedia.
+              </small>
+            ) : (
+              <small>Pratinjau tersedia</small>
+            )}
+          </div>
+
+          {file.url && (
+            <a
+              href={file.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="wa-file-link"
+            >
+              Lihat Bukti
+            </a>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TrendChart({
   data,
   selectedWeek,
   onSelectWeek,
 }) {
-  const width = 780;
-  const height = 270;
+  const width = 760;
+  const height = 245;
 
-  const left = 44;
-  const right = 20;
+  const left = 42;
+  const right = 17;
   const top = 20;
-  const bottom = 40;
-
-  const innerWidth = width - left - right;
-  const innerHeight = height - top - bottom;
+  const bottom = 35;
 
   const x = (week) =>
     left +
-    ((week - 1) / (TOTAL_WEEKS - 1)) *
-      innerWidth;
+    ((week - 1) / 24) *
+      (width - left - right);
 
   const y = (value) =>
     top +
-    ((100 - Math.max(0, Math.min(100, Number(value)))) /
-      100) *
-      innerHeight;
+    ((100 - Math.max(
+      0,
+      Math.min(100, Number(value))
+    )) / 100) *
+      (height - top - bottom);
 
   const hasData = data.some(
     (item) =>
       item.available &&
-      SERIES.some((series) => item[series.key] != null)
+      SERIES.some(
+        (series) =>
+          item[series.key] != null
+      )
   );
 
   return (
-    <div className="wa-chart-container">
+    <div>
       <div className="wa-legend">
-        {SERIES.map((item) => (
-          <span key={item.key}>
-            <i style={{ background: item.color }} />
-            {item.name}
+        {SERIES.map((series) => (
+          <span key={series.key}>
+            <i
+              style={{
+                background: series.color,
+              }}
+            />
+            {series.name}
           </span>
         ))}
       </div>
@@ -641,7 +899,7 @@ function ScoreChart({
         className="wa-chart"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="Tren nilai Teori, Praktik, dan Samapta"
+        aria-label="Tren Teori, Praktik, dan Samapta"
       >
         {[0, 25, 50, 75, 100].map((tick) => (
           <g key={tick}>
@@ -650,43 +908,47 @@ function ScoreChart({
               x2={width - right}
               y1={y(tick)}
               y2={y(tick)}
-              stroke="#dfebf1"
+              stroke="#e0eaf1"
               strokeDasharray="4 5"
             />
 
             <text
-              x={left - 9}
+              x={left - 8}
               y={y(tick) + 4}
               textAnchor="end"
-              fontSize="12"
-              fill="#7a91a3"
+              fontSize="11"
+              fill="#8094a4"
             >
               {tick}
             </text>
           </g>
         ))}
 
-        {[1, 5, 9, 13, 17, 21, 25].map((week) => (
-          <text
-            key={week}
-            x={x(week)}
-            y={height - 11}
-            textAnchor="middle"
-            fontSize="12"
-            fill="#7a91a3"
-          >
-            W{week}
-          </text>
-        ))}
+        {[1, 5, 9, 13, 17, 21, 25].map(
+          (week) => (
+            <text
+              key={week}
+              x={x(week)}
+              y={height - 8}
+              textAnchor="middle"
+              fontSize="11"
+              fill="#8094a4"
+            >
+              W{week}
+            </text>
+          )
+        )}
 
-        {data.some((item) => item.week === selectedWeek) && (
+        {data.some(
+          (item) => item.week === selectedWeek
+        ) && (
           <line
             x1={x(selectedWeek)}
             x2={x(selectedWeek)}
             y1={top}
             y2={height - bottom}
-            stroke="#b3c5d0"
-            strokeDasharray="4 5"
+            stroke="#9aafbd"
+            strokeDasharray="5 5"
           />
         )}
 
@@ -705,37 +967,44 @@ function ScoreChart({
             }));
 
           const segments = [];
-          let current = [];
-          let previousWeek = null;
+          let segment = [];
+          let previous = null;
 
           points.forEach((point) => {
             if (
-              previousWeek !== null &&
-              point.week !== previousWeek + 1
+              previous !== null &&
+              point.week !== previous + 1
             ) {
-              if (current.length > 1) segments.push(current);
-              current = [];
+              if (segment.length > 1) {
+                segments.push(segment);
+              }
+
+              segment = [];
             }
 
-            current.push(point);
-            previousWeek = point.week;
+            segment.push(point);
+            previous = point.week;
           });
 
-          if (current.length > 1) segments.push(current);
+          if (segment.length > 1) {
+            segments.push(segment);
+          }
 
           return (
             <g key={series.key}>
-              {segments.map((segment, index) => (
+              {segments.map((part, index) => (
                 <polyline
                   key={index}
-                  points={segment
-                    .map((point) => `${point.x},${point.y}`)
+                  points={part
+                    .map(
+                      (point) =>
+                        `${point.x},${point.y}`
+                    )
                     .join(" ")}
                   fill="none"
                   stroke={series.color}
                   strokeWidth="3"
                   strokeLinecap="round"
-                  strokeLinejoin="round"
                 />
               ))}
 
@@ -744,7 +1013,11 @@ function ScoreChart({
                   key={point.week}
                   cx={point.x}
                   cy={point.y}
-                  r={point.week === selectedWeek ? 7 : 5}
+                  r={
+                    point.week === selectedWeek
+                      ? 7
+                      : 4.5
+                  }
                   fill={series.color}
                   stroke="white"
                   strokeWidth="2"
@@ -754,7 +1027,8 @@ function ScoreChart({
                   }
                 >
                   <title>
-                    {series.name} · {weekLabel(point.week)} ·{" "}
+                    {series.name} ·{" "}
+                    {weekLabel(point.week)} ·{" "}
                     {scoreText(point.value)}
                   </title>
                 </circle>
@@ -769,91 +1043,13 @@ function ScoreChart({
           Belum ada nilai pada periode ini.
         </div>
       )}
-
-      <p className="wa-hint">
-        Tekan titik untuk memeriksa minggu tersebut.
-        Minggu tanpa nilai tidak dianggap bernilai nol.
-      </p>
     </div>
   );
 }
 
-function AchievementTable({
-  items,
-  selectedWeek,
-  adminReview,
-}) {
-  return (
-    <div className="wa-target-table">
-      {items.map((item) => {
-        const weekly = item.weekly[selectedWeek - 1];
-
-        const actual = adminReview
-          ? null
-          : weekly?.achieved ?? null;
-
-        const progress = adminReview
-          ? null
-          : weekly?.percent ?? null;
-
-        const missing =
-          actual === null
-            ? null
-            : Math.max(0, item.target - actual);
-
-        return (
-          <div
-            className="wa-target-item"
-            key={item.name}
-          >
-            <div className="wa-target-top">
-              <strong>{item.name}</strong>
-
-              <span>
-                {actual === null
-                  ? "—"
-                  : `${numberText(
-                      actual,
-                      item.name === "Fisik" ? 3 : 0
-                    )} / ${item.target} ${item.unit}`}
-              </span>
-            </div>
-
-            <div className="wa-track">
-              <div
-                style={{
-                  width: `${Math.max(
-                    0,
-                    Math.min(100, progress || 0)
-                  )}%`,
-                }}
-              />
-            </div>
-
-            <div className="wa-target-footer">
-              <span>{percentText(progress)}</span>
-
-              <span>
-                {missing === null
-                  ? "Belum ada data"
-                  : missing <= 0
-                  ? "Target minggu ini tercapai"
-                  : `Kurang ${numberText(
-                      missing,
-                      item.name === "Fisik" ? 3 : 0
-                    )} ${item.unit}`}
-              </span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ======================================================
-// HALAMAN UTAMA
-// ======================================================
+// ====================================================
+// MAIN PAGE
+// ====================================================
 
 export default function GrafikPerkembanganOJT() {
   const router = useRouter();
@@ -863,36 +1059,52 @@ export default function GrafikPerkembanganOJT() {
     ? params.id[0]
     : params?.id;
 
-  const isAdminReview = programId === ADMIN_REVIEW_ID;
+  const isAdminReview =
+    programId === ADMIN_REVIEW_ID;
 
-  const [program, setProgram] = useState(null);
   const [viewer, setViewer] = useState(null);
+  const [program, setProgram] = useState(null);
 
-  const [categories, setCategories] = useState([]);
+  const [types, setTypes] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [postTests, setPostTests] = useState([]);
   const [practices, setPractices] = useState([]);
   const [samapta, setSamapta] = useState([]);
 
   const [selectedWeek, setSelectedWeek] = useState(1);
-  const [activeTab, setActiveTab] = useState("activities");
-  const [selectedActivity, setSelectedActivity] = useState(null);
+  const [activeTab, setActiveTab] =
+    useState("activities");
+
+  const [expandedActivity, setExpandedActivity] =
+    useState(null);
+
   const [showTrend, setShowTrend] = useState(true);
-  const [showCalculation, setShowCalculation] = useState(false);
   const [showAllWeeks, setShowAllWeeks] = useState(false);
+  const [showCalculation, setShowCalculation] =
+    useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
-  const role = normalizeRole(viewer?.role);
-  const isManager = role === "admin" || role === "mentor";
+  const role = String(
+    viewer?.role || ""
+  ).toLowerCase();
+
+  const isManager =
+    role === "admin" ||
+    role === "mentor";
 
   const backPath = isAdminReview
     ? "/dashboard-peserta"
     : isManager
     ? `/peserta/${programId}`
     : "/dashboard-peserta";
+
+  // ==================================================
+  // DATABASE READ
+  // ==================================================
 
   const fetchData = useCallback(async (id) => {
     const results = await Promise.all([
@@ -926,7 +1138,7 @@ export default function GrafikPerkembanganOJT() {
     ]);
 
     const labels = [
-      "Jenis Achievement",
+      "Kategori",
       "Achievement",
       "Post-Test",
       "Praktik",
@@ -942,7 +1154,7 @@ export default function GrafikPerkembanganOJT() {
     });
 
     return {
-      categories: results[0].data || [],
+      types: results[0].data || [],
       achievements: results[1].data || [],
       postTests: results[2].data || [],
       practices: results[3].data || [],
@@ -958,7 +1170,7 @@ export default function GrafikPerkembanganOJT() {
 
     if (authError || !user) {
       throw new Error(
-        "Sesi login tidak tersedia. Silakan login kembali."
+        "Sesi login tidak tersedia."
       );
     }
 
@@ -974,15 +1186,19 @@ export default function GrafikPerkembanganOJT() {
     if (profileError) throw profileError;
 
     if (!profile) {
-      throw new Error("Profil pengguna tidak ditemukan.");
+      throw new Error(
+        "Profil pengguna tidak ditemukan."
+      );
     }
 
-    const currentRole = normalizeRole(profile.role);
+    const currentRole = String(
+      profile.role || ""
+    ).toLowerCase();
 
     if (id === ADMIN_REVIEW_ID) {
       if (currentRole !== "admin") {
         throw new Error(
-          "Tinjauan grafik hanya dapat dibuka oleh Admin."
+          "Mode tinjauan hanya tersedia untuk Admin."
         );
       }
 
@@ -994,17 +1210,19 @@ export default function GrafikPerkembanganOJT() {
       };
     }
 
-    const manager = ["admin", "mentor"].includes(
-      currentRole
-    );
+    const manager = [
+      "admin",
+      "mentor",
+    ].includes(currentRole);
 
-    const participant = ["participant", "peserta"].includes(
-      currentRole
-    );
+    const participant = [
+      "participant",
+      "peserta",
+    ].includes(currentRole);
 
     if (!manager && !participant) {
       throw new Error(
-        "Akun tidak memiliki akses halaman grafik."
+        "Akun tidak memiliki akses."
       );
     }
 
@@ -1026,11 +1244,17 @@ export default function GrafikPerkembanganOJT() {
       .eq("id", id);
 
     if (currentRole === "mentor") {
-      query = query.eq("mentor_id", user.id);
+      query = query.eq(
+        "mentor_id",
+        user.id
+      );
     }
 
     if (participant) {
-      query = query.eq("participant_id", user.id);
+      query = query.eq(
+        "participant_id",
+        user.id
+      );
     }
 
     const {
@@ -1042,31 +1266,34 @@ export default function GrafikPerkembanganOJT() {
 
     if (!programData) {
       throw new Error(
-        "Program OJT tidak ditemukan atau akses ditolak."
+        "Program tidak ditemukan atau akses ditolak."
       );
     }
 
     if (!parseDate(programData.start_date)) {
-      throw new Error("Tanggal mulai OJT tidak valid.");
+      throw new Error(
+        "Tanggal mulai OJT tidak valid."
+      );
     }
 
     if (
       programData.end_date &&
       !parseDate(programData.end_date)
     ) {
-      throw new Error("Tanggal selesai OJT tidak valid.");
+      throw new Error(
+        "Tanggal selesai OJT tidak valid."
+      );
     }
 
-    if (participant) {
-      const status = normalize(programData.status);
-
-      if (
-        !["active", "approved", "aktif"].includes(status)
-      ) {
-        throw new Error(
-          "Grafik hanya tersedia untuk program aktif."
-        );
-      }
+    if (
+      participant &&
+      !["active", "approved", "aktif"].includes(
+        normalize(programData.status)
+      )
+    ) {
+      throw new Error(
+        "Grafik peserta hanya tersedia untuk program aktif."
+      );
     }
 
     return {
@@ -1077,29 +1304,97 @@ export default function GrafikPerkembanganOJT() {
     };
   }, []);
 
-  const applyData = useCallback((data) => {
-    setCategories(data.categories);
-    setAchievements(data.achievements);
-    setPostTests(data.postTests);
-    setPractices(data.practices);
-    setSamapta(data.samapta);
-  }, []);
+  // ==================================================
+  // LOADING
+  // ==================================================
 
-  const clearData = useCallback(() => {
-    setCategories([]);
-    setAchievements([]);
-    setPostTests([]);
-    setPractices([]);
-    setSamapta([]);
-  }, []);
+  const load = useCallback(
+    async (refreshOnly = false) => {
+      if (!programId) {
+        setError("ID program tidak tersedia.");
+        setLoading(false);
+        return;
+      }
+
+      if (refreshOnly) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      setError("");
+
+      try {
+        const access = await verifyAccess(
+          programId
+        );
+
+        if (access.adminReview) {
+          setViewer(access.profile);
+          setProgram(null);
+          setTypes([]);
+          setAchievements([]);
+          setPostTests([]);
+          setPractices([]);
+          setSamapta([]);
+          setSelectedWeek(1);
+          return;
+        }
+
+        const data = await fetchData(
+          access.programData.id
+        );
+
+        setViewer(access.profile);
+        setProgram(access.programData);
+
+        setTypes(data.types);
+        setAchievements(data.achievements);
+        setPostTests(data.postTests);
+        setPractices(data.practices);
+        setSamapta(data.samapta);
+
+        const allowed = availableGlobalWeeks(
+          access.programData
+        ).map((item) => item.week);
+
+        if (
+          !refreshOnly ||
+          !allowed.includes(selectedWeek)
+        ) {
+          setSelectedWeek(
+            initialGlobalWeek(
+              access.programData,
+              data.achievements
+            )
+          );
+        }
+      } catch (err) {
+        setError(
+          err?.message ||
+          "Gagal memuat Grafik Perkembangan."
+        );
+
+        if (!refreshOnly) {
+          setViewer(null);
+          setProgram(null);
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [
+      programId,
+      verifyAccess,
+      fetchData,
+      selectedWeek,
+    ]
+  );
 
   useEffect(() => {
-    if (!programId) {
-      setLoading(false);
-      setError("ID program tidak tersedia.");
-      return;
-    }
-
+    // Load awal hanya saat ID program berubah.
+    // Refresh manual menggunakan tombol.
     let active = true;
 
     async function initialize() {
@@ -1107,15 +1402,26 @@ export default function GrafikPerkembanganOJT() {
       setError("");
 
       try {
-        const access = await verifyAccess(programId);
+        if (!programId) {
+          throw new Error(
+            "ID program tidak tersedia."
+          );
+        }
+
+        const access = await verifyAccess(
+          programId
+        );
 
         if (!active) return;
 
-        setViewer(access.profile);
-
         if (access.adminReview) {
+          setViewer(access.profile);
           setProgram(null);
-          clearData();
+          setTypes([]);
+          setAchievements([]);
+          setPostTests([]);
+          setPractices([]);
+          setSamapta([]);
           setSelectedWeek(1);
           return;
         }
@@ -1126,8 +1432,14 @@ export default function GrafikPerkembanganOJT() {
 
         if (!active) return;
 
+        setViewer(access.profile);
         setProgram(access.programData);
-        applyData(data);
+
+        setTypes(data.types);
+        setAchievements(data.achievements);
+        setPostTests(data.postTests);
+        setPractices(data.practices);
+        setSamapta(data.samapta);
 
         setSelectedWeek(
           initialGlobalWeek(
@@ -1138,12 +1450,9 @@ export default function GrafikPerkembanganOJT() {
       } catch (err) {
         if (!active) return;
 
-        setProgram(null);
-        setViewer(null);
-        clearData();
-
         setError(
-          err?.message || "Gagal memuat data perkembangan."
+          err?.message ||
+          "Gagal memuat data."
         );
       } finally {
         if (active) setLoading(false);
@@ -1159,60 +1468,11 @@ export default function GrafikPerkembanganOJT() {
     programId,
     verifyAccess,
     fetchData,
-    applyData,
-    clearData,
   ]);
 
-  async function refresh() {
-    if (loading || refreshing || !viewer) return;
-
-    setRefreshing(true);
-    setError("");
-
-    try {
-      const access = await verifyAccess(programId);
-
-      if (access.user.id !== viewer.id) {
-        throw new Error("Akun login berubah. Buka ulang halaman.");
-      }
-
-      setViewer(access.profile);
-
-      if (access.adminReview) {
-        setProgram(null);
-        clearData();
-        return;
-      }
-
-      const data = await fetchData(access.programData.id);
-
-      setProgram(access.programData);
-      applyData(data);
-
-      const allowed = availableGlobalWeeks(
-        access.programData
-      ).map((item) => item.week);
-
-      if (!allowed.includes(selectedWeek)) {
-        setSelectedWeek(
-          initialGlobalWeek(
-            access.programData,
-            data.achievements
-          )
-        );
-      }
-    } catch (err) {
-      setError(
-        err?.message || "Gagal memperbarui data."
-      );
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
-  // ====================================================
-  // DATA MINGGUAN
-  // ====================================================
+  // ==================================================
+  // DATA TERHITUNG
+  // ==================================================
 
   const availableWeeks = useMemo(
     () =>
@@ -1225,7 +1485,9 @@ export default function GrafikPerkembanganOJT() {
   const allowedWeeks = useMemo(
     () =>
       new Set(
-        availableWeeks.map((item) => item.week)
+        availableWeeks.map(
+          (item) => item.week
+        )
       ),
     [availableWeeks]
   );
@@ -1265,103 +1527,108 @@ export default function GrafikPerkembanganOJT() {
   ]);
 
   const categoryData = useMemo(() => {
-    const verifiedRecords = achievements.filter(
+    const verified = achievements.filter(
       (item) =>
         normalize(item.status) === "verified" &&
-        insideProgram(item.activity_date, program)
+        insideProgram(
+          item.activity_date,
+          program
+        )
     );
 
-    const categorized = verifiedRecords.map((item) => ({
-      ...item,
-      resolvedCategory: resolveCategory(
-        item.type_code,
-        categories
-      ),
-      globalWeek: globalWeekOf(item.activity_date),
-    }));
+    const categorized = verified.map(
+      (item) => ({
+        ...item,
+        category: resolveCategory(
+          item.type_code,
+          types
+        ),
+        week: globalWeekOf(
+          item.activity_date
+        ),
+      })
+    );
 
     return CATEGORIES.map((category) => {
       const matching = categorized.filter(
         (item) =>
-          item.resolvedCategory === category.name
+          item.category === category.name
       );
 
-      const weekly = GLOBAL_WEEKS.map((global) => {
-        const available = isAdminReview
-          ? true
-          : Boolean(
-              programWeekRange(program, global.week)
-            );
+      const weekly = GLOBAL_WEEKS.map(
+        (global) => {
+          const available = isAdminReview
+            ? true
+            : Boolean(
+                programWeekRange(
+                  program,
+                  global.week
+                )
+              );
 
-        const records =
-          available && !isAdminReview
-            ? matching.filter(
-                (item) =>
-                  item.globalWeek === global.week
-              )
-            : [];
+          const records =
+            available && !isAdminReview
+              ? matching.filter(
+                  (item) =>
+                    item.week === global.week
+                )
+              : [];
 
-        const achieved = isAdminReview
-          ? null
-          : available
-          ? actualAchievement(category, records)
-          : 0;
-
-        const percent = isAdminReview
-          ? null
-          : available
-          ? cappedPercent(
-              achieved,
-              category.target
-            )
-          : null;
-
-        return {
-          week: global.week,
-          available,
-          achieved,
-          count: isAdminReview
+          const achieved = isAdminReview
             ? null
-            : records.length,
-          percent,
-          completed:
-            !isAdminReview &&
-            available &&
-            achieved >= category.target,
-        };
-      });
+            : available
+            ? actualAchievement(
+                category,
+                records
+              )
+            : 0;
+
+          const percent = isAdminReview
+            ? null
+            : available
+            ? cappedPercent(
+                achieved,
+                category.target
+              )
+            : null;
+
+          return {
+            week: global.week,
+            available,
+            achieved,
+            count: isAdminReview
+              ? null
+              : records.length,
+            percent,
+            completed:
+              !isAdminReview &&
+              available &&
+              achieved >= category.target,
+          };
+        }
+      );
 
       const active = weekly.filter(
         (item) => item.available
       );
 
-      const percent = isAdminReview
-        ? null
-        : active.length
-        ? active.reduce(
-            (sum, item) => sum + item.percent,
-            0
-          ) / active.length
-        : 0;
-
       return {
         ...category,
-        verified: isAdminReview
-          ? null
-          : matching.length,
         weekly,
-        activeWeeks: active.length,
-        completedWeeks: isAdminReview
+        percent: isAdminReview
           ? null
-          : active.filter(
-              (item) => item.completed
-            ).length,
-        percent,
+          : active.length
+          ? active.reduce(
+              (sum, item) =>
+                sum + item.percent,
+              0
+            ) / active.length
+          : 0,
       };
     });
   }, [
     achievements,
-    categories,
+    types,
     program,
     isAdminReview,
   ]);
@@ -1369,52 +1636,39 @@ export default function GrafikPerkembanganOJT() {
   const weeklySummary = useMemo(
     () =>
       weeklyScores.map((item) => {
-        const details = categoryData.map((category) => ({
-          name: category.name,
-          target: category.target,
-          unit: category.unit,
-          ...category.weekly[item.week - 1],
-        }));
+        const details = categoryData.map(
+          (category) => ({
+            name: category.name,
+            target: category.target,
+            unit: category.unit,
+            ...category.weekly[item.week - 1],
+          })
+        );
 
         if (isAdminReview) {
           return {
             ...item,
             details,
             totalActivities: null,
-            activeCategories: null,
-            completedThisWeek: null,
             progress: null,
           };
         }
 
-        const totalActivities = details.reduce(
-          (sum, detail) => sum + detail.count,
-          0
-        );
-
-        const activeCategories = details.filter(
-          (detail) => detail.count > 0
-        ).length;
-
-        const completedThisWeek = details.filter(
-          (detail) => detail.completed
-        ).length;
-
-        const progress = item.available
-          ? details.reduce(
-              (sum, detail) =>
-                sum + (detail.percent || 0),
-              0
-            ) / CATEGORIES.length
-          : null;
-
         return {
           ...item,
           details,
-          totalActivities,
-          activeCategories,
-          completedThisWeek,
-          progress,
+          totalActivities: details.reduce(
+            (sum, detail) =>
+              sum + detail.count,
+            0
+          ),
+          progress: item.available
+            ? details.reduce(
+                (sum, detail) =>
+                  sum + (detail.percent || 0),
+                0
+              ) / CATEGORIES.length
+            : null,
         };
       }),
     [
@@ -1424,27 +1678,43 @@ export default function GrafikPerkembanganOJT() {
     ]
   );
 
-  const activeWeekData =
-    weeklySummary.find(
-      (item) =>
-        item.week === selectedWeek &&
-        item.available
-    ) || null;
+  const activeWeekData = weeklySummary.find(
+    (item) =>
+      item.week === selectedWeek &&
+      item.available
+  );
 
   const filteredAchievements = useMemo(
     () =>
       achievements
         .filter(
           (item) =>
-            insideProgram(item.activity_date, program) &&
-            globalWeekOf(item.activity_date) === selectedWeek
+            insideProgram(
+              item.activity_date,
+              program
+            ) &&
+            globalWeekOf(
+              item.activity_date
+            ) === selectedWeek
         )
-        .map((item) => ({
-          ...item,
-          category:
-            resolveCategory(item.type_code, categories) ||
-            item.type_code,
-        }))
+        .map((item) => {
+          const extracted = extractFileMetadata(
+            item.description
+          );
+
+          return {
+            ...item,
+            category:
+              resolveCategory(
+                item.type_code,
+                types
+              ) || item.type_code,
+            cleanDescription:
+              extracted.description,
+            attachments:
+              extracted.files,
+          };
+        })
         .sort((a, b) =>
           String(a.activity_date).localeCompare(
             String(b.activity_date)
@@ -1452,7 +1722,7 @@ export default function GrafikPerkembanganOJT() {
         ),
     [
       achievements,
-      categories,
+      types,
       program,
       selectedWeek,
     ]
@@ -1461,35 +1731,51 @@ export default function GrafikPerkembanganOJT() {
   const filteredPostTests = postTests.filter(
     (item) =>
       insideProgram(item.test_date, program) &&
-      globalWeekOf(item.test_date) === selectedWeek
+      globalWeekOf(item.test_date) ===
+        selectedWeek
   );
 
   const filteredPractices = practices.filter(
     (item) =>
-      insideProgram(item.practice_date, program) &&
-      globalWeekOf(item.practice_date) === selectedWeek
+      insideProgram(
+        item.practice_date,
+        program
+      ) &&
+      globalWeekOf(item.practice_date) ===
+        selectedWeek
   );
 
   const filteredSamapta = samapta.filter(
     (item) =>
       insideProgram(item.test_date, program) &&
-      globalWeekOf(item.test_date) === selectedWeek
+      globalWeekOf(item.test_date) ===
+        selectedWeek
   );
 
   const verifiedCount = filteredAchievements.filter(
-    (item) => normalize(item.status) === "verified"
+    (item) =>
+      normalize(item.status) === "verified"
   ).length;
 
   const pendingCount = filteredAchievements.filter(
-    (item) => normalize(item.status) === "pending"
+    (item) =>
+      normalize(item.status) === "pending"
   ).length;
 
-  const participant = Array.isArray(program?.peserta)
+  const participant = Array.isArray(
+    program?.peserta
+  )
     ? program.peserta[0]
     : program?.peserta;
 
   const participantName =
-    participant?.full_name || "Peserta OJT";
+    participant?.full_name ||
+    "Peserta OJT";
+
+  const selectedPeriod = GLOBAL_WEEKS.find(
+    (item) =>
+      item.week === selectedWeek
+  );
 
   const canShowContent =
     !loading &&
@@ -1500,78 +1786,66 @@ export default function GrafikPerkembanganOJT() {
       (!isAdminReview && !!program)
     );
 
-  const availableScores = weeklyScores.filter(
-    (item) => item.available
-  );
-
-  const latestTheory = latestValue(
-    availableScores,
-    "theory"
-  );
-
-  const latestPractice = latestValue(
-    availableScores,
-    "practice"
-  );
-
-  const latestSamapta = latestValue(
-    availableScores,
-    "final"
-  );
-
-  const overall = isAdminReview
-    ? null
-    : categoryData.length
-    ? categoryData.reduce(
-        (sum, item) => sum + item.percent,
-        0
-      ) / categoryData.length
-    : 0;
-
-  const selectedPeriod = GLOBAL_WEEKS.find(
-    (item) => item.week === selectedWeek
-  );
-
   function changeWeek(week) {
-    const number = Number(week);
+    const value = Number(week);
 
-    if (!allowedWeeks.has(number)) return;
+    if (!allowedWeeks.has(value)) return;
 
-    setSelectedWeek(number);
-    setSelectedActivity(null);
+    setSelectedWeek(value);
+    setExpandedActivity(null);
+    setNotice("");
   }
 
-  function copyCorrection(item = null) {
-    const detail = item
+  // ==================================================
+  // FORMAT KOREKSI
+  // Metadata lampiran tidak disalin sebagai kode.
+  // ==================================================
+
+  async function copyCorrection(item = null) {
+    if (isAdminReview) return;
+
+    const itemDetails = item
       ? [
-          `Tanggal: ${formatDate(item.activity_date)}`,
+          `Tanggal: ${formatDate(
+            item.activity_date
+          )}`,
           `Kategori: ${item.category}`,
-          `Kegiatan: ${item.description || "Tidak ada deskripsi"}`,
+          `Deskripsi: ${
+            item.cleanDescription ||
+            "Belum tersedia"
+          }`,
           `Realisasi: ${
             item.category === "Fisik"
-              ? `${numberText(item.distance_km, 3)} km`
+              ? `${numberText(
+                  item.distance_km,
+                  3
+                )} km`
               : "1 kegiatan"
           }`,
           `Status: ${item.status || "—"}`,
+          `Jumlah Lampiran: ${
+            item.attachments?.length || 0
+          }`,
         ].join("\n")
       : [
           "Tanggal: [Isi tanggal]",
           "Kategori/Jenis Nilai: [Isi]",
-          "Kegiatan: [Isi]",
-          "Nilai/Realisasi tercatat: [Isi]",
+          "Kegiatan/Nilai Tercatat: [Isi]",
         ].join("\n");
 
     const message = [
       "PERMOHONAN PEMERIKSAAN DATA OJT",
       "",
-      `Nama Peserta: ${participantName}`,
+      `Nama: ${participantName}`,
       `Site: ${program?.site || "—"}`,
       `Minggu: ${weekLabel(selectedWeek)}`,
-      `${formatDate(selectedPeriod?.start)} - ${formatDate(
+      `Periode: ${formatDate(
+        selectedPeriod?.start
+      )} - ${formatDate(
         selectedPeriod?.end
       )}`,
       "",
-      detail,
+      itemDetails,
       "",
       "Data yang seharusnya: [Isi koreksi]",
       "Bukti pendukung: [Jika tersedia]",
@@ -1579,21 +1853,21 @@ export default function GrafikPerkembanganOJT() {
       "Mohon bantuan Mentor/Admin untuk memeriksa data tersebut. Terima kasih.",
     ].join("\n");
 
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard
-        .writeText(message)
-        .then(() =>
-          window.alert(
-            "Format koreksi berhasil disalin. Silakan kirim ke grup koordinasi."
-          )
-        )
-        .catch(() =>
-          window.prompt(
-            "Salin pesan koreksi berikut:",
-            message
-          )
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error(
+          "Clipboard tidak tersedia"
         );
-    } else {
+      }
+
+      await navigator.clipboard.writeText(
+        message
+      );
+
+      setNotice(
+        "Format koreksi berhasil disalin. Silakan kirim ke grup koordinasi."
+      );
+    } catch {
       window.prompt(
         "Salin pesan koreksi berikut:",
         message
@@ -1601,9 +1875,9 @@ export default function GrafikPerkembanganOJT() {
     }
   }
 
-  // ====================================================
+  // ==================================================
   // RENDER
-  // ====================================================
+  // ==================================================
 
   return (
     <main className="wa-root">
@@ -1611,12 +1885,14 @@ export default function GrafikPerkembanganOJT() {
 
       <header className="wa-topbar">
         <div className="wa-brand">
-          <span className="wa-brand-icon">◇</span>
+          <span className="wa-logo">◇</span>
+
           <div>
             <strong>
               OJT <em>MineTrack</em>
               <small>v2.0</small>
             </strong>
+
             <span>
               ON THE JOB TRAINING MANAGEMENT SYSTEM
             </span>
@@ -1625,8 +1901,10 @@ export default function GrafikPerkembanganOJT() {
 
         <button
           type="button"
-          className="wa-top-back"
-          onClick={() => router.push(backPath)}
+          className="wa-back"
+          onClick={() =>
+            router.push(backPath)
+          }
         >
           ← Kembali
         </button>
@@ -1636,7 +1914,8 @@ export default function GrafikPerkembanganOJT() {
         <section className="wa-hero">
           <div>
             <small>
-              EMERGENCY RESPONSE GROUP · PT BERAU COAL
+              EMERGENCY RESPONSE GROUP ·
+              PT BERAU COAL
             </small>
 
             <h1>
@@ -1644,20 +1923,20 @@ export default function GrafikPerkembanganOJT() {
             </h1>
 
             <p>
-              Periksa kegiatan, nilai, dan capaian OJT
-              Anda setiap minggu.
+              Monitoring kegiatan, nilai,
+              dan capaian OJT peserta.
             </p>
           </div>
 
           {viewer && (
             <div className="wa-person">
-              <span className="wa-avatar">
+              <div className="wa-avatar">
                 {initials(
                   isAdminReview
                     ? viewer.full_name
                     : participantName
                 )}
-              </span>
+              </div>
 
               <div>
                 <strong>
@@ -1669,62 +1948,74 @@ export default function GrafikPerkembanganOJT() {
                 <small>
                   {isAdminReview
                     ? "Tinjauan Administrator"
-                    : `${participant?.department || "—"} · ${
+                    : `${
+                        participant?.department ||
+                        "—"
+                      } · ${
                         program?.site || "—"
                       }`}
                 </small>
 
                 {!isAdminReview && (
                   <small>
-                    {formatDate(program?.start_date)}
+                    {formatDate(
+                      program?.start_date
+                    )}
                     {" – "}
-                    {formatDate(program?.end_date)}
+                    {formatDate(
+                      program?.end_date
+                    )}
                   </small>
                 )}
               </div>
-
-              <span className="wa-program-tag">
-                {isAdminReview
-                  ? "PREVIEW"
-                  : "OJT"}
-              </span>
             </div>
           )}
         </section>
 
         {loading ? (
           <section className="wa-card">
-            Memuat data dan memeriksa hak akses...
+            Memuat Grafik Perkembangan...
           </section>
         ) : !canShowContent ? (
           <section className="wa-card">
-            <h2>Grafik Tidak Dapat Ditampilkan</h2>
-            <div className="wa-error">
-              {error || "Data tidak tersedia."}
-            </div>
+            <h2>
+              Grafik Tidak Dapat Ditampilkan
+            </h2>
+
+            <p className="wa-error">
+              {error ||
+                "Data tidak tersedia."}
+            </p>
           </section>
         ) : (
           <>
             {isAdminReview && (
-              <div className="wa-review">
-                <strong>Mode Tinjauan Administrator</strong>
-                <p>
-                  Seluruh bagian dapat diperiksa tanpa
-                  data peserta fiktif. Tidak ada
-                  perubahan ke database.
-                </p>
+              <div className="wa-notice">
+                Mode tinjauan Admin.
+                Tidak menggunakan data peserta
+                atau program fiktif.
               </div>
             )}
 
-            {/* PILIH MINGGU */}
+            {notice && (
+              <div
+                className="wa-notice"
+                role="status"
+              >
+                {notice}
+              </div>
+            )}
 
-            <section className="wa-card wa-week-panel">
-              <div className="wa-section-head">
+            {/* MONITORING MINGGUAN */}
+
+            <section className="wa-card">
+              <div className="wa-heading">
                 <div>
                   <h2>Monitoring Mingguan</h2>
+
                   <p>
-                    Pilih minggu untuk melihat data
-                    kegiatan dan nilai yang tercatat.
+                    Pilih minggu untuk melihat
+                    kegiatan dan nilai.
                   </p>
                 </div>
 
@@ -1736,12 +2027,14 @@ export default function GrafikPerkembanganOJT() {
                       : ""
                   }
                   onChange={(event) =>
-                    changeWeek(event.target.value)
+                    changeWeek(
+                      event.target.value
+                    )
                   }
                 >
                   {!availableWeeks.length && (
                     <option value="">
-                      Tidak ada minggu aktif
+                      Tidak tersedia
                     </option>
                   )}
 
@@ -1756,38 +2049,45 @@ export default function GrafikPerkembanganOJT() {
                 </select>
               </div>
 
-              <div className="wa-week-strip">
+              <div className="wa-weeks">
                 {availableWeeks.map((item) => (
                   <button
                     type="button"
                     key={item.week}
                     className={
-                      "wa-week-chip " +
-                      (selectedWeek === item.week
+                      selectedWeek === item.week
                         ? "active"
-                        : "")
+                        : ""
                     }
                     onClick={() =>
                       changeWeek(item.week)
                     }
                   >
-                    W{String(item.week).padStart(2, "0")}
+                    W{String(
+                      item.week
+                    ).padStart(2, "0")}
                   </button>
                 ))}
               </div>
 
-              <div className="wa-selected-period">
-                <strong>{weekLabel(selectedWeek)}</strong>
+              <div className="wa-period">
+                <strong>
+                  {weekLabel(selectedWeek)}
+                </strong>
 
                 <span>
-                  {formatDate(selectedPeriod?.start)}
+                  {formatDate(
+                    selectedPeriod?.start
+                  )}
                   {" – "}
-                  {formatDate(selectedPeriod?.end)}
+                  {formatDate(
+                    selectedPeriod?.end
+                  )}
                 </span>
               </div>
             </section>
 
-            {/* RINGKASAN MINGGU */}
+            {/* RINGKASAN */}
 
             <section className="wa-metrics">
               <Metric
@@ -1807,33 +2107,41 @@ export default function GrafikPerkembanganOJT() {
                     ? "—"
                     : numberText(pendingCount)
                 }
-                detail="Perlu diperiksa Mentor"
-                tone="amber"
+                detail="Perlu pemeriksaan Mentor"
               />
 
               <Metric
                 label="Nilai Teori"
-                value={scoreText(activeWeekData?.theory)}
+                value={scoreText(
+                  activeWeekData?.theory
+                )}
                 detail="Rata-rata Post-Test"
-                tone="blue"
               />
 
               <Metric
                 label="Nilai Praktik"
-                value={scoreText(activeWeekData?.practice)}
+                value={scoreText(
+                  activeWeekData?.practice
+                )}
                 detail="Rata-rata Praktik"
               />
             </section>
 
-            {/* TAB KEGIATAN DAN NILAI */}
+            {/* KEGIATAN DAN NILAI */}
 
-            <section className="wa-card">
-              <div className="wa-section-head">
+            <section
+              className="wa-card"
+              id="wa-activity-section"
+            >
+              <div className="wa-heading">
                 <div>
-                  <h2>Kegiatan dan Nilai Mingguan</h2>
+                  <h2>
+                    Kegiatan dan Nilai Mingguan
+                  </h2>
+
                   <p>
-                    Setiap catatan dapat diperiksa
-                    untuk memastikan hasil input sesuai.
+                    Periksa kegiatan dan nilai
+                    yang diinput.
                   </p>
                 </div>
               </div>
@@ -1842,10 +2150,14 @@ export default function GrafikPerkembanganOJT() {
                 <button
                   type="button"
                   className={
-                    activeTab === "activities" ? "active" : ""
+                    activeTab === "activities"
+                      ? "active"
+                      : ""
                   }
                   onClick={() =>
-                    setActiveTab("activities")
+                    setActiveTab(
+                      "activities"
+                    )
                   }
                 >
                   Daftar Kegiatan
@@ -1854,7 +2166,9 @@ export default function GrafikPerkembanganOJT() {
                 <button
                   type="button"
                   className={
-                    activeTab === "scores" ? "active" : ""
+                    activeTab === "scores"
+                      ? "active"
+                      : ""
                   }
                   onClick={() =>
                     setActiveTab("scores")
@@ -1866,7 +2180,9 @@ export default function GrafikPerkembanganOJT() {
                 <button
                   type="button"
                   className={
-                    activeTab === "targets" ? "active" : ""
+                    activeTab === "targets"
+                      ? "active"
+                      : ""
                   }
                   onClick={() =>
                     setActiveTab("targets")
@@ -1880,7 +2196,7 @@ export default function GrafikPerkembanganOJT() {
 
               {activeTab === "activities" && (
                 <div>
-                  <div className="wa-list-head">
+                  <div className="wa-list-title">
                     <strong>
                       {isAdminReview
                         ? "Belum ada data peserta"
@@ -1888,7 +2204,9 @@ export default function GrafikPerkembanganOJT() {
                     </strong>
 
                     <span>
-                      {verifiedCount} terverifikasi
+                      {isAdminReview
+                        ? "—"
+                        : `${verifiedCount} terverifikasi`}
                     </span>
                   </div>
 
@@ -1898,112 +2216,155 @@ export default function GrafikPerkembanganOJT() {
                       tercatat pada minggu ini.
                     </div>
                   ) : (
-                    <div className="wa-activity-list">
-                      {filteredAchievements.map((item) => {
-                        const expanded =
-                          selectedActivity === item.id;
+                    <div className="wa-list">
+                      {filteredAchievements.map(
+                        (item) => {
+                          const expanded =
+                            expandedActivity ===
+                            item.id;
 
-                        return (
-                          <div
-                            className="wa-activity"
-                            key={item.id}
-                          >
-                            <button
-                              type="button"
-                              className="wa-activity-trigger"
-                              onClick={() =>
-                                setSelectedActivity(
-                                  expanded ? null : item.id
-                                )
-                              }
+                          return (
+                            <article
+                              className="wa-activity"
+                              key={item.id}
                             >
-                              <div className="wa-activity-left">
-                                <strong>
-                                  {item.category}
-                                </strong>
-
-                                <span>
-                                  {formatDate(
-                                    item.activity_date
-                                  )}
-                                </span>
-
-                                <small>
-                                  {item.description ||
-                                    "Deskripsi kegiatan belum tersedia"}
-                                </small>
-                              </div>
-
-                              <div className="wa-activity-right">
-                                <StatusTag
-                                  status={item.status}
-                                />
-
-                                <span className="wa-chevron">
-                                  {expanded ? "⌃" : "⌄"}
-                                </span>
-                              </div>
-                            </button>
-
-                            {expanded && (
-                              <div className="wa-activity-expanded">
-                                <div className="wa-detail-line">
-                                  <span>Kategori</span>
+                              <button
+                                type="button"
+                                className="wa-activity-main"
+                                onClick={() =>
+                                  setExpandedActivity(
+                                    expanded
+                                      ? null
+                                      : item.id
+                                  )
+                                }
+                              >
+                                <div className="wa-activity-info">
                                   <strong>
                                     {item.category}
                                   </strong>
-                                </div>
 
-                                <div className="wa-detail-line">
-                                  <span>Tanggal</span>
-                                  <strong>
+                                  <small>
                                     {formatDate(
                                       item.activity_date
                                     )}
-                                  </strong>
+                                  </small>
+
+                                  <p>
+                                    {item.cleanDescription ||
+                                      (
+                                        item.attachments.length
+                                          ? "Bukti kegiatan terlampir."
+                                          : "Deskripsi kegiatan belum tersedia."
+                                      )}
+                                  </p>
+
+                                  {item.attachments.length >
+                                    0 && (
+                                    <span className="wa-attachment-count">
+                                      📎{" "}
+                                      {
+                                        item.attachments.length
+                                      }{" "}
+                                      lampiran
+                                    </span>
+                                  )}
                                 </div>
 
-                                <div className="wa-detail-line">
-                                  <span>Deskripsi</span>
-                                  <strong>
-                                    {item.description ||
-                                      "Belum tersedia"}
-                                  </strong>
-                                </div>
-
-                                <div className="wa-detail-line">
-                                  <span>Realisasi</span>
-                                  <strong>
-                                    {item.category === "Fisik"
-                                      ? `${numberText(
-                                          item.distance_km,
-                                          3
-                                        )} km`
-                                      : "1 kegiatan"}
-                                  </strong>
-                                </div>
-
-                                <div className="wa-detail-line">
-                                  <span>Status</span>
+                                <div className="wa-activity-status">
                                   <StatusTag
                                     status={item.status}
                                   />
-                                </div>
 
-                                <button
-                                  type="button"
-                                  className="wa-copy-button"
-                                  onClick={() =>
-                                    copyCorrection(item)
-                                  }
-                                >
-                                  Salin Format Koreksi Kegiatan
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                                  <span>
+                                    {expanded
+                                      ? "⌃"
+                                      : "⌄"}
+                                  </span>
+                                </div>
+                              </button>
+
+                              {expanded && (
+                                <div className="wa-expanded">
+                                  <div className="wa-detail">
+                                    <span>
+                                      Kategori
+                                    </span>
+                                    <strong>
+                                      {item.category}
+                                    </strong>
+                                  </div>
+
+                                  <div className="wa-detail">
+                                    <span>
+                                      Tanggal
+                                    </span>
+                                    <strong>
+                                      {formatDate(
+                                        item.activity_date
+                                      )}
+                                    </strong>
+                                  </div>
+
+                                  <div className="wa-detail">
+                                    <span>
+                                      Deskripsi
+                                    </span>
+                                    <strong>
+                                      {item.cleanDescription ||
+                                        "Belum tersedia"}
+                                    </strong>
+                                  </div>
+
+                                  <div className="wa-detail">
+                                    <span>
+                                      Realisasi
+                                    </span>
+                                    <strong>
+                                      {item.category ===
+                                      "Fisik"
+                                        ? `${numberText(
+                                            item.distance_km,
+                                            3
+                                          )} km`
+                                        : "1 kegiatan"}
+                                    </strong>
+                                  </div>
+
+                                  <div className="wa-detail">
+                                    <span>
+                                      Status
+                                    </span>
+                                    <StatusTag
+                                      status={
+                                        item.status
+                                      }
+                                    />
+                                  </div>
+
+                                  <AttachmentList
+                                    files={
+                                      item.attachments
+                                    }
+                                  />
+
+                                  <button
+                                    type="button"
+                                    className="wa-primary"
+                                    onClick={() =>
+                                      copyCorrection(
+                                        item
+                                      )
+                                    }
+                                  >
+                                    Salin Format Koreksi
+                                  </button>
+                                </div>
+                              )}
+                            </article>
+                          );
+                        }
+                      )}
                     </div>
                   )}
                 </div>
@@ -2012,12 +2373,14 @@ export default function GrafikPerkembanganOJT() {
               {/* RINCIAN NILAI */}
 
               {activeTab === "scores" && (
-                <div className="wa-score-groups">
-                  <div className="wa-score-group">
-                    <div className="wa-group-heading">
-                      <h3>Post-Test / Teori</h3>
+                <div className="wa-scores">
+                  <section className="wa-score-block">
+                    <div className="wa-score-title">
+                      <h3>
+                        Post-Test / Teori
+                      </h3>
+
                       <strong>
-                        Rata-rata:{" "}
                         {scoreText(
                           activeWeekData?.theory
                         )}
@@ -2025,37 +2388,50 @@ export default function GrafikPerkembanganOJT() {
                     </div>
 
                     {!filteredPostTests.length ? (
-                      <p className="wa-no-record">
+                      <p>
                         Belum ada input nilai Teori.
                       </p>
                     ) : (
-                      filteredPostTests.map((item, index) => (
-                        <div
-                          className="wa-score-line"
-                          key={item.id || index}
-                        >
-                          <div>
+                      filteredPostTests.map(
+                        (item, index) => (
+                          <div
+                            className="wa-score-row"
+                            key={
+                              item.id ||
+                              index
+                            }
+                          >
+                            <div>
+                              <strong>
+                                Post-Test{" "}
+                                {index + 1}
+                              </strong>
+
+                              <small>
+                                {formatDate(
+                                  item.test_date
+                                )}
+                              </small>
+                            </div>
+
                             <strong>
-                              Post-Test {index + 1}
+                              {scoreText(
+                                item.score
+                              )}
                             </strong>
-                            <small>
-                              {formatDate(item.test_date)}
-                            </small>
                           </div>
-
-                          <strong>
-                            {scoreText(item.score)}
-                          </strong>
-                        </div>
-                      ))
+                        )
+                      )
                     )}
-                  </div>
+                  </section>
 
-                  <div className="wa-score-group">
-                    <div className="wa-group-heading">
-                      <h3>Praktik Mingguan</h3>
+                  <section className="wa-score-block">
+                    <div className="wa-score-title">
+                      <h3>
+                        Praktik Mingguan
+                      </h3>
+
                       <strong>
-                        Rata-rata:{" "}
                         {scoreText(
                           activeWeekData?.practice
                         )}
@@ -2063,39 +2439,48 @@ export default function GrafikPerkembanganOJT() {
                     </div>
 
                     {!filteredPractices.length ? (
-                      <p className="wa-no-record">
+                      <p>
                         Belum ada input nilai Praktik.
                       </p>
                     ) : (
-                      filteredPractices.map((item, index) => (
-                        <div
-                          className="wa-score-line"
-                          key={item.id || index}
-                        >
-                          <div>
+                      filteredPractices.map(
+                        (item, index) => (
+                          <div
+                            className="wa-score-row"
+                            key={
+                              item.id ||
+                              index
+                            }
+                          >
+                            <div>
+                              <strong>
+                                Praktik{" "}
+                                {index + 1}
+                              </strong>
+
+                              <small>
+                                {formatDate(
+                                  item.practice_date
+                                )}
+                              </small>
+                            </div>
+
                             <strong>
-                              Praktik {index + 1}
-                            </strong>
-                            <small>
-                              {formatDate(
-                                item.practice_date
+                              {scoreText(
+                                item.score
                               )}
-                            </small>
+                            </strong>
                           </div>
-
-                          <strong>
-                            {scoreText(item.score)}
-                          </strong>
-                        </div>
-                      ))
+                        )
+                      )
                     )}
-                  </div>
+                  </section>
 
-                  <div className="wa-score-group">
-                    <div className="wa-group-heading">
+                  <section className="wa-score-block">
+                    <div className="wa-score-title">
                       <h3>Samapta</h3>
+
                       <strong>
-                        Nilai Akhir:{" "}
                         {scoreText(
                           activeWeekData?.final
                         )}
@@ -2103,21 +2488,18 @@ export default function GrafikPerkembanganOJT() {
                     </div>
 
                     {!filteredSamapta.length ? (
-                      <p className="wa-no-record">
+                      <p>
                         Belum ada catatan Samapta.
                       </p>
                     ) : (
-                      filteredSamapta
-                        .slice()
-                        .sort((a, b) =>
-                          String(a.test_date).localeCompare(
-                            String(b.test_date)
-                          )
-                        )
-                        .map((item, index) => (
+                      filteredSamapta.map(
+                        (item, index) => (
                           <div
-                            className="wa-score-line"
-                            key={item.id || index}
+                            className="wa-score-row"
+                            key={
+                              item.id ||
+                              index
+                            }
                           >
                             <div>
                               <strong>
@@ -2125,25 +2507,36 @@ export default function GrafikPerkembanganOJT() {
                               </strong>
 
                               <small>
-                                {formatDate(item.test_date)}
-                                {item.result_value !== null &&
-                                  item.result_value !==
-                                    undefined &&
-                                  item.result_value !== "" &&
-                                  ` · Hasil: ${item.result_value}`}
+                                {formatDate(
+                                  item.test_date
+                                )}
                               </small>
+
+                              {item.result_value != null &&
+                                item.result_value !==
+                                  "" && (
+                                  <small>
+                                    Hasil:{" "}
+                                    {
+                                      item.result_value
+                                    }
+                                  </small>
+                                )}
                             </div>
 
                             <strong>
-                              {scoreText(item.score)}
+                              {scoreText(
+                                item.score
+                              )}
                             </strong>
                           </div>
-                        ))
+                        )
+                      )
                     )}
 
-                    <div className="wa-samapta-summary">
+                    <div className="wa-samapta">
                       <span>
-                        A:{" "}
+                        Nilai A:{" "}
                         <strong>
                           {scoreText(
                             activeWeekData?.a
@@ -2152,7 +2545,7 @@ export default function GrafikPerkembanganOJT() {
                       </span>
 
                       <span>
-                        B:{" "}
+                        Nilai B:{" "}
                         <strong>
                           {scoreText(
                             activeWeekData?.b
@@ -2169,12 +2562,12 @@ export default function GrafikPerkembanganOJT() {
                         </strong>
                       </span>
                     </div>
-                  </div>
+                  </section>
 
                   {!isAdminReview && (
                     <button
                       type="button"
-                      className="wa-copy-button"
+                      className="wa-primary"
                       onClick={() =>
                         copyCorrection()
                       }
@@ -2188,115 +2581,243 @@ export default function GrafikPerkembanganOJT() {
               {/* TARGET KOMPETENSI */}
 
               {activeTab === "targets" && (
-                <>
-                  <div className="wa-list-head">
+                <div className="wa-targets">
+                  <div className="wa-list-title">
                     <strong>
                       Target vs Realisasi
                     </strong>
 
                     <span>
-                      {weekLabel(selectedWeek)}
+                      {weekLabel(
+                        selectedWeek
+                      )}
                     </span>
                   </div>
 
-                  <AchievementTable
-                    items={categoryData}
-                    selectedWeek={selectedWeek}
-                    adminReview={isAdminReview}
-                  />
+                  {categoryData.map(
+                    (category) => {
+                      const weekly =
+                        category.weekly[
+                          selectedWeek - 1
+                        ];
+
+                      const actual =
+                        isAdminReview
+                          ? null
+                          : weekly?.achieved ??
+                            null;
+
+                      const percent =
+                        isAdminReview
+                          ? null
+                          : weekly?.percent ??
+                            null;
+
+                      const missing =
+                        actual === null
+                          ? null
+                          : Math.max(
+                              0,
+                              category.target -
+                                actual
+                            );
+
+                      return (
+                        <div
+                          className="wa-target"
+                          key={
+                            category.name
+                          }
+                        >
+                          <div className="wa-target-head">
+                            <strong>
+                              {category.name}
+                            </strong>
+
+                            <span>
+                              {actual === null
+                                ? "—"
+                                : `${numberText(
+                                    actual,
+                                    category.name ===
+                                      "Fisik"
+                                      ? 3
+                                      : 0
+                                  )} / ${
+                                    category.target
+                                  } ${
+                                    category.unit
+                                  }`}
+                            </span>
+                          </div>
+
+                          <div className="wa-track">
+                            <div
+                              style={{
+                                width: `${
+                                  percent ||
+                                  0
+                                }%`,
+                              }}
+                            />
+                          </div>
+
+                          <div className="wa-target-foot">
+                            <span>
+                              {percentText(
+                                percent
+                              )}
+                            </span>
+
+                            <span>
+                              {missing === null
+                                ? "Belum ada data"
+                                : missing <= 0
+                                ? "Target tercapai"
+                                : `Kurang ${numberText(
+                                    missing,
+                                    category.name ===
+                                      "Fisik"
+                                      ? 3
+                                      : 0
+                                  )} ${
+                                    category.unit
+                                  }`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
+                  )}
 
                   <p className="wa-hint">
                     Target ditampilkan per minggu.
-                    Kegiatan hanya dihitung apabila
-                    sudah terverifikasi.
+                    Hanya kegiatan terverifikasi
+                    yang diperhitungkan.
                   </p>
-                </>
+                </div>
               )}
             </section>
 
             {/* TREN NILAI */}
 
             <section className="wa-card">
-              <div className="wa-section-head">
+              <div className="wa-heading">
                 <div>
-                  <h2>Tren Perkembangan Nilai</h2>
+                  <h2>
+                    Tren Perkembangan Nilai
+                  </h2>
+
                   <p>
-                    Satu grafik untuk Teori,
-                    Praktik, dan Samapta.
+                    Teori, Praktik, dan Samapta
+                    dalam satu grafik.
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  className="wa-small-button"
+                  className="wa-secondary"
                   onClick={() =>
-                    setShowTrend((previous) => !previous)
+                    setShowTrend(
+                      (previous) =>
+                        !previous
+                    )
                   }
                 >
-                  {showTrend ? "Sembunyikan" : "Tampilkan"}
+                  {showTrend
+                    ? "Sembunyikan"
+                    : "Tampilkan"}
                 </button>
               </div>
 
               {showTrend && (
                 <>
-                  <div className="wa-trend-summary">
-                    <span>
-                      Teori terakhir:
-                      <strong>
-                        {scoreText(latestTheory)}
-                      </strong>
-                    </span>
+                  <div className="wa-trend-metrics">
+                    <Metric
+                      label="Teori Terakhir"
+                      value={scoreText(
+                        latestValue(
+                          weeklyScores,
+                          "theory"
+                        )
+                      )}
+                      detail="Post-Test"
+                    />
 
-                    <span>
-                      Praktik terakhir:
-                      <strong>
-                        {scoreText(latestPractice)}
-                      </strong>
-                    </span>
+                    <Metric
+                      label="Praktik Terakhir"
+                      value={scoreText(
+                        latestValue(
+                          weeklyScores,
+                          "practice"
+                        )
+                      )}
+                      detail="Praktik Mingguan"
+                    />
 
-                    <span>
-                      Samapta terakhir:
-                      <strong>
-                        {scoreText(latestSamapta)}
-                      </strong>
-                    </span>
+                    <Metric
+                      label="Samapta Terakhir"
+                      value={scoreText(
+                        latestValue(
+                          weeklyScores,
+                          "final"
+                        )
+                      )}
+                      detail="Nilai Akhir"
+                    />
                   </div>
 
-                  <ScoreChart
+                  <TrendChart
                     data={weeklyScores}
-                    selectedWeek={selectedWeek}
-                    onSelectWeek={changeWeek}
+                    selectedWeek={
+                      selectedWeek
+                    }
+                    onSelectWeek={
+                      changeWeek
+                    }
                   />
+
+                  <p className="wa-hint">
+                    Minggu tanpa nilai tidak
+                    dianggap bernilai nol.
+                  </p>
                 </>
               )}
             </section>
 
-            {/* REKAP NILAI MINGGUAN */}
+            {/* REKAP MINGGUAN */}
 
             <section className="wa-card">
-              <div className="wa-section-head">
+              <div className="wa-heading">
                 <div>
-                  <h2>Rekap Nilai Mingguan</h2>
+                  <h2>
+                    Rekap Nilai Mingguan
+                  </h2>
+
                   <p>
-                    Buka minggu untuk melihat
-                    daftar kegiatan dan semua nilai.
+                    Klik Detail untuk memeriksa
+                    kegiatan dan nilai minggu
+                    terkait.
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  className="wa-small-button"
+                  className="wa-secondary"
                   onClick={() =>
-                    setShowAllWeeks((previous) => !previous)
+                    setShowAllWeeks(
+                      (previous) =>
+                        !previous
+                    )
                   }
                 >
                   {showAllWeeks
-                    ? "Tampilkan Minggu Ini"
-                    : "Lihat Semua Minggu"}
+                    ? "Minggu Ini"
+                    : "Semua Minggu"}
                 </button>
               </div>
 
-              <div className="wa-table-wrap">
+              <div className="wa-table-scroll">
                 <table className="wa-table">
                   <thead>
                     <tr>
@@ -2317,44 +2838,77 @@ export default function GrafikPerkembanganOJT() {
                           item.available &&
                           (
                             showAllWeeks ||
-                            item.week === selectedWeek
+                            item.week ===
+                              selectedWeek
                           )
                       )
                       .map((item) => (
                         <tr
                           key={item.week}
                           className={
-                            item.week === selectedWeek
+                            selectedWeek ===
+                            item.week
                               ? "selected"
                               : ""
                           }
                         >
-                          <td>{weekLabel(item.week)}</td>
-                          <td>{scoreText(item.theory)}</td>
-                          <td>{scoreText(item.practice)}</td>
-                          <td>{scoreText(item.final)}</td>
+                          <td>
+                            {weekLabel(
+                              item.week
+                            )}
+                          </td>
+
+                          <td>
+                            {scoreText(
+                              item.theory
+                            )}
+                          </td>
+
+                          <td>
+                            {scoreText(
+                              item.practice
+                            )}
+                          </td>
+
+                          <td>
+                            {scoreText(
+                              item.final
+                            )}
+                          </td>
+
                           <td>
                             {numberText(
                               item.totalActivities
                             )}
                           </td>
+
                           <td>
-                            {percentText(item.progress)}
+                            {percentText(
+                              item.progress
+                            )}
                           </td>
+
                           <td>
                             <button
                               type="button"
                               onClick={() => {
-                                changeWeek(item.week);
-                                setActiveTab("activities");
+                                changeWeek(
+                                  item.week
+                                );
+
+                                setActiveTab(
+                                  "activities"
+                                );
 
                                 document
-                                  .querySelector(
-                                    ".wa-tabs"
+                                  .getElementById(
+                                    "wa-activity-section"
                                   )
                                   ?.scrollIntoView({
-                                    behavior: "smooth",
-                                    block: "center",
+                                    behavior:
+                                      "smooth",
+                                    block:
+                                      "start",
                                   });
                               }}
                             >
@@ -2368,24 +2922,26 @@ export default function GrafikPerkembanganOJT() {
               </div>
             </section>
 
-            {/* PEMERIKSAAN DATA */}
+            {/* KOREKSI */}
 
             <section className="wa-correction">
               <div>
-                <h2>Ada Data yang Tidak Sesuai?</h2>
+                <h2>
+                  Ada Data yang Tidak Sesuai?
+                </h2>
 
                 <p>
-                  Jika kegiatan atau nilai belum tercatat,
-                  salah input, atau belum diverifikasi,
-                  peserta dapat menyampaikan koreksi
-                  kepada Mentor melalui grup koordinasi
-                  yang sudah tersedia.
+                  Periksa kegiatan, nilai, dan
+                  lampiran. Jika terdapat
+                  kesalahan input, salin format
+                  koreksi untuk disampaikan
+                  kepada Mentor melalui grup
+                  koordinasi.
                 </p>
 
                 <small>
-                  Peserta hanya memeriksa data.
-                  Perubahan nilai tetap dilakukan oleh
-                  pihak yang berwenang.
+                  Peserta tidak mengubah data
+                  secara langsung.
                 </small>
               </div>
 
@@ -2401,53 +2957,60 @@ export default function GrafikPerkembanganOJT() {
               )}
             </section>
 
-            {/* INFORMASI PERHITUNGAN */}
+            {/* INFO PERHITUNGAN */}
 
-            <section className="wa-card wa-calculation">
+            <section className="wa-card">
               <button
                 type="button"
+                className="wa-info-toggle"
                 onClick={() =>
                   setShowCalculation(
-                    (previous) => !previous
+                    (previous) =>
+                      !previous
                   )
                 }
               >
-                <span>ⓘ Informasi Perhitungan</span>
                 <span>
-                  {showCalculation ? "−" : "+"}
+                  ⓘ Informasi Perhitungan
+                </span>
+
+                <span>
+                  {showCalculation
+                    ? "−"
+                    : "+"}
                 </span>
               </button>
 
               {showCalculation && (
-                <div className="wa-calculation-content">
+                <div className="wa-info-content">
                   <p>
-                    Kalender global Week 01–25 berlaku
-                    untuk semua peserta. Week 01 adalah
-                    12–18 September 2026 dan Week 25
-                    berakhir pada 6 Maret 2027.
+                    Kalender global Week 01–25
+                    berlaku untuk seluruh program.
+                    Week 01 adalah 12–18 September
+                    2026 dan Week 25 berakhir
+                    6 Maret 2027.
                   </p>
 
                   <p>
-                    Tanggal di luar periode OJT peserta
-                    tidak ikut dihitung. Minggu aktif
-                    tanpa kegiatan bernilai 0%
+                    Minggu di luar periode OJT
+                    tidak dihitung. Minggu aktif
+                    tanpa kegiatan dihitung 0%
                     untuk Achievement.
                   </p>
 
                   <p>
-                    Achievement Fisik dihitung dari
-                    kilometer, sedangkan lima kategori
-                    lain dihitung dari jumlah kegiatan
-                    terverifikasi. Persentase mingguan
-                    dibatasi maksimal 100%.
+                    Fisik dihitung dalam kilometer.
+                    Lima kategori lainnya dihitung
+                    berdasarkan kegiatan
+                    terverifikasi. Persentase
+                    mingguan dibatasi 100%.
                   </p>
 
                   <p>
-                    Nilai Samapta Akhir dihitung dari
+                    Nilai Samapta Akhir adalah
                     rata-rata Nilai A dan Nilai B.
                     Nilai B merupakan rata-rata
-                    Pull-Up, Push-Up, Sit-Up, dan
-                    Shuttle Run.
+                    empat komponen Samapta B.
                   </p>
                 </div>
               )}
@@ -2456,9 +3019,10 @@ export default function GrafikPerkembanganOJT() {
             <div className="wa-actions">
               <button
                 type="button"
-                className="wa-refresh"
                 disabled={refreshing}
-                onClick={refresh}
+                onClick={() =>
+                  load(true)
+                }
               >
                 {refreshing
                   ? "Memperbarui..."
@@ -2467,8 +3031,9 @@ export default function GrafikPerkembanganOJT() {
 
               <button
                 type="button"
-                className="wa-print"
-                onClick={() => window.print()}
+                onClick={() =>
+                  window.print()
+                }
               >
                 Cetak / Simpan
               </button>
@@ -2477,7 +3042,8 @@ export default function GrafikPerkembanganOJT() {
         )}
 
         <footer className="wa-footer">
-          OJT MineTrack v2.0 · Emergency Response Group ·
+          OJT MineTrack v2.0 ·
+          Emergency Response Group ·
           PT Berau Coal
         </footer>
       </div>
@@ -2485,9 +3051,9 @@ export default function GrafikPerkembanganOJT() {
   );
 }
 
-// ======================================================
-// CSS
-// ======================================================
+// ====================================================
+// STYLING
+// ====================================================
 
 const css = `
 .wa-root,
@@ -2499,8 +3065,12 @@ const css = `
   min-height: 100vh;
   background: #edf4f9;
   color: #173755;
-  font-family: Inter, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 .wa-root button,
@@ -2517,77 +3087,70 @@ const css = `
   cursor: not-allowed;
 }
 
-.wa-root button:focus-visible,
-.wa-root select:focus-visible {
-  outline: 3px solid #49d9bb;
-  outline-offset: 2px;
-}
-
 .wa-topbar {
-  min-height: 73px;
   background: #081f38;
-  padding: 13px 22px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   color: white;
+  padding: 14px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 
 .wa-brand {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
+  min-width: 0;
 }
 
-.wa-brand-icon {
-  width: 43px;
-  height: 43px;
-  border-radius: 12px;
+.wa-logo {
   background: #0d675c;
-  border: 1px solid #239f8e;
+  border: 1px solid #279f8e;
+  color: #79ebd0;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
   display: grid;
   place-items: center;
-  color: #7af0d4;
-  font-size: 24px;
+  font-size: 23px;
+  flex-shrink: 0;
 }
 
 .wa-brand strong {
   display: block;
-  font-weight: 900;
   font-size: 20px;
+  font-weight: 900;
 }
 
 .wa-brand em {
-  font-style: normal;
   color: #48e0bf;
+  font-style: normal;
 }
 
 .wa-brand strong small {
-  display: inline-block;
   background: #48e0bf;
   color: #081f38;
-  padding: 3px 5px;
-  margin-left: 7px;
   border-radius: 5px;
   font-size: 9px;
+  padding: 3px 5px;
+  margin-left: 7px;
 }
 
 .wa-brand > div > span {
   display: block;
-  color: #bfd4e3;
   font-size: 8px;
-  font-weight: 800;
+  color: #bdd5e2;
   letter-spacing: 1px;
   margin-top: 4px;
 }
 
-.wa-top-back {
+.wa-back {
+  background: #ffffff15;
   border: 1px solid #ffffff38;
-  background: #ffffff12;
-  border-radius: 9px;
-  padding: 10px 13px;
   color: white;
+  border-radius: 9px;
+  padding: 10px 14px;
   font-size: 12px;
   font-weight: 800;
 }
@@ -2600,33 +3163,35 @@ const css = `
 
 .wa-hero {
   background:
-    linear-gradient(110deg,
+    linear-gradient(
+      110deg,
       rgba(5,25,46,.97),
-      rgba(7,49,72,.86)),
+      rgba(7,49,72,.86)
+    ),
     url("/background-erg.png.PNG");
   background-size: cover;
   background-position: center;
   border-radius: 16px;
-  color: white;
   padding: 27px;
   margin-bottom: 15px;
+  color: white;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 22px;
+  gap: 20px;
 }
 
-.wa-hero > div:first-child > small {
+.wa-hero small {
   display: block;
   color: #efbd65;
-  font-weight: 900;
   font-size: 10px;
-  letter-spacing: 1px;
+  font-weight: 800;
+  line-height: 1.6;
 }
 
 .wa-hero h1 {
-  margin: 12px 0 8px;
-  font-size: 31px;
+  font-size: 30px;
+  margin: 10px 0;
 }
 
 .wa-hero h1 span {
@@ -2634,7 +3199,6 @@ const css = `
 }
 
 .wa-hero p {
-  margin: 0;
   color: #d9e7f0;
   font-size: 12px;
   line-height: 1.7;
@@ -2643,185 +3207,157 @@ const css = `
 .wa-person {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
 }
 
 .wa-avatar {
-  flex-shrink: 0;
   width: 49px;
   height: 49px;
-  background: #dff9ed;
+  background: #def9ed;
   color: #087c65;
+  font-weight: 900;
   border-radius: 13px;
   display: grid;
   place-items: center;
-  font-weight: 900;
+  flex-shrink: 0;
 }
 
 .wa-person strong {
-  display: block;
   font-size: 13px;
 }
 
 .wa-person small {
-  display: block;
-  color: #d8e8ee;
-  font-size: 10px;
-  margin-top: 5px;
-  line-height: 1.5;
-}
-
-.wa-program-tag {
-  padding: 7px 10px;
-  border-radius: 20px;
-  font-size: 10px;
-  font-weight: 900;
-  background: #d6f6e5;
-  color: #087d60;
+  color: #d9e7f0;
 }
 
 .wa-card {
-  padding: 20px;
   background: white;
   border: 1px solid #dce7ef;
   border-radius: 15px;
+  padding: 20px;
   margin-bottom: 15px;
-  min-width: 0;
   box-shadow: 0 4px 16px #123b500a;
+  min-width: 0;
 }
 
 .wa-card h2 {
-  margin: 0 0 7px;
   color: #123d71;
   font-size: 18px;
+  margin: 0 0 7px;
 }
 
-.wa-section-head {
+.wa-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 13px;
-  margin-bottom: 16px;
+  margin-bottom: 15px;
 }
 
-.wa-section-head p {
-  margin: 0;
-  color: #728b9f;
-  line-height: 1.6;
+.wa-heading p {
+  color: #758b9e;
   font-size: 11px;
+  line-height: 1.6;
+  margin: 0;
 }
 
 .wa-select {
-  min-width: 130px;
-  max-width: 100%;
-  padding: 10px;
-  background: white;
   border: 1px solid #ccdeea;
-  border-radius: 9px;
+  background: white;
   color: #17466e;
+  border-radius: 9px;
+  padding: 10px;
+  min-width: 135px;
   font-size: 12px;
-  font-weight: 800;
 }
 
-.wa-week-strip {
+.wa-weeks {
   display: flex;
   gap: 7px;
   overflow-x: auto;
-  padding: 3px 2px 10px;
-  scrollbar-width: thin;
+  padding: 3px 2px 12px;
 }
 
-.wa-week-chip {
+.wa-weeks button {
   flex: 0 0 auto;
-  min-width: 53px;
-  padding: 11px 9px;
   background: #f4f8fb;
   border: 1px solid #dce7ef;
-  border-radius: 10px;
+  border-radius: 9px;
+  padding: 10px 12px;
   color: #4c6a81;
   font-size: 11px;
   font-weight: 800;
 }
 
-.wa-week-chip.active {
+.wa-weeks button.active {
   background: #087d67;
-  color: white;
   border-color: #087d67;
+  color: white;
 }
 
-.wa-selected-period {
+.wa-period {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  gap: 10px;
   flex-wrap: wrap;
-  gap: 9px;
   background: #ecf8f3;
-  border-radius: 10px;
   color: #126d58;
-  padding: 12px 14px;
+  padding: 12px;
+  border-radius: 10px;
   font-size: 12px;
 }
 
-.wa-selected-period strong {
-  font-size: 16px;
+.wa-metrics,
+.wa-trend-metrics {
+  display: grid;
+  grid-template-columns:
+    repeat(4,minmax(0,1fr));
+  gap: 11px;
+  margin-bottom: 15px;
 }
 
-.wa-metrics {
-  display: grid;
-  grid-template-columns: repeat(4,minmax(0,1fr));
-  gap: 12px;
-  margin-bottom: 15px;
+.wa-trend-metrics {
+  grid-template-columns:
+    repeat(3,minmax(0,1fr));
 }
 
 .wa-metric {
   background: white;
   border: 1px solid #dce7ef;
-  border-radius: 13px;
-  padding: 17px;
+  border-radius: 12px;
+  padding: 15px;
   min-width: 0;
 }
 
-.wa-metric span {
+.wa-metric span,
+.wa-metric small {
   display: block;
-  font-size: 11px;
-  color: #6a849a;
+  font-size: 10px;
+  color: #73899d;
 }
 
 .wa-metric strong {
   display: block;
-  font-size: 27px;
   color: #087d67;
-  margin: 8px 0 5px;
+  font-size: 25px;
+  margin: 7px 0;
   overflow-wrap: anywhere;
-}
-
-.wa-metric small {
-  display: block;
-  font-size: 10px;
-  color: #8a9bab;
-}
-
-.wa-metric.blue strong {
-  color: #2670d6;
-}
-
-.wa-metric.amber strong {
-  color: #bb852b;
 }
 
 .wa-tabs {
   display: grid;
-  grid-template-columns: repeat(3,minmax(0,1fr));
+  grid-template-columns:
+    repeat(3,minmax(0,1fr));
   gap: 8px;
-  margin-bottom: 17px;
+  margin-bottom: 16px;
 }
 
 .wa-tabs button {
-  padding: 12px 8px;
   background: #f3f8fb;
-  border: 1px solid #dce7ef;
   color: #56738c;
+  border: 1px solid #dce7ef;
   border-radius: 10px;
+  padding: 12px 7px;
   font-size: 12px;
   font-weight: 800;
 }
@@ -2832,94 +3368,95 @@ const css = `
   border-color: #0b7966;
 }
 
-.wa-list-head {
+.wa-list-title,
+.wa-target-head,
+.wa-target-foot {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+  gap: 12px;
 }
 
-.wa-list-head strong {
-  font-size: 13px;
+.wa-list-title {
+  font-size: 12px;
+  margin-bottom: 14px;
 }
 
-.wa-list-head span {
-  color: #718b9e;
-  font-size: 11px;
+.wa-list-title span {
+  color: #7a8fa1;
 }
 
-.wa-activity-list {
+.wa-list {
   display: grid;
-  gap: 9px;
+  gap: 10px;
 }
 
 .wa-activity {
   border: 1px solid #dce7ef;
-  border-radius: 11px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
-.wa-activity-trigger {
+.wa-activity-main {
+  border: 0;
+  background: white;
+  color: #173755;
+  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  background: white;
-  border: 0;
-  width: 100%;
+  padding: 15px;
   text-align: left;
-  padding: 13px;
-  color: #173755;
 }
 
-.wa-activity-left {
+.wa-activity-info {
+  flex: 1;
   min-width: 0;
 }
 
-.wa-activity-left strong,
-.wa-activity-left span,
-.wa-activity-left small {
+.wa-activity-info > strong {
   display: block;
+  font-size: 15px;
 }
 
-.wa-activity-left strong {
-  font-size: 13px;
-}
-
-.wa-activity-left span {
-  color: #7a8f9f;
-  font-size: 10px;
-  margin-top: 4px;
-}
-
-.wa-activity-left small {
-  color: #627f94;
-  font-size: 11px;
-  line-height: 1.5;
+.wa-activity-info > small {
+  display: block;
+  color: #8496a4;
   margin-top: 5px;
-  overflow-wrap: anywhere;
+  font-size: 11px;
 }
 
-.wa-activity-right {
+.wa-activity-info p {
+  color: #637c90;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 10px 0;
+}
+
+.wa-attachment-count {
+  display: inline-block;
+  font-size: 11px;
+  background: #edf6fc;
+  color: #2b6989;
+  border-radius: 8px;
+  padding: 6px 9px;
+}
+
+.wa-activity-status {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   flex-shrink: 0;
 }
 
-.wa-chevron {
-  font-size: 19px;
-  color: #608097;
-}
-
 .wa-status {
-  display: inline-flex;
+  display: inline-block;
   border-radius: 20px;
-  padding: 6px 9px;
   font-size: 10px;
   font-weight: 800;
+  padding: 6px 9px;
   white-space: nowrap;
 }
 
@@ -2935,148 +3472,189 @@ const css = `
 
 .wa-status.neutral {
   background: #edf1f4;
-  color: #5f7483;
+  color: #64788a;
 }
 
-.wa-activity-expanded {
-  padding: 14px;
+.wa-expanded {
   background: #f8fbfd;
-  border-top: 1px solid #e2ecf1;
+  border-top: 1px solid #e3edf2;
+  padding: 14px;
 }
 
-.wa-detail-line {
+.wa-detail {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
   gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid #e6eef3;
+  border-bottom: 1px solid #e7eef3;
+  padding: 11px 0;
   font-size: 12px;
 }
 
-.wa-detail-line span:first-child {
-  color: #6b859b;
+.wa-detail > span {
+  color: #758b9b;
 }
 
-.wa-detail-line > strong {
+.wa-detail > strong {
   text-align: right;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 70%;
+}
+
+.wa-attachments {
+  border: 1px solid #d9e7ee;
+  background: white;
+  border-radius: 11px;
+  padding: 13px;
+  margin-top: 15px;
+}
+
+.wa-attachments > strong {
+  display: block;
+  color: #164669;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.wa-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid #edf1f4;
+  padding: 12px 0;
+}
+
+.wa-file > span {
+  font-size: 23px;
+}
+
+.wa-file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-file-info strong {
+  display: block;
+  color: #234967;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-.wa-copy-button {
-  width: 100%;
-  border: 1px solid #087d67;
+.wa-file-info small {
+  display: block;
+  color: #8597a4;
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.wa-file-link {
+  display: inline-block;
+  background: #e4f6ef;
+  color: #087b64;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.wa-primary {
   background: #087d67;
+  border: 0;
+  border-radius: 9px;
   color: white;
   padding: 12px;
-  border-radius: 9px;
+  width: 100%;
+  margin-top: 14px;
   font-size: 12px;
   font-weight: 800;
-  margin-top: 14px;
 }
 
-.wa-score-groups {
+.wa-scores {
   display: grid;
-  gap: 15px;
+  gap: 14px;
 }
 
-.wa-score-group {
+.wa-score-block {
+  padding: 14px;
   border: 1px solid #e0e9ef;
-  border-radius: 12px;
-  padding: 15px;
+  border-radius: 11px;
 }
 
-.wa-group-heading {
+.wa-score-title,
+.wa-score-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #edf1f4;
 }
 
-.wa-group-heading h3 {
-  margin: 0;
+.wa-score-title {
+  border-bottom: 1px solid #e8eff3;
+  padding-bottom: 12px;
+}
+
+.wa-score-title h3 {
   color: #153e67;
   font-size: 14px;
+  margin: 0;
 }
 
-.wa-group-heading strong {
+.wa-score-title > strong,
+.wa-score-row > strong {
   color: #087b64;
-  font-size: 12px;
 }
 
-.wa-score-line {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0;
+.wa-score-row {
   border-bottom: 1px solid #edf1f4;
-}
-
-.wa-score-line:last-child {
-  border-bottom: none;
-}
-
-.wa-score-line strong {
+  padding: 12px 0;
   font-size: 12px;
 }
 
-.wa-score-line small {
+.wa-score-row small {
   display: block;
-  margin-top: 4px;
+  color: #8094a4;
   font-size: 10px;
-  color: #8295a5;
+  margin-top: 4px;
 }
 
-.wa-score-line > strong {
-  font-size: 16px;
-  color: #087c65;
-}
-
-.wa-no-record {
+.wa-score-block > p {
+  color: #8094a4;
   font-size: 12px;
-  color: #8296a5;
 }
 
-.wa-samapta-summary {
-  margin-top: 14px;
+.wa-samapta {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   background: #eff8f5;
-  border-radius: 9px;
   padding: 12px;
-  font-size: 11px;
-  color: #426e62;
+  border-radius: 9px;
+  margin-top: 13px;
+  font-size: 12px;
 }
 
-.wa-target-table {
+.wa-targets {
   display: grid;
-  gap: 17px;
-  margin-top: 16px;
+  gap: 15px;
 }
 
-.wa-target-item {
+.wa-target {
   display: grid;
   gap: 8px;
 }
 
-.wa-target-top,
-.wa-target-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.wa-target-top {
+.wa-target-head {
   font-size: 12px;
 }
 
-.wa-target-top span {
-  color: #638097;
+.wa-target-head span,
+.wa-target-foot {
+  color: #70899b;
+}
+
+.wa-target-foot {
+  font-size: 10px;
 }
 
 .wa-track {
@@ -3088,91 +3666,41 @@ const css = `
 
 .wa-track > div {
   height: 100%;
-  border-radius: 20px;
   background: linear-gradient(
-    90deg,
-    #0b9479,
-    #4bc9a9
+    90deg,#0b9479,#4bc9a9
   );
-}
-
-.wa-target-footer {
-  font-size: 10px;
-  color: #71899a;
-}
-
-.wa-trend-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.wa-trend-summary > span {
-  flex: 1 1 130px;
-  display: block;
-  background: #f1f7fa;
-  border-radius: 9px;
-  padding: 11px;
-  color: #6f8699;
-  font-size: 11px;
-}
-
-.wa-trend-summary strong {
-  display: block;
-  font-size: 17px;
-  color: #184c7d;
-  margin-top: 5px;
-}
-
-.wa-chart {
-  width: 100%;
-  height: auto;
-  display: block;
-  margin-top: 12px;
+  border-radius: 20px;
 }
 
 .wa-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
-  margin-top: 17px;
 }
 
 .wa-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  color: #658199;
+  gap: 6px;
   font-size: 11px;
+  color: #688297;
 }
 
 .wa-legend i {
   width: 9px;
   height: 9px;
   border-radius: 50%;
+  display: inline-block;
+}
+
+.wa-chart {
   display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 14px;
 }
 
-.wa-hint {
-  color: #8397a8;
-  font-size: 11px;
-  line-height: 1.7;
-  margin: 13px 0 0;
-}
-
-.wa-empty {
-  text-align: center;
-  border: 1px dashed #d2e0e8;
-  padding: 17px;
-  color: #8095a5;
-  background: #f9fbfc;
-  border-radius: 11px;
-  font-size: 12px;
-  line-height: 1.7;
-  margin-top: 12px;
-}
-
-.wa-small-button {
+.wa-secondary {
   border: 1px solid #c5e5dc;
   background: #e7f7f0;
   color: #08775e;
@@ -3183,7 +3711,7 @@ const css = `
   white-space: nowrap;
 }
 
-.wa-table-wrap {
+.wa-table-scroll {
   overflow-x: auto;
 }
 
@@ -3193,19 +3721,21 @@ const css = `
   font-size: 12px;
 }
 
-.wa-table th {
-  background: #f0f6f9;
-  color: #667f92;
-  text-align: left;
+.wa-table th,
+.wa-table td {
   padding: 12px;
+  text-align: left;
   white-space: nowrap;
 }
 
+.wa-table th {
+  background: #f0f6f9;
+  color: #667f92;
+}
+
 .wa-table td {
-  border-bottom: 1px solid #e9eff3;
-  padding: 12px;
   color: #375568;
-  white-space: nowrap;
+  border-bottom: 1px solid #e9eff3;
 }
 
 .wa-table tr.selected td {
@@ -3213,38 +3743,37 @@ const css = `
 }
 
 .wa-table button {
-  border: 0;
   background: #e0f5e9;
   color: #087a5c;
+  border: 0;
   border-radius: 8px;
   padding: 8px 10px;
-  font-weight: 800;
   font-size: 11px;
+  font-weight: 800;
 }
 
 .wa-correction {
+  background: #e0f3eb;
+  border: 1px solid #b9e5d5;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 15px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  border-radius: 14px;
-  padding: 20px;
-  margin-bottom: 15px;
-  background: #e0f3eb;
-  border: 1px solid #b9e5d5;
 }
 
 .wa-correction h2 {
-  font-size: 17px;
   margin: 0 0 8px;
   color: #0b6855;
+  font-size: 17px;
 }
 
 .wa-correction p {
-  color: #376b5c;
   font-size: 12px;
   line-height: 1.7;
-  margin: 0 0 9px;
+  color: #376b5c;
 }
 
 .wa-correction small {
@@ -3253,41 +3782,35 @@ const css = `
 }
 
 .wa-correction button {
-  flex-shrink: 0;
-  padding: 12px 15px;
-  border-radius: 10px;
   background: #087d67;
   color: white;
   border: 0;
+  border-radius: 10px;
+  padding: 12px 15px;
   font-size: 12px;
   font-weight: 800;
+  flex-shrink: 0;
 }
 
-.wa-calculation > button {
-  width: 100%;
-  padding: 4px 0;
-  background: transparent;
-  color: #184c72;
-  border: 0;
+.wa-info-toggle {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #184c72;
   font-weight: 800;
+  font-size: 13px;
 }
 
-.wa-calculation-content {
-  margin-top: 14px;
-  border-radius: 10px;
+.wa-info-content {
   background: #f1f8f5;
+  border-radius: 10px;
+  padding: 14px;
   color: #55776d;
   font-size: 12px;
-  padding: 14px;
   line-height: 1.8;
-}
-
-.wa-calculation-content p {
-  margin: 0 0 11px;
+  margin-top: 14px;
 }
 
 .wa-actions {
@@ -3298,53 +3821,65 @@ const css = `
 }
 
 .wa-actions button {
-  border: 1px solid #c6ded7;
-  border-radius: 10px;
-  background: white;
-  color: #0b745c;
+  background: #087d67;
+  color: white;
+  border: 1px solid #087d67;
   padding: 12px 16px;
+  border-radius: 10px;
   font-size: 12px;
   font-weight: 800;
 }
 
-.wa-actions .wa-refresh {
-  background: #087d67;
-  border-color: #087d67;
-  color: white;
+.wa-actions button:last-child {
+  background: white;
+  color: #087d67;
+  border-color: #c6ded7;
 }
 
-.wa-review {
-  margin-bottom: 15px;
-  padding: 15px;
-  border-radius: 11px;
+.wa-notice {
   background: #e7f7ee;
-  border: 1px solid #bde2cb;
   color: #17694f;
+  border: 1px solid #bde2cb;
+  border-radius: 10px;
+  padding: 13px;
   font-size: 12px;
-  line-height: 1.7;
-}
-
-.wa-review p {
-  margin: 6px 0 0;
+  margin-bottom: 14px;
 }
 
 .wa-error {
-  padding: 13px;
   background: #fff0f1;
   color: #b42336;
   border-radius: 9px;
+  padding: 13px;
   font-size: 12px;
 }
 
-.wa-footer {
+.wa-empty {
+  padding: 17px;
+  background: #f9fbfc;
+  border: 1px dashed #d2e0e8;
+  border-radius: 10px;
   text-align: center;
+  color: #8196a5;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.wa-hint {
+  color: #8196a5;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.wa-footer {
   border-top: 1px solid #dce7ef;
   padding: 20px 5px;
   color: #879aab;
+  text-align: center;
   font-size: 10px;
 }
 
-@media (max-width: 900px) {
+@media(max-width:900px) {
   .wa-hero {
     flex-direction: column;
     align-items: stretch;
@@ -3361,18 +3896,18 @@ const css = `
   }
 }
 
-@media (max-width: 600px) {
+@media(max-width:600px) {
   .wa-topbar {
     padding: 12px;
   }
 
-  .wa-brand-icon {
-    width: 35px;
-    height: 35px;
+  .wa-logo {
+    width: 36px;
+    height: 36px;
   }
 
   .wa-brand strong {
-    font-size: 17px;
+    font-size: 16px;
   }
 
   .wa-brand > div > span {
@@ -3380,9 +3915,9 @@ const css = `
     letter-spacing: .4px;
   }
 
-  .wa-top-back {
-    padding: 9px;
+  .wa-back {
     font-size: 10px;
+    padding: 9px;
   }
 
   .wa-container {
@@ -3390,29 +3925,23 @@ const css = `
   }
 
   .wa-hero {
-    padding: 20px 17px;
-    border-radius: 13px;
+    padding: 19px 16px;
   }
 
   .wa-hero h1 {
-    font-size: 25px;
-  }
-
-  .wa-person {
-    flex-wrap: wrap;
+    font-size: 24px;
   }
 
   .wa-card {
     padding: 14px;
     margin-bottom: 12px;
-    border-radius: 12px;
   }
 
   .wa-card h2 {
     font-size: 16px;
   }
 
-  .wa-section-head {
+  .wa-heading {
     flex-wrap: wrap;
   }
 
@@ -3425,11 +3954,11 @@ const css = `
   }
 
   .wa-metric {
-    padding: 13px;
+    padding: 12px;
   }
 
   .wa-metric strong {
-    font-size: 23px;
+    font-size: 22px;
   }
 
   .wa-tabs {
@@ -3441,14 +3970,13 @@ const css = `
     padding: 11px 5px;
   }
 
-  .wa-activity-trigger {
+  .wa-activity-main {
     align-items: flex-start;
   }
 
-  .wa-activity-right {
-    display: grid;
-    justify-items: end;
-    gap: 5px;
+  .wa-activity-status {
+    flex-direction: column;
+    align-items: flex-end;
   }
 
   .wa-status {
@@ -3474,13 +4002,12 @@ const css = `
   }
 
   .wa-topbar,
-  .wa-week-strip,
+  .wa-weeks,
   .wa-tabs,
-  .wa-small-button,
-  .wa-copy-button,
-  .wa-correction button,
+  .wa-secondary,
+  .wa-primary,
   .wa-actions,
-  .wa-calculation {
+  .wa-correction button {
     display: none !important;
   }
 
@@ -3494,13 +4021,8 @@ const css = `
     break-inside: avoid;
   }
 
-  .wa-table-wrap {
+  .wa-table-scroll {
     overflow: visible;
-  }
-
-  .wa-metrics {
-    grid-template-columns:
-      repeat(4,minmax(0,1fr));
   }
 }
 `;
