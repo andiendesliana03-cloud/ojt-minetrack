@@ -10,116 +10,64 @@ import {
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// =====================================================
+// ======================================================
 // OJT MINETRACK V2.0
-// SIMPLE PROGRESS ANALYTICS - DESIGN A
-//
+// SKETSA 2 - FOKUS KEGIATAN & NILAI
 // FILE: app/analisis/[id]/page.jsx
 //
-// - Satu grafik utama
-// - Tiga ringkasan nilai
-// - Enam kompetensi
-// - Detail minggu interaktif
-// - Admin Review permanen
-// - Tanpa perubahan database
-// =====================================================
+// Hanya membaca database.
+// Kalender global Week 01-25.
+// Rumus Achievement dan Samapta dipertahankan.
+// Admin Review: /analisis/admin-review
+// ======================================================
 
 const TOTAL_WEEKS = 25;
 const ADMIN_REVIEW_ID = "admin-review";
-
-const C = {
-  navy: "#081f38",
-  navy2: "#103653",
-  emerald: "#07856a",
-  teal: "#40d9b6",
-  blue: "#2563eb",
-  orange: "#e7a438",
-  bg: "#edf4f9",
-  white: "#ffffff",
-  text: "#173755",
-  muted: "#6f879d",
-  border: "#dce7ef",
-  gray: "#e7edf1",
-};
 
 const CATEGORIES = [
   {
     name: "Fisik",
     target: 25,
     unit: "km",
-    icon: "🏃",
     aliases: ["fisik", "physical"],
   },
   {
     name: "Training",
     target: 4,
     unit: "kegiatan",
-    icon: "📚",
-    aliases: [
-      "training",
-      "internaltraining",
-      "pelatihan",
-    ],
+    aliases: ["training", "internaltraining", "pelatihan"],
   },
   {
     name: "Sosialisasi",
     target: 3,
     unit: "kegiatan",
-    icon: "👥",
     aliases: ["sosialisasi", "socialization"],
   },
   {
     name: "Coaching",
     target: 1,
     unit: "kegiatan",
-    icon: "💬",
     aliases: ["coaching", "pembinaan"],
   },
   {
     name: "Orientasi Area",
     target: 2,
     unit: "kegiatan",
-    icon: "🧭",
-    aliases: [
-      "orientasi",
-      "orientasiarea",
-      "areaorientation",
-    ],
+    aliases: ["orientasi", "orientasiarea", "areaorientation"],
   },
   {
     name: "Hazard",
     target: 2,
     unit: "kegiatan",
-    icon: "⚠️",
-    aliases: [
-      "hazard",
-      "hazardidentification",
-      "identifikasibahaya",
-    ],
+    aliases: ["hazard", "hazardidentification", "identifikasibahaya"],
   },
 ];
 
 const SERIES = [
-  {
-    key: "theory",
-    name: "Teori (Post-Test)",
-    color: C.emerald,
-  },
-  {
-    key: "practice",
-    name: "Praktik Mingguan",
-    color: C.blue,
-  },
-  {
-    key: "final",
-    name: "Samapta Akhir",
-    color: C.orange,
-  },
+  { key: "theory", name: "Teori", color: "#2670d6" },
+  { key: "practice", name: "Praktik", color: "#119b80" },
+  { key: "final", name: "Samapta", color: "#e7a53c" },
 ];
-
-// =====================================================
-// UTILITIES ASLI
-// =====================================================
 
 function normalize(value) {
   return String(value ?? "")
@@ -128,9 +76,7 @@ function normalize(value) {
 }
 
 function normalizeRole(value) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase();
+  return String(value ?? "").trim().toLowerCase();
 }
 
 function parseDate(value) {
@@ -143,10 +89,7 @@ function parseDate(value) {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-
-  const date = new Date(
-    Date.UTC(year, month - 1, day)
-  );
+  const date = new Date(Date.UTC(year, month - 1, day));
 
   if (
     date.getUTCFullYear() !== year ||
@@ -167,6 +110,18 @@ function addDays(value, days) {
   return date.toISOString().slice(0, 10);
 }
 
+function formatDate(value) {
+  const date = parseDate(value);
+  if (!date) return "—";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 function todayWITA() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Makassar",
@@ -181,37 +136,19 @@ function todayWITA() {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function formatDate(value) {
-  const date = parseDate(value);
-  if (!date) return "—";
-
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
-}
-
-function weekLabel(value) {
-  return `Week ${String(value).padStart(2, "0")}`;
+function weekLabel(week) {
+  return `Week ${String(week).padStart(2, "0")}`;
 }
 
 function numberText(value, digits = 0) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
+  if (value === null || value === undefined || value === "") {
     return "—";
   }
 
   const number = Number(value);
-
   if (!Number.isFinite(number)) return "—";
 
   return number.toLocaleString("id-ID", {
-    minimumFractionDigits: 0,
     maximumFractionDigits: digits,
   });
 }
@@ -240,7 +177,7 @@ function percentText(value) {
 
 function initials(name) {
   return (
-    String(name || "Peserta OJT")
+    String(name || "Peserta")
       .trim()
       .split(/\s+/)
       .slice(0, 2)
@@ -278,14 +215,9 @@ function cappedPercent(actual, target) {
   );
 }
 
-// =====================================================
+// ======================================================
 // KALENDER GLOBAL ASLI
-//
-// WEEK 01: 12-18 SEPTEMBER 2026
-// 19 SEPTEMBER DIKECUALIKAN
-// WEEK 02: 20-26 SEPTEMBER 2026
-// WEEK 25: 28 FEBRUARI-06 MARET 2027
-// =====================================================
+// ======================================================
 
 const GLOBAL_WEEKS = Array.from(
   { length: TOTAL_WEEKS },
@@ -293,10 +225,7 @@ const GLOBAL_WEEKS = Array.from(
     const start =
       index === 0
         ? "2026-09-12"
-        : addDays(
-            "2026-09-20",
-            (index - 1) * 7
-          );
+        : addDays("2026-09-20", (index - 1) * 7);
 
     return {
       week: index + 1,
@@ -313,51 +242,35 @@ function globalWeekOf(value) {
 
   return (
     GLOBAL_WEEKS.find(
-      (item) =>
-        date >= item.start &&
-        date <= item.end
+      (item) => date >= item.start && date <= item.end
     )?.week ?? null
   );
 }
 
-function getGlobalWeek(week) {
-  return (
-    GLOBAL_WEEKS.find(
-      (item) => item.week === Number(week)
-    ) || null
-  );
-}
-
 function programWeekRange(program, week) {
-  const global = getGlobalWeek(week);
+  const global = GLOBAL_WEEKS.find(
+    (item) => item.week === Number(week)
+  );
 
-  if (
-    !global ||
-    !parseDate(program?.start_date)
-  ) {
+  if (!global || !parseDate(program?.start_date)) {
     return null;
   }
 
-  const startDate = String(program.start_date)
-    .slice(0, 10);
+  const startDate = String(program.start_date).slice(0, 10);
 
   const endDate = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
 
   const start =
-    global.start > startDate
-      ? global.start
-      : startDate;
+    global.start > startDate ? global.start : startDate;
 
   const end =
     endDate && endDate < global.end
       ? endDate
       : global.end;
 
-  if (start > end) return null;
-
-  return { start, end };
+  return start > end ? null : { start, end };
 }
 
 function availableGlobalWeeks(program) {
@@ -378,17 +291,13 @@ function insideProgram(value, program) {
     return false;
   }
 
-  if (
-    date <
-    String(program.start_date).slice(0, 10)
-  ) {
+  if (date < String(program.start_date).slice(0, 10)) {
     return false;
   }
 
   if (
     parseDate(program.end_date) &&
-    date >
-      String(program.end_date).slice(0, 10)
+    date > String(program.end_date).slice(0, 10)
   ) {
     return false;
   }
@@ -398,16 +307,12 @@ function insideProgram(value, program) {
 
 function initialGlobalWeek(program, records = []) {
   const available = availableGlobalWeeks(program);
-
   if (!available.length) return 1;
 
   const now = todayWITA();
 
   const current = available.find((item) => {
-    const range = programWeekRange(
-      program,
-      item.week
-    );
+    const range = programWeekRange(program, item.week);
 
     return (
       range &&
@@ -422,27 +327,21 @@ function initialGlobalWeek(program, records = []) {
     .filter((item) =>
       insideProgram(item.activity_date, program)
     )
-    .map((item) =>
-      globalWeekOf(item.activity_date)
-    )
+    .map((item) => globalWeekOf(item.activity_date))
     .filter(Boolean);
 
-  if (recorded.length) {
-    return Math.max(...recorded);
-  }
+  if (recorded.length) return Math.max(...recorded);
 
-  const upcoming = available.find(
-    (item) => item.end >= now
-  );
+  const upcoming = available.find((item) => item.end >= now);
 
   return upcoming
     ? upcoming.week
     : available[available.length - 1].week;
 }
 
-// =====================================================
-// ACHIEVEMENT — RUMUS ASLI
-// =====================================================
+// ======================================================
+// ACHIEVEMENT: RUMUS ASLI
+// ======================================================
 
 function resolveCategory(typeCode, types) {
   const match = types.find(
@@ -475,10 +374,7 @@ function actualAchievement(category, records) {
   const meters = records.reduce((sum, item) => {
     const distance = Number(item.distance_km);
 
-    if (
-      !Number.isFinite(distance) ||
-      distance <= 0
-    ) {
+    if (!Number.isFinite(distance) || distance <= 0) {
       return sum;
     }
 
@@ -488,12 +384,12 @@ function actualAchievement(category, records) {
   return meters / 1000;
 }
 
-// =====================================================
-// SAMAPTA — RUMUS ASLI
-// NILAI A = LARI 12 MENIT
-// NILAI B = RATA-RATA 4 KOMPONEN
-// NILAI AKHIR = (A+B)/2
-// =====================================================
+// ======================================================
+// SAMAPTA: RUMUS ASLI
+// A = LARI 12 MENIT
+// B = RATA-RATA 4 KOMPONEN
+// FINAL = (A + B) / 2
+// ======================================================
 
 function calculateSamapta(records) {
   const byDate = new Map();
@@ -501,8 +397,7 @@ function calculateSamapta(records) {
   records.forEach((record) => {
     if (!parseDate(record.test_date)) return;
 
-    const date = String(record.test_date)
-      .slice(0, 10);
+    const date = String(record.test_date).slice(0, 10);
 
     if (!byDate.has(date)) {
       byDate.set(date, []);
@@ -531,9 +426,7 @@ function calculateSamapta(records) {
 
       const score = Number(record.score);
 
-      return Number.isFinite(score)
-        ? score
-        : null;
+      return Number.isFinite(score) ? score : null;
     }
 
     const a = get("Lari 12 Menit");
@@ -553,10 +446,8 @@ function calculateSamapta(records) {
     }
 
     const b =
-      components.reduce(
-        (sum, value) => sum + value,
-        0
-      ) / components.length;
+      components.reduce((sum, value) => sum + value, 0) /
+      components.length;
 
     results.push({
       date,
@@ -566,14 +457,14 @@ function calculateSamapta(records) {
     });
   });
 
-  return results.sort(
-    (a, b) => a.date.localeCompare(b.date)
+  return results.sort((a, b) =>
+    a.date.localeCompare(b.date)
   );
 }
 
-// =====================================================
-// NILAI MINGGUAN — RUMUS ASLI
-// =====================================================
+// ======================================================
+// NILAI PER MINGGU: RUMUS ASLI
+// ======================================================
 
 function buildWeeklyScores(
   program,
@@ -582,9 +473,7 @@ function buildWeeklyScores(
   samaptaResults
 ) {
   const weeks = GLOBAL_WEEKS.map((item) => ({
-    week: item.week,
-    start: item.start,
-    end: item.end,
+    ...item,
     available: Boolean(
       programWeekRange(program, item.week)
     ),
@@ -599,17 +488,13 @@ function buildWeeklyScores(
   const practiceByWeek = new Map();
 
   function addRecord(map, record, dateField) {
-    if (!insideProgram(record[dateField], program)) {
-      return;
-    }
+    if (!insideProgram(record[dateField], program)) return;
 
     const week = globalWeekOf(record[dateField]);
 
     if (week === null) return;
 
-    if (!map.has(week)) {
-      map.set(week, []);
-    }
+    if (!map.has(week)) map.set(week, []);
 
     map.get(week).push(record);
   }
@@ -619,29 +504,20 @@ function buildWeeklyScores(
   );
 
   practices.forEach((item) =>
-    addRecord(
-      practiceByWeek,
-      item,
-      "practice_date"
-    )
+    addRecord(practiceByWeek, item, "practice_date")
   );
 
   weeks.forEach((item) => {
     if (!item.available) return;
 
-    item.theory = average(
-      postByWeek.get(item.week) || []
-    );
-
+    item.theory = average(postByWeek.get(item.week) || []);
     item.practice = average(
       practiceByWeek.get(item.week) || []
     );
   });
 
   samaptaResults.forEach((item) => {
-    if (!insideProgram(item.date, program)) {
-      return;
-    }
+    if (!insideProgram(item.date, program)) return;
 
     const week = globalWeekOf(item.date);
 
@@ -672,24 +548,63 @@ function latestValue(data, key) {
     : null;
 }
 
-// =====================================================
-// GRAFIK UTAMA
-// MINGGU TANPA NILAI TIDAK DISAMBUNG
-// =====================================================
+// ======================================================
+// KOMPONEN ANTARMUKA
+// ======================================================
 
-function TrendChart({
+function Metric({
+  label,
+  value,
+  detail,
+  tone = "",
+}) {
+  return (
+    <div className={`wa-metric ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {detail && <small>{detail}</small>}
+    </div>
+  );
+}
+
+function StatusTag({ status }) {
+  const normalized = normalize(status);
+
+  const label =
+    normalized === "verified"
+      ? "Terverifikasi"
+      : normalized === "pending"
+      ? "Menunggu Verifikasi"
+      : status || "Belum tersedia";
+
+  return (
+    <span
+      className={
+        "wa-status " +
+        (normalized === "verified"
+          ? "verified"
+          : normalized === "pending"
+          ? "pending"
+          : "neutral")
+      }
+    >
+      {label}
+    </span>
+  );
+}
+
+function ScoreChart({
   data,
+  selectedWeek,
   onSelectWeek,
 }) {
-  const [focusedWeek, setFocusedWeek] = useState(null);
-
   const width = 780;
-  const height = 295;
+  const height = 270;
 
-  const left = 48;
-  const right = 22;
-  const top = 24;
-  const bottom = 44;
+  const left = 44;
+  const right = 20;
+  const top = 20;
+  const bottom = 40;
 
   const innerWidth = width - left - right;
   const innerHeight = height - top - bottom;
@@ -701,48 +616,32 @@ function TrendChart({
 
   const y = (value) =>
     top +
-    (
-      (100 - Math.max(
-        0,
-        Math.min(100, Number(value))
-      )) / 100
-    ) * innerHeight;
+    ((100 - Math.max(0, Math.min(100, Number(value)))) /
+      100) *
+      innerHeight;
 
   const hasData = data.some(
-    (point) =>
-      point.available &&
-      SERIES.some(
-        (series) =>
-          point[series.key] != null
-      )
-  );
-
-  const selected = data.find(
     (item) =>
-      item.week === focusedWeek &&
-      item.available
+      item.available &&
+      SERIES.some((series) => item[series.key] != null)
   );
 
   return (
-    <div className="sp-chart-wrap">
-      <div className="sp-legend">
-        {SERIES.map((series) => (
-          <span key={series.key}>
-            <i
-              style={{
-                background: series.color,
-              }}
-            />
-            {series.name}
+    <div className="wa-chart-container">
+      <div className="wa-legend">
+        {SERIES.map((item) => (
+          <span key={item.key}>
+            <i style={{ background: item.color }} />
+            {item.name}
           </span>
         ))}
       </div>
 
       <svg
+        className="wa-chart"
         viewBox={`0 0 ${width} ${height}`}
-        className="sp-chart"
         role="img"
-        aria-label="Grafik perkembangan nilai Teori, Praktik, dan Samapta selama kalender OJT"
+        aria-label="Tren nilai Teori, Praktik, dan Samapta"
       >
         {[0, 25, 50, 75, 100].map((tick) => (
           <g key={tick}>
@@ -751,45 +650,43 @@ function TrendChart({
               x2={width - right}
               y1={y(tick)}
               y2={y(tick)}
-              stroke="#dae5eb"
+              stroke="#dfebf1"
               strokeDasharray="4 5"
             />
 
             <text
-              x={left - 10}
+              x={left - 9}
               y={y(tick) + 4}
               textAnchor="end"
               fontSize="12"
-              fill="#778da0"
+              fill="#7a91a3"
             >
               {tick}
             </text>
           </g>
         ))}
 
-        {[1, 5, 9, 13, 17, 21, 25].map(
-          (week) => (
-            <text
-              key={week}
-              x={x(week)}
-              y={height - 12}
-              textAnchor="middle"
-              fontSize="12"
-              fill="#778da0"
-            >
-              W{week}
-            </text>
-          )
-        )}
+        {[1, 5, 9, 13, 17, 21, 25].map((week) => (
+          <text
+            key={week}
+            x={x(week)}
+            y={height - 11}
+            textAnchor="middle"
+            fontSize="12"
+            fill="#7a91a3"
+          >
+            W{week}
+          </text>
+        ))}
 
-        {selected && (
+        {data.some((item) => item.week === selectedWeek) && (
           <line
-            x1={x(selected.week)}
-            x2={x(selected.week)}
+            x1={x(selectedWeek)}
+            x2={x(selectedWeek)}
             y1={top}
             y2={height - bottom}
-            stroke="#7893a7"
-            strokeDasharray="5 5"
+            stroke="#b3c5d0"
+            strokeDasharray="4 5"
           />
         )}
 
@@ -816,10 +713,7 @@ function TrendChart({
               previousWeek !== null &&
               point.week !== previousWeek + 1
             ) {
-              if (current.length > 1) {
-                segments.push(current);
-              }
-
+              if (current.length > 1) segments.push(current);
               current = [];
             }
 
@@ -827,9 +721,7 @@ function TrendChart({
             previousWeek = point.week;
           });
 
-          if (current.length > 1) {
-            segments.push(current);
-          }
+          if (current.length > 1) segments.push(current);
 
           return (
             <g key={series.key}>
@@ -837,10 +729,7 @@ function TrendChart({
                 <polyline
                   key={index}
                   points={segment
-                    .map(
-                      (point) =>
-                        `${point.x},${point.y}`
-                    )
+                    .map((point) => `${point.x},${point.y}`)
                     .join(" ")}
                   fill="none"
                   stroke={series.color}
@@ -855,26 +744,17 @@ function TrendChart({
                   key={point.week}
                   cx={point.x}
                   cy={point.y}
-                  r={
-                    selected?.week === point.week
-                      ? 7
-                      : 5
-                  }
+                  r={point.week === selectedWeek ? 7 : 5}
                   fill={series.color}
                   stroke="white"
                   strokeWidth="2"
-                  style={{
-                    cursor: "pointer",
-                  }}
-                  onClick={() => {
-                    setFocusedWeek(point.week);
-                    onSelectWeek(point.week);
-                  }}
+                  style={{ cursor: "pointer" }}
+                  onClick={() =>
+                    onSelectWeek(point.week)
+                  }
                 >
                   <title>
-                    {series.name} ·{" "}
-                    {weekLabel(point.week)}
-                    {" · "}
+                    {series.name} · {weekLabel(point.week)} ·{" "}
                     {scoreText(point.value)}
                   </title>
                 </circle>
@@ -884,158 +764,96 @@ function TrendChart({
         })}
       </svg>
 
-      {selected && (
-        <div className="sp-chart-detail">
-          <strong>
-            {weekLabel(selected.week)}
-          </strong>
-
-          <div className="sp-chart-detail-values">
-            {SERIES.map((series) => (
-              <span key={series.key}>
-                <i
-                  style={{
-                    background: series.color,
-                  }}
-                />
-
-                {series.name}:{" "}
-                <strong>
-                  {scoreText(
-                    selected[series.key]
-                  )}
-                </strong>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
       {!hasData && (
-        <div className="sp-empty">
-          Belum ada nilai yang tercatat
-          pada periode ini.
+        <div className="wa-empty">
+          Belum ada nilai pada periode ini.
         </div>
       )}
 
-      <p className="sp-hint">
-        Tekan titik grafik untuk memilih minggu.
-        Minggu tanpa nilai tidak dianggap 0
-        dan garis tidak disambungkan melewati
-        minggu kosong.
+      <p className="wa-hint">
+        Tekan titik untuk memeriksa minggu tersebut.
+        Minggu tanpa nilai tidak dianggap bernilai nol.
       </p>
     </div>
   );
 }
 
-// =====================================================
-// KARTU INFORMASI
-// =====================================================
-
-function MetricCard({
-  label,
-  value,
-  detail,
-  icon,
-  tone = "green",
-}) {
-  return (
-    <div className={`sp-metric sp-${tone}`}>
-      <div className="sp-metric-icon">
-        {icon}
-      </div>
-
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-        <small>{detail}</small>
-      </div>
-    </div>
-  );
-}
-
-function SectionHeader({
-  title,
-  subtitle,
-  icon,
-}) {
-  return (
-    <div className="sp-section-heading">
-      <div className="sp-section-icon">
-        {icon}
-      </div>
-
-      <div>
-        <h2>{title}</h2>
-        {subtitle && <p>{subtitle}</p>}
-      </div>
-    </div>
-  );
-}
-
-function CompetencyList({
+function AchievementTable({
   items,
-  totalWeeks,
+  selectedWeek,
   adminReview,
 }) {
   return (
-    <div className="sp-competency-list">
-      {items.map((item) => (
-        <div
-          key={item.name}
-          className="sp-competency-item"
-        >
-          <div className="sp-competency-top">
-            <span>
-              {item.icon}{" "}
+    <div className="wa-target-table">
+      {items.map((item) => {
+        const weekly = item.weekly[selectedWeek - 1];
+
+        const actual = adminReview
+          ? null
+          : weekly?.achieved ?? null;
+
+        const progress = adminReview
+          ? null
+          : weekly?.percent ?? null;
+
+        const missing =
+          actual === null
+            ? null
+            : Math.max(0, item.target - actual);
+
+        return (
+          <div
+            className="wa-target-item"
+            key={item.name}
+          >
+            <div className="wa-target-top">
               <strong>{item.name}</strong>
-            </span>
 
-            <strong className="sp-percentage">
-              {adminReview
-                ? "—"
-                : percentText(item.percent)}
-            </strong>
-          </div>
+              <span>
+                {actual === null
+                  ? "—"
+                  : `${numberText(
+                      actual,
+                      item.name === "Fisik" ? 3 : 0
+                    )} / ${item.target} ${item.unit}`}
+              </span>
+            </div>
 
-          <div className="sp-progress-track">
-            {!adminReview && (
+            <div className="wa-track">
               <div
-                className="sp-progress-fill"
                 style={{
-                  width: `${
-                    Math.max(
-                      0,
-                      Math.min(100, item.percent || 0)
-                    )
-                  }%`,
+                  width: `${Math.max(
+                    0,
+                    Math.min(100, progress || 0)
+                  )}%`,
                 }}
               />
-            )}
-          </div>
+            </div>
 
-          <div className="sp-competency-bottom">
-            <span>
-              {adminReview
-                ? "Belum ada data peserta"
-                : `${item.completedWeeks}/${totalWeeks} minggu mencapai target`}
-            </span>
+            <div className="wa-target-footer">
+              <span>{percentText(progress)}</span>
 
-            <span>
-              {adminReview
-                ? "—"
-                : `${item.verified} kegiatan terverifikasi`}
-            </span>
+              <span>
+                {missing === null
+                  ? "Belum ada data"
+                  : missing <= 0
+                  ? "Target minggu ini tercapai"
+                  : `Kurang ${numberText(
+                      missing,
+                      item.name === "Fisik" ? 3 : 0
+                    )} ${item.unit}`}
+              </span>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-// =====================================================
-// MAIN PAGE
-// =====================================================
+// ======================================================
+// HALAMAN UTAMA
+// ======================================================
 
 export default function GrafikPerkembanganOJT() {
   const router = useRouter();
@@ -1045,8 +863,7 @@ export default function GrafikPerkembanganOJT() {
     ? params.id[0]
     : params?.id;
 
-  const isAdminReview =
-    programId === ADMIN_REVIEW_ID;
+  const isAdminReview = programId === ADMIN_REVIEW_ID;
 
   const [program, setProgram] = useState(null);
   const [viewer, setViewer] = useState(null);
@@ -1054,40 +871,28 @@ export default function GrafikPerkembanganOJT() {
   const [categories, setCategories] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [postTests, setPostTests] = useState([]);
-  const [practice, setPractice] = useState([]);
+  const [practices, setPractices] = useState([]);
   const [samapta, setSamapta] = useState([]);
 
-  const [range, setRange] = useState("all");
   const [selectedWeek, setSelectedWeek] = useState(1);
-
-  const [showFullRecap, setShowFullRecap] =
-    useState(false);
-
-  const [showSamaptaDetail, setShowSamaptaDetail] =
-    useState(false);
-
-  const [showCalculationInfo, setShowCalculationInfo] =
-    useState(false);
+  const [activeTab, setActiveTab] = useState("activities");
+  const [selectedActivity, setSelectedActivity] = useState(null);
+  const [showTrend, setShowTrend] = useState(true);
+  const [showCalculation, setShowCalculation] = useState(false);
+  const [showAllWeeks, setShowAllWeeks] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const role = normalizeRole(viewer?.role);
-
-  const isManager =
-    role === "admin" ||
-    role === "mentor";
+  const isManager = role === "admin" || role === "mentor";
 
   const backPath = isAdminReview
     ? "/dashboard-peserta"
     : isManager
     ? `/peserta/${programId}`
     : "/dashboard-peserta";
-
-  // ===================================================
-  // BACA DATABASE - QUERY ASLI
-  // ===================================================
 
   const fetchData = useCallback(async (id) => {
     const results = await Promise.all([
@@ -1098,7 +903,7 @@ export default function GrafikPerkembanganOJT() {
       supabase
         .from("achievement_records")
         .select(
-          "id,type_code,activity_date,status,distance_km"
+          "id,type_code,activity_date,description,status,distance_km"
         )
         .eq("program_id", id),
 
@@ -1121,7 +926,7 @@ export default function GrafikPerkembanganOJT() {
     ]);
 
     const labels = [
-      "Kategori",
+      "Jenis Achievement",
       "Achievement",
       "Post-Test",
       "Praktik",
@@ -1140,14 +945,10 @@ export default function GrafikPerkembanganOJT() {
       categories: results[0].data || [],
       achievements: results[1].data || [],
       postTests: results[2].data || [],
-      practice: results[3].data || [],
+      practices: results[3].data || [],
       samapta: results[4].data || [],
     };
   }, []);
-
-  // ===================================================
-  // VALIDASI AKSES ASLI
-  // ===================================================
 
   const verifyAccess = useCallback(async (id) => {
     const {
@@ -1173,19 +974,15 @@ export default function GrafikPerkembanganOJT() {
     if (profileError) throw profileError;
 
     if (!profile) {
-      throw new Error(
-        "Profil pengguna tidak ditemukan."
-      );
+      throw new Error("Profil pengguna tidak ditemukan.");
     }
 
-    const currentRole = normalizeRole(
-      profile.role
-    );
+    const currentRole = normalizeRole(profile.role);
 
     if (id === ADMIN_REVIEW_ID) {
       if (currentRole !== "admin") {
         throw new Error(
-          "Tinjauan Grafik Perkembangan hanya dapat dibuka oleh Admin."
+          "Tinjauan grafik hanya dapat dibuka oleh Admin."
         );
       }
 
@@ -1197,19 +994,17 @@ export default function GrafikPerkembanganOJT() {
       };
     }
 
-    const manager = [
-      "admin",
-      "mentor",
-    ].includes(currentRole);
+    const manager = ["admin", "mentor"].includes(
+      currentRole
+    );
 
-    const participant = [
-      "participant",
-      "peserta",
-    ].includes(currentRole);
+    const participant = ["participant", "peserta"].includes(
+      currentRole
+    );
 
     if (!manager && !participant) {
       throw new Error(
-        "Akun tidak memiliki izin membuka grafik."
+        "Akun tidak memiliki akses halaman grafik."
       );
     }
 
@@ -1235,10 +1030,7 @@ export default function GrafikPerkembanganOJT() {
     }
 
     if (participant) {
-      query = query.eq(
-        "participant_id",
-        user.id
-      );
+      query = query.eq("participant_id", user.id);
     }
 
     const {
@@ -1255,32 +1047,24 @@ export default function GrafikPerkembanganOJT() {
     }
 
     if (!parseDate(programData.start_date)) {
-      throw new Error(
-        "Tanggal mulai OJT tidak valid."
-      );
+      throw new Error("Tanggal mulai OJT tidak valid.");
     }
 
     if (
       programData.end_date &&
       !parseDate(programData.end_date)
     ) {
-      throw new Error(
-        "Tanggal selesai OJT tidak valid."
-      );
+      throw new Error("Tanggal selesai OJT tidak valid.");
     }
 
     if (participant) {
-      const status = normalize(
-        programData.status
-      );
+      const status = normalize(programData.status);
 
       if (
-        !["active", "approved", "aktif"].includes(
-          status
-        )
+        !["active", "approved", "aktif"].includes(status)
       ) {
         throw new Error(
-          "Grafik peserta hanya tersedia untuk program aktif atau disetujui."
+          "Grafik hanya tersedia untuk program aktif."
         );
       }
     }
@@ -1297,7 +1081,7 @@ export default function GrafikPerkembanganOJT() {
     setCategories(data.categories);
     setAchievements(data.achievements);
     setPostTests(data.postTests);
-    setPractice(data.practice);
+    setPractices(data.practices);
     setSamapta(data.samapta);
   }, []);
 
@@ -1305,20 +1089,14 @@ export default function GrafikPerkembanganOJT() {
     setCategories([]);
     setAchievements([]);
     setPostTests([]);
-    setPractice([]);
+    setPractices([]);
     setSamapta([]);
   }, []);
-
-  // ===================================================
-  // LOAD AWAL
-  // ===================================================
 
   useEffect(() => {
     if (!programId) {
       setLoading(false);
-      setError(
-        "ID program OJT tidak tersedia."
-      );
+      setError("ID program tidak tersedia.");
       return;
     }
 
@@ -1327,20 +1105,17 @@ export default function GrafikPerkembanganOJT() {
     async function initialize() {
       setLoading(true);
       setError("");
-      setProgram(null);
-      setViewer(null);
-      clearData();
 
       try {
-        const access = await verifyAccess(
-          programId
-        );
+        const access = await verifyAccess(programId);
 
         if (!active) return;
 
+        setViewer(access.profile);
+
         if (access.adminReview) {
-          setViewer(access.profile);
           setProgram(null);
+          clearData();
           setSelectedWeek(1);
           return;
         }
@@ -1352,26 +1127,24 @@ export default function GrafikPerkembanganOJT() {
         if (!active) return;
 
         setProgram(access.programData);
-        setViewer(access.profile);
         applyData(data);
 
-        const initialWeek = initialGlobalWeek(
-          access.programData,
-          data.achievements
+        setSelectedWeek(
+          initialGlobalWeek(
+            access.programData,
+            data.achievements
+          )
         );
-
-        setSelectedWeek(initialWeek);
       } catch (err) {
-        if (active) {
-          setProgram(null);
-          setViewer(null);
-          clearData();
+        if (!active) return;
 
-          setError(
-            err?.message ||
-              "Gagal memuat Grafik Perkembangan."
-          );
-        }
+        setProgram(null);
+        setViewer(null);
+        clearData();
+
+        setError(
+          err?.message || "Gagal memuat data perkembangan."
+        );
       } finally {
         if (active) setLoading(false);
       }
@@ -1390,42 +1163,30 @@ export default function GrafikPerkembanganOJT() {
     clearData,
   ]);
 
-  // ===================================================
-  // REFRESH DATA
-  // ===================================================
-
   async function refresh() {
-    if (loading || refreshing || !viewer) {
-      return;
-    }
+    if (loading || refreshing || !viewer) return;
 
     setRefreshing(true);
     setError("");
 
     try {
-      const access = await verifyAccess(
-        programId
-      );
+      const access = await verifyAccess(programId);
 
       if (access.user.id !== viewer.id) {
-        throw new Error(
-          "Akun login berubah. Buka ulang halaman."
-        );
+        throw new Error("Akun login berubah. Buka ulang halaman.");
       }
+
+      setViewer(access.profile);
 
       if (access.adminReview) {
         setProgram(null);
         clearData();
-        setViewer(access.profile);
         return;
       }
 
-      const data = await fetchData(
-        access.programData.id
-      );
+      const data = await fetchData(access.programData.id);
 
       setProgram(access.programData);
-      setViewer(access.profile);
       applyData(data);
 
       const allowed = availableGlobalWeeks(
@@ -1441,22 +1202,17 @@ export default function GrafikPerkembanganOJT() {
         );
       }
     } catch (err) {
-      setProgram(null);
-      setViewer(null);
-      clearData();
-
       setError(
-        err?.message ||
-          "Gagal memperbarui data."
+        err?.message || "Gagal memperbarui data."
       );
     } finally {
       setRefreshing(false);
     }
   }
 
-  // ===================================================
-  // MINGGU DAN FILTER
-  // ===================================================
+  // ====================================================
+  // DATA MINGGUAN
+  // ====================================================
 
   const availableWeeks = useMemo(
     () =>
@@ -1469,52 +1225,17 @@ export default function GrafikPerkembanganOJT() {
   const allowedWeeks = useMemo(
     () =>
       new Set(
-        availableWeeks.map(
-          (item) => item.week
-        )
+        availableWeeks.map((item) => item.week)
       ),
     [availableWeeks]
   );
-
-  const filteredWeeks = useMemo(() => {
-    if (range === "first") {
-      return availableWeeks
-        .filter((item) => item.week <= 13)
-        .map((item) => item.week);
-    }
-
-    if (range === "second") {
-      return availableWeeks
-        .filter((item) => item.week >= 14)
-        .map((item) => item.week);
-    }
-
-    if (range === "selected") {
-      return allowedWeeks.has(selectedWeek)
-        ? [selectedWeek]
-        : [];
-    }
-
-    return availableWeeks.map(
-      (item) => item.week
-    );
-  }, [
-    range,
-    availableWeeks,
-    allowedWeeks,
-    selectedWeek,
-  ]);
-
-  // ===================================================
-  // NILAI PROGRAM
-  // ===================================================
 
   const samaptaResults = useMemo(
     () => calculateSamapta(samapta),
     [samapta]
   );
 
-  const weeklyData = useMemo(() => {
+  const weeklyScores = useMemo(() => {
     if (isAdminReview) {
       return GLOBAL_WEEKS.map((item) => ({
         ...item,
@@ -1531,7 +1252,7 @@ export default function GrafikPerkembanganOJT() {
       ? buildWeeklyScores(
           program,
           postTests,
-          practice,
+          practices,
           samaptaResults
         )
       : [];
@@ -1539,38 +1260,9 @@ export default function GrafikPerkembanganOJT() {
     isAdminReview,
     program,
     postTests,
-    practice,
+    practices,
     samaptaResults,
   ]);
-
-  const filteredData = useMemo(
-    () =>
-      weeklyData.filter(
-        (item) =>
-          item.available &&
-          filteredWeeks.includes(item.week)
-      ),
-    [weeklyData, filteredWeeks]
-  );
-
-  const theoryLatest = latestValue(
-    weeklyData,
-    "theory"
-  );
-
-  const practiceLatest = latestValue(
-    weeklyData,
-    "practice"
-  );
-
-  const samaptaLatest = latestValue(
-    weeklyData,
-    "final"
-  );
-
-  // ===================================================
-  // KOMPETENSI — LOGIKA ASLI
-  // ===================================================
 
   const categoryData = useMemo(() => {
     const verifiedRecords = achievements.filter(
@@ -1579,78 +1271,65 @@ export default function GrafikPerkembanganOJT() {
         insideProgram(item.activity_date, program)
     );
 
-    const categorizedRecords =
-      verifiedRecords.map((item) => ({
-        ...item,
-        resolvedCategory: resolveCategory(
-          item.type_code,
-          categories
-        ),
-        globalWeek: globalWeekOf(
-          item.activity_date
-        ),
-      }));
+    const categorized = verifiedRecords.map((item) => ({
+      ...item,
+      resolvedCategory: resolveCategory(
+        item.type_code,
+        categories
+      ),
+      globalWeek: globalWeekOf(item.activity_date),
+    }));
 
     return CATEGORIES.map((category) => {
-      const matching = categorizedRecords.filter(
+      const matching = categorized.filter(
         (item) =>
           item.resolvedCategory === category.name
       );
 
-      const weekly = GLOBAL_WEEKS.map(
-        (global) => {
-          const available = isAdminReview
-            ? true
-            : Boolean(
-                programWeekRange(
-                  program,
-                  global.week
-                )
-              );
+      const weekly = GLOBAL_WEEKS.map((global) => {
+        const available = isAdminReview
+          ? true
+          : Boolean(
+              programWeekRange(program, global.week)
+            );
 
-          const records =
-            available && !isAdminReview
-              ? matching.filter(
-                  (item) =>
-                    item.globalWeek === global.week
-                )
-              : [];
-
-          const achieved = isAdminReview
-            ? null
-            : available
-            ? actualAchievement(
-                category,
-                records
+        const records =
+          available && !isAdminReview
+            ? matching.filter(
+                (item) =>
+                  item.globalWeek === global.week
               )
-            : 0;
+            : [];
 
-          const percent = isAdminReview
+        const achieved = isAdminReview
+          ? null
+          : available
+          ? actualAchievement(category, records)
+          : 0;
+
+        const percent = isAdminReview
+          ? null
+          : available
+          ? cappedPercent(
+              achieved,
+              category.target
+            )
+          : null;
+
+        return {
+          week: global.week,
+          available,
+          achieved,
+          count: isAdminReview
             ? null
-            : available
-            ? cappedPercent(
-                achieved,
-                category.target
-              )
-            : null;
-
-          return {
-            week: global.week,
-            start: global.start,
-            end: global.end,
-            available,
-            achieved,
-            count: isAdminReview
-              ? null
-              : records.length,
-            percent,
-            completed:
-              !isAdminReview &&
-              available &&
-              achieved >= category.target,
-          };
-        }
-      );
+            : records.length,
+          percent,
+          completed:
+            !isAdminReview &&
+            available &&
+            achieved >= category.target,
+        };
+      });
 
       const active = weekly.filter(
         (item) => item.available
@@ -1660,8 +1339,7 @@ export default function GrafikPerkembanganOJT() {
         ? null
         : active.length
         ? active.reduce(
-            (sum, item) =>
-              sum + item.percent,
+            (sum, item) => sum + item.percent,
             0
           ) / active.length
         : 0;
@@ -1688,51 +1366,15 @@ export default function GrafikPerkembanganOJT() {
     isAdminReview,
   ]);
 
-  const totalAvailableWeeks =
-    availableWeeks.length;
-
-  const overall = isAdminReview
-    ? null
-    : categoryData.length
-    ? categoryData.reduce(
-        (sum, category) =>
-          sum + category.percent,
-        0
-      ) / categoryData.length
-    : 0;
-
-  const completedCategories = isAdminReview
-    ? null
-    : categoryData.filter(
-        (item) =>
-          item.activeWeeks > 0 &&
-          item.completedWeeks === item.activeWeeks
-      ).length;
-
-  const totalVerified = isAdminReview
-    ? null
-    : categoryData.reduce(
-        (sum, item) =>
-          sum + item.verified,
-        0
-      );
-
-  // ===================================================
-  // RINGKASAN MINGGUAN — LOGIKA ASLI
-  // ===================================================
-
   const weeklySummary = useMemo(
     () =>
-      weeklyData.map((item) => {
-        const details = categoryData.map(
-          (category) => ({
-            name: category.name,
-            icon: category.icon,
-            unit: category.unit,
-            target: category.target,
-            ...category.weekly[item.week - 1],
-          })
-        );
+      weeklyScores.map((item) => {
+        const details = categoryData.map((category) => ({
+          name: category.name,
+          target: category.target,
+          unit: category.unit,
+          ...category.weekly[item.week - 1],
+        }));
 
         if (isAdminReview) {
           return {
@@ -1746,8 +1388,7 @@ export default function GrafikPerkembanganOJT() {
         }
 
         const totalActivities = details.reduce(
-          (sum, detail) =>
-            sum + detail.count,
+          (sum, detail) => sum + detail.count,
           0
         );
 
@@ -1777,7 +1418,7 @@ export default function GrafikPerkembanganOJT() {
         };
       }),
     [
-      weeklyData,
+      weeklyScores,
       categoryData,
       isAdminReview,
     ]
@@ -1790,15 +1431,65 @@ export default function GrafikPerkembanganOJT() {
         item.available
     ) || null;
 
-  const participant = Array.isArray(
-    program?.peserta
-  )
+  const filteredAchievements = useMemo(
+    () =>
+      achievements
+        .filter(
+          (item) =>
+            insideProgram(item.activity_date, program) &&
+            globalWeekOf(item.activity_date) === selectedWeek
+        )
+        .map((item) => ({
+          ...item,
+          category:
+            resolveCategory(item.type_code, categories) ||
+            item.type_code,
+        }))
+        .sort((a, b) =>
+          String(a.activity_date).localeCompare(
+            String(b.activity_date)
+          )
+        ),
+    [
+      achievements,
+      categories,
+      program,
+      selectedWeek,
+    ]
+  );
+
+  const filteredPostTests = postTests.filter(
+    (item) =>
+      insideProgram(item.test_date, program) &&
+      globalWeekOf(item.test_date) === selectedWeek
+  );
+
+  const filteredPractices = practices.filter(
+    (item) =>
+      insideProgram(item.practice_date, program) &&
+      globalWeekOf(item.practice_date) === selectedWeek
+  );
+
+  const filteredSamapta = samapta.filter(
+    (item) =>
+      insideProgram(item.test_date, program) &&
+      globalWeekOf(item.test_date) === selectedWeek
+  );
+
+  const verifiedCount = filteredAchievements.filter(
+    (item) => normalize(item.status) === "verified"
+  ).length;
+
+  const pendingCount = filteredAchievements.filter(
+    (item) => normalize(item.status) === "pending"
+  ).length;
+
+  const participant = Array.isArray(program?.peserta)
     ? program.peserta[0]
     : program?.peserta;
 
   const participantName =
-    participant?.full_name ||
-    "Peserta OJT";
+    participant?.full_name || "Peserta OJT";
 
   const canShowContent =
     !loading &&
@@ -1809,66 +1500,143 @@ export default function GrafikPerkembanganOJT() {
       (!isAdminReview && !!program)
     );
 
-  function selectWeek(week) {
-    if (!allowedWeeks.has(Number(week))) {
-      return;
+  const availableScores = weeklyScores.filter(
+    (item) => item.available
+  );
+
+  const latestTheory = latestValue(
+    availableScores,
+    "theory"
+  );
+
+  const latestPractice = latestValue(
+    availableScores,
+    "practice"
+  );
+
+  const latestSamapta = latestValue(
+    availableScores,
+    "final"
+  );
+
+  const overall = isAdminReview
+    ? null
+    : categoryData.length
+    ? categoryData.reduce(
+        (sum, item) => sum + item.percent,
+        0
+      ) / categoryData.length
+    : 0;
+
+  const selectedPeriod = GLOBAL_WEEKS.find(
+    (item) => item.week === selectedWeek
+  );
+
+  function changeWeek(week) {
+    const number = Number(week);
+
+    if (!allowedWeeks.has(number)) return;
+
+    setSelectedWeek(number);
+    setSelectedActivity(null);
+  }
+
+  function copyCorrection(item = null) {
+    const detail = item
+      ? [
+          `Tanggal: ${formatDate(item.activity_date)}`,
+          `Kategori: ${item.category}`,
+          `Kegiatan: ${item.description || "Tidak ada deskripsi"}`,
+          `Realisasi: ${
+            item.category === "Fisik"
+              ? `${numberText(item.distance_km, 3)} km`
+              : "1 kegiatan"
+          }`,
+          `Status: ${item.status || "—"}`,
+        ].join("\n")
+      : [
+          "Tanggal: [Isi tanggal]",
+          "Kategori/Jenis Nilai: [Isi]",
+          "Kegiatan: [Isi]",
+          "Nilai/Realisasi tercatat: [Isi]",
+        ].join("\n");
+
+    const message = [
+      "PERMOHONAN PEMERIKSAAN DATA OJT",
+      "",
+      `Nama Peserta: ${participantName}`,
+      `Site: ${program?.site || "—"}`,
+      `Minggu: ${weekLabel(selectedWeek)}`,
+      `${formatDate(selectedPeriod?.start)} - ${formatDate(
+        selectedPeriod?.end
+      )}`,
+      "",
+      detail,
+      "",
+      "Data yang seharusnya: [Isi koreksi]",
+      "Bukti pendukung: [Jika tersedia]",
+      "",
+      "Mohon bantuan Mentor/Admin untuk memeriksa data tersebut. Terima kasih.",
+    ].join("\n");
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(message)
+        .then(() =>
+          window.alert(
+            "Format koreksi berhasil disalin. Silakan kirim ke grup koordinasi."
+          )
+        )
+        .catch(() =>
+          window.prompt(
+            "Salin pesan koreksi berikut:",
+            message
+          )
+        );
+    } else {
+      window.prompt(
+        "Salin pesan koreksi berikut:",
+        message
+      );
     }
-
-    setSelectedWeek(Number(week));
   }
 
-  function printPage() {
-    window.print();
-  }
-
-  // ===================================================
-  // UI DESAIN A
-  // ===================================================
+  // ====================================================
+  // RENDER
+  // ====================================================
 
   return (
-    <main className="sp-root">
+    <main className="wa-root">
       <style>{css}</style>
 
-      {/* HEADER */}
-
-      <header className="sp-topbar">
-        <div className="sp-brand">
-          <span className="sp-logo">
-            ↗
-          </span>
-
+      <header className="wa-topbar">
+        <div className="wa-brand">
+          <span className="wa-brand-icon">◇</span>
           <div>
             <strong>
               OJT <em>MineTrack</em>
               <small>v2.0</small>
             </strong>
-
             <span>
-              ON THE JOB TRAINING
-              MANAGEMENT SYSTEM
+              ON THE JOB TRAINING MANAGEMENT SYSTEM
             </span>
           </div>
         </div>
 
         <button
           type="button"
-          className="sp-back"
-          onClick={() =>
-            router.push(backPath)
-          }
+          className="wa-top-back"
+          onClick={() => router.push(backPath)}
         >
           ← Kembali
         </button>
       </header>
 
-      <div className="sp-container">
-        {/* HERO */}
-
-        <section className="sp-hero">
+      <div className="wa-container">
+        <section className="wa-hero">
           <div>
             <small>
-              EMERGENCY RESPONSE GROUP ·
-              PT BERAU COAL
+              EMERGENCY RESPONSE GROUP · PT BERAU COAL
             </small>
 
             <h1>
@@ -1876,286 +1644,104 @@ export default function GrafikPerkembanganOJT() {
             </h1>
 
             <p>
-              Monitoring Teori, Praktik,
-              Samapta, dan enam kompetensi OJT.
+              Periksa kegiatan, nilai, dan capaian OJT
+              Anda setiap minggu.
             </p>
           </div>
 
-          {isAdminReview && viewer && (
-            <div className="sp-person">
-              <div className="sp-avatar">
-                {initials(viewer.full_name)}
-              </div>
-
-              <div>
-                <strong>
-                  {viewer.full_name || "Administrator"}
-                </strong>
-
-                <small>
-                  Tinjauan Grafik Perkembangan
-                  <br />
-                  Tanpa data peserta fiktif
-                </small>
-              </div>
-
-              <span className="sp-status">
-                ADMIN
+          {viewer && (
+            <div className="wa-person">
+              <span className="wa-avatar">
+                {initials(
+                  isAdminReview
+                    ? viewer.full_name
+                    : participantName
+                )}
               </span>
-            </div>
-          )}
-
-          {!isAdminReview && program && (
-            <div className="sp-person">
-              <div className="sp-avatar">
-                {initials(participantName)}
-              </div>
 
               <div>
                 <strong>
-                  {participantName}
+                  {isAdminReview
+                    ? viewer.full_name
+                    : participantName}
                 </strong>
 
                 <small>
-                  {participant?.department || "—"}
-                  {" · "}
-                  {program.site || "—"}
-                  <br />
-                  {formatDate(program.start_date)}
-                  {" – "}
-                  {formatDate(program.end_date)}
-                  <br />
-                  Dibuka oleh:{" "}
-                  {viewer?.full_name || "—"}
+                  {isAdminReview
+                    ? "Tinjauan Administrator"
+                    : `${participant?.department || "—"} · ${
+                        program?.site || "—"
+                      }`}
                 </small>
+
+                {!isAdminReview && (
+                  <small>
+                    {formatDate(program?.start_date)}
+                    {" – "}
+                    {formatDate(program?.end_date)}
+                  </small>
+                )}
               </div>
 
-              <span className="sp-status">
-                {["active", "approved", "aktif"].includes(
-                  normalize(program.status)
-                )
-                  ? "Aktif"
-                  : program.status || "—"}
+              <span className="wa-program-tag">
+                {isAdminReview
+                  ? "PREVIEW"
+                  : "OJT"}
               </span>
             </div>
           )}
         </section>
 
         {loading ? (
-          <section className="sp-card">
-            <h2>
-              Memuat Grafik Perkembangan...
-            </h2>
-
-            <p className="sp-hint">
-              Memeriksa akun dan hak akses.
-            </p>
+          <section className="wa-card">
+            Memuat data dan memeriksa hak akses...
           </section>
         ) : !canShowContent ? (
-          <section className="sp-card">
-            <h2>
-              Grafik Tidak Dapat Ditampilkan
-            </h2>
-
-            <div className="sp-error">
-              {error ||
-                "Data peserta tidak tersedia."}
+          <section className="wa-card">
+            <h2>Grafik Tidak Dapat Ditampilkan</h2>
+            <div className="wa-error">
+              {error || "Data tidak tersedia."}
             </div>
-
-            <button
-              type="button"
-              className="sp-btn"
-              onClick={() =>
-                router.push(backPath)
-              }
-            >
-              Kembali
-            </button>
           </section>
         ) : (
           <>
             {isAdminReview && (
-              <div className="sp-review">
-                <strong>
-                  Mode Tinjauan Administrator
-                </strong>
-
+              <div className="wa-review">
+                <strong>Mode Tinjauan Administrator</strong>
                 <p>
-                  Tampilan dapat diperiksa tanpa
-                  memilih peserta. Seluruh nilai
-                  ditampilkan kosong dan tidak ada
-                  data fiktif maupun perubahan database.
+                  Seluruh bagian dapat diperiksa tanpa
+                  data peserta fiktif. Tidak ada
+                  perubahan ke database.
                 </p>
               </div>
             )}
 
-            {/* ===========================
-                TIGA KARTU UTAMA
-                =========================== */}
+            {/* PILIH MINGGU */}
 
-            <section className="sp-metrics">
-              <MetricCard
-                label="Nilai Teori Terakhir"
-                value={scoreText(theoryLatest)}
-                detail="Post-Test"
-                icon="📘"
-                tone="blue"
-              />
-
-              <MetricCard
-                label="Nilai Praktik Terakhir"
-                value={scoreText(practiceLatest)}
-                detail="Praktik Mingguan"
-                icon="⚙️"
-                tone="green"
-              />
-
-              <MetricCard
-                label="Achievement OJT"
-                value={percentText(overall)}
-                detail={
-                  isAdminReview
-                    ? "Belum ada data"
-                    : `${completedCategories} dari 6 kategori lengkap`
-                }
-                icon="🎯"
-                tone="green"
-              />
-            </section>
-
-            {/* ===========================
-                GRAFIK UTAMA
-                =========================== */}
-
-            <section className="sp-card">
-              <div className="sp-card-header">
-                <SectionHeader
-                  title="Tren Nilai OJT"
-                  subtitle="Perkembangan nilai Teori, Praktik, dan Samapta selama kalender global."
-                  icon="📈"
-                />
-
-                <select
-                  className="sp-select"
-                  value={range}
-                  onChange={(event) =>
-                    setRange(event.target.value)
-                  }
-                  aria-label="Pilih periode grafik"
-                >
-                  <option value="all">
-                    Week 01–25
-                  </option>
-
-                  <option value="first">
-                    Week 01–13
-                  </option>
-
-                  <option value="second">
-                    Week 14–25
-                  </option>
-
-                  <option value="selected">
-                    Minggu Terpilih
-                  </option>
-                </select>
-              </div>
-
-              <TrendChart
-                data={filteredData}
-                onSelectWeek={selectWeek}
-              />
-
-              <div className="sp-filter-note">
-                <span>
-                  {filteredWeeks.length} minggu
-                  dalam filter.
-                </span>
-
-                <span>
-                  Minggu aktif peserta:{" "}
-                  {totalAvailableWeeks}
-                </span>
-              </div>
-            </section>
-
-            {/* ===========================
-                ENAM KOMPETENSI
-                =========================== */}
-
-            <section className="sp-card">
-              <div className="sp-card-header">
-                <SectionHeader
-                  title="Pencapaian Enam Kompetensi"
-                  subtitle="Rata-rata pencapaian target pada minggu aktif peserta."
-                  icon="🎯"
-                />
-
-                <span className="sp-overall-pill">
-                  {percentText(overall)}
-                </span>
-              </div>
-
-              <CompetencyList
-                items={categoryData}
-                totalWeeks={totalAvailableWeeks}
-                adminReview={isAdminReview}
-              />
-
-              <div className="sp-competency-footer">
+            <section className="wa-card wa-week-panel">
+              <div className="wa-section-head">
                 <div>
-                  <small>
-                    Kegiatan Terverifikasi
-                  </small>
-
-                  <strong>
-                    {numberText(totalVerified)}
-                  </strong>
+                  <h2>Monitoring Mingguan</h2>
+                  <p>
+                    Pilih minggu untuk melihat data
+                    kegiatan dan nilai yang tercatat.
+                  </p>
                 </div>
 
-                <div>
-                  <small>
-                    Kategori Lengkap
-                  </small>
-
-                  <strong>
-                    {isAdminReview
-                      ? "—"
-                      : `${completedCategories}/6`}
-                  </strong>
-                </div>
-              </div>
-            </section>
-
-            {/* ===========================
-                DETAIL MINGGU
-                =========================== */}
-
-            <section className="sp-card">
-              <div className="sp-card-header">
-                <SectionHeader
-                  title="Detail Minggu Terpilih"
-                  subtitle="Lihat nilai dan Achievement pada satu minggu tertentu."
-                  icon="📅"
-                />
-
                 <select
-                  className="sp-select"
+                  className="wa-select"
                   value={
                     allowedWeeks.has(selectedWeek)
                       ? selectedWeek
                       : ""
                   }
                   onChange={(event) =>
-                    selectWeek(
-                      Number(event.target.value)
-                    )
+                    changeWeek(event.target.value)
                   }
-                  aria-label="Pilih minggu detail"
                 >
                   {!availableWeeks.length && (
                     <option value="">
-                      Tidak tersedia
+                      Tidak ada minggu aktif
                     </option>
                   )}
 
@@ -2170,376 +1756,728 @@ export default function GrafikPerkembanganOJT() {
                 </select>
               </div>
 
-              {activeWeekData ? (
-                <>
-                  <div className="sp-week-period">
-                    <strong>
-                      {weekLabel(activeWeekData.week)}
-                    </strong>
+              <div className="wa-week-strip">
+                {availableWeeks.map((item) => (
+                  <button
+                    type="button"
+                    key={item.week}
+                    className={
+                      "wa-week-chip " +
+                      (selectedWeek === item.week
+                        ? "active"
+                        : "")
+                    }
+                    onClick={() =>
+                      changeWeek(item.week)
+                    }
+                  >
+                    W{String(item.week).padStart(2, "0")}
+                  </button>
+                ))}
+              </div>
 
-                    <span>
-                      {formatDate(activeWeekData.start)}
-                      {" – "}
-                      {formatDate(activeWeekData.end)}
-                    </span>
-                  </div>
+              <div className="wa-selected-period">
+                <strong>{weekLabel(selectedWeek)}</strong>
 
-                  <div className="sp-week-grid">
-                    <MetricCard
-                      label="Nilai Teori"
-                      value={scoreText(
-                        activeWeekData.theory
-                      )}
-                      detail="Post-Test"
-                      icon="📘"
-                      tone="blue"
-                    />
-
-                    <MetricCard
-                      label="Nilai Praktik"
-                      value={scoreText(
-                        activeWeekData.practice
-                      )}
-                      detail="Praktik Mingguan"
-                      icon="⚙️"
-                    />
-
-                    <MetricCard
-                      label="Nilai Samapta"
-                      value={scoreText(
-                        activeWeekData.final
-                      )}
-                      detail="Nilai Akhir"
-                      icon="🏃"
-                      tone="orange"
-                    />
-
-                    <MetricCard
-                      label="Achievement Minggu Ini"
-                      value={percentText(
-                        activeWeekData.progress
-                      )}
-                      detail={
-                        isAdminReview
-                          ? "Belum ada data"
-                          : `${activeWeekData.totalActivities} kegiatan terverifikasi`
-                      }
-                      icon="🎯"
-                    />
-                  </div>
-
-                  <div className="sp-week-actions">
-                    <button
-                      type="button"
-                      className="sp-text-button"
-                      onClick={() =>
-                        setShowSamaptaDetail(
-                          (previous) => !previous
-                        )
-                      }
-                    >
-                      {showSamaptaDetail
-                        ? "Sembunyikan"
-                        : "Lihat"}{" "}
-                      Rincian Samapta
-                      <span>
-                        {showSamaptaDetail
-                          ? "⌃"
-                          : "⌄"}
-                      </span>
-                    </button>
-                  </div>
-
-                  {showSamaptaDetail && (
-                    <div className="sp-detail-box">
-                      <div>
-                        <span>Nilai A</span>
-                        <strong>
-                          {scoreText(
-                            activeWeekData.a
-                          )}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>Nilai B</span>
-                        <strong>
-                          {scoreText(
-                            activeWeekData.b
-                          )}
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>Nilai Akhir</span>
-                        <strong>
-                          {scoreText(
-                            activeWeekData.final
-                          )}
-                        </strong>
-                      </div>
-                    </div>
-                  )}
-
-                  <details className="sp-details">
-                    <summary>
-                      Lihat Realisasi Enam Kompetensi
-                    </summary>
-
-                    <div className="sp-detail-box">
-                      {activeWeekData.details.map(
-                        (item) => (
-                          <div key={item.name}>
-                            <span>
-                              {item.icon} {item.name}
-                            </span>
-
-                            <strong>
-                              {isAdminReview
-                                ? "—"
-                                : `${numberText(
-                                    item.achieved,
-                                    item.name === "Fisik"
-                                      ? 3
-                                      : 0
-                                  )} ${item.unit} · ${percentText(
-                                    item.percent
-                                  )}`}
-                            </strong>
-                          </div>
-                        )
-                      )}
-                    </div>
-                  </details>
-                </>
-              ) : (
-                <div className="sp-empty">
-                  Tidak ada minggu aktif
-                  yang tersedia untuk ditampilkan.
-                </div>
-              )}
+                <span>
+                  {formatDate(selectedPeriod?.start)}
+                  {" – "}
+                  {formatDate(selectedPeriod?.end)}
+                </span>
+              </div>
             </section>
 
-            {/* ===========================
-                REKAP LENGKAP OPSIONAL
-                =========================== */}
+            {/* RINGKASAN MINGGU */}
 
-            <section className="sp-card">
-              <div className="sp-card-header">
-                <SectionHeader
-                  title="Rekap Nilai Mingguan"
-                  subtitle="Data lengkap tetap tersedia tanpa memenuhi halaman utama."
-                  icon="📋"
-                />
+            <section className="wa-metrics">
+              <Metric
+                label="Kegiatan Terverifikasi"
+                value={
+                  isAdminReview
+                    ? "—"
+                    : numberText(verifiedCount)
+                }
+                detail="Achievement"
+              />
+
+              <Metric
+                label="Menunggu Verifikasi"
+                value={
+                  isAdminReview
+                    ? "—"
+                    : numberText(pendingCount)
+                }
+                detail="Perlu diperiksa Mentor"
+                tone="amber"
+              />
+
+              <Metric
+                label="Nilai Teori"
+                value={scoreText(activeWeekData?.theory)}
+                detail="Rata-rata Post-Test"
+                tone="blue"
+              />
+
+              <Metric
+                label="Nilai Praktik"
+                value={scoreText(activeWeekData?.practice)}
+                detail="Rata-rata Praktik"
+              />
+            </section>
+
+            {/* TAB KEGIATAN DAN NILAI */}
+
+            <section className="wa-card">
+              <div className="wa-section-head">
+                <div>
+                  <h2>Kegiatan dan Nilai Mingguan</h2>
+                  <p>
+                    Setiap catatan dapat diperiksa
+                    untuk memastikan hasil input sesuai.
+                  </p>
+                </div>
+              </div>
+
+              <div className="wa-tabs">
+                <button
+                  type="button"
+                  className={
+                    activeTab === "activities" ? "active" : ""
+                  }
+                  onClick={() =>
+                    setActiveTab("activities")
+                  }
+                >
+                  Daftar Kegiatan
+                </button>
 
                 <button
                   type="button"
-                  className="sp-small-btn"
+                  className={
+                    activeTab === "scores" ? "active" : ""
+                  }
                   onClick={() =>
-                    setShowFullRecap(
-                      (previous) => !previous
-                    )
+                    setActiveTab("scores")
                   }
                 >
-                  {showFullRecap
-                    ? "Tutup Rekap"
-                    : "Lihat Rekap Lengkap"}
+                  Rincian Nilai
+                </button>
+
+                <button
+                  type="button"
+                  className={
+                    activeTab === "targets" ? "active" : ""
+                  }
+                  onClick={() =>
+                    setActiveTab("targets")
+                  }
+                >
+                  Target Kompetensi
                 </button>
               </div>
 
-              {!showFullRecap && (
-                <p className="sp-hint">
-                  Buka rekap untuk melihat nilai
-                  Teori, Praktik, Samapta, jumlah
-                  kegiatan, dan Achievement
-                  setiap minggu.
-                </p>
+              {/* DAFTAR KEGIATAN */}
+
+              {activeTab === "activities" && (
+                <div>
+                  <div className="wa-list-head">
+                    <strong>
+                      {isAdminReview
+                        ? "Belum ada data peserta"
+                        : `${filteredAchievements.length} kegiatan tercatat`}
+                    </strong>
+
+                    <span>
+                      {verifiedCount} terverifikasi
+                    </span>
+                  </div>
+
+                  {!filteredAchievements.length ? (
+                    <div className="wa-empty">
+                      Belum ada kegiatan Achievement
+                      tercatat pada minggu ini.
+                    </div>
+                  ) : (
+                    <div className="wa-activity-list">
+                      {filteredAchievements.map((item) => {
+                        const expanded =
+                          selectedActivity === item.id;
+
+                        return (
+                          <div
+                            className="wa-activity"
+                            key={item.id}
+                          >
+                            <button
+                              type="button"
+                              className="wa-activity-trigger"
+                              onClick={() =>
+                                setSelectedActivity(
+                                  expanded ? null : item.id
+                                )
+                              }
+                            >
+                              <div className="wa-activity-left">
+                                <strong>
+                                  {item.category}
+                                </strong>
+
+                                <span>
+                                  {formatDate(
+                                    item.activity_date
+                                  )}
+                                </span>
+
+                                <small>
+                                  {item.description ||
+                                    "Deskripsi kegiatan belum tersedia"}
+                                </small>
+                              </div>
+
+                              <div className="wa-activity-right">
+                                <StatusTag
+                                  status={item.status}
+                                />
+
+                                <span className="wa-chevron">
+                                  {expanded ? "⌃" : "⌄"}
+                                </span>
+                              </div>
+                            </button>
+
+                            {expanded && (
+                              <div className="wa-activity-expanded">
+                                <div className="wa-detail-line">
+                                  <span>Kategori</span>
+                                  <strong>
+                                    {item.category}
+                                  </strong>
+                                </div>
+
+                                <div className="wa-detail-line">
+                                  <span>Tanggal</span>
+                                  <strong>
+                                    {formatDate(
+                                      item.activity_date
+                                    )}
+                                  </strong>
+                                </div>
+
+                                <div className="wa-detail-line">
+                                  <span>Deskripsi</span>
+                                  <strong>
+                                    {item.description ||
+                                      "Belum tersedia"}
+                                  </strong>
+                                </div>
+
+                                <div className="wa-detail-line">
+                                  <span>Realisasi</span>
+                                  <strong>
+                                    {item.category === "Fisik"
+                                      ? `${numberText(
+                                          item.distance_km,
+                                          3
+                                        )} km`
+                                      : "1 kegiatan"}
+                                  </strong>
+                                </div>
+
+                                <div className="wa-detail-line">
+                                  <span>Status</span>
+                                  <StatusTag
+                                    status={item.status}
+                                  />
+                                </div>
+
+                                <button
+                                  type="button"
+                                  className="wa-copy-button"
+                                  onClick={() =>
+                                    copyCorrection(item)
+                                  }
+                                >
+                                  Salin Format Koreksi Kegiatan
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
 
-              {showFullRecap && (
-                <div className="sp-table-scroll">
-                  <table className="sp-table">
-                    <thead>
-                      <tr>
-                        <th>Minggu</th>
-                        <th>Teori</th>
-                        <th>Praktik</th>
-                        <th>Samapta</th>
-                        <th>Kegiatan</th>
-                        <th>Achievement</th>
-                        <th>Aksi</th>
-                      </tr>
-                    </thead>
+              {/* RINCIAN NILAI */}
 
-                    <tbody>
-                      {weeklySummary
-                        .filter(
-                          (item) =>
-                            item.available
+              {activeTab === "scores" && (
+                <div className="wa-score-groups">
+                  <div className="wa-score-group">
+                    <div className="wa-group-heading">
+                      <h3>Post-Test / Teori</h3>
+                      <strong>
+                        Rata-rata:{" "}
+                        {scoreText(
+                          activeWeekData?.theory
+                        )}
+                      </strong>
+                    </div>
+
+                    {!filteredPostTests.length ? (
+                      <p className="wa-no-record">
+                        Belum ada input nilai Teori.
+                      </p>
+                    ) : (
+                      filteredPostTests.map((item, index) => (
+                        <div
+                          className="wa-score-line"
+                          key={item.id || index}
+                        >
+                          <div>
+                            <strong>
+                              Post-Test {index + 1}
+                            </strong>
+                            <small>
+                              {formatDate(item.test_date)}
+                            </small>
+                          </div>
+
+                          <strong>
+                            {scoreText(item.score)}
+                          </strong>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="wa-score-group">
+                    <div className="wa-group-heading">
+                      <h3>Praktik Mingguan</h3>
+                      <strong>
+                        Rata-rata:{" "}
+                        {scoreText(
+                          activeWeekData?.practice
+                        )}
+                      </strong>
+                    </div>
+
+                    {!filteredPractices.length ? (
+                      <p className="wa-no-record">
+                        Belum ada input nilai Praktik.
+                      </p>
+                    ) : (
+                      filteredPractices.map((item, index) => (
+                        <div
+                          className="wa-score-line"
+                          key={item.id || index}
+                        >
+                          <div>
+                            <strong>
+                              Praktik {index + 1}
+                            </strong>
+                            <small>
+                              {formatDate(
+                                item.practice_date
+                              )}
+                            </small>
+                          </div>
+
+                          <strong>
+                            {scoreText(item.score)}
+                          </strong>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="wa-score-group">
+                    <div className="wa-group-heading">
+                      <h3>Samapta</h3>
+                      <strong>
+                        Nilai Akhir:{" "}
+                        {scoreText(
+                          activeWeekData?.final
+                        )}
+                      </strong>
+                    </div>
+
+                    {!filteredSamapta.length ? (
+                      <p className="wa-no-record">
+                        Belum ada catatan Samapta.
+                      </p>
+                    ) : (
+                      filteredSamapta
+                        .slice()
+                        .sort((a, b) =>
+                          String(a.test_date).localeCompare(
+                            String(b.test_date)
+                          )
                         )
-                        .map((item) => (
-                          <tr
-                            key={item.week}
-                            className={
-                              selectedWeek === item.week
-                                ? "selected"
-                                : ""
-                            }
+                        .map((item, index) => (
+                          <div
+                            className="wa-score-line"
+                            key={item.id || index}
                           >
-                            <td>
-                              {weekLabel(item.week)}
-                            </td>
+                            <div>
+                              <strong>
+                                {item.test_type}
+                              </strong>
 
-                            <td>
-                              {scoreText(item.theory)}
-                            </td>
+                              <small>
+                                {formatDate(item.test_date)}
+                                {item.result_value !== null &&
+                                  item.result_value !==
+                                    undefined &&
+                                  item.result_value !== "" &&
+                                  ` · Hasil: ${item.result_value}`}
+                              </small>
+                            </div>
 
-                            <td>
-                              {scoreText(item.practice)}
-                            </td>
+                            <strong>
+                              {scoreText(item.score)}
+                            </strong>
+                          </div>
+                        ))
+                    )}
 
-                            <td>
-                              {scoreText(item.final)}
-                            </td>
+                    <div className="wa-samapta-summary">
+                      <span>
+                        A:{" "}
+                        <strong>
+                          {scoreText(
+                            activeWeekData?.a
+                          )}
+                        </strong>
+                      </span>
 
-                            <td>
-                              {numberText(
-                                item.totalActivities
-                              )}
-                            </td>
+                      <span>
+                        B:{" "}
+                        <strong>
+                          {scoreText(
+                            activeWeekData?.b
+                          )}
+                        </strong>
+                      </span>
 
-                            <td>
-                              {percentText(
-                                item.progress
-                              )}
-                            </td>
+                      <span>
+                        Akhir:{" "}
+                        <strong>
+                          {scoreText(
+                            activeWeekData?.final
+                          )}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
 
-                            <td>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  selectWeek(item.week);
-
-                                  document
-                                    .querySelector(
-                                      ".sp-week-period"
-                                    )
-                                    ?.scrollIntoView({
-                                      behavior: "smooth",
-                                      block: "center",
-                                    });
-                                }}
-                              >
-                                Detail
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
+                  {!isAdminReview && (
+                    <button
+                      type="button"
+                      className="wa-copy-button"
+                      onClick={() =>
+                        copyCorrection()
+                      }
+                    >
+                      Salin Format Koreksi Nilai
+                    </button>
+                  )}
                 </div>
+              )}
+
+              {/* TARGET KOMPETENSI */}
+
+              {activeTab === "targets" && (
+                <>
+                  <div className="wa-list-head">
+                    <strong>
+                      Target vs Realisasi
+                    </strong>
+
+                    <span>
+                      {weekLabel(selectedWeek)}
+                    </span>
+                  </div>
+
+                  <AchievementTable
+                    items={categoryData}
+                    selectedWeek={selectedWeek}
+                    adminReview={isAdminReview}
+                  />
+
+                  <p className="wa-hint">
+                    Target ditampilkan per minggu.
+                    Kegiatan hanya dihitung apabila
+                    sudah terverifikasi.
+                  </p>
+                </>
               )}
             </section>
 
-            {/* ===========================
-                INFORMASI PERHITUNGAN
-                =========================== */}
+            {/* TREN NILAI */}
 
-            <section className="sp-card">
+            <section className="wa-card">
+              <div className="wa-section-head">
+                <div>
+                  <h2>Tren Perkembangan Nilai</h2>
+                  <p>
+                    Satu grafik untuk Teori,
+                    Praktik, dan Samapta.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="wa-small-button"
+                  onClick={() =>
+                    setShowTrend((previous) => !previous)
+                  }
+                >
+                  {showTrend ? "Sembunyikan" : "Tampilkan"}
+                </button>
+              </div>
+
+              {showTrend && (
+                <>
+                  <div className="wa-trend-summary">
+                    <span>
+                      Teori terakhir:
+                      <strong>
+                        {scoreText(latestTheory)}
+                      </strong>
+                    </span>
+
+                    <span>
+                      Praktik terakhir:
+                      <strong>
+                        {scoreText(latestPractice)}
+                      </strong>
+                    </span>
+
+                    <span>
+                      Samapta terakhir:
+                      <strong>
+                        {scoreText(latestSamapta)}
+                      </strong>
+                    </span>
+                  </div>
+
+                  <ScoreChart
+                    data={weeklyScores}
+                    selectedWeek={selectedWeek}
+                    onSelectWeek={changeWeek}
+                  />
+                </>
+              )}
+            </section>
+
+            {/* REKAP NILAI MINGGUAN */}
+
+            <section className="wa-card">
+              <div className="wa-section-head">
+                <div>
+                  <h2>Rekap Nilai Mingguan</h2>
+                  <p>
+                    Buka minggu untuk melihat
+                    daftar kegiatan dan semua nilai.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  className="wa-small-button"
+                  onClick={() =>
+                    setShowAllWeeks((previous) => !previous)
+                  }
+                >
+                  {showAllWeeks
+                    ? "Tampilkan Minggu Ini"
+                    : "Lihat Semua Minggu"}
+                </button>
+              </div>
+
+              <div className="wa-table-wrap">
+                <table className="wa-table">
+                  <thead>
+                    <tr>
+                      <th>Minggu</th>
+                      <th>Teori</th>
+                      <th>Praktik</th>
+                      <th>Samapta</th>
+                      <th>Kegiatan</th>
+                      <th>Achievement</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {weeklySummary
+                      .filter(
+                        (item) =>
+                          item.available &&
+                          (
+                            showAllWeeks ||
+                            item.week === selectedWeek
+                          )
+                      )
+                      .map((item) => (
+                        <tr
+                          key={item.week}
+                          className={
+                            item.week === selectedWeek
+                              ? "selected"
+                              : ""
+                          }
+                        >
+                          <td>{weekLabel(item.week)}</td>
+                          <td>{scoreText(item.theory)}</td>
+                          <td>{scoreText(item.practice)}</td>
+                          <td>{scoreText(item.final)}</td>
+                          <td>
+                            {numberText(
+                              item.totalActivities
+                            )}
+                          </td>
+                          <td>
+                            {percentText(item.progress)}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                changeWeek(item.week);
+                                setActiveTab("activities");
+
+                                document
+                                  .querySelector(
+                                    ".wa-tabs"
+                                  )
+                                  ?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "center",
+                                  });
+                              }}
+                            >
+                              Detail
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {/* PEMERIKSAAN DATA */}
+
+            <section className="wa-correction">
+              <div>
+                <h2>Ada Data yang Tidak Sesuai?</h2>
+
+                <p>
+                  Jika kegiatan atau nilai belum tercatat,
+                  salah input, atau belum diverifikasi,
+                  peserta dapat menyampaikan koreksi
+                  kepada Mentor melalui grup koordinasi
+                  yang sudah tersedia.
+                </p>
+
+                <small>
+                  Peserta hanya memeriksa data.
+                  Perubahan nilai tetap dilakukan oleh
+                  pihak yang berwenang.
+                </small>
+              </div>
+
+              {!isAdminReview && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyCorrection()
+                  }
+                >
+                  Salin Format Koreksi
+                </button>
+              )}
+            </section>
+
+            {/* INFORMASI PERHITUNGAN */}
+
+            <section className="wa-card wa-calculation">
               <button
                 type="button"
-                className="sp-info-toggle"
                 onClick={() =>
-                  setShowCalculationInfo(
+                  setShowCalculation(
                     (previous) => !previous
                   )
                 }
               >
+                <span>ⓘ Informasi Perhitungan</span>
                 <span>
-                  ⓘ Informasi Perhitungan
-                </span>
-
-                <span>
-                  {showCalculationInfo
-                    ? "Tutup −"
-                    : "Buka +"}
+                  {showCalculation ? "−" : "+"}
                 </span>
               </button>
 
-              {showCalculationInfo && (
-                <div className="sp-info-content">
+              {showCalculation && (
+                <div className="wa-calculation-content">
                   <p>
-                    Seluruh nomor minggu mengikuti
-                    kalender global Week 01–25.
-                    Week 01 dimulai 12 September 2026
-                    dan Week 25 berakhir
-                    6 Maret 2027.
+                    Kalender global Week 01–25 berlaku
+                    untuk semua peserta. Week 01 adalah
+                    12–18 September 2026 dan Week 25
+                    berakhir pada 6 Maret 2027.
                   </p>
 
                   <p>
-                    Minggu di luar periode OJT
-                    peserta tidak dimasukkan
-                    dalam perhitungan Achievement.
-                    Minggu aktif tanpa kegiatan
-                    dihitung 0%.
+                    Tanggal di luar periode OJT peserta
+                    tidak ikut dihitung. Minggu aktif
+                    tanpa kegiatan bernilai 0%
+                    untuk Achievement.
                   </p>
 
                   <p>
-                    Fisik dihitung berdasarkan
-                    kilometer, sedangkan lima
-                    kategori lain berdasarkan
-                    jumlah kegiatan terverifikasi.
-                    Persentase tiap kategori
-                    dibatasi maksimal 100%
-                    per minggu.
+                    Achievement Fisik dihitung dari
+                    kilometer, sedangkan lima kategori
+                    lain dihitung dari jumlah kegiatan
+                    terverifikasi. Persentase mingguan
+                    dibatasi maksimal 100%.
                   </p>
 
                   <p>
-                    Samapta dihitung dari Nilai A,
-                    rata-rata empat komponen Nilai B,
-                    kemudian rata-rata Nilai A dan B.
-                    Hanya tes lengkap yang dihitung.
-                  </p>
-
-                  <p>
-                    Grafik digunakan untuk monitoring
-                    perkembangan OJT dan bukan
-                    keputusan kelulusan akhir.
+                    Nilai Samapta Akhir dihitung dari
+                    rata-rata Nilai A dan Nilai B.
+                    Nilai B merupakan rata-rata
+                    Pull-Up, Push-Up, Sit-Up, dan
+                    Shuttle Run.
                   </p>
                 </div>
               )}
             </section>
 
-            {/* ===========================
-                TOMBOL AKSI
-                =========================== */}
-
-            <div className="sp-actions">
+            <div className="wa-actions">
               <button
                 type="button"
-                className="sp-btn secondary"
+                className="wa-refresh"
                 disabled={refreshing}
                 onClick={refresh}
               >
                 {refreshing
                   ? "Memperbarui..."
-                  : "↻ Refresh Data"}
+                  : "↻ Perbarui Data"}
               </button>
 
               <button
                 type="button"
-                className="sp-btn"
-                onClick={printPage}
+                className="wa-print"
+                onClick={() => window.print()}
               >
-                ↓ Cetak / Simpan Grafik
+                Cetak / Simpan
               </button>
             </div>
           </>
         )}
 
-        <footer className="sp-footer">
-          OJT MineTrack v2.0 ·
-          Emergency Response Group ·
+        <footer className="wa-footer">
+          OJT MineTrack v2.0 · Emergency Response Group ·
           PT Berau Coal
         </footer>
       </div>
@@ -2547,648 +2485,697 @@ export default function GrafikPerkembanganOJT() {
   );
 }
 
-// =====================================================
-// CSS - DESIGN A
-// CORPORATE NAVY & EMERALD
-// =====================================================
+// ======================================================
+// CSS
+// ======================================================
 
 const css = `
-.sp-root,
-.sp-root * {
+.wa-root,
+.wa-root * {
   box-sizing: border-box;
 }
 
-.sp-root {
+.wa-root {
   min-height: 100vh;
   background: #edf4f9;
   color: #173755;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: Inter, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-.sp-root button,
-.sp-root select {
+.wa-root button,
+.wa-root select {
   font: inherit;
 }
 
-.sp-root button {
+.wa-root button {
   cursor: pointer;
 }
 
-.sp-root button:disabled {
-  opacity: .5;
+.wa-root button:disabled {
+  opacity: .55;
   cursor: not-allowed;
 }
 
-.sp-root button:focus-visible,
-.sp-root select:focus-visible,
-.sp-root summary:focus-visible {
-  outline: 3px solid #48dcc0;
-  outline-offset: 3px;
+.wa-root button:focus-visible,
+.wa-root select:focus-visible {
+  outline: 3px solid #49d9bb;
+  outline-offset: 2px;
 }
 
-.sp-topbar {
+.wa-topbar {
+  min-height: 73px;
   background: #081f38;
-  color: white;
-  padding: 14px 22px;
+  padding: 13px 22px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  color: white;
 }
 
-.sp-brand {
+.wa-brand {
   display: flex;
   align-items: center;
   gap: 11px;
-  min-width: 0;
 }
 
-.sp-logo {
-  width: 42px;
-  height: 42px;
-  background: #0b665b;
-  color: #75ebd1;
-  border: 1px solid #249d8c;
-  border-radius: 11px;
+.wa-brand-icon {
+  width: 43px;
+  height: 43px;
+  border-radius: 12px;
+  background: #0d675c;
+  border: 1px solid #239f8e;
   display: grid;
   place-items: center;
+  color: #7af0d4;
   font-size: 24px;
-  font-weight: 900;
-  flex-shrink: 0;
 }
 
-.sp-brand strong {
+.wa-brand strong {
   display: block;
+  font-weight: 900;
   font-size: 20px;
-  font-weight: 900;
 }
 
-.sp-brand em {
-  color: #48e0bf;
+.wa-brand em {
   font-style: normal;
+  color: #48e0bf;
 }
 
-.sp-brand strong small {
+.wa-brand strong small {
   display: inline-block;
-  font-size: 9px;
-  color: #071f38;
   background: #48e0bf;
-  border-radius: 5px;
-  margin-left: 7px;
+  color: #081f38;
   padding: 3px 5px;
-  vertical-align: middle;
+  margin-left: 7px;
+  border-radius: 5px;
+  font-size: 9px;
 }
 
-.sp-brand > div > span {
+.wa-brand > div > span {
   display: block;
-  margin-top: 4px;
+  color: #bfd4e3;
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 1px;
-  color: #bfd5e1;
+  margin-top: 4px;
 }
 
-.sp-back {
-  background: #ffffff13;
+.wa-top-back {
   border: 1px solid #ffffff38;
+  background: #ffffff12;
   border-radius: 9px;
+  padding: 10px 13px;
   color: white;
-  padding: 10px 15px;
   font-size: 12px;
   font-weight: 800;
 }
 
-.sp-container {
-  max-width: 1150px;
-  margin: 0 auto;
+.wa-container {
+  max-width: 1180px;
+  margin: auto;
   padding: 20px;
 }
 
-.sp-hero {
-  border-radius: 16px;
-  padding: 25px 28px;
-  margin-bottom: 15px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  color: white;
+.wa-hero {
   background:
-    linear-gradient(
-      100deg,
+    linear-gradient(110deg,
       rgba(5,25,46,.97),
-      rgba(7,48,72,.86)
-    ),
+      rgba(7,49,72,.86)),
     url("/background-erg.png.PNG");
   background-size: cover;
   background-position: center;
+  border-radius: 16px;
+  color: white;
+  padding: 27px;
+  margin-bottom: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
 }
 
-.sp-hero > div:first-child > small {
+.wa-hero > div:first-child > small {
   display: block;
   color: #efbd65;
-  font-size: 10px;
-  letter-spacing: 1.1px;
   font-weight: 900;
+  font-size: 10px;
+  letter-spacing: 1px;
 }
 
-.sp-hero h1 {
+.wa-hero h1 {
   margin: 12px 0 8px;
-  font-size: 30px;
-  line-height: 1.2;
+  font-size: 31px;
 }
 
-.sp-hero h1 span {
+.wa-hero h1 span {
   color: #48e0bf;
 }
 
-.sp-hero p {
+.wa-hero p {
   margin: 0;
-  color: #d5e6f0;
+  color: #d9e7f0;
   font-size: 12px;
   line-height: 1.7;
 }
 
-.sp-person {
+.wa-person {
   display: flex;
   align-items: center;
   gap: 11px;
-  min-width: 0;
 }
 
-.sp-person > div:nth-child(2) {
-  min-width: 0;
-}
-
-.sp-avatar {
-  width: 47px;
-  height: 47px;
-  border-radius: 12px;
-  background: #d9f9ed;
-  color: #087d67;
+.wa-avatar {
+  flex-shrink: 0;
+  width: 49px;
+  height: 49px;
+  background: #dff9ed;
+  color: #087c65;
+  border-radius: 13px;
   display: grid;
   place-items: center;
   font-weight: 900;
-  font-size: 16px;
-  flex-shrink: 0;
 }
 
-.sp-person strong {
+.wa-person strong {
   display: block;
-  overflow-wrap: anywhere;
   font-size: 13px;
 }
 
-.sp-person small {
+.wa-person small {
   display: block;
-  margin-top: 5px;
-  color: #d6e7ef;
-  line-height: 1.7;
+  color: #d8e8ee;
   font-size: 10px;
+  margin-top: 5px;
+  line-height: 1.5;
 }
 
-.sp-status {
-  background: #dcf8eb;
-  color: #087b61;
-  border-radius: 18px;
-  padding: 7px 9px;
+.wa-program-tag {
+  padding: 7px 10px;
+  border-radius: 20px;
   font-size: 10px;
   font-weight: 900;
-  white-space: nowrap;
+  background: #d6f6e5;
+  color: #087d60;
 }
 
-.sp-card {
-  min-width: 0;
+.wa-card {
+  padding: 20px;
   background: white;
   border: 1px solid #dce7ef;
   border-radius: 15px;
-  padding: 20px;
   margin-bottom: 15px;
-  box-shadow: 0 5px 18px #102f4610;
-}
-
-.sp-card h2 {
-  color: #123d71;
-  margin: 0 0 8px;
-  font-size: 17px;
-}
-
-.sp-review {
-  padding: 15px;
-  margin-bottom: 15px;
-  background: #e4f5ee;
-  border: 1px solid #b3dfca;
-  border-radius: 11px;
-  color: #14664d;
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.sp-review p {
-  margin: 5px 0 0;
-}
-
-.sp-metrics {
-  display: grid;
-  grid-template-columns: repeat(3,minmax(0,1fr));
-  gap: 12px;
-  margin-bottom: 15px;
-}
-
-.sp-metric {
-  display: flex;
-  gap: 12px;
-  align-items: center;
   min-width: 0;
-  background: white;
-  border: 1px solid #dce7ef;
-  border-radius: 13px;
-  padding: 18px;
-  box-shadow: 0 4px 15px #102f4609;
+  box-shadow: 0 4px 16px #123b500a;
 }
 
-.sp-metric-icon {
-  width: 45px;
-  height: 45px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  background: #e5f7ef;
-  border-radius: 12px;
-  font-size: 23px;
-}
-
-.sp-blue .sp-metric-icon {
-  background: #e7f0ff;
-}
-
-.sp-orange .sp-metric-icon {
-  background: #fff2dc;
-}
-
-.sp-metric > div:last-child {
-  min-width: 0;
-}
-
-.sp-metric span {
-  display: block;
-  color: #617f97;
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.sp-metric strong {
-  display: block;
-  color: #123d71;
-  font-size: 25px;
-  font-weight: 900;
-  margin: 6px 0;
-  overflow-wrap: anywhere;
-}
-
-.sp-metric small {
-  display: block;
-  color: #8096a8;
-  font-size: 10px;
-  line-height: 1.5;
-}
-
-.sp-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 15px;
-  margin-bottom: 18px;
-}
-
-.sp-section-heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.sp-section-icon {
-  width: 43px;
-  height: 43px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  color: white;
-  background: linear-gradient(
-    135deg,
-    #15518b,
-    #1b9fc5
-  );
-  font-size: 21px;
-}
-
-.sp-section-heading h2 {
-  margin: 0;
+.wa-card h2 {
+  margin: 0 0 7px;
   color: #123d71;
   font-size: 18px;
 }
 
-.sp-section-heading p {
-  color: #71899e;
-  font-size: 11px;
-  margin: 5px 0 0;
-  line-height: 1.6;
+.wa-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 13px;
+  margin-bottom: 16px;
 }
 
-.sp-select {
-  min-width: 140px;
+.wa-section-head p {
+  margin: 0;
+  color: #728b9f;
+  line-height: 1.6;
+  font-size: 11px;
+}
+
+.wa-select {
+  min-width: 130px;
   max-width: 100%;
-  color: #16446e;
+  padding: 10px;
   background: white;
-  border: 1px solid #cadde9;
+  border: 1px solid #ccdeea;
+  border-radius: 9px;
+  color: #17466e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.wa-week-strip {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 3px 2px 10px;
+  scrollbar-width: thin;
+}
+
+.wa-week-chip {
+  flex: 0 0 auto;
+  min-width: 53px;
+  padding: 11px 9px;
+  background: #f4f8fb;
+  border: 1px solid #dce7ef;
   border-radius: 10px;
-  padding: 10px 12px;
+  color: #4c6a81;
   font-size: 11px;
   font-weight: 800;
 }
 
-.sp-chart-wrap {
-  width: 100%;
+.wa-week-chip.active {
+  background: #087d67;
+  color: white;
+  border-color: #087d67;
 }
 
-.sp-legend {
+.wa-selected-period {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 15px;
-  align-items: center;
+  gap: 9px;
+  background: #ecf8f3;
+  border-radius: 10px;
+  color: #126d58;
+  padding: 12px 14px;
+  font-size: 12px;
 }
 
-.sp-legend span,
-.sp-chart-detail-values span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.wa-selected-period strong {
+  font-size: 16px;
+}
+
+.wa-metrics {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.wa-metric {
+  background: white;
+  border: 1px solid #dce7ef;
+  border-radius: 13px;
+  padding: 17px;
+  min-width: 0;
+}
+
+.wa-metric span {
+  display: block;
   font-size: 11px;
-  color: #688299;
+  color: #6a849a;
 }
 
-.sp-legend i,
-.sp-chart-detail-values i {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  display: inline-block;
+.wa-metric strong {
+  display: block;
+  font-size: 27px;
+  color: #087d67;
+  margin: 8px 0 5px;
+  overflow-wrap: anywhere;
+}
+
+.wa-metric small {
+  display: block;
+  font-size: 10px;
+  color: #8a9bab;
+}
+
+.wa-metric.blue strong {
+  color: #2670d6;
+}
+
+.wa-metric.amber strong {
+  color: #bb852b;
+}
+
+.wa-tabs {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 8px;
+  margin-bottom: 17px;
+}
+
+.wa-tabs button {
+  padding: 12px 8px;
+  background: #f3f8fb;
+  border: 1px solid #dce7ef;
+  color: #56738c;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.wa-tabs button.active {
+  background: #0b7966;
+  color: white;
+  border-color: #0b7966;
+}
+
+.wa-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.wa-list-head strong {
+  font-size: 13px;
+}
+
+.wa-list-head span {
+  color: #718b9e;
+  font-size: 11px;
+}
+
+.wa-activity-list {
+  display: grid;
+  gap: 9px;
+}
+
+.wa-activity {
+  border: 1px solid #dce7ef;
+  border-radius: 11px;
+  overflow: hidden;
+}
+
+.wa-activity-trigger {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: white;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  padding: 13px;
+  color: #173755;
+}
+
+.wa-activity-left {
+  min-width: 0;
+}
+
+.wa-activity-left strong,
+.wa-activity-left span,
+.wa-activity-left small {
+  display: block;
+}
+
+.wa-activity-left strong {
+  font-size: 13px;
+}
+
+.wa-activity-left span {
+  color: #7a8f9f;
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.wa-activity-left small {
+  color: #627f94;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.wa-activity-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
 }
 
-.sp-chart {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin-top: 13px;
-  overflow: visible;
+.wa-chevron {
+  font-size: 19px;
+  color: #608097;
 }
 
-.sp-chart-detail {
-  background: #f1f8f6;
-  padding: 12px;
-  border: 1px solid #d5eae4;
-  border-radius: 10px;
-  color: #164f47;
-  font-size: 12px;
-}
-
-.sp-chart-detail-values {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.sp-empty {
-  background: #f7fafc;
-  border: 1px dashed #ccdce5;
-  border-radius: 10px;
-  text-align: center;
-  padding: 17px;
-  font-size: 12px;
-  color: #7b91a3;
-  margin-top: 12px;
-}
-
-.sp-hint {
-  font-size: 11px;
-  color: #758c9d;
-  line-height: 1.7;
-  margin: 10px 0 0;
-}
-
-.sp-filter-note {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: space-between;
-  border-top: 1px solid #e7eef2;
-  padding-top: 12px;
-  margin-top: 10px;
-  font-size: 10px;
-  color: #7590a3;
-}
-
-.sp-overall-pill {
-  display: inline-block;
+.wa-status {
+  display: inline-flex;
   border-radius: 20px;
-  background: #dff7ec;
-  color: #087e62;
-  font-size: 13px;
-  font-weight: 900;
-  padding: 10px 14px;
+  padding: 6px 9px;
+  font-size: 10px;
+  font-weight: 800;
   white-space: nowrap;
 }
 
-.sp-competency-list {
-  display: grid;
-  gap: 17px;
+.wa-status.verified {
+  background: #ddf6e8;
+  color: #087d63;
 }
 
-.sp-competency-item {
+.wa-status.pending {
+  background: #fff2dc;
+  color: #a97922;
+}
+
+.wa-status.neutral {
+  background: #edf1f4;
+  color: #5f7483;
+}
+
+.wa-activity-expanded {
+  padding: 14px;
+  background: #f8fbfd;
+  border-top: 1px solid #e2ecf1;
+}
+
+.wa-detail-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e6eef3;
+  font-size: 12px;
+}
+
+.wa-detail-line span:first-child {
+  color: #6b859b;
+}
+
+.wa-detail-line > strong {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.wa-copy-button {
+  width: 100%;
+  border: 1px solid #087d67;
+  background: #087d67;
+  color: white;
+  padding: 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 14px;
+}
+
+.wa-score-groups {
+  display: grid;
+  gap: 15px;
+}
+
+.wa-score-group {
+  border: 1px solid #e0e9ef;
+  border-radius: 12px;
+  padding: 15px;
+}
+
+.wa-group-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #edf1f4;
+}
+
+.wa-group-heading h3 {
+  margin: 0;
+  color: #153e67;
+  font-size: 14px;
+}
+
+.wa-group-heading strong {
+  color: #087b64;
+  font-size: 12px;
+}
+
+.wa-score-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #edf1f4;
+}
+
+.wa-score-line:last-child {
+  border-bottom: none;
+}
+
+.wa-score-line strong {
+  font-size: 12px;
+}
+
+.wa-score-line small {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #8295a5;
+}
+
+.wa-score-line > strong {
+  font-size: 16px;
+  color: #087c65;
+}
+
+.wa-no-record {
+  font-size: 12px;
+  color: #8296a5;
+}
+
+.wa-samapta-summary {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #eff8f5;
+  border-radius: 9px;
+  padding: 12px;
+  font-size: 11px;
+  color: #426e62;
+}
+
+.wa-target-table {
+  display: grid;
+  gap: 17px;
+  margin-top: 16px;
+}
+
+.wa-target-item {
   display: grid;
   gap: 8px;
 }
 
-.sp-competency-top,
-.sp-competency-bottom {
+.wa-target-top,
+.wa-target-footer {
   display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.sp-competency-top {
-  font-size: 13px;
-  color: #173755;
+.wa-target-top {
+  font-size: 12px;
 }
 
-.sp-percentage {
-  color: #087d67;
+.wa-target-top span {
+  color: #638097;
 }
 
-.sp-progress-track {
-  width: 100%;
-  height: 11px;
-  overflow: hidden;
-  background: #e5edf0;
+.wa-track {
+  height: 10px;
+  background: #e6eef1;
   border-radius: 20px;
+  overflow: hidden;
 }
 
-.sp-progress-fill {
+.wa-track > div {
   height: 100%;
+  border-radius: 20px;
   background: linear-gradient(
     90deg,
-    #07856a,
-    #3ac8a5
+    #0b9479,
+    #4bc9a9
   );
-  border-radius: 20px;
 }
 
-.sp-competency-bottom {
-  color: #8497a6;
+.wa-target-footer {
   font-size: 10px;
-  line-height: 1.5;
+  color: #71899a;
 }
 
-.sp-competency-footer {
-  margin-top: 20px;
-  border-top: 1px solid #e6eef2;
-  padding-top: 16px;
-  display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 12px;
+.wa-trend-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.sp-competency-footer > div {
-  padding: 14px;
-  background: #f2f8f8;
-  border-radius: 10px;
-}
-
-.sp-competency-footer small {
+.wa-trend-summary > span {
+  flex: 1 1 130px;
   display: block;
-  color: #778d9e;
+  background: #f1f7fa;
+  border-radius: 9px;
+  padding: 11px;
+  color: #6f8699;
   font-size: 11px;
 }
 
-.sp-competency-footer strong {
+.wa-trend-summary strong {
   display: block;
-  color: #087d67;
-  font-size: 21px;
-  margin-top: 6px;
-}
-
-.sp-week-period {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  background: #e8f7f1;
-  color: #0f755b;
-  border-radius: 10px;
-  padding: 13px;
-  margin-bottom: 15px;
-  font-size: 12px;
-}
-
-.sp-week-period strong {
-  font-size: 16px;
-}
-
-.sp-week-grid {
-  display: grid;
-  grid-template-columns: repeat(4,minmax(0,1fr));
-  gap: 10px;
-}
-
-.sp-week-grid .sp-metric {
-  padding: 12px;
-}
-
-.sp-week-grid .sp-metric-icon {
-  width: 33px;
-  height: 33px;
   font-size: 17px;
+  color: #184c7d;
+  margin-top: 5px;
 }
 
-.sp-week-grid .sp-metric strong {
-  font-size: 20px;
+.wa-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-top: 12px;
 }
 
-.sp-week-actions {
-  margin-top: 15px;
-}
-
-.sp-text-button {
-  border: 0;
-  background: transparent;
-  color: #087d67;
-  padding: 9px 0;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.sp-text-button span {
-  margin-left: 8px;
-}
-
-.sp-detail-box {
-  display: grid;
-  gap: 0;
-  margin: 10px 0;
-  border: 1px solid #e4edf1;
-  border-radius: 10px;
-  padding: 5px 13px;
-}
-
-.sp-detail-box > div {
+.wa-legend {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px 0;
-  border-bottom: 1px solid #eaf0f4;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 17px;
+}
+
+.wa-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #658199;
+  font-size: 11px;
+}
+
+.wa-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: block;
+}
+
+.wa-hint {
+  color: #8397a8;
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 13px 0 0;
+}
+
+.wa-empty {
+  text-align: center;
+  border: 1px dashed #d2e0e8;
+  padding: 17px;
+  color: #8095a5;
+  background: #f9fbfc;
+  border-radius: 11px;
   font-size: 12px;
+  line-height: 1.7;
+  margin-top: 12px;
 }
 
-.sp-detail-box > div:last-child {
-  border-bottom: 0;
-}
-
-.sp-detail-box span {
-  color: #658296;
-}
-
-.sp-detail-box strong {
-  color: #087d67;
-  text-align: right;
-}
-
-.sp-details {
-  margin-top: 13px;
-  border-top: 1px solid #e9eff3;
-  padding-top: 14px;
-}
-
-.sp-details summary {
-  color: #0a7c65;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.sp-small-btn {
-  border: 1px solid #c3dfd5;
-  background: #e7f8f0;
-  color: #087d67;
+.wa-small-button {
+  border: 1px solid #c5e5dc;
+  background: #e7f7f0;
+  color: #08775e;
   border-radius: 9px;
   padding: 10px 12px;
   font-size: 11px;
@@ -3196,310 +3183,283 @@ const css = `
   white-space: nowrap;
 }
 
-.sp-table-scroll {
-  width: 100%;
+.wa-table-wrap {
   overflow-x: auto;
 }
 
-.sp-table {
+.wa-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
 }
 
-.sp-table th {
-  background: #f2f8fa;
-  color: #668398;
+.wa-table th {
+  background: #f0f6f9;
+  color: #667f92;
   text-align: left;
-  white-space: nowrap;
   padding: 12px;
+  white-space: nowrap;
 }
 
-.sp-table td {
-  color: #37566d;
+.wa-table td {
   border-bottom: 1px solid #e9eff3;
-  white-space: nowrap;
   padding: 12px;
+  color: #375568;
+  white-space: nowrap;
 }
 
-.sp-table tr.selected td {
-  background: #e9f8f0;
+.wa-table tr.selected td {
+  background: #eaf8f2;
 }
 
-.sp-table button {
+.wa-table button {
   border: 0;
-  background: #e0f5ea;
-  color: #087b60;
-  border-radius: 7px;
-  padding: 7px 10px;
+  background: #e0f5e9;
+  color: #087a5c;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-weight: 800;
   font-size: 11px;
-  font-weight: 800;
 }
 
-.sp-info-toggle {
-  background: transparent;
-  border: 0;
-  color: #16456c;
-  width: 100%;
-  padding: 4px 0;
+.wa-correction {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  font-weight: 800;
-  font-size: 13px;
-  text-align: left;
+  align-items: center;
+  gap: 20px;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 15px;
+  background: #e0f3eb;
+  border: 1px solid #b9e5d5;
 }
 
-.sp-info-content {
-  margin-top: 14px;
-  background: #f2f8f5;
-  border-radius: 10px;
-  padding: 15px;
-  color: #53736b;
+.wa-correction h2 {
+  font-size: 17px;
+  margin: 0 0 8px;
+  color: #0b6855;
+}
+
+.wa-correction p {
+  color: #376b5c;
   font-size: 12px;
-  line-height: 1.8;
+  line-height: 1.7;
+  margin: 0 0 9px;
 }
 
-.sp-info-content p {
-  margin: 0 0 10px;
-}
-
-.sp-info-content p:last-child {
-  margin-bottom: 0;
-}
-
-.sp-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin: 16px 0;
-  flex-wrap: wrap;
-}
-
-.sp-btn {
-  border: 1px solid #087d67;
-  background: #087d67;
-  color: white;
-  padding: 12px 17px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.sp-btn.secondary {
-  background: white;
-  color: #0d6d5a;
-  border-color: #c4ded6;
-}
-
-.sp-error {
-  margin: 15px 0;
-  background: #fff0f1;
-  border: 1px solid #f4cbd0;
-  color: #b42336;
-  padding: 13px;
-  border-radius: 10px;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.sp-footer {
-  border-top: 1px solid #dce7ef;
-  color: #8798a7;
-  text-align: center;
-  padding: 20px 0;
+.wa-correction small {
+  color: #638c7c;
   font-size: 10px;
 }
 
-/* TABLET */
+.wa-correction button {
+  flex-shrink: 0;
+  padding: 12px 15px;
+  border-radius: 10px;
+  background: #087d67;
+  color: white;
+  border: 0;
+  font-size: 12px;
+  font-weight: 800;
+}
 
-@media (max-width: 950px) {
-  .sp-hero {
+.wa-calculation > button {
+  width: 100%;
+  padding: 4px 0;
+  background: transparent;
+  color: #184c72;
+  border: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.wa-calculation-content {
+  margin-top: 14px;
+  border-radius: 10px;
+  background: #f1f8f5;
+  color: #55776d;
+  font-size: 12px;
+  padding: 14px;
+  line-height: 1.8;
+}
+
+.wa-calculation-content p {
+  margin: 0 0 11px;
+}
+
+.wa-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.wa-actions button {
+  border: 1px solid #c6ded7;
+  border-radius: 10px;
+  background: white;
+  color: #0b745c;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.wa-actions .wa-refresh {
+  background: #087d67;
+  border-color: #087d67;
+  color: white;
+}
+
+.wa-review {
+  margin-bottom: 15px;
+  padding: 15px;
+  border-radius: 11px;
+  background: #e7f7ee;
+  border: 1px solid #bde2cb;
+  color: #17694f;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.wa-review p {
+  margin: 6px 0 0;
+}
+
+.wa-error {
+  padding: 13px;
+  background: #fff0f1;
+  color: #b42336;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+.wa-footer {
+  text-align: center;
+  border-top: 1px solid #dce7ef;
+  padding: 20px 5px;
+  color: #879aab;
+  font-size: 10px;
+}
+
+@media (max-width: 900px) {
+  .wa-hero {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .sp-metrics {
-    grid-template-columns:
-      repeat(3,minmax(0,1fr));
-  }
-
-  .sp-week-grid {
+  .wa-metrics {
     grid-template-columns:
       repeat(2,minmax(0,1fr));
   }
 
-  .sp-metric {
-    padding: 13px;
-    gap: 9px;
-  }
-
-  .sp-metric strong {
-    font-size: 21px;
+  .wa-correction {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
-/* MOBILE */
-
-@media (max-width: 650px) {
-  .sp-topbar {
+@media (max-width: 600px) {
+  .wa-topbar {
     padding: 12px;
   }
 
-  .sp-brand strong {
+  .wa-brand-icon {
+    width: 35px;
+    height: 35px;
+  }
+
+  .wa-brand strong {
     font-size: 17px;
   }
 
-  .sp-brand > div > span {
+  .wa-brand > div > span {
     font-size: 6px;
-    letter-spacing: .5px;
+    letter-spacing: .4px;
   }
 
-  .sp-logo {
-    width: 36px;
-    height: 36px;
-    font-size: 20px;
-  }
-
-  .sp-back {
+  .wa-top-back {
     padding: 9px;
     font-size: 10px;
   }
 
-  .sp-container {
+  .wa-container {
     padding: 11px;
   }
 
-  .sp-hero {
-    padding: 20px 16px;
+  .wa-hero {
+    padding: 20px 17px;
     border-radius: 13px;
   }
 
-  .sp-hero h1 {
+  .wa-hero h1 {
     font-size: 25px;
   }
 
-  .sp-person {
+  .wa-person {
     flex-wrap: wrap;
-    background: #ffffff10;
-    border-radius: 11px;
-    padding: 10px;
   }
 
-  .sp-card {
-    padding: 15px;
+  .wa-card {
+    padding: 14px;
     margin-bottom: 12px;
-    border-radius: 13px;
+    border-radius: 12px;
   }
 
-  .sp-metrics {
-    grid-template-columns:
-      repeat(3,minmax(0,1fr));
-    gap: 7px;
-  }
-
-  .sp-metrics .sp-metric {
-    display: block;
-    min-width: 0;
-    padding: 11px 8px;
-    text-align: center;
-  }
-
-  .sp-metrics .sp-metric-icon {
-    width: 34px;
-    height: 34px;
-    margin: 0 auto 7px;
-    font-size: 18px;
-  }
-
-  .sp-metrics .sp-metric span {
-    font-size: 10px;
-    min-height: 29px;
-  }
-
-  .sp-metrics .sp-metric strong {
-    font-size: 17px;
-    margin: 6px 0;
-  }
-
-  .sp-metrics .sp-metric small {
-    font-size: 9px;
-  }
-
-  .sp-card-header {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-
-  .sp-section-icon {
-    width: 38px;
-    height: 38px;
-    font-size: 18px;
-  }
-
-  .sp-section-heading h2 {
+  .wa-card h2 {
     font-size: 16px;
   }
 
-  .sp-select {
+  .wa-section-head {
+    flex-wrap: wrap;
+  }
+
+  .wa-select {
     width: 100%;
   }
 
-  .sp-chart {
-    margin-top: 12px;
-  }
-
-  .sp-legend {
-    gap: 9px;
-  }
-
-  .sp-legend span {
-    font-size: 10px;
-  }
-
-  .sp-competency-bottom {
-    font-size: 9px;
-  }
-
-  .sp-competency-top {
-    font-size: 12px;
-  }
-
-  .sp-week-grid {
-    grid-template-columns:
-      repeat(2,minmax(0,1fr));
-  }
-
-  .sp-week-grid .sp-metric {
-    padding: 11px;
-  }
-
-  .sp-week-grid .sp-metric strong {
-    font-size: 19px;
-  }
-
-  .sp-week-grid .sp-metric span {
-    font-size: 10px;
-  }
-
-  .sp-competency-footer strong {
-    font-size: 19px;
-  }
-
-  .sp-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .wa-metrics {
     gap: 8px;
   }
 
-  .sp-btn {
-    font-size: 11px;
-    padding: 12px 8px;
+  .wa-metric {
+    padding: 13px;
+  }
+
+  .wa-metric strong {
+    font-size: 23px;
+  }
+
+  .wa-tabs {
+    gap: 5px;
+  }
+
+  .wa-tabs button {
+    font-size: 10px;
+    padding: 11px 5px;
+  }
+
+  .wa-activity-trigger {
+    align-items: flex-start;
+  }
+
+  .wa-activity-right {
+    display: grid;
+    justify-items: end;
+    gap: 5px;
+  }
+
+  .wa-status {
+    font-size: 9px;
+  }
+
+  .wa-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 }
-
-/* CETAK */
 
 @page {
   size: A4 landscape;
@@ -3507,56 +3467,40 @@ const css = `
 }
 
 @media print {
-  html,
-  body {
-    background: white !important;
-  }
-
-  .sp-root {
+  .wa-root {
     background: white !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 
-  .sp-topbar,
-  .sp-back,
-  .sp-select,
-  .sp-small-btn,
-  .sp-text-button,
-  .sp-info-toggle,
-  .sp-actions,
-  .sp-details summary,
-  .sp-table button {
+  .wa-topbar,
+  .wa-week-strip,
+  .wa-tabs,
+  .wa-small-button,
+  .wa-copy-button,
+  .wa-correction button,
+  .wa-actions,
+  .wa-calculation {
     display: none !important;
   }
 
-  .sp-container {
+  .wa-container {
     max-width: none;
     padding: 0;
   }
 
-  .sp-card {
+  .wa-card {
     box-shadow: none;
     break-inside: avoid;
   }
 
-  .sp-metrics {
-    grid-template-columns:
-      repeat(3,minmax(0,1fr));
-  }
-
-  .sp-week-grid {
-    grid-template-columns:
-      repeat(4,minmax(0,1fr));
-  }
-
-  .sp-table-scroll {
+  .wa-table-wrap {
     overflow: visible;
   }
 
-  .sp-card,
-  .sp-hero {
-    break-inside: avoid;
+  .wa-metrics {
+    grid-template-columns:
+      repeat(4,minmax(0,1fr));
   }
 }
 `;
