@@ -1,16 +1,44 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// =============================================
+// ======================================================
 // OJT MINETRACK V2.0
 // DETAIL PESERTA — CLEAN ENTERPRISE
-// TANPA SIDEBAR
-// KALENDER GLOBAL WEEK 01–25
-// =============================================
+//
+// UPDATE:
+// Dropdown 10 Materi Post-Test (Teori)
+//
+// DIPERTAHANKAN:
+// - Database dan nama tabel
+// - Rumus Achievement
+// - Rumus rata-rata Post-Test
+// - Kalender Global Week 01–25
+// - Hak akses Admin / Mentor
+// - Input, Edit, Hapus Post-Test
+// - Seluruh 9 menu akses cepat
+// - Navigasi Praktik, SIMPER, Samapta
+// - Tampilan desktop dan mobile
+//
+// Nama materi disimpan pada kolom notes yang sudah ada.
+// Tidak memerlukan migrasi database.
+// ======================================================
+
+const POST_TEST_MATERIALS = [
+  "HAR",
+  "Fire",
+  "Hazmat",
+  "CSR",
+  "Navigasi Darat",
+  "Water Rescue",
+  "Medical",
+  "CSSR",
+  "Size Up",
+  "RAR",
+];
 
 const TARGETS = [
   { name: "Fisik", target: 25, unit: "km", icon: "🏃" },
@@ -21,8 +49,60 @@ const TARGETS = [
   { name: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
 ];
 
+// ======================================================
+// HELPER MATERI POST-TEST
+// ======================================================
+
+// Format penyimpanan:
+// Materi: HAR
+// Catatan evaluasi jika tersedia
+//
+// Format ini sengaja dapat dibaca oleh halaman monitoring
+// yang masih mengambil kolom notes secara langsung.
+
+function buildTestNotes(material, description) {
+  const cleanMaterial = String(material || "").trim();
+  const cleanDescription = String(description || "").trim();
+
+  return cleanDescription
+    ? `Materi: ${cleanMaterial}\n${cleanDescription}`
+    : `Materi: ${cleanMaterial}`;
+}
+
+function parseTestNotes(value) {
+  const text = String(value || "").replace(/\r\n/g, "\n");
+
+  const lines = text.split("\n");
+  const firstLine = lines[0]?.trim() || "";
+
+  const match = firstLine.match(/^Materi:\s*(.+)$/i);
+
+  if (match) {
+    const candidate = match[1].trim();
+
+    if (POST_TEST_MATERIALS.includes(candidate)) {
+      return {
+        material: candidate,
+        description: lines.slice(1).join("\n").trim(),
+      };
+    }
+  }
+
+  // Data Post-Test lama tetap ditampilkan.
+  return {
+    material: "",
+    description: text,
+  };
+}
+
+// ======================================================
+// HELPER UMUM
+// ======================================================
+
 function normalize(value) {
-  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 function roleOf(value) {
@@ -39,41 +119,50 @@ function parseDate(value) {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
+
   const date = new Date(Date.UTC(year, month - 1, day));
 
-  return (
-    date.getUTCFullYear() === year &&
+  return date.getUTCFullYear() === year &&
     date.getUTCMonth() === month - 1 &&
     date.getUTCDate() === day
-  ) ? date : null;
+    ? date
+    : null;
 }
 
 function addDays(value, days) {
   const date = parseDate(value);
   if (!date) return null;
+
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
-const GLOBAL_WEEKS = Array.from({ length: 25 }, (_, index) => {
-  const start = index === 0
-    ? "2026-09-12"
-    : addDays("2026-09-20", (index - 1) * 7);
+const GLOBAL_WEEKS = Array.from(
+  { length: 25 },
+  (_, index) => {
+    const start =
+      index === 0
+        ? "2026-09-12"
+        : addDays("2026-09-20", (index - 1) * 7);
 
-  return {
-    week: index + 1,
-    start,
-    end: addDays(start, 6),
-  };
-});
+    return {
+      week: index + 1,
+      start,
+      end: addDays(start, 6),
+    };
+  }
+);
 
 function globalWeekOf(value) {
   const date = String(value ?? "").slice(0, 10);
+
   if (!parseDate(date)) return null;
 
-  return GLOBAL_WEEKS.find(
-    item => date >= item.start && date <= item.end
-  )?.week ?? null;
+  return (
+    GLOBAL_WEEKS.find(
+      (item) => date >= item.start && date <= item.end
+    )?.week ?? null
+  );
 }
 
 function programWeekRange(program, weekNumber) {
@@ -84,17 +173,20 @@ function programWeekRange(program, weekNumber) {
   }
 
   const programStart = String(program.start_date).slice(0, 10);
+
   const programEnd = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
 
-  const start = selected.start > programStart
-    ? selected.start
-    : programStart;
+  const start =
+    selected.start > programStart
+      ? selected.start
+      : programStart;
 
-  const end = programEnd && programEnd < selected.end
-    ? programEnd
-    : selected.end;
+  const end =
+    programEnd && programEnd < selected.end
+      ? programEnd
+      : selected.end;
 
   return start <= end ? { start, end } : null;
 }
@@ -124,15 +216,14 @@ function todayWITA() {
     day: "2-digit",
   }).formatToParts(new Date());
 
-  const get = type =>
-    parts.find(part => part.type === type)?.value || "";
+  const get = (type) =>
+    parts.find((part) => part.type === type)?.value || "";
 
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function formatDate(value) {
   const date = parseDate(value);
-
   if (!date) return "—";
 
   return new Intl.DateTimeFormat("id-ID", {
@@ -166,7 +257,7 @@ function initials(value) {
     .trim()
     .split(/\s+/)
     .slice(0, 2)
-    .map(word => word[0] || "")
+    .map((word) => word[0] || "")
     .join("")
     .toUpperCase();
 }
@@ -174,36 +265,52 @@ function initials(value) {
 function categoryOf(value) {
   const key = normalize(value);
 
-  if (["fisik", "physical"].includes(key)) return "Fisik";
+  if (["fisik", "physical"].includes(key)) {
+    return "Fisik";
+  }
 
-  if (["training", "internaltraining", "pelatihan"].includes(key))
+  if (
+    ["training", "internaltraining", "pelatihan"].includes(key)
+  ) {
     return "Training";
+  }
 
-  if (["sosialisasi", "socialization"].includes(key))
+  if (
+    ["sosialisasi", "socialization"].includes(key)
+  ) {
     return "Sosialisasi";
+  }
 
-  if (["coaching", "pembinaan"].includes(key))
+  if (["coaching", "pembinaan"].includes(key)) {
     return "Coaching";
+  }
 
-  if (["orientasi", "orientasiarea", "areaorientation"].includes(key))
+  if (
+    ["orientasi", "orientasiarea", "areaorientation"].includes(key)
+  ) {
     return "Orientasi Area";
+  }
 
-  if (["hazard", "hazardidentification", "identifikasibahaya"].includes(key))
+  if (
+    ["hazard", "hazardidentification", "identifikasibahaya"]
+      .includes(key)
+  ) {
     return "Hazard";
+  }
 
   return null;
 }
 
 function initialWeek(program, records) {
   const available = GLOBAL_WEEKS.filter(
-    item => programWeekRange(program, item.week)
+    (item) => programWeekRange(program, item.week)
   );
 
   if (!available.length) return 1;
 
   const now = todayWITA();
 
-  const current = available.find(item => {
+  const current = available.find((item) => {
     const range = programWeekRange(program, item.week);
     return range && now >= range.start && now <= range.end;
   });
@@ -211,25 +318,28 @@ function initialWeek(program, records) {
   if (current) return current.week;
 
   const recorded = records
-    .filter(item => insideProgram(item.activity_date, program))
-    .map(item => globalWeekOf(item.activity_date))
-    .filter(week => available.some(item => item.week === week));
+    .filter((item) => insideProgram(item.activity_date, program))
+    .map((item) => globalWeekOf(item.activity_date))
+    .filter((week) =>
+      available.some((item) => item.week === week)
+    );
 
   if (recorded.length) return Math.max(...recorded);
 
   return (
-    available.find(item => item.start > now)?.week ||
+    available.find((item) => item.start > now)?.week ||
     available[available.length - 1].week
   );
 }
 
 function averageScore(rows) {
   const scores = rows
-    .map(row => row.score)
-    .filter(value =>
-      value !== null &&
-      value !== undefined &&
-      value !== ""
+    .map((row) => row.score)
+    .filter(
+      (value) =>
+        value !== null &&
+        value !== undefined &&
+        value !== ""
     )
     .map(Number)
     .filter(Number.isFinite);
@@ -238,6 +348,10 @@ function averageScore(rows) {
     ? scores.reduce((a, b) => a + b, 0) / scores.length
     : null;
 }
+
+// ======================================================
+// KOMPONEN
+// ======================================================
 
 function ProgressBar({ value }) {
   const safe = Math.max(0, Math.min(100, Number(value) || 0));
@@ -255,10 +369,22 @@ function ProgressBar({ value }) {
   );
 }
 
-function ModuleCard({ icon, title, subtitle, tone = "green", onClick }) {
+function ModuleCard({
+  icon,
+  title,
+  subtitle,
+  tone = "green",
+  onClick,
+}) {
   return (
-    <button type="button" className="dp-module" onClick={onClick}>
-      <span className={`dp-module-icon ${tone}`}>{icon}</span>
+    <button
+      type="button"
+      className="dp-module"
+      onClick={onClick}
+    >
+      <span className={`dp-module-icon ${tone}`}>
+        {icon}
+      </span>
 
       <span className="dp-module-text">
         <strong>{title}</strong>
@@ -270,9 +396,9 @@ function ModuleCard({ icon, title, subtitle, tone = "green", onClick }) {
   );
 }
 
-// =============================================
+// ======================================================
 // HALAMAN DETAIL PESERTA
-// =============================================
+// ======================================================
 
 export default function DetailPeserta() {
   const router = useRouter();
@@ -294,7 +420,12 @@ export default function DetailPeserta() {
   const [week, setWeek] = useState(1);
   const [panel, setPanel] = useState("dashboard");
 
+  // FORM POST-TEST
   const [testDate, setTestDate] = useState(todayWITA());
+
+  // BARU: pilihan materi dari dropdown.
+  const [testMaterial, setTestMaterial] = useState("");
+
   const [testScore, setTestScore] = useState("");
   const [testNotes, setTestNotes] = useState("");
   const [editTestId, setEditTestId] = useState(null);
@@ -303,20 +434,23 @@ export default function DetailPeserta() {
   const [refreshing, setRefreshing] = useState(false);
   const [savingTest, setSavingTest] = useState(false);
   const [testActionId, setTestActionId] = useState(null);
+
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   const isAdmin = roleOf(manager?.role) === "admin";
 
-  // =============================================
-  // SUPABASE
-  // =============================================
+  // ====================================================
+  // SUPABASE — QUERY LAMA DIPERTAHANKAN
+  // ====================================================
 
   async function fetchRecords(id) {
     const results = await Promise.all([
       supabase
         .from("achievement_records")
-        .select("id,type_code,activity_date,distance_km,status")
+        .select(
+          "id,type_code,activity_date,distance_km,status"
+        )
         .eq("program_id", id)
         .order("activity_date", { ascending: false }),
 
@@ -333,7 +467,9 @@ export default function DetailPeserta() {
 
       supabase
         .from("samapta_records")
-        .select("id,test_date,test_type,score,outcome,result_value")
+        .select(
+          "id,test_date,test_type,score,outcome,result_value"
+        )
         .eq("program_id", id),
 
       supabase
@@ -378,9 +514,9 @@ export default function DetailPeserta() {
     setSimper(data.simper);
   }
 
-  // =============================================
-  // LOAD AWAL DAN VALIDASI AKSES
-  // =============================================
+  // ====================================================
+  // AUTHENTICATION DAN VALIDASI AKSES
+  // ====================================================
 
   useEffect(() => {
     if (!programId) {
@@ -457,7 +593,10 @@ export default function DetailPeserta() {
 
         if (programError) throw programError;
 
-        if (!programData || !parseDate(programData.start_date)) {
+        if (
+          !programData ||
+          !parseDate(programData.start_date)
+        ) {
           throw new Error(
             "Program tidak ditemukan, akses ditolak, atau tanggal mulai tidak valid."
           );
@@ -479,12 +618,20 @@ export default function DetailPeserta() {
         setManager(profile);
         setProgram(programData);
         setTypes(typeResult.data || []);
+
         applyRecords(records);
 
-        setWeek(initialWeek(programData, records.achievements));
+        setWeek(
+          initialWeek(
+            programData,
+            records.achievements
+          )
+        );
       } catch (err) {
         if (active) {
-          setError(err?.message || "Gagal memuat data peserta.");
+          setError(
+            err?.message || "Gagal memuat data peserta."
+          );
         }
       } finally {
         if (active) setLoading(false);
@@ -498,9 +645,9 @@ export default function DetailPeserta() {
     };
   }, [programId, router]);
 
-  // =============================================
+  // ====================================================
   // REFRESH
-  // =============================================
+  // ====================================================
 
   async function refresh() {
     if (
@@ -508,7 +655,9 @@ export default function DetailPeserta() {
       loading ||
       !manager ||
       !program
-    ) return;
+    ) {
+      return;
+    }
 
     setRefreshing(true);
     setError("");
@@ -517,7 +666,9 @@ export default function DetailPeserta() {
     try {
       applyRecords(await fetchRecords(programId));
     } catch (err) {
-      setError(err?.message || "Gagal memperbarui data.");
+      setError(
+        err?.message || "Gagal memperbarui data."
+      );
     } finally {
       setRefreshing(false);
     }
@@ -534,9 +685,9 @@ export default function DetailPeserta() {
     });
   }
 
-  // =============================================
+  // ====================================================
   // POST-TEST CRUD
-  // =============================================
+  // ====================================================
 
   async function reloadTests() {
     const { data, error: err } = await supabase
@@ -553,6 +704,7 @@ export default function DetailPeserta() {
   function resetTest() {
     setEditTestId(null);
     setTestDate(todayWITA());
+    setTestMaterial("");
     setTestScore("");
     setTestNotes("");
   }
@@ -565,7 +717,9 @@ export default function DetailPeserta() {
       !program ||
       savingTest ||
       testActionId
-    ) return;
+    ) {
+      return;
+    }
 
     const score = Number(testScore);
 
@@ -589,6 +743,26 @@ export default function DetailPeserta() {
       return;
     }
 
+    // Validasi dropdown materi.
+    if (!POST_TEST_MATERIALS.includes(testMaterial)) {
+      setError(
+        "Silakan pilih materi Post-Test terlebih dahulu."
+      );
+      return;
+    }
+
+    // Pastikan ID yang diedit benar-benar berasal
+    // dari riwayat yang sedang dimuat.
+    if (
+      editTestId &&
+      !postTests.some(
+        (item) => String(item.id) === String(editTestId)
+      )
+    ) {
+      setError("Data Post-Test yang akan diedit tidak ditemukan.");
+      return;
+    }
+
     setSavingTest(true);
     setError("");
     setMessage("");
@@ -597,7 +771,9 @@ export default function DetailPeserta() {
       const payload = {
         test_date: testDate,
         score,
-        notes: testNotes.trim() || null,
+
+        // Materi disimpan di notes, bukan kolom baru.
+        notes: buildTestNotes(testMaterial, testNotes),
       };
 
       const result = editTestId
@@ -624,22 +800,38 @@ export default function DetailPeserta() {
         );
       }
 
+      const wasEditing = Boolean(editTestId);
+
       await reloadTests();
       resetTest();
 
-      setMessage("Post-Test berhasil disimpan.");
+      setMessage(
+        wasEditing
+          ? "Perubahan nilai Post-Test berhasil disimpan."
+          : `Nilai Post-Test materi ${testMaterial} berhasil disimpan.`
+      );
     } catch (err) {
-      setError(err?.message || "Gagal menyimpan Post-Test.");
+      setError(
+        err?.message || "Gagal menyimpan Post-Test."
+      );
     } finally {
       setSavingTest(false);
     }
   }
 
   function editTest(item) {
+    if (savingTest || testActionId) return;
+
+    const parsed = parseTestNotes(item.notes);
+
     setEditTestId(item.id);
-    setTestDate(item.test_date);
-    setTestScore(String(item.score));
-    setTestNotes(item.notes || "");
+    setTestDate(item.test_date || todayWITA());
+    setTestMaterial(parsed.material);
+    setTestScore(
+      item.score == null ? "" : String(item.score)
+    );
+    setTestNotes(parsed.description);
+
     openPanel("posttest");
   }
 
@@ -650,7 +842,9 @@ export default function DetailPeserta() {
       savingTest ||
       testActionId ||
       !window.confirm("Hapus nilai Post-Test ini?")
-    ) return;
+    ) {
+      return;
+    }
 
     setTestActionId(item.id);
     setError("");
@@ -680,20 +874,23 @@ export default function DetailPeserta() {
 
       setMessage("Post-Test berhasil dihapus.");
     } catch (err) {
-      setError(err?.message || "Gagal menghapus Post-Test.");
+      setError(
+        err?.message || "Gagal menghapus Post-Test."
+      );
     } finally {
       setTestActionId(null);
     }
   }
 
-  // =============================================
+  // ====================================================
   // KALENDER GLOBAL
-  // =============================================
+  // ====================================================
 
   const availableWeeks = useMemo(
-    () => GLOBAL_WEEKS.filter(
-      item => programWeekRange(program, item.week)
-    ),
+    () =>
+      GLOBAL_WEEKS.filter(
+        (item) => programWeekRange(program, item.week)
+      ),
     [program]
   );
 
@@ -704,33 +901,34 @@ export default function DetailPeserta() {
     week
   );
 
-  // =============================================
-  // REKAP ACHIEVEMENT PER GLOBAL WEEK
-  // =============================================
+  // ====================================================
+  // REKAP ACHIEVEMENT PER MINGGU
+  // ====================================================
 
   const weekly = useMemo(() => {
-    const rows = achievements.filter(item =>
-      insideProgram(item.activity_date, program) &&
-      globalWeekOf(item.activity_date) === week
+    const rows = achievements.filter(
+      (item) =>
+        insideProgram(item.activity_date, program) &&
+        globalWeekOf(item.activity_date) === week
     );
 
     const verified = rows.filter(
-      item => roleOf(item.status) === "verified"
+      (item) => roleOf(item.status) === "verified"
     );
 
     const pending = rows.filter(
-      item => roleOf(item.status) === "pending"
+      (item) => roleOf(item.status) === "pending"
     );
 
     const typeMap = new Map(
-      types.map(item => [
+      types.map((item) => [
         normalize(item.code),
         categoryOf(item.code) || categoryOf(item.name),
       ])
     );
 
-    const categories = TARGETS.map(target => {
-      const matching = verified.filter(item => {
+    const categories = TARGETS.map((target) => {
+      const matching = verified.filter((item) => {
         const category =
           typeMap.get(normalize(item.type_code)) ||
           categoryOf(item.type_code);
@@ -738,17 +936,18 @@ export default function DetailPeserta() {
         return category === target.name;
       });
 
-      const actual = target.name === "Fisik"
-        ? matching.reduce((sum, item) => {
-            const distance = Number(item.distance_km);
+      const actual =
+        target.name === "Fisik"
+          ? matching.reduce((sum, item) => {
+              const distance = Number(item.distance_km);
 
-            return sum + (
-              Number.isFinite(distance) && distance > 0
-                ? Math.round(distance * 1000)
-                : 0
-            );
-          }, 0) / 1000
-        : matching.length;
+              return sum + (
+                Number.isFinite(distance) && distance > 0
+                  ? Math.round(distance * 1000)
+                  : 0
+              );
+            }, 0) / 1000
+          : matching.length;
 
       const percent = Math.min(
         100,
@@ -764,15 +963,18 @@ export default function DetailPeserta() {
       };
     });
 
-    const overall = categories.reduce(
-      (sum, item) => sum + item.percent,
-      0
-    ) / categories.length;
+    const overall =
+      categories.reduce(
+        (sum, item) => sum + item.percent,
+        0
+      ) / categories.length;
 
     return {
       categories,
       overall,
-      achieved: categories.filter(item => item.achieved).length,
+      achieved: categories.filter(
+        (item) => item.achieved
+      ).length,
       verified: verified.length,
       pending: pending.length,
       total: rows.length,
@@ -793,9 +995,9 @@ export default function DetailPeserta() {
   const accountName =
     manager?.full_name || roleName;
 
-  // =============================================
-  // MENU AKSES CEPAT — SESUAI MOCKUP
-  // =============================================
+  // ====================================================
+  // MENU AKSES CEPAT
+  // ====================================================
 
   const menus = [
     {
@@ -835,7 +1037,9 @@ export default function DetailPeserta() {
     },
     {
       title: "Evaluasi Mingguan",
-      subtitle: `Week ${String(week).padStart(2, "0")} · ${num(weekly.overall)}%`,
+      subtitle:
+        `Week ${String(week).padStart(2, "0")} · ` +
+        `${num(weekly.overall)}%`,
       icon: "📅",
       tone: "teal",
       route: `/mingguan/${programId}`,
@@ -863,9 +1067,9 @@ export default function DetailPeserta() {
     },
   ];
 
-  // =============================================
-  // LOADING & ERROR
-  // =============================================
+  // ====================================================
+  // LOADING DAN ERROR
+  // ====================================================
 
   if (loading) {
     return (
@@ -882,22 +1086,23 @@ export default function DetailPeserta() {
         <h2>Detail Peserta Tidak Dapat Ditampilkan</h2>
         <p>{error || "Akses tidak tersedia."}</p>
 
-        <button type="button" onClick={() => router.push("/")}>
+        <button
+          type="button"
+          onClick={() => router.push("/")}
+        >
           Kembali ke Dashboard
         </button>
       </main>
     );
   }
 
-  // =============================================
-  // TAMPILAN UTAMA — TANPA SIDEBAR
-  // =============================================
+  // ====================================================
+  // TAMPILAN UTAMA
+  // ====================================================
 
   return (
     <div className="dp-app">
       <style>{css}</style>
-
-      {/* HEADER HORIZONTAL */}
 
       <header className="dp-topbar">
         <button
@@ -949,8 +1154,7 @@ export default function DetailPeserta() {
       </header>
 
       <main className="dp-content">
-
-        {/* JUDUL & PILIH WEEK */}
+        {/* JUDUL */}
 
         <div className="dp-title-row">
           <div>
@@ -978,7 +1182,8 @@ export default function DetailPeserta() {
                   : openPanel("dashboard")
               }
             >
-              ← {panel === "dashboard"
+              ←{" "}
+              {panel === "dashboard"
                 ? "Dashboard"
                 : "Menu Peserta"}
             </button>
@@ -989,11 +1194,13 @@ export default function DetailPeserta() {
               <select
                 aria-label="Pilih Week Global"
                 value={
-                  availableWeeks.some(item => item.week === week)
+                  availableWeeks.some(
+                    (item) => item.week === week
+                  )
                     ? week
                     : ""
                 }
-                onChange={event =>
+                onChange={(event) =>
                   setWeek(Number(event.target.value))
                 }
               >
@@ -1003,12 +1210,13 @@ export default function DetailPeserta() {
                   </option>
                 )}
 
-                {availableWeeks.map(item => (
+                {availableWeeks.map((item) => (
                   <option
                     key={item.week}
                     value={item.week}
                   >
-                    Week {String(item.week).padStart(2, "0")}
+                    Week{" "}
+                    {String(item.week).padStart(2, "0")}
                     {" · "}
                     {formatDate(item.start)}
                     {" – "}
@@ -1021,13 +1229,19 @@ export default function DetailPeserta() {
         </div>
 
         {error && (
-          <div className="dp-alert error" role="alert">
+          <div
+            className="dp-alert error"
+            role="alert"
+          >
             {error}
           </div>
         )}
 
         {message && (
-          <div className="dp-alert success" role="status">
+          <div
+            className="dp-alert success"
+            role="status"
+          >
             ✓ {message}
           </div>
         )}
@@ -1052,8 +1266,10 @@ export default function DetailPeserta() {
               <div className="dp-profile-facts">
                 <div>
                   <span className="dp-fact-icon">📅</span>
+
                   <div>
                     <small>Periode OJT</small>
+
                     <strong>
                       {formatDate(program.start_date)}
                       {" – "}
@@ -1064,6 +1280,7 @@ export default function DetailPeserta() {
 
                 <div>
                   <span className="dp-fact-icon">♙</span>
+
                   <div>
                     <small>Akses Pengelola</small>
                     <strong>
@@ -1092,24 +1309,31 @@ export default function DetailPeserta() {
 
         {panel === "dashboard" ? (
           <>
-            {/* RINGKASAN ACHIEVEMENT */}
+            {/* ACHIEVEMENT */}
 
             <section className="dp-achievement">
               <div className="dp-achievement-overview">
                 <div className="dp-week-heading">
-                  <span className="dp-big-icon">📊</span>
+                  <span className="dp-big-icon">
+                    📊
+                  </span>
 
                   <div>
                     <small>Capaian Achievement</small>
 
                     <h2>
-                      Week {String(week).padStart(2, "0")}
+                      Week{" "}
+                      {String(week).padStart(2, "0")}
                     </h2>
 
                     <p>
-                      {formatDate(selectedGlobalWeek?.start)}
+                      {formatDate(
+                        selectedGlobalWeek?.start
+                      )}
                       {" – "}
-                      {formatDate(selectedGlobalWeek?.end)}
+                      {formatDate(
+                        selectedGlobalWeek?.end
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1124,6 +1348,7 @@ export default function DetailPeserta() {
                     <strong>
                       {num(weekly.overall)}%
                     </strong>
+
                     <small>
                       Rata-rata
                       <br />
@@ -1146,18 +1371,23 @@ export default function DetailPeserta() {
 
                 <div className="dp-summary blue">
                   <span>▦</span>
-                  <strong>{weekly.achieved}/6</strong>
+                  <strong>
+                    {weekly.achieved}/6
+                  </strong>
                   <small>Kategori</small>
                 </div>
               </div>
 
               {selectedProgramRange && (
                 <div className="dp-participant-range">
-                  Periode peserta pada Week ini:
-                  {" "}
-                  {formatDate(selectedProgramRange.start)}
+                  Periode peserta pada Week ini:{" "}
+                  {formatDate(
+                    selectedProgramRange.start
+                  )}
                   {" – "}
-                  {formatDate(selectedProgramRange.end)}
+                  {formatDate(
+                    selectedProgramRange.end
+                  )}
                 </div>
               )}
 
@@ -1168,10 +1398,8 @@ export default function DetailPeserta() {
                 </div>
               )}
 
-              {/* 6 KATEGORI */}
-
               <div className="dp-category-grid">
-                {weekly.categories.map(item => (
+                {weekly.categories.map((item) => (
                   <div
                     className="dp-category"
                     key={item.name}
@@ -1180,7 +1408,6 @@ export default function DetailPeserta() {
                       <span className="dp-category-icon">
                         {item.icon}
                       </span>
-
                       <strong>{item.name}</strong>
                     </div>
 
@@ -1226,7 +1453,7 @@ export default function DetailPeserta() {
               </p>
             </section>
 
-            {/* 9 MENU AKSES CEPAT */}
+            {/* MENU AKSES CEPAT */}
 
             <section
               id="dp-modules"
@@ -1260,7 +1487,7 @@ export default function DetailPeserta() {
               </div>
 
               <div className="dp-menu-grid">
-                {menus.map(item => (
+                {menus.map((item) => (
                   <ModuleCard
                     key={item.title}
                     icon={item.icon}
@@ -1294,7 +1521,9 @@ export default function DetailPeserta() {
                 <button
                   type="button"
                   onClick={() =>
-                    router.push(`/achievement/${programId}`)
+                    router.push(
+                      `/achievement/${programId}`
+                    )
                   }
                 >
                   📝 Input Achievement
@@ -1317,21 +1546,28 @@ export default function DetailPeserta() {
           </>
         ) : (
           <>
-            {/* POST-TEST */}
+            {/* ======================================= */}
+            {/* FORM POST-TEST DENGAN DROPDOWN MATERI */}
+            {/* ======================================= */}
 
             <section className="dp-card">
               <div className="dp-section-heading">
                 <div>
-                  <h2>Monitoring Post-Test</h2>
+                  <h2>Penilaian Post-Test (Teori)</h2>
+
                   <p>
-                    Input, edit, dan hapus nilai Post-Test.
+                    Pilih materi pembelajaran,
+                    masukkan nilai, dan simpan hasil
+                    evaluasi peserta.
                   </p>
                 </div>
 
                 <button
                   type="button"
                   className="dp-refresh"
-                  onClick={() => openPanel("dashboard")}
+                  onClick={() =>
+                    openPanel("dashboard")
+                  }
                 >
                   ← Menu Peserta
                 </button>
@@ -1340,13 +1576,17 @@ export default function DetailPeserta() {
               <div className="dp-post-stats">
                 <div>
                   Total Post-Test
-                  <strong>{postTests.length}</strong>
+                  <strong>
+                    {postTests.length}
+                  </strong>
                 </div>
 
                 <div>
                   Rata-rata Nilai
                   <strong>
-                    {scoreText(averageScore(postTests))}
+                    {scoreText(
+                      averageScore(postTests)
+                    )}
                   </strong>
                 </div>
               </div>
@@ -1366,37 +1606,86 @@ export default function DetailPeserta() {
                   <input
                     type="date"
                     value={testDate}
-                    onChange={event =>
-                      setTestDate(event.target.value)
+                    onChange={(event) =>
+                      setTestDate(
+                        event.target.value
+                      )
                     }
                     required
                   />
                 </label>
 
+                {/* DROPDOWN 10 MATERI */}
+
+                <label>
+                  Materi Post-Test (Teori)
+
+                  <select
+                    value={testMaterial}
+                    onChange={(event) =>
+                      setTestMaterial(
+                        event.target.value
+                      )
+                    }
+                    required
+                  >
+                    <option value="">
+                      -- Pilih Materi Post-Test --
+                    </option>
+
+                    {POST_TEST_MATERIALS.map(
+                      (material) => (
+                        <option
+                          key={material}
+                          value={material}
+                        >
+                          {material}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+
+                <p
+                  className="dp-note"
+                  style={{ margin: "-5px 0 0" }}
+                >
+                  Tersedia 10 materi Post-Test.
+                  Materi yang dipilih akan dicatat
+                  bersama nilai dan catatan evaluasi.
+                </p>
+
                 <label>
                   Nilai Post-Test (0–100)
+
                   <input
                     type="number"
                     min="0"
                     max="100"
                     step="0.01"
                     value={testScore}
-                    onChange={event =>
-                      setTestScore(event.target.value)
+                    onChange={(event) =>
+                      setTestScore(
+                        event.target.value
+                      )
                     }
+                    placeholder="Contoh: 85"
                     required
                   />
                 </label>
 
                 <label>
                   Catatan Evaluasi
+
                   <textarea
                     rows={4}
                     value={testNotes}
-                    onChange={event =>
-                      setTestNotes(event.target.value)
+                    onChange={(event) =>
+                      setTestNotes(
+                        event.target.value
+                      )
                     }
-                    placeholder="Catatan evaluasi..."
+                    placeholder="Catatan evaluasi (opsional)..."
                   />
                 </label>
 
@@ -1441,57 +1730,86 @@ export default function DetailPeserta() {
                 </p>
               )}
 
-              {postTests.map(item => (
-                <div className="dp-history" key={item.id}>
-                  <div>
-                    <strong>
-                      Nilai: {scoreText(item.score)}
-                    </strong>
+              {postTests.map((item) => {
+                const parsed = parseTestNotes(item.notes);
 
-                    <small>
-                      {formatDate(item.test_date)}
-                      {" · "}
-                      {globalWeekOf(item.test_date)
-                        ? `Week ${String(
-                            globalWeekOf(item.test_date)
-                          ).padStart(2, "0")}`
-                        : "Di luar Kalender Global"}
-                    </small>
+                return (
+                  <div
+                    className="dp-history"
+                    key={item.id}
+                  >
+                    <div>
+                      {parsed.material ? (
+                        <div
+                          className="dp-material-tag"
+                        >
+                          📘 {parsed.material}
+                        </div>
+                      ) : (
+                        <div
+                          className="dp-material-tag legacy"
+                        >
+                          Materi belum tercatat
+                        </div>
+                      )}
 
-                    <p>
-                      {item.notes || "Tidak ada catatan."}
-                    </p>
+                      <strong>
+                        Nilai:{" "}
+                        {scoreText(item.score)}
+                      </strong>
+
+                      <small>
+                        {formatDate(item.test_date)}
+                        {" · "}
+                        {globalWeekOf(item.test_date)
+                          ? `Week ${String(
+                              globalWeekOf(
+                                item.test_date
+                              )
+                            ).padStart(2, "0")}`
+                          : "Di luar Kalender Global"}
+                      </small>
+
+                      <p>
+                        {parsed.description ||
+                          "Tidak ada catatan tambahan."}
+                      </p>
+                    </div>
+
+                    <div className="dp-history-actions">
+                      <button
+                        type="button"
+                        className="dp-edit"
+                        onClick={() =>
+                          editTest(item)
+                        }
+                        disabled={
+                          savingTest ||
+                          Boolean(testActionId)
+                        }
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        type="button"
+                        className="dp-delete"
+                        onClick={() =>
+                          deleteTest(item)
+                        }
+                        disabled={
+                          savingTest ||
+                          Boolean(testActionId)
+                        }
+                      >
+                        {testActionId === item.id
+                          ? "Menghapus..."
+                          : "Hapus"}
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="dp-history-actions">
-                    <button
-                      type="button"
-                      className="dp-edit"
-                      onClick={() => editTest(item)}
-                      disabled={
-                        savingTest ||
-                        Boolean(testActionId)
-                      }
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      type="button"
-                      className="dp-delete"
-                      onClick={() => deleteTest(item)}
-                      disabled={
-                        savingTest ||
-                        Boolean(testActionId)
-                      }
-                    >
-                      {testActionId === item.id
-                        ? "Menghapus..."
-                        : "Hapus"}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </section>
           </>
         )}
@@ -1506,9 +1824,9 @@ export default function DetailPeserta() {
   );
 }
 
-// =============================================
-// CSS — TANPA SIDEBAR
-// =============================================
+// ======================================================
+// CSS
+// ======================================================
 
 const css = `
 .dp-app,
@@ -1542,7 +1860,7 @@ const css = `
   cursor: not-allowed;
 }
 
-/* HEADER HORIZONTAL */
+/* HEADER */
 
 .dp-topbar {
   position: sticky;
@@ -1726,7 +2044,9 @@ const css = `
 
 .dp-profile {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(250px, 1fr);
+  grid-template-columns:
+    minmax(0, 1.55fr)
+    minmax(250px, 1fr);
   background: #fff;
   border: 1px solid #e4ebf1;
   border-radius: 16px;
@@ -1983,11 +2303,12 @@ const css = `
   padding: 0 4px;
 }
 
-/* SIX CATEGORIES */
+/* KATEGORI */
 
 .dp-category-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns:
+    repeat(6, minmax(0, 1fr));
   gap: 9px;
 }
 
@@ -2034,7 +2355,8 @@ const css = `
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #09b77d, #07875c);
+  background:
+    linear-gradient(90deg, #09b77d, #07875c);
 }
 
 .dp-category-footer {
@@ -2105,7 +2427,8 @@ const css = `
 
 .dp-menu-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
   gap: 9px;
 }
 
@@ -2182,7 +2505,8 @@ const css = `
 
 .dp-ach-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -2199,11 +2523,12 @@ const css = `
   text-align: left;
 }
 
-/* POST TEST */
+/* POST-TEST */
 
 .dp-post-stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 21px;
 }
@@ -2239,12 +2564,23 @@ const css = `
 }
 
 .dp-form input,
+.dp-form select,
 .dp-form textarea {
   width: 100%;
+  min-width: 0;
   border: 1px solid #dbe5e9;
   border-radius: 9px;
   padding: 12px;
   font-size: 14px;
+  background: white;
+  color: #10243b;
+}
+
+.dp-form input:focus,
+.dp-form select:focus,
+.dp-form textarea:focus {
+  outline: 2px solid #a0dcc0;
+  outline-offset: 1px;
 }
 
 .dp-form-actions {
@@ -2283,6 +2619,26 @@ const css = `
   background: #d13c3c;
   color: #fff;
 }
+
+/* MATERI TAG BARU */
+
+.dp-material-tag {
+  display: inline-block;
+  margin-bottom: 9px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #eaf4ff;
+  color: #246baa;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.dp-material-tag.legacy {
+  background: #f2f4f6;
+  color: #718092;
+}
+
+/* RIWAYAT */
 
 .dp-history {
   display: flex;
@@ -2364,11 +2720,13 @@ const css = `
   }
 
   .dp-category-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr));
   }
 
   .dp-achievement-overview {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr));
   }
 
   .dp-week-heading {
@@ -2456,7 +2814,8 @@ const css = `
   }
 
   .dp-achievement-overview {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -2483,7 +2842,8 @@ const css = `
   }
 
   .dp-category-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
   }
 
   .dp-menu-grid {
