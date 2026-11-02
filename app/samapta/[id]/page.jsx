@@ -10,49 +10,80 @@ import {
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// ======================================================
-// OJT MINETRACK V2.0 — PENILAIAN SAMAPTA
+// =========================================================
+// OJT MINETRACK V2.0
+// PENILAIAN SAMAPTA MENTOR
 //
-// SUMBER:
-// FCT CREW ER GMO PERIODE FEB-MARET 2026.xlsx
+// REFERENSI:
+// Salinan dari FCT CREW ER GMO
+// PERIODE FEB-MARET 2026.xlsx
 // Sheet: SCORE SAMAPTA
 //
-// A  : Lari 12 menit
-// B  : Pull-Up, Push-Up, Sit-Up, Shuttle Run
-// B  : Rata-rata 4 skor
-// Akhir : (A + B) / 2
+// Kolom sumber:
+// A,B,C = Lari 12 Menit
+// D,E,F,G = Shuttle Run
+// H,I,J,K = Push-Up
+// L,M,N,O = Sit-Up
+// P,Q,R,S = Pull-Up
 //
-// Skor 0 dihitung sebagai nilai sah.
-// Tabel data dan struktur Supabase tidak diubah.
-// ======================================================
-
-const BUCKET_LABEL = "Referensi SCORE SAMAPTA";
+// Semua data konversi berasal dari tabel utama Excel.
+// Baris contoh perhitungan di bawah tabel utama
+// tidak dicampurkan ke dalam tabel konversi.
+//
+// Tidak mengubah struktur database Supabase.
+// =========================================================
 
 const TESTS = [
-  { key: "lari", name: "Lari 12 Menit", unit: "Meter" },
-  { key: "pull", name: "Pull-Up", unit: "Repetisi" },
-  { key: "push", name: "Push-Up", unit: "Repetisi" },
-  { key: "sit", name: "Sit-Up", unit: "Repetisi" },
-  { key: "shuttle", name: "Shuttle Run", unit: "Detik" },
+  {
+    key: "lari",
+    name: "Lari 12 Menit",
+    unit: "Meter",
+  },
+  {
+    key: "pull",
+    name: "Pull-Up",
+    unit: "Repetisi",
+  },
+  {
+    key: "push",
+    name: "Push-Up",
+    unit: "Repetisi",
+  },
+  {
+    key: "sit",
+    name: "Sit-Up",
+    unit: "Repetisi",
+  },
+  {
+    key: "shuttle",
+    name: "Shuttle Run",
+    unit: "Detik",
+  },
 ];
 
-const AGE_OPTIONS = [
+const AGES = [
   { value: "21-30", label: "21–30 Tahun" },
   { value: "31-40", label: "31–40 Tahun" },
 ];
 
-function values(text) {
+function numbers(text) {
   return text.trim().split(/\s+/).map(Number);
 }
 
-// ======================================================
-// LARI 12 MENIT
-// Ambang jarak pada baris tabel utama Excel.
-// Urutan skor dari 100 turun sampai 12.
-// ======================================================
+// =========================================================
+// SAMAPTA A — LARI 12 MENIT
+//
+// Setiap ambang minimum berpasangan dengan skor
+// 100, 99, 98, ... 12 menurut posisi array.
+//
+// Contoh untuk usia 21–30:
+// 1.857–1.876 m = 24
+// 1.836–1.856 m = 23
+// 1.816–1.835 m = 22
+// 1.795–1.815 m = 21
+// =========================================================
 
-const RUN_THRESHOLDS = {
-  "21-30": values(`
+const RUN_21 = numbers(`
 3400 3387 3362 3346 3323 3305 3285 3264 3244
 3223 3203 3181 3162 3124 3121 3101 3081 3060
 3040 3019 2999 2979 2958 2938 2917 2897 2877
@@ -63,9 +94,9 @@ const RUN_THRESHOLDS = {
 2122 2101 2081 2061 2040 2020 1999 1979 1959
 1938 1918 1897 1877 1857 1836 1816 1795 1775
 1755 1734 1714 1693 1673 1653 1632 1612
-`),
+`);
 
-  "31-40": values(`
+const RUN_31 = numbers(`
 3244 3223 3203 3183 3162 3142 3121 3101 3081
 3060 3040 3019 2999 2979 2958 2938 2917 2897
 2877 2856 2836 2815 2795 2775 2754 2734 2713
@@ -76,8 +107,7 @@ const RUN_THRESHOLDS = {
 1959 1938 1918 1897 1877 1857 1836 1816 1795
 1775 1755 1734 1714 1693 1673 1653 1632 1612
 1591 1571 1551 1530 1510 1489 1469 1449
-`),
-};
+`);
 
 function runScore(distance, age) {
   if (
@@ -88,85 +118,90 @@ function runScore(distance, age) {
     return null;
   }
 
-  const thresholds = RUN_THRESHOLDS[age];
+  const table =
+    age === "21-30"
+      ? RUN_21
+      : age === "31-40"
+      ? RUN_31
+      : null;
 
-  if (!thresholds) return null;
+  if (!table) return null;
 
-  for (let i = 0; i < thresholds.length; i++) {
-    if (distance >= thresholds[i]) {
-      return 100 - i;
+  for (let index = 0; index < table.length; index++) {
+    if (distance >= table[index]) {
+      return 100 - index;
     }
   }
 
-  // Jarak di bawah ambang terendah tabel utama
-  // tidak diberikan skor perkiraan.
+  // Tidak mengarang skor di bawah ambang
+  // minimum tabel utama.
   return null;
 }
 
-// ======================================================
-// PUSH-UP
+// =========================================================
+// SAMAPTA B — PULL-UP
 //
-// Usia 21-30:
-// 0-12 kali = 0
-// 13 = 1, 14 = 4, ... 38 = 100
+// Excel mencantumkan:
+// Usia 21–30: 0 s.d. 52 repetisi.
+// Usia 31–40: 2 s.d. 14 repetisi.
 //
-// Usia 31-40:
-// 12 = 1, 13 = 4, ... 37 = 100
-// ======================================================
+// Nilai di atas batas skor 100 tetap 100.
+// =========================================================
 
-const PUSH_21 = values(`
-0 0 0 0 0 0 0 0 0 0 0 0 0
+const PULL_21 = numbers(`
+0 0 0 1 14 17 21 29 30 43 50 57 64 71 79
+86 93 100
+`);
+
+const PULL_31 = numbers(`
+1 8 17 25 33 42 50 58 67 75 83 92 100
+`);
+
+// =========================================================
+// SAMAPTA B — PUSH-UP
+//
+// Usia 21–30:
+// Excel mencantumkan 0 untuk 2–12 repetisi,
+// kemudian 13 = 1 sampai 38 = 100.
+// 39–100 juga mempunyai nilai 100.
+//
+// Usia 31–40:
+// 12 = 1 sampai 37 = 100.
+// =========================================================
+
+const PUSH_21 = numbers(`
+0 0 0 0 0 0 0 0 0 0 0
 1 4 8 12 16 20 24 28 32 36 40 44 48
 52 56 60 64 68 72 76 80 84 88 92 96 100
 `);
 
-const PUSH_31 = values(`
+const PUSH_31 = numbers(`
 1 4 8 12 16 20 24 28 32 36 40 44 48
 52 56 60 64 68 72 76 80 84 88 92 96 100
 `);
 
-// ======================================================
-// SIT-UP
+// =========================================================
+// SAMAPTA B — SIT-UP
 //
-// Usia 21-30:
-// 0-11 kali = 0
-// 12 = 1, ... 25 = 39, ... 45 = 100
+// Usia 21–30:
+// Excel mencantumkan 0 untuk 2–11 repetisi,
+// kemudian 12 = 1 sampai 45 = 100.
 //
-// Usia 31-40:
-// 10 = 1, ... 25 = 47, ... 42 = 100
-// ======================================================
+// Usia 31–40:
+// 10 = 1 sampai 42 = 100.
+// =========================================================
 
-const SIT_21 = values(`
-0 0 0 0 0 0 0 0 0 0 0 0
+const SIT_21 = numbers(`
+0 0 0 0 0 0 0 0 0 0
 1 3 6 9 12 15 18 21 24 27 30 33 36 39
-42 45 48 51 54 58 61 64 67 70 73 76 79
-82 85 88 91 94 97 100
+42 45 48 51 54 58 61 64 67 70 73 76
+79 82 85 88 91 94 97 100
 `);
 
-const SIT_31 = values(`
+const SIT_31 = numbers(`
 1 3 6 9 12 16 19 22 25 28 31 34 37
 41 44 47 50 53 56 59 62 66 69 72 75
 79 81 84 87 91 94 97 100
-`);
-
-// ======================================================
-// PULL-UP
-//
-// Usia 21-30:
-// 0-17 repetisi, selanjutnya skor 100.
-//
-// Usia 31-40:
-// 2-14 repetisi, selanjutnya skor 100.
-// Excel mencantumkan 0-1 = 0.
-// ======================================================
-
-const PULL_21 = values(`
-0 0 0 1 14 17 21 29 30 43 50 57 64
-71 79 86 93 100
-`);
-
-const PULL_31 = values(`
-1 8 17 25 33 42 50 58 67 75 83 92 100
 `);
 
 function repetitionScore(type, count, age) {
@@ -180,75 +215,78 @@ function repetitionScore(type, count, age) {
 
   if (age === "21-30") {
     if (type === "pull") {
-      return count >= 17 ? 100 : PULL_21[count];
+      if (count >= 17) return 100;
+      return PULL_21[count] ?? null;
     }
 
     if (type === "push") {
-      return count >= 38 ? 100 : PUSH_21[count];
+      if (count >= 38) return 100;
+      if (count < 2) return null;
+      return PUSH_21[count - 2] ?? null;
     }
 
     if (type === "sit") {
-      return count >= 45 ? 100 : SIT_21[count];
+      if (count >= 45) return 100;
+      if (count < 2) return null;
+      return SIT_21[count - 2] ?? null;
     }
   }
 
   if (age === "31-40") {
     if (type === "pull") {
-      if (count <= 1) return 0;
-      return count >= 14
-        ? 100
-        : PULL_31[count - 2];
+      if (count >= 14) return 100;
+      if (count < 2) return null;
+      return PULL_31[count - 2] ?? null;
     }
 
     if (type === "push") {
       if (count >= 37) return 100;
-
-      // Batas bawah operasional aplikasi:
-      // di bawah entri terendah pada tabel = 0.
-      if (count < 12) return 0;
-
-      return PUSH_31[count - 12];
+      if (count < 12) return null;
+      return PUSH_31[count - 12] ?? null;
     }
 
     if (type === "sit") {
       if (count >= 42) return 100;
-
-      // Batas bawah operasional aplikasi:
-      // di bawah entri terendah pada tabel = 0.
-      if (count < 10) return 0;
-
-      return SIT_31[count - 10];
+      if (count < 10) return null;
+      return SIT_31[count - 10] ?? null;
     }
   }
 
   return null;
 }
 
-// ======================================================
-// SHUTTLE RUN
+// =========================================================
+// SAMAPTA B — SHUTTLE RUN
 //
-// Usia 21-30: mulai 13,0 detik.
-// Usia 31-40: mulai 16,4 detik.
+// Setiap posisi array adalah hasil pada interval
+// tepat 0,1 detik.
 //
-// Nilai diambil menurut langkah 0,1 detik.
-// ======================================================
+// Usia 21–30:
+// 13,0–21,4 detik.
+//
+// Usia 31–40:
+// 16,4–20,9 detik.
+// Terdapat juga entri 30,0 detik = skor 1.
+// =========================================================
 
-const SHUTTLE_21 = values(`
+const SHUTTLE_21 = numbers(`
 100 100 100 100 100 100 100 100 100 100
 100 100 100 100 100 100 100 100 100 100
 100 100 100 100 100 100 100 100 100 99
-97 97 94 92 90 88 86 84 82 79 77 75
-73 71 69 67 65 62 60 58 56 52 50 48
-45 45 41 40 37 35 33 31 28 26 24 22
-20 18 16 14 11 9 7 5 3 1 0 0 0 0
+97 97 94 92 90 88 86 84 82 79
+77 75 73 71 69 67 65 62 60 58
+56 52 50 48 45 45 41 40 37 35
+33 31 28 26 24 22 20 18 16 14
+11 9 7 5 3 1 0 0 0 0
 0 0 0 0 0 0
 `);
 
-const SHUTTLE_31 = values(`
-100 99 96 94 92 90 88 86 83 81 79 77
-75 73 70 68 66 64 62 59 57 55 53 51
-49 46 44 42 40 38 36 33 31 29 27 25
-23 20 18 16 14 12 10 7 5 3 1
+const SHUTTLE_31 = numbers(`
+100 99 96 94 92 90 88 86 83 81
+79 77 75 73 70 68 66 64 62 59
+57 55 53 51 49 46 44 42 40 38
+36 33 31 29 27 25 23 20 18 16
+14 12 10 7 5 3
 `);
 
 function shuttleScore(seconds, age) {
@@ -263,47 +301,64 @@ function shuttleScore(seconds, age) {
   const tenths = Math.round(seconds * 10);
 
   if (
-    Math.abs(seconds * 10 - tenths) >
-    0.000001
+    Math.abs(seconds * 10 - tenths) > 0.000001
   ) {
     return null;
   }
 
   if (age === "21-30") {
     if (tenths < 130) return 100;
-
-    const index = tenths - 130;
-
-    if (index >= 0 && index < SHUTTLE_21.length) {
-      return SHUTTLE_21[index];
-    }
-
-    // Batas terakhir yang tercantum bernilai 0.
-    if (index >= SHUTTLE_21.length) return 0;
+    return SHUTTLE_21[tenths - 130] ?? null;
   }
 
   if (age === "31-40") {
     if (tenths < 164) return 100;
-
-    const index = tenths - 164;
-
-    if (index >= 0 && index < SHUTTLE_31.length) {
-      return SHUTTLE_31[index];
-    }
-
-    // Baris khusus Excel mencantumkan 30 detik = 1.
     if (tenths === 300) return 1;
-
-    // Rentang yang tidak ada pada tabel tidak ditebak.
-    return null;
+    return SHUTTLE_31[tenths - 164] ?? null;
   }
 
   return null;
 }
 
-// ======================================================
+// =========================================================
+// VALIDASI TABEL KONVERSI
+// =========================================================
+
+function validateReference() {
+  const tests = [
+    [RUN_21.length, 89],
+    [RUN_31.length, 89],
+    [PULL_21.length, 18],
+    [PULL_31.length, 13],
+    [PUSH_21.length, 37],
+    [PUSH_31.length, 26],
+    [SIT_21.length, 44],
+    [SIT_31.length, 33],
+    [SHUTTLE_21.length, 86],
+    [SHUTTLE_31.length, 46],
+
+    [runScore(1850, "21-30"), 23],
+    [runScore(1800, "21-30"), 21],
+    [runScore(2600, "21-30"), 60],
+
+    [repetitionScore("pull", 10, "21-30"), 50],
+    [repetitionScore("push", 10, "21-30"), 0],
+    [repetitionScore("push", 30, "21-30"), 68],
+    [repetitionScore("sit", 10, "21-30"), 0],
+    [repetitionScore("sit", 25, "21-30"), 39],
+
+    [shuttleScore(15, "21-30"), 100],
+    [shuttleScore(20, "21-30"), 11],
+  ];
+
+  return tests.every(
+    ([actual, expected]) => actual === expected
+  );
+}
+
+// =========================================================
 // HELPER
-// ======================================================
+// =========================================================
 
 function todayWITA() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -333,7 +388,7 @@ function blankForm() {
   };
 }
 
-function numeric(value) {
+function num(value) {
   if (value === "" || value == null) return null;
 
   const number = Number(value);
@@ -341,7 +396,7 @@ function numeric(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-function scoreText(value) {
+function fmt(value) {
   if (
     value === null ||
     value === undefined ||
@@ -366,16 +421,6 @@ function dateText(value) {
     : String(value);
 }
 
-function normalizeRole(value) {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function getParticipant(program) {
-  return Array.isArray(program?.peserta)
-    ? program.peserta[0]
-    : program?.peserta;
-}
-
 function rating(value) {
   if (value == null) return "Belum tersedia";
   if (value >= 81) return "Baik Sekali";
@@ -386,9 +431,15 @@ function rating(value) {
   return "Nilai 0";
 }
 
+function participantOf(program) {
+  return Array.isArray(program?.peserta)
+    ? program.peserta[0]
+    : program?.peserta;
+}
+
 function calculate(form) {
-  const laps = numeric(form.laps);
-  const extra = numeric(form.extra);
+  const laps = num(form.laps);
+  const extra = num(form.extra);
 
   const distance =
     Number.isInteger(laps) &&
@@ -401,10 +452,10 @@ function calculate(form) {
 
   const raw = {
     lari: distance,
-    pull: numeric(form.pull),
-    push: numeric(form.push),
-    sit: numeric(form.sit),
-    shuttle: numeric(form.shuttle),
+    pull: num(form.pull),
+    push: num(form.push),
+    sit: num(form.sit),
+    shuttle: num(form.shuttle),
   };
 
   const scores = {
@@ -422,30 +473,32 @@ function calculate(form) {
     scores.shuttle,
   ];
 
-  const b = bParts.every((value) => value != null)
+  const b = bParts.every((value) => value !== null)
     ? bParts.reduce((sum, value) => sum + value, 0) / 4
     : null;
 
   const final =
-    scores.lari != null && b != null
+    scores.lari !== null && b !== null
       ? (scores.lari + b) / 2
       : null;
-
-  const outcome =
-    distance == null
-      ? "pending"
-      : distance >= 2600
-      ? "pass"
-      : "fail";
 
   return {
     raw,
     scores,
     b,
     final,
-    outcome,
+    outcome:
+      distance === null
+        ? "pending"
+        : distance >= 2600
+        ? "pass"
+        : "fail",
   };
 }
+
+// =========================================================
+// KOMPONEN
+// =========================================================
 
 function Field({
   label,
@@ -462,14 +515,16 @@ function Field({
       <input
         className="sa-field"
         type="number"
-        inputMode="decimal"
         min="0"
         max={max}
         step={step}
+        inputMode="decimal"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
         required
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
       />
     </label>
   );
@@ -480,59 +535,96 @@ function ScoreRow({ label, value }) {
     <div className="sa-score-row">
       <span>{label}</span>
 
-      <strong className={value == null ? "missing" : ""}>
-        {value == null
+      <strong>
+        {value === null
           ? "Belum ada konversi"
-          : scoreText(value)}
+          : fmt(value)}
       </strong>
     </div>
   );
 }
 
-function buildHistory(records) {
-  const byDate = new Map();
+function HistoryItem({ test, record }) {
+  return (
+    <div className="sa-history-item">
+      <span>{test.name}</span>
+
+      <strong>
+        {record?.result_value == null
+          ? "Belum tercatat"
+          : `${record.result_value} ${
+              record.result_unit || test.unit
+            } · Skor ${
+              record.score == null ? "—" : record.score
+            }`}
+      </strong>
+    </div>
+  );
+}
+
+// =========================================================
+// PENGELOMPOKAN RIWAYAT
+// =========================================================
+
+function groupHistory(records) {
+  const dates = new Map();
 
   records.forEach((record) => {
-    const date = String(record.test_date).slice(0, 10);
+    const date = String(
+      record.test_date || ""
+    ).slice(0, 10);
 
-    if (!byDate.has(date)) {
-      byDate.set(date, []);
+    if (!date) return;
+
+    if (!dates.has(date)) {
+      dates.set(date, []);
     }
 
-    byDate.get(date).push(record);
+    dates.get(date).push(record);
   });
 
-  return [...byDate.entries()]
+  return [...dates.entries()]
     .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([date, items]) => {
       const byType = new Map();
 
-      items.forEach((item) => {
-        if (!byType.has(item.test_type)) {
-          byType.set(item.test_type, item);
+      items.forEach((record) => {
+        if (!byType.has(record.test_type)) {
+          byType.set(record.test_type, record);
         }
       });
 
-      const run = byType.get("Lari 12 Menit");
+      const get = (name) => byType.get(name);
+
+      const run = get("Lari 12 Menit");
 
       const a =
-        run?.score == null ? null : Number(run.score);
+        run?.score == null
+          ? null
+          : Number(run.score);
 
-      const bParts = TESTS.slice(1).map((test) => {
-        const value = byType.get(test.name)?.score;
+      const bValues = TESTS.slice(1).map((test) => {
+        const value = get(test.name)?.score;
 
-        return value == null ? null : Number(value);
+        return value == null
+          ? null
+          : Number(value);
       });
 
-      const b = bParts.every(
+      const b = bValues.every(
         (value) =>
           value !== null && Number.isFinite(value)
       )
-        ? bParts.reduce((sum, value) => sum + value, 0) / 4
+        ? bValues.reduce(
+            (sum, value) => sum + value,
+            0
+          ) / 4
         : null;
 
       const final =
-        a !== null && Number.isFinite(a) && b !== null
+        a !== null &&
+        Number.isFinite(a) &&
+        b !== null
           ? (a + b) / 2
           : null;
 
@@ -541,22 +633,23 @@ function buildHistory(records) {
           ? null
           : Number(run.result_value);
 
-      const complete =
-        TESTS.every((test) => byType.has(test.name)) &&
-        a !== null &&
-        b !== null;
-
       return {
         date,
         items,
         byType,
-        distance,
         a,
         b,
         final,
-        complete,
+        distance,
+        complete:
+          TESTS.every((test) =>
+            byType.has(test.name)
+          ) &&
+          Number.isFinite(a) &&
+          b !== null &&
+          items.length === TESTS.length,
         outcome:
-          distance == null
+          distance === null
             ? "pending"
             : distance >= 2600
             ? "pass"
@@ -565,9 +658,9 @@ function buildHistory(records) {
     });
 }
 
-// ======================================================
+// =========================================================
 // HALAMAN UTAMA
-// ======================================================
+// =========================================================
 
 export default function MonitoringSamapta() {
   const router = useRouter();
@@ -584,6 +677,7 @@ export default function MonitoringSamapta() {
   const [records, setRecords] = useState([]);
 
   const [form, setForm] = useState(blankForm);
+
   const [editDate, setEditDate] = useState(null);
 
   const [loading, setLoading] = useState(true);
@@ -593,10 +687,20 @@ export default function MonitoringSamapta() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const calc = useMemo(() => calculate(form), [form]);
+  const calc = useMemo(
+    () => calculate(form),
+    [form]
+  );
 
-  const participant = getParticipant(program);
-  const name = participant?.full_name || "Peserta OJT";
+  const referenceValid = useMemo(
+    () => validateReference(),
+    []
+  );
+
+  const participant = participantOf(program);
+
+  const name =
+    participant?.full_name || "Peserta OJT";
 
   const initials = name
     .split(/\s+/)
@@ -607,7 +711,7 @@ export default function MonitoringSamapta() {
     .toUpperCase();
 
   const groups = useMemo(
-    () => buildHistory(records),
+    () => groupHistory(records),
     [records]
   );
 
@@ -619,7 +723,10 @@ export default function MonitoringSamapta() {
   }
 
   async function fetchRecords(id) {
-    const { data, error: fetchError } = await supabase
+    const {
+      data,
+      error: fetchError,
+    } = await supabase
       .from("samapta_records")
       .select(
         "id,program_id,test_date,test_type,result_value,result_unit,score,notes,outcome"
@@ -635,19 +742,20 @@ export default function MonitoringSamapta() {
   }
 
   async function reload() {
-    const data = await fetchRecords(programId);
-    setRecords(data);
+    const latest = await fetchRecords(programId);
+    setRecords(latest);
   }
 
-  // ====================================================
-  // LOAD DAN VERIFIKASI MENTOR
-  // ====================================================
+  // =====================================================
+  // VERIFIKASI MENTOR
+  // =====================================================
 
   useEffect(() => {
     if (!programId) return;
 
     let active = true;
-    const requestId = ++requestRef.current;
+
+    const requestNumber = ++requestRef.current;
 
     async function initialize() {
       setLoading(true);
@@ -682,8 +790,8 @@ export default function MonitoringSamapta() {
         if (profileError) throw profileError;
 
         if (
-          !profile ||
-          normalizeRole(profile.role) !== "mentor"
+          String(profile?.role || "").toLowerCase() !==
+          "mentor"
         ) {
           router.replace("/dashboard-peserta");
           return;
@@ -715,13 +823,16 @@ export default function MonitoringSamapta() {
 
         if (!programData) {
           throw new Error(
-            "Program tidak ditemukan atau bukan binaan Mentor ini."
+            "Program tidak ditemukan atau bukan binaan Mentor."
           );
         }
 
-        if (programData.status !== "active") {
+        if (
+          String(programData.status).toLowerCase() !==
+          "active"
+        ) {
           throw new Error(
-            "Program OJT sudah tidak aktif."
+            "Program OJT tidak aktif."
           );
         }
 
@@ -729,7 +840,7 @@ export default function MonitoringSamapta() {
 
         if (
           !active ||
-          requestId !== requestRef.current
+          requestNumber !== requestRef.current
         ) {
           return;
         }
@@ -740,16 +851,16 @@ export default function MonitoringSamapta() {
       } catch (err) {
         if (
           active &&
-          requestId === requestRef.current
+          requestNumber === requestRef.current
         ) {
           setError(
-            err?.message || "Gagal memuat Samapta."
+            err?.message || "Gagal memuat data Samapta."
           );
         }
       } finally {
         if (
           active &&
-          requestId === requestRef.current
+          requestNumber === requestRef.current
         ) {
           setLoading(false);
         }
@@ -762,8 +873,6 @@ export default function MonitoringSamapta() {
       active = false;
       requestRef.current += 1;
     };
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programId, router]);
 
   function reset() {
@@ -772,9 +881,9 @@ export default function MonitoringSamapta() {
     setError("");
   }
 
-  // ====================================================
-  // SIMPAN
-  // ====================================================
+  // =====================================================
+  // SIMPAN SAMAPTA A DAN B
+  // =====================================================
 
   async function save(event) {
     event.preventDefault();
@@ -792,7 +901,19 @@ export default function MonitoringSamapta() {
     setError("");
     setNotice("");
 
-    const { raw, scores, outcome } = calc;
+    if (!referenceValid) {
+      setError(
+        "Pemeriksaan internal tabel konversi gagal. " +
+        "Penilaian belum dapat disimpan."
+      );
+      return;
+    }
+
+    const {
+      raw,
+      scores,
+      outcome,
+    } = calc;
 
     const invalidRepetitions = [
       raw.pull,
@@ -810,7 +931,7 @@ export default function MonitoringSamapta() {
       raw.shuttle <= 0 ||
       Math.abs(
         raw.shuttle * 10 -
-        Math.round(raw.shuttle * 10)
+          Math.round(raw.shuttle * 10)
       ) > 0.000001;
 
     if (
@@ -821,28 +942,27 @@ export default function MonitoringSamapta() {
     ) {
       setError(
         "Periksa tanggal, putaran, tambahan jarak, " +
-        "repetisi, dan Shuttle Run (1 desimal)."
+        "repetisi, dan waktu Shuttle Run (1 desimal)."
       );
       return;
     }
 
     const missing = TESTS.filter(
-      (test) => scores[test.key] == null
+      (test) => scores[test.key] === null
     );
 
-    if (missing.length > 0) {
+    if (missing.length) {
       setError(
-        "Konversi belum tersedia pada tabel referensi untuk: " +
+        "Konversi belum tercantum pada tabel Excel untuk: " +
         missing.map((test) => test.name).join(", ") +
-        ". Periksa input dan kelompok usia. " +
-        "Data belum disimpan."
+        ". Data belum disimpan agar skor tidak ditebak."
       );
       return;
     }
 
     if (editDate && editDate !== form.date) {
       setError(
-        "Tanggal tidak boleh diubah saat mengedit."
+        "Tanggal penilaian tidak boleh diubah saat mengedit."
       );
       return;
     }
@@ -853,9 +973,9 @@ export default function MonitoringSamapta() {
         form.date
     );
 
-    if (!editDate && existing.length > 0) {
+    if (!editDate && existing.length) {
       setError(
-        "Tanggal tersebut sudah memiliki data. " +
+        "Tanggal tersebut sudah memiliki penilaian. " +
         "Gunakan Edit pada riwayat."
       );
       return;
@@ -864,7 +984,8 @@ export default function MonitoringSamapta() {
     const invalidExisting = existing.some(
       (record) =>
         !TESTS.some(
-          (test) => test.name === record.test_type
+          (test) =>
+            test.name === record.test_type
         )
     );
 
@@ -875,8 +996,8 @@ export default function MonitoringSamapta() {
 
     if (invalidExisting || duplicateExisting) {
       setError(
-        "Riwayat pada tanggal ini memiliki jenis tes " +
-        "tidak dikenal atau duplikat. Periksa sebelum menyimpan."
+        "Terdapat jenis tes tidak dikenal atau duplikat. " +
+        "Periksa riwayat sebelum menyimpan."
       );
       return;
     }
@@ -895,7 +1016,9 @@ export default function MonitoringSamapta() {
       result_unit: test.unit,
       score: scores[test.key],
       outcome:
-        test.key === "lari" ? outcome : "pending",
+        test.key === "lari"
+          ? outcome
+          : "pending",
       notes:
         test.key === "lari"
           ? `USIA=${form.age}; PUTARAN=${form.laps}; TAMBAHAN=${form.extra}; ${form.notes.trim()}`
@@ -920,14 +1043,12 @@ export default function MonitoringSamapta() {
 
       if (!activeProgram) {
         throw new Error(
-          "Program tidak aktif atau akses Mentor berubah."
+          "Program sudah tidak aktif atau akses Mentor berubah."
         );
       }
 
       for (const payload of payloads) {
-        const old = oldByType.get(
-          payload.test_type
-        );
+        const old = oldByType.get(payload.test_type);
 
         const result = old
           ? await supabase
@@ -946,11 +1067,13 @@ export default function MonitoringSamapta() {
               })
               .select("id");
 
-        if (result.error) throw result.error;
+        if (result.error) {
+          throw result.error;
+        }
 
         if (!result.data?.length) {
           throw new Error(
-            `Gagal menyimpan ${payload.test_type}`
+            `Gagal menyimpan ${payload.test_type}.`
           );
         }
       }
@@ -959,8 +1082,7 @@ export default function MonitoringSamapta() {
       reset();
 
       setNotice(
-        "Samapta A dan seluruh komponen Samapta B " +
-        "berhasil disimpan."
+        "Seluruh lima komponen Samapta A dan B berhasil disimpan."
       );
     } catch (err) {
       setError(
@@ -972,21 +1094,22 @@ export default function MonitoringSamapta() {
       try {
         await reload();
       } catch {
-        // Pertahankan pesan kesalahan utama.
+        // Pertahankan pesan utama.
       }
     } finally {
       setSaving(false);
     }
   }
 
-  // ====================================================
-  // EDIT
-  // ====================================================
+  // =====================================================
+  // EDIT PENILAIAN
+  // =====================================================
 
   function edit(group) {
     if (saving || busy || !program) return;
 
-    const get = (name) => group.byType.get(name);
+    const get = (type) =>
+      group.byType.get(type);
 
     const run = get("Lari 12 Menit");
 
@@ -998,43 +1121,54 @@ export default function MonitoringSamapta() {
     const saved = String(run?.notes || "");
 
     const age =
-      saved.match(/USIA=(21-30|31-40)/)?.[1] ||
-      "21-30";
+      saved.match(
+        /USIA=(21-30|31-40)/
+      )?.[1] || "21-30";
 
-    const laps = saved.match(
-      /PUTARAN=(\d+)/
-    )?.[1];
+    const laps =
+      saved.match(
+        /PUTARAN=(\d+)/
+      )?.[1];
 
-    const extra = saved.match(
-      /TAMBAHAN=(\d+)/
-    )?.[1];
+    const extra =
+      saved.match(
+        /TAMBAHAN=(\d+)/
+      )?.[1];
 
     setForm({
       date: group.date,
       age,
+
       laps:
         laps ??
         (distance == null
           ? ""
           : String(Math.floor(distance / 400))),
+
       extra:
         extra ??
         (distance == null
           ? ""
           : String(distance % 400)),
+
       pull:
         get("Pull-Up")?.result_value?.toString() ??
         "",
+
       push:
         get("Push-Up")?.result_value?.toString() ??
         "",
+
       sit:
         get("Sit-Up")?.result_value?.toString() ??
         "",
+
       shuttle:
         get("Shuttle Run")?.result_value?.toString() ??
         "",
-      notes: get("Push-Up")?.notes || "",
+
+      notes:
+        get("Push-Up")?.notes || "",
     });
 
     setEditDate(group.date);
@@ -1049,9 +1183,9 @@ export default function MonitoringSamapta() {
       });
   }
 
-  // ====================================================
-  // HAPUS
-  // ====================================================
+  // =====================================================
+  // HAPUS PENILAIAN
+  // =====================================================
 
   async function remove(group) {
     if (
@@ -1064,14 +1198,12 @@ export default function MonitoringSamapta() {
       return;
     }
 
-    if (
-      !window.confirm(
-        `Hapus penilaian Samapta tanggal ` +
-        `${dateText(group.date)} untuk ${name}?`
-      )
-    ) {
-      return;
-    }
+    const confirmed = window.confirm(
+      `Hapus seluruh hasil Samapta tanggal ` +
+      `${dateText(group.date)} untuk ${name}?`
+    );
+
+    if (!confirmed) return;
 
     setBusy(true);
     setError("");
@@ -1079,7 +1211,7 @@ export default function MonitoringSamapta() {
 
     try {
       const ids = group.items.map(
-        (record) => record.id
+        (item) => item.id
       );
 
       const {
@@ -1102,23 +1234,26 @@ export default function MonitoringSamapta() {
 
       await reload();
 
-      if (editDate === group.date) reset();
+      if (editDate === group.date) {
+        reset();
+      }
 
       setNotice(
-        "Seluruh penilaian pada tanggal tersebut berhasil dihapus."
+        "Seluruh penilaian tanggal tersebut berhasil dihapus."
       );
     } catch (err) {
       setError(
-        err?.message || "Gagal menghapus penilaian."
+        err?.message ||
+          "Gagal menghapus penilaian."
       );
     } finally {
       setBusy(false);
     }
   }
 
-  // ====================================================
+  // =====================================================
   // TAMPILAN
-  // ====================================================
+  // =====================================================
 
   return (
     <main className="sa-root">
@@ -1171,7 +1306,7 @@ export default function MonitoringSamapta() {
           </section>
         ) : (
           <>
-            {/* IDENTITAS */}
+            {/* IDENTITAS PESERTA */}
 
             <section className="sa-card">
               <div className="sa-identity">
@@ -1201,11 +1336,17 @@ export default function MonitoringSamapta() {
               </div>
 
               <div className="sa-lock">
-                Penilaian dilakukan Mentor untuk
-                peserta binaannya dan mengikuti
-                kebijakan akses Supabase.
+                Penilaian hanya dapat dilakukan Mentor
+                untuk peserta OJT binaannya.
               </div>
             </section>
+
+            {!referenceValid && (
+              <div className="sa-error">
+                Pemeriksaan tabel referensi gagal.
+                Periksa kode konversi sebelum menyimpan.
+              </div>
+            )}
 
             {error && (
               <div
@@ -1225,18 +1366,24 @@ export default function MonitoringSamapta() {
               </div>
             )}
 
-            {/* FORM */}
+            {/* FORM PENILAIAN */}
 
             <form
               id="samapta-form"
               onSubmit={save}
             >
               <section className="sa-card">
-                <h2>
-                  {editDate
-                    ? "Edit Penilaian Samapta"
-                    : "Data Penilaian Samapta"}
-                </h2>
+                <div className="sa-title">
+                  <span className="sa-title-icon">
+                    📅
+                  </span>
+
+                  <h2>
+                    {editDate
+                      ? "Edit Penilaian Samapta"
+                      : "Data Penilaian Samapta"}
+                  </h2>
+                </div>
 
                 <div className="sa-grid">
                   <label className="sa-field-wrap">
@@ -1248,7 +1395,9 @@ export default function MonitoringSamapta() {
                       className="sa-field"
                       type="date"
                       value={form.date}
-                      disabled={!!editDate || saving}
+                      disabled={
+                        !!editDate || saving
+                      }
                       onChange={(event) =>
                         change(
                           "date",
@@ -1275,7 +1424,7 @@ export default function MonitoringSamapta() {
                         )
                       }
                     >
-                      {AGE_OPTIONS.map((age) => (
+                      {AGES.map((age) => (
                         <option
                           key={age.value}
                           value={age.value}
@@ -1292,12 +1441,20 @@ export default function MonitoringSamapta() {
                 {/* SAMAPTA A */}
 
                 <section className="sa-card">
-                  <h2>
-                    Samapta A — Lari 12 Menit
-                  </h2>
+                  <div className="sa-title">
+                    <span className="sa-title-icon blue">
+                      🏃
+                    </span>
+
+                    <h2>
+                      Samapta A — Lari 12 Menit
+                    </h2>
+                  </div>
 
                   <p className="sa-muted">
-                    Satu putaran = 400 meter.
+                    Masukkan jumlah putaran dan
+                    tambahan jarak. Satu putaran
+                    = 400 meter.
                   </p>
 
                   <div className="sa-grid">
@@ -1325,7 +1482,7 @@ export default function MonitoringSamapta() {
                     <small>Total Jarak</small>
 
                     <strong>
-                      {calc.raw.lari == null
+                      {calc.raw.lari === null
                         ? "—"
                         : `${calc.raw.lari.toLocaleString(
                             "id-ID"
@@ -1339,23 +1496,27 @@ export default function MonitoringSamapta() {
                   />
 
                   <p className="sa-muted">
-                    Batas kelulusan lari tetap
-                    2.600 meter, mengikuti aturan
-                    program sebelumnya.
+                    Target kelulusan lari 12 menit:
+                    minimal 2.600 meter.
                   </p>
                 </section>
 
                 {/* SAMAPTA B */}
 
                 <section className="sa-card">
-                  <h2>
-                    Samapta B — Tes Fisik
-                  </h2>
+                  <div className="sa-title">
+                    <span className="sa-title-icon">
+                      🏋️
+                    </span>
+
+                    <h2>
+                      Samapta B — Tes Fisik
+                    </h2>
+                  </div>
 
                   <p className="sa-muted">
-                    Skor dihitung berdasarkan
-                    {` ${BUCKET_LABEL} `}
-                    sesuai kelompok usia.
+                    Konversi mengikuti tabel Excel
+                    berdasarkan kelompok usia peserta.
                   </p>
 
                   {[
@@ -1367,59 +1528,68 @@ export default function MonitoringSamapta() {
                       "Shuttle Run (detik)",
                       "0.1",
                     ],
-                  ].map(([key, label, step]) => (
-                    <div
-                      className="sa-test-row"
-                      key={key}
-                    >
-                      <span className="sa-test-name">
-                        {label}
-                      </span>
-
-                      <Field
-                        label="Hasil"
-                        value={form[key]}
-                        step={step}
-                        disabled={saving}
-                        onChange={(value) =>
-                          change(key, value)
-                        }
-                      />
-
+                  ].map(
+                    ([key, label, step]) => (
                       <div
-                        className={
-                          calc.scores[key] == null
-                            ? "sa-test-score missing"
-                            : "sa-test-score"
-                        }
+                        className="sa-test-row"
+                        key={key}
                       >
-                        {calc.scores[key] == null
-                          ? "—"
-                          : `Skor ${calc.scores[key]}`}
+                        <span className="sa-test-name">
+                          {label}
+                        </span>
+
+                        <Field
+                          label="Hasil"
+                          value={form[key]}
+                          step={step}
+                          disabled={saving}
+                          onChange={(value) =>
+                            change(key, value)
+                          }
+                        />
+
+                        <span
+                          className={
+                            calc.scores[key] === null
+                              ? "sa-test-score missing"
+                              : "sa-test-score"
+                          }
+                        >
+                          {calc.scores[key] === null
+                            ? "—"
+                            : `Skor ${calc.scores[key]}`}
+                        </span>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  )}
 
                   <p className="sa-muted">
-                    Skor 0 tetap ditampilkan
-                    dan dihitung sebagai nilai sah.
+                    Skor 0 tetap ditampilkan sebagai
+                    nilai sah dan ikut dihitung
+                    dalam Nilai B.
                   </p>
                 </section>
               </div>
 
-              {/* PERHITUNGAN */}
+              {/* RINGKASAN NILAI */}
 
               <section className="sa-card">
-                <h2>
-                  Hasil Perhitungan Otomatis
-                </h2>
+                <div className="sa-title">
+                  <span className="sa-title-icon blue">
+                    📊
+                  </span>
+
+                  <h2>
+                    Hasil Perhitungan Otomatis
+                  </h2>
+                </div>
 
                 <div className="sa-summary">
                   <div className="sa-summary-box">
                     <span>Nilai A</span>
 
                     <strong>
-                      {scoreText(calc.scores.lari)}
+                      {fmt(calc.scores.lari)}
                     </strong>
                   </div>
 
@@ -1427,7 +1597,7 @@ export default function MonitoringSamapta() {
                     <span>Nilai B</span>
 
                     <strong>
-                      {scoreText(calc.b)}
+                      {fmt(calc.b)}
                     </strong>
                   </div>
 
@@ -1435,7 +1605,7 @@ export default function MonitoringSamapta() {
                     <span>Nilai Akhir</span>
 
                     <strong>
-                      {scoreText(calc.final)}
+                      {fmt(calc.final)}
                     </strong>
                   </div>
                 </div>
@@ -1471,13 +1641,13 @@ export default function MonitoringSamapta() {
                 </div>
 
                 <p className="sa-muted">
-                  Nilai B merupakan rata-rata
-                  empat komponen Samapta B.
+                  Nilai B = (Pull-Up + Push-Up +
+                  Sit-Up + Shuttle Run) / 4.
                   Nilai Akhir = (Nilai A + Nilai B) / 2.
                 </p>
               </section>
 
-              {/* SIMPAN */}
+              {/* CATATAN DAN SIMPAN */}
 
               <section className="sa-card">
                 <label className="sa-field-wrap">
@@ -1490,20 +1660,24 @@ export default function MonitoringSamapta() {
                     rows={4}
                     value={form.notes}
                     disabled={saving}
+                    placeholder="Catatan hasil tes fisik..."
                     onChange={(event) =>
                       change(
                         "notes",
                         event.target.value
                       )
                     }
-                    placeholder="Catatan penilaian..."
                   />
                 </label>
 
                 <button
                   type="submit"
                   className="sa-btn"
-                  disabled={saving || busy}
+                  disabled={
+                    saving ||
+                    busy ||
+                    !referenceValid
+                  }
                   style={{ width: "100%" }}
                 >
                   {saving
@@ -1529,10 +1703,9 @@ export default function MonitoringSamapta() {
                 )}
 
                 <p className="sa-muted">
-                  Penyimpanan memerlukan lima
-                  skor yang valid. Skor 0 diterima.
-                  Data yang tidak tercakup referensi
-                  tidak diberikan skor perkiraan.
+                  Penyimpanan hanya dilakukan apabila
+                  seluruh lima komponen memiliki
+                  angka konversi dari referensi.
                 </p>
               </section>
             </form>
@@ -1540,9 +1713,15 @@ export default function MonitoringSamapta() {
             {/* RIWAYAT */}
 
             <section className="sa-card">
-              <h2>
-                Riwayat Penilaian Samapta
-              </h2>
+              <div className="sa-title">
+                <span className="sa-title-icon">
+                  📋
+                </span>
+
+                <h2>
+                  Riwayat Penilaian Samapta
+                </h2>
+              </div>
 
               <p className="sa-muted">
                 {groups.length} tanggal penilaian
@@ -1551,14 +1730,14 @@ export default function MonitoringSamapta() {
 
               {!groups.length && (
                 <div className="sa-empty">
-                  Belum ada hasil tes tersimpan.
+                  Belum ada riwayat Samapta tersimpan.
                 </div>
               )}
 
               {groups.map((group) => (
                 <article
-                  key={group.date}
                   className="sa-history"
+                  key={group.date}
                 >
                   <div className="sa-history-head">
                     <strong>
@@ -1609,7 +1788,7 @@ export default function MonitoringSamapta() {
                       <span>Nilai A</span>
 
                       <strong>
-                        {scoreText(group.a)}
+                        {fmt(group.a)}
                       </strong>
                     </div>
 
@@ -1617,7 +1796,7 @@ export default function MonitoringSamapta() {
                       <span>Nilai B</span>
 
                       <strong>
-                        {scoreText(group.b)}
+                        {fmt(group.b)}
                       </strong>
                     </div>
 
@@ -1625,15 +1804,15 @@ export default function MonitoringSamapta() {
                       <span>Nilai Akhir</span>
 
                       <strong>
-                        {scoreText(group.final)}
+                        {fmt(group.final)}
                       </strong>
                     </div>
                   </div>
 
                   {!group.complete && (
                     <p className="sa-warning">
-                      Sesi belum memiliki
-                      seluruh komponen nilai lengkap.
+                      Sebagian komponen penilaian
+                      belum lengkap.
                     </p>
                   )}
 
@@ -1660,9 +1839,7 @@ export default function MonitoringSamapta() {
                       disabled={saving || busy}
                       onClick={() => remove(group)}
                     >
-                      {busy
-                        ? "Memproses..."
-                        : "Hapus"}
+                      {busy ? "Memproses..." : "Hapus"}
                     </button>
                   </div>
                 </article>
@@ -1672,92 +1849,72 @@ export default function MonitoringSamapta() {
         )}
 
         <footer className="sa-footer">
-          OJT MineTrack v2.0 ·
-          Emergency Response Group · PT Berau Coal
+          OJT MineTrack v2.0 · Emergency Response Group
+          {" · "}PT Berau Coal
         </footer>
       </div>
     </main>
   );
 }
 
-function HistoryItem({ test, record }) {
-  return (
-    <div className="sa-history-item">
-      <span>{test.name}</span>
-
-      <strong>
-        {record?.result_value == null
-          ? "Belum tercatat"
-          : `${record.result_value} ${
-              record.result_unit || test.unit
-            } · Skor ${
-              record.score == null
-                ? "—"
-                : record.score
-            }`}
-      </strong>
-    </div>
-  );
-}
-
-// ======================================================
+// =========================================================
 // CSS
-// ======================================================
+// =========================================================
 
 const styles = `
 .sa-root,
 .sa-root * {
-  box-sizing:border-box;
+  box-sizing: border-box;
 }
 
 .sa-root {
-  min-height:100vh;
-  background:#f2f6f7;
-  color:#19352d;
-  font-family:Arial,Helvetica,sans-serif;
+  min-height: 100vh;
+  background: #f2f6f7;
+  color: #19352d;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 .sa-root button,
 .sa-root input,
 .sa-root select,
 .sa-root textarea {
-  font:inherit;
+  font: inherit;
 }
 
 .sa-topbar {
-  background:#081f27;
-  color:#fff;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  padding:15px 22px;
+  background: #081f27;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 22px;
 }
 
 .sa-brand {
-  font-size:21px;
-  font-weight:900;
+  font-size: 21px;
+  font-weight: 900;
 }
 
 .sa-brand span {
-  color:#2ac58e;
+  color: #2ac58e;
 }
 
 .sa-back {
-  border:1px solid #ffffff30;
-  background:#ffffff16;
-  color:white;
-  border-radius:10px;
-  padding:10px 13px;
-  font-size:12px;
-  font-weight:800;
-  cursor:pointer;
+  background: #ffffff16;
+  color: white;
+  border: 1px solid #ffffff30;
+  border-radius: 10px;
+  padding: 10px 13px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .sa-container {
-  max-width:1100px;
-  margin:auto;
-  padding:22px;
+  max-width: 1100px;
+  margin: auto;
+  padding: 22px;
 }
 
 .sa-hero {
@@ -1769,482 +1926,512 @@ const styles = `
       rgba(5,34,32,.35)
     ),
     url("/background-erg.png.PNG");
-  background-size:cover;
-  background-position:center;
-  color:white;
-  border-radius:18px;
-  padding:30px;
-  margin-bottom:16px;
+  background-size: cover;
+  background-position: center;
+  color: white;
+  border-radius: 18px;
+  padding: 30px;
+  margin-bottom: 16px;
 }
 
 .sa-hero small {
-  color:#efc77b;
-  letter-spacing:1px;
-  font-size:10px;
-  font-weight:800;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #efc77b;
 }
 
 .sa-hero h1 {
-  font-size:30px;
-  margin:14px 0 8px;
+  font-size: 30px;
+  margin: 14px 0 8px;
 }
 
 .sa-hero p {
-  color:#d9e9e1;
-  font-size:13px;
+  font-size: 13px;
+  color: #d9e9e1;
 }
 
 .sa-card {
-  background:white;
-  border:1px solid #e2eae6;
-  border-radius:16px;
-  padding:20px;
-  margin-bottom:16px;
-  box-shadow:0 5px 18px #1235270b;
+  background: white;
+  border: 1px solid #e2eae6;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 5px 18px #1235270b;
 }
 
 .sa-card h2 {
-  margin:0 0 15px;
-  font-size:18px;
+  font-size: 18px;
+  margin: 0;
 }
 
 .sa-card h3 {
-  font-size:14px;
-  color:#087a53;
-  margin:20px 0 10px;
+  font-size: 14px;
+  color: #087a53;
+  margin: 20px 0 10px;
+}
+
+.sa-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.sa-title-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: #e4f7ed;
+  font-size: 20px;
+}
+
+.sa-title-icon.blue {
+  background: #e7f2ff;
 }
 
 .sa-muted {
-  color:#778c80;
-  font-size:12px;
-  line-height:1.7;
+  color: #778c80;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .sa-identity {
-  display:flex;
-  align-items:center;
-  gap:13px;
-  background:#f5fbf7;
-  border:1px solid #dcefe3;
-  border-radius:13px;
-  padding:15px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  background: #f5fbf7;
+  border: 1px solid #dcefe3;
+  border-radius: 13px;
+  padding: 15px;
 }
 
 .sa-avatar {
-  width:52px;
-  height:52px;
-  flex-shrink:0;
-  border-radius:14px;
-  background:#d8f4e5;
-  color:#087d56;
-  display:grid;
-  place-items:center;
-  font-size:18px;
-  font-weight:900;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  background: #d8f4e5;
+  color: #087d56;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 900;
 }
 
 .sa-person {
-  flex:1;
-  min-width:0;
+  flex: 1;
+  min-width: 0;
 }
 
 .sa-person strong {
-  display:block;
-  font-size:16px;
+  display: block;
+  font-size: 16px;
 }
 
 .sa-person small {
-  display:block;
-  font-size:11px;
-  color:#74867b;
-  margin-top:5px;
+  display: block;
+  color: #74867b;
+  font-size: 11px;
+  margin-top: 5px;
 }
 
 .sa-active {
-  background:#dff7e8;
-  color:#087d4e;
-  border-radius:20px;
-  padding:7px 11px;
-  font-size:11px;
-  font-weight:800;
+  background: #dff7e8;
+  color: #087d4e;
+  border-radius: 20px;
+  padding: 7px 11px;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .sa-lock {
-  background:#effaf3;
-  border:1px solid #d3ebdb;
-  border-radius:11px;
-  padding:12px;
-  margin-top:13px;
-  color:#137a55;
-  font-size:12px;
+  margin-top: 13px;
+  padding: 12px;
+  background: #effaf3;
+  border: 1px solid #d3ebdb;
+  border-radius: 11px;
+  color: #137a55;
+  font-size: 12px;
 }
 
 .sa-grid {
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:15px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
 }
 
 .sa-field-wrap {
-  display:block;
-  margin-bottom:16px;
-  min-width:0;
+  display: block;
+  min-width: 0;
+  margin-bottom: 16px;
 }
 
 .sa-label {
-  display:block;
-  color:#365247;
-  font-size:12px;
-  font-weight:800;
-  margin-bottom:8px;
+  display: block;
+  color: #365247;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 8px;
 }
 
 .sa-field {
-  width:100%;
-  background:white;
-  color:#193b2d;
-  border:1px solid #d7e4dd;
-  border-radius:10px;
-  padding:12px;
-  font-size:16px;
+  width: 100%;
+  background: white;
+  color: #193b2d;
+  border: 1px solid #d7e4dd;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 16px;
 }
 
 .sa-field:disabled {
-  background:#f0f4f1;
-  opacity:.7;
+  background: #edf2ef;
+  opacity: .8;
 }
 
 .sa-result {
-  background:#effaf4;
-  border:1px solid #d6ebdf;
-  border-radius:12px;
-  padding:15px;
-  margin-bottom:14px;
+  background: #effaf4;
+  border: 1px solid #d6ebdf;
+  border-radius: 12px;
+  padding: 15px;
+  margin-bottom: 14px;
 }
 
 .sa-result small {
-  display:block;
-  color:#718a7a;
+  display: block;
+  color: #718a7a;
+  font-size: 11px;
 }
 
 .sa-result strong {
-  display:block;
-  color:#087a53;
-  font-size:25px;
-  margin-top:7px;
+  display: block;
+  color: #087a53;
+  font-size: 25px;
+  margin-top: 7px;
 }
 
-.sa-score-row,
-.sa-history-item {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  padding:12px 0;
-  border-bottom:1px solid #e8efeb;
-  font-size:12px;
+.sa-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #e8efeb;
+  padding: 13px 0;
+  font-size: 12px;
 }
 
-.sa-score-row strong,
-.sa-history-item strong {
-  text-align:right;
-  color:#087b56;
-}
-
-.sa-score-row strong.missing {
-  color:#ae752f;
+.sa-score-row strong {
+  color: #087b56;
 }
 
 .sa-test-row {
-  display:grid;
-  grid-template-columns:minmax(0,1fr) 110px 100px;
-  gap:10px;
-  align-items:center;
-  border-bottom:1px solid #ecf0ed;
-  padding:12px 0;
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 110px 100px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #ecf0ed;
 }
 
 .sa-test-row .sa-field-wrap {
-  margin:0;
+  margin: 0;
 }
 
 .sa-test-name {
-  font-size:12px;
-  font-weight:800;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .sa-test-score {
-  background:#e9f8ef;
-  color:#11805a;
-  padding:12px 6px;
-  border-radius:9px;
-  text-align:center;
-  font-size:12px;
-  font-weight:800;
+  background: #e9f8ef;
+  color: #11805a;
+  padding: 12px 6px;
+  text-align: center;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .sa-test-score.missing {
-  background:#f4f1ec;
-  color:#9c7043;
+  background: #f4f1ec;
+  color: #9c7043;
 }
 
 .sa-summary {
-  display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:11px;
-  margin:16px 0;
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 11px;
+  margin: 16px 0;
 }
 
 .sa-summary-box {
-  background:#f7faf8;
-  border:1px solid #e5ece8;
-  border-radius:12px;
-  padding:17px 10px;
-  text-align:center;
+  background: #f7faf8;
+  border: 1px solid #e5ece8;
+  border-radius: 12px;
+  padding: 17px 10px;
+  text-align: center;
 }
 
 .sa-summary-box span {
-  display:block;
-  color:#778b7e;
-  font-size:11px;
+  display: block;
+  color: #778b7e;
+  font-size: 11px;
 }
 
 .sa-summary-box strong {
-  display:block;
-  color:#174132;
-  font-size:24px;
-  margin-top:8px;
+  display: block;
+  color: #174132;
+  font-size: 24px;
+  margin-top: 8px;
 }
 
 .sa-status-grid {
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 .sa-status {
-  background:#f8faf9;
-  border:1px solid #e8efea;
-  border-radius:11px;
-  padding:14px;
-  font-size:12px;
+  background: #f8faf9;
+  border: 1px solid #e8efea;
+  border-radius: 11px;
+  padding: 14px;
+  font-size: 12px;
 }
 
 .sa-status strong {
-  display:block;
-  margin-top:7px;
-  font-size:16px;
-  color:#087851;
-}
-
-.sa-status strong.pass-text {
-  color:#087851;
+  display: block;
+  margin-top: 7px;
+  font-size: 16px;
+  color: #087851;
 }
 
 .sa-status strong.fail-text {
-  color:#b91c1c;
+  color: #b91c1c;
 }
 
 .sa-btn {
-  border:0;
-  border-radius:11px;
-  background:#0f9064;
-  color:white;
-  font-size:13px;
-  font-weight:800;
-  padding:13px 17px;
-  cursor:pointer;
-  display:inline-flex;
-  justify-content:center;
-  align-items:center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 11px;
+  background: #0f9064;
+  color: white;
+  padding: 13px 17px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .sa-btn:disabled {
-  opacity:.55;
-  cursor:not-allowed;
-}
-
-.sa-btn.blue {
-  background:#347dca;
-}
-
-.sa-btn.red {
-  background:#d33d43;
+  opacity: .55;
+  cursor: not-allowed;
 }
 
 .sa-btn.gray {
-  background:#64748b;
+  background: #64748b;
+}
+
+.sa-btn.blue {
+  background: #347dca;
+}
+
+.sa-btn.red {
+  background: #d33d43;
 }
 
 .sa-history {
-  border:1px solid #e3eae6;
-  border-radius:13px;
-  padding:16px;
-  margin-bottom:12px;
+  border: 1px solid #e3eae6;
+  border-radius: 13px;
+  padding: 16px;
+  margin-bottom: 12px;
 }
 
 .sa-history-head {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.sa-history-head > strong {
-  font-size:15px;
+.sa-history-head strong {
+  font-size: 15px;
 }
 
 .sa-badge {
-  border-radius:20px;
-  padding:7px 10px;
-  font-size:11px;
-  font-weight:800;
-  background:#eef3f0;
-  color:#61766a;
+  border-radius: 20px;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  background: #eef3f0;
+  color: #61766a;
 }
 
 .sa-badge.pass {
-  background:#ddf7e7;
-  color:#087a52;
+  background: #ddf7e7;
+  color: #087a52;
 }
 
 .sa-badge.fail {
-  background:#fee2e2;
-  color:#b91c1c;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.sa-history-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #edf1ee;
+  padding: 11px 0;
+  font-size: 12px;
+}
+
+.sa-history-item strong {
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .sa-actions {
-  display:flex;
-  flex-wrap:wrap;
-  gap:9px;
-  margin-top:15px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 15px;
 }
 
 .sa-error,
 .sa-success,
 .sa-warning {
-  border-radius:11px;
-  padding:14px;
-  margin:12px 0;
-  font-size:12px;
-  line-height:1.7;
-  overflow-wrap:anywhere;
+  padding: 14px;
+  margin: 12px 0;
+  border-radius: 11px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .sa-error {
-  background:#fff1f2;
-  color:#b91c1c;
-  border:1px solid #fecdd3;
+  background: #fff1f2;
+  color: #b91c1c;
+  border: 1px solid #fecdd3;
 }
 
 .sa-success {
-  background:#edfbf2;
-  color:#087a52;
-  border:1px solid #b9ebcf;
+  background: #edfbf2;
+  color: #087a52;
+  border: 1px solid #b9ebcf;
 }
 
 .sa-warning {
-  background:#fff7e7;
-  color:#98620d;
-  border:1px solid #f1dfb5;
+  background: #fff7e7;
+  color: #98620d;
+  border: 1px solid #f1dfb5;
 }
 
 .sa-empty {
-  text-align:center;
-  color:#788d82;
-  font-size:12px;
-  border:1px dashed #d8e8de;
-  border-radius:10px;
-  padding:15px;
+  text-align: center;
+  font-size: 12px;
+  color: #788d82;
+  border: 1px dashed #d8e8de;
+  border-radius: 10px;
+  padding: 15px;
 }
 
 .sa-footer {
-  text-align:center;
-  color:#90a198;
-  font-size:11px;
-  padding:20px;
+  text-align: center;
+  color: #90a198;
+  font-size: 11px;
+  padding: 20px;
 }
 
-@media(max-width:760px) {
+@media (max-width: 760px) {
   .sa-topbar {
-    padding:13px 16px;
+    padding: 13px 16px;
   }
 
   .sa-brand {
-    font-size:18px;
+    font-size: 18px;
   }
 
   .sa-container {
-    padding:12px;
+    padding: 12px;
   }
 
   .sa-hero {
-    padding:23px 17px;
+    padding: 23px 17px;
   }
 
   .sa-hero h1 {
-    font-size:24px;
+    font-size: 24px;
   }
 
   .sa-card {
-    padding:15px;
+    padding: 15px;
+  }
+
+  .sa-card h2 {
+    font-size: 16px;
   }
 
   .sa-grid {
-    grid-template-columns:1fr;
+    grid-template-columns: 1fr;
   }
 
   .sa-identity {
-    gap:9px;
-    padding:12px;
+    padding: 12px;
+    gap: 9px;
   }
 
   .sa-avatar {
-    width:44px;
-    height:44px;
+    width: 44px;
+    height: 44px;
   }
 
   .sa-test-row {
-    grid-template-columns:minmax(0,1fr) 85px 80px;
-    gap:7px;
+    grid-template-columns: minmax(0,1fr) 85px 80px;
+    gap: 7px;
   }
 
   .sa-test-name {
-    font-size:11px;
+    font-size: 11px;
   }
 
   .sa-test-score {
-    font-size:10px;
+    font-size: 10px;
   }
 
   .sa-summary {
-    gap:7px;
+    gap: 7px;
   }
 
   .sa-summary-box {
-    padding:12px 5px;
+    padding: 12px 5px;
   }
 
   .sa-summary-box strong {
-    font-size:19px;
+    font-size: 19px;
   }
 
   .sa-summary-box span {
-    font-size:10px;
+    font-size: 10px;
   }
 }
 
-@media(max-width:370px) {
+@media (max-width: 370px) {
   .sa-test-row {
-    grid-template-columns:1fr 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   .sa-test-name {
-    grid-column:1 / -1;
+    grid-column: 1 / -1;
   }
 
   .sa-status-grid {
-    grid-template-columns:1fr;
+    grid-template-columns: 1fr;
   }
 }
 `;
