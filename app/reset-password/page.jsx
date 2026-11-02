@@ -1,49 +1,74 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+
+// ======================================================
+// OJT MINETRACK V2.0
+// RESET PASSWORD — RECOVERY FIX
+//
+// Mendukung:
+// - Supabase PKCE code
+// - Supabase token_hash recovery
+// - Supabase implicit recovery session
+// - PASSWORD_RECOVERY event
+//
+// Password minimal 12 karakter.
+// Database dan role pengguna tidak diubah.
+// ======================================================
 
 export default function ResetPasswordPage() {
   const router = useRouter();
 
   const [checking, setChecking] = useState(true);
   const [authorized, setAuthorized] = useState(false);
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
+  const verificationRef = useRef(null);
+
   useEffect(() => {
     let active = true;
 
-    // URL recovery dari Supabase dapat berisi token
-    // dalam fragment atau kode otorisasi.
-    const hash = window.location.hash;
-    const params = new URLSearchParams(
-      window.location.search
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+
+    const hash = new URLSearchParams(
+      url.hash.replace(/^#/, "")
     );
 
-    const recoveryLink =
-      hash.includes("type=recovery") ||
-      hash.includes("access_token=") ||
-      params.has("code") ||
-      params.has("token_hash");
+    const tokenHash = params.get("token_hash");
+    const code = params.get("code");
+    const type = params.get("type");
 
-    if (
-      hash.includes("error=") ||
-      params.has("error")
-    ) {
-      setError(
-        "Tautan reset tidak valid atau kedaluwarsa. " +
-        "Silakan minta tautan baru."
-      );
-      setChecking(false);
-      return;
-    }
+    const accessToken = hash.get("access_token");
+    const refreshToken = hash.get("refresh_token");
+
+    const linkError =
+      params.get("error_description") ||
+      hash.get("error_description") ||
+      params.get("error") ||
+      hash.get("error");
+
+    const hasImplicitRecovery =
+      Boolean(accessToken && refreshToken) &&
+      hash.get("type") === "recovery";
+
+    const hasRecoveryLink = Boolean(
+      tokenHash ||
+      code ||
+      hasImplicitRecovery
+    );
+
+    let recoveredByEvent = false;
 
     const {
       data: { subscription },
@@ -53,56 +78,170 @@ export default function ResetPasswordPage() {
 
         if (
           event === "PASSWORD_RECOVERY" &&
-          session
+          session?.user
         ) {
+          recoveredByEvent = true;
           setAuthorized(true);
           setChecking(false);
           setError("");
         }
-
-        if (
-          event === "INITIAL_SESSION" &&
-          session &&
-          recoveryLink
-        ) {
-          setAuthorized(true);
-          setChecking(false);
-        }
       }
     );
 
-    async function checkSession() {
-      try {
+    async function verifyRecoveryLink() {
+      if (linkError) {
+        throw new Error(
+          "Tautan reset ditolak atau kedaluwarsa. " +
+          "Silakan minta tautan baru."
+        );
+      }
+
+      if (!hasRecoveryLink) {
+        throw new Error(
+          "Tautan pemulihan tidak ditemukan. " +
+          "Buka tautan terbaru dari email reset password."
+        );
+      }
+
+      // ==========================================
+      // METODE 1 — TOKEN HASH
+      // ==========================================
+
+      if (tokenHash) {
+        if (type !== "recovery") {
+          throw new Error(
+            "Jenis tautan pemulihan tidak sesuai."
+          );
+        }
+
+        const {
+          data,
+          error: verifyError,
+        } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: "recovery",
+        });
+
+        if (verifyError) throw verifyError;
+
+        if (!data?.session?.user) {
+          throw new Error(
+            "Sesi pemulihan tidak terbentuk."
+          );
+        }
+
+        return data.session;
+      }
+
+      // ==========================================
+      // METODE 2 — PKCE CODE
+      // ==========================================
+
+      if (code) {
+        const {
+          data,
+          error: exchangeError,
+        } =
+          await supabase.auth.exchangeCodeForSession(
+            code
+          );
+
+        if (exchangeError) throw exchangeError;
+
+        if (!data?.session?.user) {
+          throw new Error(
+            "Kode pemulihan tidak menghasilkan sesi."
+          );
+        }
+
+        return data.session;
+      }
+
+      // ==========================================
+      // METODE 3 — IMPLICIT RECOVERY
+      // ==========================================
+
+      if (hasImplicitRecovery) {
+        // Jika Supabase sudah memproses token URL,
+        // gunakan sesi hasil pemrosesan tersebut.
+
         const {
           data: { session },
           error: sessionError,
         } = await supabase.auth.getSession();
 
-        if (!active) return;
-
         if (sessionError) throw sessionError;
 
-        if (session && recoveryLink) {
-          setAuthorized(true);
-        } else if (!session) {
-          setError(
-            "Sesi pemulihan belum tersedia. " +
-            "Buka halaman ini dari tautan email reset password."
+        if (
+          session?.user &&
+          session.access_token === accessToken
+        ) {
+          return session;
+        }
+
+        // Jika belum, proses token secara eksplisit.
+        const {
+          data,
+          error: setSessionError,
+        } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+        if (setSessionError) throw setSessionError;
+
+        if (!data?.session?.user) {
+          throw new Error(
+            "Sesi pemulihan tidak berhasil dibuat."
           );
         }
-      } catch (err) {
-        if (active) {
-          setError(
-            err?.message ||
-            "Gagal memvalidasi tautan reset."
-          );
-        }
-      } finally {
-        if (active) setChecking(false);
+
+        return data.session;
       }
+
+      throw new Error(
+        "Format tautan pemulihan tidak dikenali."
+      );
     }
 
-    checkSession();
+    // Menghindari verifikasi ganda pada React Strict Mode.
+    if (!verificationRef.current) {
+      verificationRef.current = verifyRecoveryLink();
+    }
+
+    verificationRef.current
+      .then((session) => {
+        if (!active) return;
+
+        if (!session?.user) {
+          throw new Error(
+            "Sesi reset password tidak tersedia."
+          );
+        }
+
+        setAuthorized(true);
+        setChecking(false);
+        setError("");
+
+        // Token tidak lagi ditampilkan di URL
+        // setelah verifikasi berhasil.
+        window.history.replaceState(
+          {},
+          "",
+          "/reset-password"
+        );
+      })
+      .catch((err) => {
+        if (!active || recoveredByEvent) return;
+
+        setAuthorized(false);
+        setChecking(false);
+
+        setError(
+          err?.message ||
+            "Tautan reset tidak valid atau kedaluwarsa."
+        );
+      });
 
     return () => {
       active = false;
@@ -110,10 +249,16 @@ export default function ResetPasswordPage() {
     };
   }, []);
 
+  // ====================================================
+  // SIMPAN PASSWORD BARU
+  // ====================================================
+
   async function handleSubmit(event) {
     event.preventDefault();
 
-    if (saving || !authorized) return;
+    if (saving || !authorized || success) {
+      return;
+    }
 
     if (password.length < 12) {
       setError("Password minimal 12 karakter.");
@@ -129,6 +274,18 @@ export default function ResetPasswordPage() {
     setError("");
 
     try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error(
+          "Sesi pemulihan tidak berlaku. " +
+          "Silakan minta tautan reset baru."
+        );
+      }
+
       const { error: updateError } =
         await supabase.auth.updateUser({
           password,
@@ -137,30 +294,38 @@ export default function ResetPasswordPage() {
       if (updateError) throw updateError;
 
       setSuccess(true);
+      setAuthorized(false);
       setPassword("");
       setConfirmPassword("");
 
-      // Mengakhiri sesi setelah password diperbarui.
-      // Jika gagal signOut, password tetap berhasil diubah.
+      // Logout setelah berhasil mengganti password.
+      // Jika logout gagal, perubahan password
+      // tetap dinyatakan berhasil.
       const { error: signOutError } =
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({
+          scope: "local",
+        });
 
       if (signOutError) {
         setError(
-          "Password berhasil diperbarui, tetapi sesi " +
-          "belum dapat diakhiri otomatis. " +
+          "Password berhasil diubah, tetapi " +
+          "logout otomatis gagal. " +
           "Silakan logout sebelum login kembali."
         );
       }
     } catch (err) {
       setError(
         err?.message ||
-        "Gagal memperbarui password."
+          "Gagal memperbarui password."
       );
     } finally {
       setSaving(false);
     }
   }
+
+  // ====================================================
+  // TAMPILAN
+  // ====================================================
 
   return (
     <main className="rp-page">
@@ -179,22 +344,30 @@ export default function ResetPasswordPage() {
         </div>
 
         <div className="rp-symbol">
-          {success ? "✅" : "🔑"}
+          {success
+            ? "✅"
+            : checking
+            ? "🔐"
+            : "🔑"}
         </div>
 
         {checking ? (
           <>
             <h1>Memverifikasi Tautan</h1>
+
             <p className="rp-description">
-              Memeriksa izin pemulihan password...
+              Memverifikasi tautan dan
+              menyiapkan sesi pemulihan password...
             </p>
           </>
         ) : success ? (
           <div role="status">
             <h1>Password Berhasil Diubah</h1>
+
             <p className="rp-description">
-              Password akun Anda telah diperbarui.
-              Silakan login menggunakan password baru.
+              Password akun OJT MineTrack telah
+              diperbarui. Silakan login menggunakan
+              password baru.
             </p>
 
             {error && (
@@ -206,7 +379,9 @@ export default function ResetPasswordPage() {
             <button
               type="button"
               className="rp-primary"
-              onClick={() => router.replace("/login")}
+              onClick={() =>
+                router.replace("/login")
+              }
             >
               Kembali ke Login
             </button>
@@ -217,8 +392,8 @@ export default function ResetPasswordPage() {
 
             <p className="rp-description">
               Tautan pemulihan tidak tersedia,
-              telah kedaluwarsa, atau tidak
-              dapat diverifikasi.
+              sudah kedaluwarsa, atau tidak
+              berhasil diverifikasi.
             </p>
 
             {error && (
@@ -242,8 +417,9 @@ export default function ResetPasswordPage() {
             <h1>Buat Password Baru</h1>
 
             <p className="rp-description">
-              Masukkan password baru untuk
-              akun OJT MineTrack Anda.
+              Tautan berhasil diverifikasi.
+              Masukkan password baru
+              untuk akun OJT MineTrack.
             </p>
 
             <form onSubmit={handleSubmit}>
@@ -253,7 +429,11 @@ export default function ResetPasswordPage() {
 
               <input
                 id="new-password"
-                type={showPassword ? "text" : "password"}
+                type={
+                  showPassword
+                    ? "text"
+                    : "password"
+                }
                 value={password}
                 required
                 minLength={12}
@@ -271,7 +451,11 @@ export default function ResetPasswordPage() {
 
               <input
                 id="confirm-password"
-                type={showPassword ? "text" : "password"}
+                type={
+                  showPassword
+                    ? "text"
+                    : "password"
+                }
                 value={confirmPassword}
                 required
                 minLength={12}
@@ -279,7 +463,9 @@ export default function ResetPasswordPage() {
                 disabled={saving}
                 placeholder="Ulangi password baru"
                 onChange={(event) =>
-                  setConfirmPassword(event.target.value)
+                  setConfirmPassword(
+                    event.target.value
+                  )
                 }
               />
 
@@ -288,10 +474,15 @@ export default function ResetPasswordPage() {
                   type="checkbox"
                   checked={showPassword}
                   onChange={(event) =>
-                    setShowPassword(event.target.checked)
+                    setShowPassword(
+                      event.target.checked
+                    )
                   }
                 />
-                <span>Tampilkan Password</span>
+
+                <span>
+                  Tampilkan Password
+                </span>
               </label>
 
               {error && (
@@ -317,7 +508,9 @@ export default function ResetPasswordPage() {
           <button
             type="button"
             className="rp-back"
-            onClick={() => router.push("/login")}
+            onClick={() =>
+              router.push("/login")
+            }
           >
             ← Kembali ke Login
           </button>
@@ -333,6 +526,10 @@ export default function ResetPasswordPage() {
   );
 }
 
+// ======================================================
+// CSS — DESAIN OJT MINETRACK
+// ======================================================
+
 const css = `
 * {
   box-sizing: border-box;
@@ -340,6 +537,7 @@ const css = `
 
 .rp-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: 20px;
@@ -434,7 +632,7 @@ const css = `
   padding: 13px;
   border: 1px solid #d6e3e8;
   border-radius: 10px;
-  background: #fff;
+  background: white;
   color: #183442;
   font-size: 14px;
 }
@@ -513,7 +711,7 @@ const css = `
   line-height: 1.8;
 }
 
-@media(max-width:480px) {
+@media (max-width: 480px) {
   .rp-card {
     padding: 26px 20px;
   }
