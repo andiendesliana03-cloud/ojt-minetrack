@@ -13,29 +13,24 @@ import { supabase } from "../../../lib/supabase";
 // ======================================================
 // OJT MINETRACK V2.0
 // MONITORING PENDAFTARAN PESERTA OJT — MENTOR
-//
-// CORPORATE NAVY / EMERALD / WHITE
-// BACKGROUND ERG
+// LIGHT / DARK MODE — GLOBAL THEME
 //
 // READ ONLY:
 // Tidak membuat akun, mengubah database,
 // menyetujui, atau menolak pengajuan.
+//
+// Tema mengikuti html[data-theme] dari app/layout.jsx.
+// Tidak ada tombol tema tambahan pada halaman ini.
 // ======================================================
 
 const BACKGROUND_IMAGE = "/background-erg.png.PNG";
-
 const PROGRAM_START = "12 September 2026";
 const PROGRAM_END = "6 Maret 2027";
 const TOTAL_WEEKS = 25;
-
 const REGISTRATIONS_API = "/api/mentor/registrations";
 
 const NAV = [
-  {
-    label: "Dashboard",
-    url: "/",
-    icon: "home",
-  },
+  { label: "Dashboard", url: "/", icon: "home" },
   {
     label: "Peserta OJT",
     url: "/mentor/monitoring-peserta",
@@ -87,7 +82,6 @@ function formatTime(value) {
   if (!value) return "—";
 
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) return "—";
 
   return date.toLocaleString("id-ID", {
@@ -214,7 +208,7 @@ function Icon({ name, size = 18 }) {
 }
 
 // ======================================================
-// COMPONENTS
+// UI COMPONENTS
 // ======================================================
 
 function StatusBadge({ status }) {
@@ -222,10 +216,10 @@ function StatusBadge({ status }) {
     status === "approved"
       ? "check"
       : status === "rejected"
-        ? "x"
-        : status === "pending"
-          ? "clock"
-          : "info";
+      ? "x"
+      : status === "pending"
+      ? "clock"
+      : "info";
 
   return (
     <span className={`mon-status ${status || "unknown"}`}>
@@ -247,11 +241,11 @@ function SummaryCard({
   return (
     <button
       type="button"
-      className={
-        `mon-stat ${tone} ` +
-        (selected ? "selected" : "")
-      }
+      className={`mon-stat ${tone} ${
+        selected ? "selected" : ""
+      }`}
       onClick={onClick}
+      aria-pressed={selected}
     >
       <span className="mon-stat-icon">
         <Icon name={icon} size={24} />
@@ -268,11 +262,7 @@ function SummaryCard({
   );
 }
 
-function SectionHeading({
-  icon,
-  title,
-  description,
-}) {
+function SectionHeading({ icon, title, description }) {
   return (
     <div className="mon-section-title">
       <div className="mon-section-icon">
@@ -297,14 +287,13 @@ function DetailField({ label, value }) {
 }
 
 // ======================================================
-// HALAMAN UTAMA
+// MAIN PAGE
 // ======================================================
 
 export default function DaftarPesertaPage() {
   const router = useRouter();
 
   const [mentor, setMentor] = useState(null);
-
   const [registrations, setRegistrations] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -312,11 +301,8 @@ export default function DaftarPesertaPage() {
 
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-
   const [selected, setSelected] = useState(null);
-
   const [mobileMenu, setMobileMenu] = useState(false);
-
   const [error, setError] = useState("");
 
   // ====================================================
@@ -363,17 +349,13 @@ export default function DaftarPesertaPage() {
       return { redirect: "/login" };
     }
 
-    const response = await fetch(
-      REGISTRATIONS_API,
-      {
-        method: "GET",
-        headers: {
-          Authorization:
-            `Bearer ${session.access_token}`,
-        },
-        cache: "no-store",
-      }
-    );
+    const response = await fetch(REGISTRATIONS_API, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      cache: "no-store",
+    });
 
     if (response.status === 401) {
       return { redirect: "/login" };
@@ -479,8 +461,6 @@ export default function DaftarPesertaPage() {
       setMentor(result.profile);
       setRegistrations(result.registrations);
 
-      // Detail dibuka kembali dari data terbaru,
-      // bukan data lama yang mungkin sudah berubah.
       setSelected((current) => {
         if (!current) return null;
 
@@ -506,8 +486,8 @@ export default function DaftarPesertaPage() {
   // STATISTICS
   // ====================================================
 
-  const counts = useMemo(() => {
-    return {
+  const counts = useMemo(
+    () => ({
       all: registrations.length,
 
       pending: registrations.filter(
@@ -521,8 +501,9 @@ export default function DaftarPesertaPage() {
       rejected: registrations.filter(
         (item) => item.status === "rejected"
       ).length,
-    };
-  }, [registrations]);
+    }),
+    [registrations]
+  );
 
   // ====================================================
   // FILTER & SEARCH
@@ -545,9 +526,7 @@ export default function DaftarPesertaPage() {
         .join(" ")
         .toLowerCase();
 
-      return (
-        matchStatus && searchable.includes(keyword)
-      );
+      return matchStatus && searchable.includes(keyword);
     });
   }, [registrations, filter, search]);
 
@@ -571,6 +550,7 @@ export default function DaftarPesertaPage() {
     return (
       <main className="mon-loading">
         <style>{css}</style>
+
         <div>
           <h2>
             OJT <span>MineTrack</span>
@@ -585,11 +565,13 @@ export default function DaftarPesertaPage() {
     return (
       <main className="mon-loading">
         <style>{css}</style>
+
         <div>
           <h2>Monitoring Tidak Dapat Dibuka</h2>
           <p>
             {error || "Data Mentor belum tersedia."}
           </p>
+
           <button
             type="button"
             onClick={() => router.push("/")}
@@ -602,16 +584,14 @@ export default function DaftarPesertaPage() {
   }
 
   // ====================================================
-  // UI
+  // MAIN RENDER
   // ====================================================
 
   return (
     <div className="mon-app">
       <style>{css}</style>
 
-      {/* ================================================
-          TOP NAVIGATION
-      ================================================ */}
+      {/* TOP NAVIGATION */}
 
       <header className="mon-topbar">
         <button
@@ -636,9 +616,9 @@ export default function DaftarPesertaPage() {
         </button>
 
         <nav
-          className={
-            "mon-nav " + (mobileMenu ? "open" : "")
-          }
+          className={`mon-nav ${
+            mobileMenu ? "open" : ""
+          }`}
           aria-label="Navigasi Mentor"
         >
           {NAV.map((item) => (
@@ -646,8 +626,7 @@ export default function DaftarPesertaPage() {
               key={item.url}
               type="button"
               className={
-                item.url ===
-                "/mentor/daftar-peserta"
+                item.url === "/mentor/daftar-peserta"
                   ? "active"
                   : ""
               }
@@ -691,10 +670,7 @@ export default function DaftarPesertaPage() {
       </header>
 
       <main className="mon-container">
-
-        {/* ================================================
-            HERO
-        ================================================ */}
+        {/* HERO */}
 
         <section
           className="mon-hero"
@@ -767,7 +743,9 @@ export default function DaftarPesertaPage() {
 
           <span>/</span>
 
-          <strong>Monitoring Pendaftaran Peserta</strong>
+          <strong>
+            Monitoring Pendaftaran Peserta
+          </strong>
         </div>
 
         {/* ERROR */}
@@ -775,7 +753,9 @@ export default function DaftarPesertaPage() {
         {error && (
           <div className="mon-alert" role="alert">
             <Icon name="info" size={19} />
+
             <span>{error}</span>
+
             <button
               type="button"
               onClick={() => setError("")}
@@ -786,9 +766,7 @@ export default function DaftarPesertaPage() {
           </div>
         )}
 
-        {/* ================================================
-            STATISTICS
-        ================================================ */}
+        {/* STATISTICS */}
 
         <section className="mon-stat-grid">
           <SummaryCard
@@ -832,9 +810,7 @@ export default function DaftarPesertaPage() {
           />
         </section>
 
-        {/* ================================================
-            INFORMATION NOTICE
-        ================================================ */}
+        {/* INFORMATION NOTICE */}
 
         <section className="mon-notice">
           <div className="mon-notice-icon">
@@ -866,9 +842,7 @@ export default function DaftarPesertaPage() {
           </button>
         </section>
 
-        {/* ================================================
-            REGISTRATION TABLE
-        ================================================ */}
+        {/* REGISTRATION TABLE */}
 
         <section className="mon-card">
           <div className="mon-section-head">
@@ -904,6 +878,7 @@ export default function DaftarPesertaPage() {
                     className={
                       filter === value ? "active" : ""
                     }
+                    aria-pressed={filter === value}
                     onClick={() => setFilter(value)}
                   >
                     {label}
@@ -919,6 +894,7 @@ export default function DaftarPesertaPage() {
               <input
                 type="search"
                 placeholder="Cari nama, email, site..."
+                aria-label="Cari pendaftaran"
                 value={search}
                 onChange={(event) =>
                   setSearch(event.target.value)
@@ -945,18 +921,16 @@ export default function DaftarPesertaPage() {
             <div className="mon-empty">
               <Icon name="file" size={31} />
 
-              <strong>
-                Tidak Ada Data Pengajuan
-              </strong>
+              <strong>Tidak Ada Data Pengajuan</strong>
 
               <p>
-                Belum ada pengajuan yang sesuai
-                dengan filter atau pencarian.
+                Belum ada pengajuan yang sesuai dengan
+                filter atau pencarian.
               </p>
             </div>
           ) : (
             <>
-              {/* TABEL DESKTOP */}
+              {/* DESKTOP TABLE */}
 
               <div className="mon-table-scroll">
                 <table className="mon-table">
@@ -974,9 +948,7 @@ export default function DaftarPesertaPage() {
 
                   <tbody>
                     {filtered.map((item, index) => (
-                      <tr
-                        key={`${item.source}-${item.id}`}
-                      >
+                      <tr key={`${item.source}-${item.id}`}>
                         <td>{index + 1}</td>
 
                         <td>
@@ -1108,12 +1080,9 @@ export default function DaftarPesertaPage() {
           )}
         </section>
 
-        {/* ================================================
-            PROGRAM INFORMATION
-        ================================================ */}
+        {/* BOTTOM PANELS */}
 
         <div className="mon-bottom-grid">
-
           <section className="mon-card">
             <SectionHeading
               icon="calendar"
@@ -1244,16 +1213,16 @@ export default function DaftarPesertaPage() {
         </footer>
       </main>
 
-      {/* ================================================
-          READ-ONLY DETAIL MODAL
-      ================================================ */}
+      {/* READ-ONLY DETAIL MODAL */}
 
       {selected && (
         <div
           className="mon-modal-overlay"
           role="presentation"
           onClick={(event) => {
-            if (event.target === event.currentTarget) {
+            if (
+              event.target === event.currentTarget
+            ) {
               setSelected(null);
             }
           }}
@@ -1313,23 +1282,17 @@ export default function DaftarPesertaPage() {
 
                 <DetailField
                   label="Tanggal Mulai"
-                  value={formatDate(
-                    selected.start_date
-                  )}
+                  value={formatDate(selected.start_date)}
                 />
 
                 <DetailField
                   label="Tanggal Selesai"
-                  value={formatDate(
-                    selected.end_date
-                  )}
+                  value={formatDate(selected.end_date)}
                 />
 
                 <DetailField
                   label="Tanggal Pengajuan"
-                  value={formatTime(
-                    selected.created_at
-                  )}
+                  value={formatTime(selected.created_at)}
                 />
 
                 <DetailField
@@ -1344,9 +1307,8 @@ export default function DaftarPesertaPage() {
 
               <div className="mon-detail-status">
                 <span>Status Pendaftaran</span>
-                <StatusBadge
-                  status={selected.status}
-                />
+
+                <StatusBadge status={selected.status} />
               </div>
 
               {selected.rejection_reason && (
@@ -1396,21 +1358,75 @@ export default function DaftarPesertaPage() {
 }
 
 // ======================================================
-// CSS — CORPORATE NAVY & EMERALD
+// CSS — LIGHT & DARK MODE
+// Mengikuti atribut html[data-theme] secara otomatis.
+// Print tetap menggunakan warna terang.
 // ======================================================
 
 const css = `
+/* =====================================================
+   GLOBAL RESET & LIGHT VARIABLES
+   ===================================================== */
+
 .mon-app,
-.mon-app * {
+.mon-app *,
+.mon-loading,
+.mon-loading * {
   box-sizing: border-box;
 }
 
-.mon-app {
+.mon-app,
+.mon-loading {
+  --mon-bg: #edf3f7;
+  --mon-surface: #ffffff;
+  --mon-surface-soft: #f6f9fb;
+  --mon-surface-muted: #f1f6f8;
+  --mon-input: #ffffff;
+  --mon-text: #173654;
+  --mon-heading: #123e70;
+  --mon-muted: #7d91a2;
+  --mon-muted-soft: #8ba2af;
+  --mon-border: #dce7ef;
+  --mon-border-soft: #eaf0f3;
+  --mon-hover: #fafdfc;
+  --mon-primary: #087d76;
+  --mon-primary-hover: #086a65;
+  --mon-primary-text: #087c75;
+  --mon-accent-soft: #e7f6f1;
+  --mon-accent-text: #087c67;
+  --mon-shadow: rgba(13,53,80,.07);
+
   min-height: 100vh;
-  background: #edf3f7;
-  color: #173654;
+  background: var(--mon-bg);
+  color: var(--mon-text);
   font-family: Arial, Helvetica, sans-serif;
   font-size: 12px;
+}
+
+/* =====================================================
+   DARK VARIABLES
+   ===================================================== */
+
+:root[data-theme="dark"] .mon-app,
+:root[data-theme="dark"] .mon-loading {
+  --mon-bg: #0d171b;
+  --mon-surface: #17272b;
+  --mon-surface-soft: #1c3034;
+  --mon-surface-muted: #203438;
+  --mon-input: #1b3034;
+  --mon-text: #edf8f4;
+  --mon-heading: #f0faf6;
+  --mon-muted: #a5bbb8;
+  --mon-muted-soft: #91aaa7;
+  --mon-border: #30484b;
+  --mon-border-soft: #2a4144;
+  --mon-hover: #213a3b;
+  --mon-primary: #087e65;
+  --mon-primary-hover: #0c9b7a;
+  --mon-primary-text: #79e6bb;
+  --mon-accent-soft: #224239;
+  --mon-accent-text: #a8eed0;
+  --mon-shadow: rgba(0,0,0,.20);
 }
 
 .mon-app button,
@@ -1428,30 +1444,35 @@ const css = `
 }
 
 .mon-app button:focus-visible,
-.mon-app input:focus-visible {
+.mon-app input:focus-visible,
+.mon-loading button:focus-visible {
   outline: 3px solid #60d8bd;
   outline-offset: 2px;
 }
 
-/* TOPBAR */
+/* =====================================================
+   TOPBAR
+   ===================================================== */
 
 .mon-topbar {
   position: sticky;
   top: 0;
   z-index: 40;
-
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 17px;
-
   min-height: 76px;
   padding: 11px 28px;
-
   background: #081e35;
   color: white;
   border-bottom: 1px solid #ffffff2c;
   box-shadow: 0 5px 20px #0a294024;
+}
+
+:root[data-theme="dark"] .mon-topbar {
+  background: #071d20;
+  border-bottom-color: #30504a;
 }
 
 .mon-brand {
@@ -1459,7 +1480,6 @@ const css = `
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-
   padding: 0;
   border: 0;
   background: transparent;
@@ -1470,11 +1490,9 @@ const css = `
 .mon-brand-icon {
   display: grid;
   place-items: center;
-
   flex-shrink: 0;
   width: 40px;
   height: 40px;
-
   border: 1px solid #49cbb88a;
   border-radius: 11px;
   background: #0c78736e;
@@ -1522,11 +1540,9 @@ const css = `
   display: flex;
   align-items: center;
   gap: 8px;
-
   padding: 11px 12px;
   border: 0;
   border-radius: 8px;
-
   background: transparent;
   color: #c7dae5;
   font-size: 11px;
@@ -1554,11 +1570,9 @@ const css = `
 .mon-account-avatar {
   display: grid;
   place-items: center;
-
   flex-shrink: 0;
   width: 37px;
   height: 37px;
-
   border-radius: 50%;
   background: #d8f6eb;
   color: #08795d;
@@ -1588,7 +1602,9 @@ const css = `
   color: white;
 }
 
-/* CONTAINER */
+/* =====================================================
+   CONTAINER
+   ===================================================== */
 
 .mon-container {
   max-width: 1500px;
@@ -1596,23 +1612,22 @@ const css = `
   padding: 23px;
 }
 
-/* HERO */
+/* =====================================================
+   HERO
+   ===================================================== */
 
 .mon-hero {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 30px;
-
   min-height: 230px;
   padding: 30px 34px;
   overflow: hidden;
-
   border-radius: 16px;
   background-color: #0c2d47;
   background-position: center 44%;
   background-size: cover;
-
   color: white;
   box-shadow: 0 9px 27px #12385220;
 }
@@ -1633,6 +1648,7 @@ const css = `
   font-size: clamp(29px,3.3vw,44px);
   line-height: 1.15;
   letter-spacing: -.8px;
+  color: white;
 }
 
 .mon-hero h1 span {
@@ -1658,11 +1674,9 @@ const css = `
   display: flex;
   align-items: center;
   gap: 7px;
-
   padding: 7px 10px;
   border: 1px solid #ffffff4c;
   border-radius: 20px;
-
   background: #092b42a8;
   color: #e4f4f0;
   font-size: 10px;
@@ -1678,10 +1692,8 @@ const css = `
   justify-items: center;
   gap: 9px;
   flex-shrink: 0;
-
   min-width: 175px;
   padding: 18px 16px;
-
   border: 1px solid #ffffff5b;
   border-radius: 13px;
   background: #062641c7;
@@ -1714,7 +1726,9 @@ const css = `
   font-size: 10px;
 }
 
-/* BREADCRUMB */
+/* =====================================================
+   BREADCRUMB
+   ===================================================== */
 
 .mon-breadcrumb {
   display: flex;
@@ -1722,22 +1736,24 @@ const css = `
   gap: 9px;
   margin: 15px 3px;
   font-size: 11px;
-  color: #8ba2af;
+  color: var(--mon-muted-soft);
 }
 
 .mon-breadcrumb button {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #6c8595;
+  color: var(--mon-muted);
   font-weight: 750;
 }
 
 .mon-breadcrumb strong {
-  color: #087c75;
+  color: var(--mon-primary-text);
 }
 
-/* ALERT */
+/* =====================================================
+   ALERT
+   ===================================================== */
 
 .mon-alert {
   display: flex;
@@ -1753,6 +1769,12 @@ const css = `
   line-height: 1.6;
 }
 
+:root[data-theme="dark"] .mon-alert {
+  background: #45262a;
+  border-color: #704349;
+  color: #ffbfc8;
+}
+
 .mon-alert span {
   flex: 1;
 }
@@ -1763,7 +1785,9 @@ const css = `
   color: inherit;
 }
 
-/* STATS */
+/* =====================================================
+   STATISTICS
+   ===================================================== */
 
 .mon-stat-grid {
   display: grid;
@@ -1776,21 +1800,23 @@ const css = `
   display: flex;
   align-items: center;
   gap: 12px;
-
   min-height: 125px;
   padding: 17px;
-
-  border: 1px solid #dce7ee;
+  border: 1px solid var(--mon-border);
   border-radius: 12px;
-  background: white;
-
+  background: var(--mon-surface);
+  color: var(--mon-text);
   text-align: left;
-  box-shadow: 0 6px 20px #0d355015;
+  box-shadow: 0 6px 20px var(--mon-shadow);
 }
 
 .mon-stat.selected {
   outline: 2px solid #58cfae;
   outline-offset: -2px;
+}
+
+.mon-stat:hover {
+  background: var(--mon-hover);
 }
 
 .mon-stat-icon {
@@ -1822,6 +1848,26 @@ const css = `
   color: #c94c62;
 }
 
+:root[data-theme="dark"] .mon-stat.blue .mon-stat-icon {
+  background: #233d55;
+  color: #a4d2ff;
+}
+
+:root[data-theme="dark"] .mon-stat.amber .mon-stat-icon {
+  background: #49391f;
+  color: #f5d191;
+}
+
+:root[data-theme="dark"] .mon-stat.green .mon-stat-icon {
+  background: #214c3b;
+  color: #8af0bd;
+}
+
+:root[data-theme="dark"] .mon-stat.rose .mon-stat-icon {
+  background: #4b2934;
+  color: #ffacc1;
+}
+
 .mon-stat-content {
   display: grid;
   flex: 1;
@@ -1830,39 +1876,44 @@ const css = `
 }
 
 .mon-stat-content small {
-  color: #73899b;
+  color: var(--mon-muted);
   font-size: 10px;
   font-weight: 800;
 }
 
 .mon-stat-content strong {
-  color: #123d6b;
+  color: var(--mon-heading);
   font-size: 30px;
 }
 
 .mon-stat-content > span {
-  color: #8497a5;
+  color: var(--mon-muted-soft);
   font-size: 10px;
 }
 
 .mon-stat > svg {
   flex-shrink: 0;
-  color: #93a7b7;
+  color: var(--mon-muted-soft);
 }
 
-/* NOTICE */
+/* =====================================================
+   NOTICE
+   ===================================================== */
 
 .mon-notice {
   display: flex;
   align-items: center;
   gap: 14px;
-
   padding: 15px 18px;
   margin-bottom: 17px;
-
   border: 1px solid #c7e4ed;
   border-radius: 12px;
   background: #eaf6fa;
+}
+
+:root[data-theme="dark"] .mon-notice {
+  border-color: #34585a;
+  background: #1a343b;
 }
 
 .mon-notice-icon {
@@ -1876,6 +1927,11 @@ const css = `
   color: #2577a1;
 }
 
+:root[data-theme="dark"] .mon-notice-icon {
+  background: #294858;
+  color: #99d6f3;
+}
+
 .mon-notice > div:nth-child(2) {
   flex: 1;
 }
@@ -1885,6 +1941,10 @@ const css = `
   font-size: 12px;
 }
 
+:root[data-theme="dark"] .mon-notice strong {
+  color: #b7e4e7;
+}
+
 .mon-notice p {
   margin: 5px 0 0;
   color: #5e8191;
@@ -1892,16 +1952,18 @@ const css = `
   line-height: 1.6;
 }
 
+:root[data-theme="dark"] .mon-notice p {
+  color: var(--mon-muted);
+}
+
 .mon-notice > button {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-
   padding: 11px 13px;
   border: 0;
   border-radius: 8px;
-
   background: #087d76;
   color: white;
   font-size: 11px;
@@ -1909,15 +1971,22 @@ const css = `
   white-space: nowrap;
 }
 
-/* MAIN CARD */
+.mon-notice > button:hover {
+  background: #0a9890;
+}
+
+/* =====================================================
+   MAIN CARD
+   ===================================================== */
 
 .mon-card {
   min-width: 0;
   padding: 21px;
-  border: 1px solid #dce7ef;
+  border: 1px solid var(--mon-border);
   border-radius: 13px;
-  background: white;
-  box-shadow: 0 6px 20px #17384d0d;
+  background: var(--mon-surface);
+  color: var(--mon-text);
+  box-shadow: 0 6px 20px var(--mon-shadow);
 }
 
 .mon-section-head {
@@ -1947,13 +2016,13 @@ const css = `
 
 .mon-section-title h2 {
   margin: 0;
-  color: #123e70;
+  color: var(--mon-heading);
   font-size: 17px;
 }
 
 .mon-section-title p {
   margin: 5px 0 0;
-  color: #7d91a2;
+  color: var(--mon-muted);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -1964,16 +2033,22 @@ const css = `
   justify-content: center;
   gap: 8px;
   padding: 11px 14px;
-  border: 1px solid #d8e6e9;
+  border: 1px solid var(--mon-border);
   border-radius: 8px;
-  background: #f7fafc;
-  color: #206d65;
+  background: var(--mon-surface-soft);
+  color: var(--mon-primary-text);
   font-size: 11px;
   font-weight: 900;
   white-space: nowrap;
 }
 
-/* FILTERS */
+.mon-refresh:hover:not(:disabled) {
+  background: var(--mon-accent-soft);
+}
+
+/* =====================================================
+   FILTERS
+   ===================================================== */
 
 .mon-filterbar {
   display: flex;
@@ -1982,9 +2057,9 @@ const css = `
   flex-wrap: wrap;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #e6eef3;
+  border: 1px solid var(--mon-border);
   border-radius: 10px;
-  background: #f6f9fb;
+  background: var(--mon-surface-soft);
 }
 
 .mon-tabs {
@@ -2001,13 +2076,17 @@ const css = `
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #627f90;
+  color: var(--mon-muted);
   font-size: 11px;
   font-weight: 900;
 }
 
+.mon-tabs button:hover:not(.active) {
+  background: var(--mon-surface-muted);
+}
+
 .mon-tabs button.active {
-  background: #087d76;
+  background: var(--mon-primary);
   color: white;
 }
 
@@ -2018,8 +2097,8 @@ const css = `
   height: 22px;
   padding: 0 5px;
   border-radius: 6px;
-  background: #e5edf2;
-  color: #486474;
+  background: var(--mon-surface-muted);
+  color: var(--mon-text);
   font-size: 10px;
 }
 
@@ -2034,10 +2113,10 @@ const css = `
   gap: 9px;
   min-width: 245px;
   padding: 0 12px;
-  border: 1px solid #d7e4eb;
+  border: 1px solid var(--mon-border);
   border-radius: 8px;
-  background: white;
-  color: #8ca2af;
+  background: var(--mon-input);
+  color: var(--mon-muted);
 }
 
 .mon-search input {
@@ -2046,26 +2125,33 @@ const css = `
   border: 0;
   outline: 0;
   background: transparent;
-  color: #1a3c56;
+  color: var(--mon-text);
   font-size: 11px;
+}
+
+.mon-search input::placeholder {
+  color: var(--mon-muted);
+  opacity: 1;
 }
 
 .mon-result-count {
   padding: 13px 2px;
-  color: #8497a4;
+  color: var(--mon-muted);
   font-size: 10px;
 }
 
 .mon-result-count strong {
-  color: #087d73;
+  color: var(--mon-primary-text);
 }
 
 .mon-refresh-message {
-  color: #26778a;
+  color: var(--mon-primary-text);
   font-size: 11px;
 }
 
-/* TABLE */
+/* =====================================================
+   TABLE
+   ===================================================== */
 
 .mon-table-scroll {
   width: 100%;
@@ -2078,12 +2164,13 @@ const css = `
   border-collapse: collapse;
   text-align: left;
   font-size: 11px;
+  color: var(--mon-text);
 }
 
 .mon-table th {
   padding: 13px 11px;
-  background: #eaf1f6;
-  color: #426178;
+  background: var(--mon-surface-muted);
+  color: var(--mon-muted);
   font-size: 10px;
   font-weight: 900;
   white-space: nowrap;
@@ -2091,13 +2178,13 @@ const css = `
 
 .mon-table td {
   padding: 14px 11px;
-  border-bottom: 1px solid #eaf0f3;
-  color: #355265;
+  border-bottom: 1px solid var(--mon-border-soft);
+  color: var(--mon-text);
   vertical-align: middle;
 }
 
 .mon-table tbody tr:hover {
-  background: #fafdfc;
+  background: var(--mon-hover);
 }
 
 .mon-person {
@@ -2120,19 +2207,24 @@ const css = `
   font-weight: 900;
 }
 
+:root[data-theme="dark"] .mon-person-avatar {
+  background: #274f40;
+  color: #a9f2cf;
+}
+
 .mon-person strong,
 .mon-person small {
   display: block;
 }
 
 .mon-person strong {
-  color: #20405a;
+  color: var(--mon-heading);
   font-size: 11px;
 }
 
 .mon-person small {
   margin-top: 5px;
-  color: #879baa;
+  color: var(--mon-muted);
   font-size: 10px;
   overflow-wrap: anywhere;
 }
@@ -2144,11 +2236,12 @@ const css = `
 
 .mon-cell-main {
   font-size: 11px;
+  color: var(--mon-text);
 }
 
 .mon-cell-sub {
   margin-top: 5px;
-  color: #8197a6;
+  color: var(--mon-muted);
   font-size: 10px;
 }
 
@@ -2158,7 +2251,9 @@ const css = `
   white-space: nowrap;
 }
 
-/* STATUS */
+/* =====================================================
+   STATUS BADGES
+   ===================================================== */
 
 .mon-status {
   display: inline-flex;
@@ -2191,6 +2286,26 @@ const css = `
   color: #78909d;
 }
 
+:root[data-theme="dark"] .mon-status.pending {
+  background: #493a20;
+  color: #f3d292;
+}
+
+:root[data-theme="dark"] .mon-status.approved {
+  background: #224a39;
+  color: #a2efbf;
+}
+
+:root[data-theme="dark"] .mon-status.rejected {
+  background: #4a2934;
+  color: #ffb4c0;
+}
+
+:root[data-theme="dark"] .mon-status.unknown {
+  background: #30454a;
+  color: #cee1de;
+}
+
 .mon-detail-button {
   display: inline-flex;
   align-items: center;
@@ -2205,17 +2320,26 @@ const css = `
   font-weight: 900;
 }
 
+:root[data-theme="dark"] .mon-detail-button {
+  background: #25435b;
+  color: #b2d8ff;
+}
+
+.mon-detail-button:hover {
+  filter: brightness(.96);
+}
+
 .mon-empty {
   display: grid;
   justify-items: center;
   gap: 10px;
   padding: 45px 20px;
-  color: #8ca1b0;
+  color: var(--mon-muted);
   text-align: center;
 }
 
 .mon-empty strong {
-  color: #47697d;
+  color: var(--mon-heading);
   font-size: 14px;
 }
 
@@ -2229,7 +2353,9 @@ const css = `
   display: none;
 }
 
-/* BOTTOM PANELS */
+/* =====================================================
+   BOTTOM PANELS
+   ===================================================== */
 
 .mon-bottom-grid {
   display: grid;
@@ -2256,13 +2382,13 @@ const css = `
 }
 
 .mon-program-dates span {
-  color: #0e8581;
+  color: var(--mon-primary-text);
   font-size: 10px;
   font-weight: 900;
 }
 
 .mon-program-dates strong {
-  color: #254a66;
+  color: var(--mon-heading);
   font-size: 11px;
 }
 
@@ -2309,7 +2435,7 @@ const css = `
 }
 
 .mon-week-node small {
-  color: #7894aa;
+  color: var(--mon-muted);
   font-size: 7px;
 }
 
@@ -2323,7 +2449,14 @@ const css = `
   line-height: 1.7;
 }
 
-/* PROCESS */
+:root[data-theme="dark"] .mon-program-note {
+  background: #203a41;
+  color: #bdd5d9;
+}
+
+/* =====================================================
+   PROCESS LIST
+   ===================================================== */
 
 .mon-process-list {
   display: grid;
@@ -2360,13 +2493,13 @@ const css = `
 }
 
 .mon-process-item strong {
-  color: #244967;
+  color: var(--mon-heading);
   font-size: 11px;
 }
 
 .mon-process-item p {
   margin: 5px 0 0;
-  color: #7d93a3;
+  color: var(--mon-muted);
   font-size: 10px;
   line-height: 1.5;
 }
@@ -2379,15 +2512,17 @@ const css = `
   width: 100%;
   margin-top: 20px;
   padding: 12px;
-  border: 1px solid #a7d7ce;
+  border: 1px solid var(--mon-border);
   border-radius: 8px;
-  background: #ebf9f5;
-  color: #087e73;
+  background: var(--mon-accent-soft);
+  color: var(--mon-accent-text);
   font-size: 11px;
   font-weight: 900;
 }
 
-/* FOOTER */
+/* =====================================================
+   FOOTER
+   ===================================================== */
 
 .mon-bottom-actions {
   margin-top: 17px;
@@ -2398,10 +2533,10 @@ const css = `
   align-items: center;
   gap: 9px;
   padding: 12px 16px;
-  border: 1px solid #b8dcd1;
+  border: 1px solid var(--mon-border);
   border-radius: 9px;
-  background: #e7f6f1;
-  color: #087c67;
+  background: var(--mon-accent-soft);
+  color: var(--mon-accent-text);
   font-size: 11px;
   font-weight: 900;
 }
@@ -2413,12 +2548,14 @@ const css = `
   gap: 12px;
   margin-top: 23px;
   padding: 15px 2px;
-  border-top: 1px solid #d9e4ec;
-  color: #8195a5;
+  border-top: 1px solid var(--mon-border);
+  color: var(--mon-muted);
   font-size: 10px;
 }
 
-/* MODAL */
+/* =====================================================
+   MODAL
+   ===================================================== */
 
 .mon-modal-overlay {
   position: fixed;
@@ -2434,8 +2571,10 @@ const css = `
   width: min(100%,570px);
   max-height: 92vh;
   overflow-y: auto;
+  border: 1px solid var(--mon-border);
   border-radius: 16px;
-  background: white;
+  background: var(--mon-surface);
+  color: var(--mon-text);
   box-shadow: 0 25px 65px #00192355;
 }
 
@@ -2444,7 +2583,7 @@ const css = `
   align-items: center;
   gap: 12px;
   padding: 20px;
-  border-bottom: 1px solid #e8eef3;
+  border-bottom: 1px solid var(--mon-border);
 }
 
 .mon-modal-icon {
@@ -2454,8 +2593,8 @@ const css = `
   width: 43px;
   height: 43px;
   border-radius: 11px;
-  background: #e1f6ea;
-  color: #07865d;
+  background: var(--mon-accent-soft);
+  color: var(--mon-accent-text);
 }
 
 .mon-modal-header > div:nth-child(2) {
@@ -2465,13 +2604,13 @@ const css = `
 
 .mon-modal-header h2 {
   margin: 0;
-  color: #173e63;
+  color: var(--mon-heading);
   font-size: 17px;
 }
 
 .mon-modal-header p {
   margin: 6px 0 0;
-  color: #8398a7;
+  color: var(--mon-muted);
   font-size: 11px;
 }
 
@@ -2482,8 +2621,8 @@ const css = `
   height: 32px;
   border: 0;
   border-radius: 8px;
-  background: #f1f5f7;
-  color: #71848f;
+  background: var(--mon-surface-muted);
+  color: var(--mon-muted);
 }
 
 .mon-modal-body {
@@ -2499,21 +2638,21 @@ const css = `
 .mon-detail-field {
   min-width: 0;
   padding: 12px;
-  border: 1px solid #dce8ef;
+  border: 1px solid var(--mon-border);
   border-radius: 8px;
-  background: #f8fbfd;
+  background: var(--mon-surface-soft);
 }
 
 .mon-detail-field span {
   display: block;
-  color: #8297a6;
+  color: var(--mon-muted);
   font-size: 10px;
 }
 
 .mon-detail-field strong {
   display: block;
   margin-top: 6px;
-  color: #244b67;
+  color: var(--mon-heading);
   font-size: 11px;
   overflow-wrap: anywhere;
 }
@@ -2526,11 +2665,11 @@ const css = `
   margin-top: 15px;
   padding: 13px;
   border-radius: 8px;
-  background: #f3f8fa;
+  background: var(--mon-surface-muted);
 }
 
 .mon-detail-status > span {
-  color: #668092;
+  color: var(--mon-muted);
   font-size: 11px;
 }
 
@@ -2539,6 +2678,10 @@ const css = `
   padding: 13px;
   border-radius: 8px;
   background: #fff3f3;
+}
+
+:root[data-theme="dark"] .mon-detail-reason {
+  background: #462b30;
 }
 
 .mon-detail-reason strong {
@@ -2554,9 +2697,17 @@ const css = `
   overflow-wrap: anywhere;
 }
 
+:root[data-theme="dark"] .mon-detail-reason strong {
+  color: #ffb2c0;
+}
+
+:root[data-theme="dark"] .mon-detail-reason p {
+  color: #e8afb9;
+}
+
 .mon-detail-note {
   margin-top: 15px;
-  color: #7f92a2;
+  color: var(--mon-muted);
   font-size: 10px;
   line-height: 1.6;
 }
@@ -2582,8 +2733,8 @@ const css = `
 }
 
 .mon-modal-actions .secondary {
-  background: #e9eff2;
-  color: #526b78;
+  background: var(--mon-surface-muted);
+  color: var(--mon-text);
 }
 
 .mon-modal-actions .primary {
@@ -2591,25 +2742,27 @@ const css = `
   color: white;
 }
 
-/* LOADING */
+/* =====================================================
+   LOADING
+   ===================================================== */
 
 .mon-loading {
   display: grid;
   place-items: center;
-  min-height: 100vh;
   padding: 24px;
-  background: #edf4f7;
-  font-family: Arial, sans-serif;
   text-align: center;
-  color: #15394e;
+}
+
+.mon-loading h2 {
+  color: var(--mon-heading);
 }
 
 .mon-loading h2 span {
-  color: #078e72;
+  color: var(--mon-primary-text);
 }
 
 .mon-loading p {
-  color: #718a9c;
+  color: var(--mon-muted);
   line-height: 1.6;
 }
 
@@ -2624,9 +2777,11 @@ const css = `
   cursor: pointer;
 }
 
-/* RESPONSIVE */
+/* =====================================================
+   RESPONSIVE TABLET
+   ===================================================== */
 
-@media(max-width:1250px) {
+@media (max-width:1250px) {
   .mon-topbar {
     gap: 10px;
     padding: 11px 17px;
@@ -2638,11 +2793,12 @@ const css = `
   }
 
   .mon-stat-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr));
+    grid-template-columns:
+      repeat(2,minmax(0,1fr));
   }
 }
 
-@media(max-width:1000px) {
+@media (max-width:1000px) {
   .mon-nav {
     display: none;
     position: absolute;
@@ -2652,6 +2808,10 @@ const css = `
     padding: 12px;
     background: #0b2943;
     border-bottom: 1px solid #ffffff2d;
+  }
+
+  :root[data-theme="dark"] .mon-nav {
+    background: #0b282a;
   }
 
   .mon-nav.open {
@@ -2677,7 +2837,11 @@ const css = `
   }
 }
 
-@media(max-width:700px) {
+/* =====================================================
+   RESPONSIVE MOBILE
+   ===================================================== */
+
+@media (max-width:700px) {
   .mon-topbar {
     min-height: 65px;
     padding: 10px 12px;
@@ -2798,9 +2962,10 @@ const css = `
 
   .mon-mobile-item {
     padding: 14px;
-    border: 1px solid #e3ebef;
+    border: 1px solid var(--mon-border);
     border-radius: 10px;
-    background: white;
+    background: var(--mon-surface);
+    color: var(--mon-text);
   }
 
   .mon-mobile-person {
@@ -2817,11 +2982,12 @@ const css = `
 
   .mon-mobile-person strong {
     font-size: 12px;
+    color: var(--mon-heading);
   }
 
   .mon-mobile-person small {
     margin-top: 5px;
-    color: #8498a5;
+    color: var(--mon-muted);
     font-size: 10px;
   }
 
@@ -2830,17 +2996,18 @@ const css = `
     justify-content: space-between;
     gap: 10px;
     padding: 9px 0;
-    border-top: 1px solid #edf2f4;
+    border-top: 1px solid var(--mon-border-soft);
   }
 
   .mon-mobile-row span {
-    color: #879ba7;
+    color: var(--mon-muted);
     font-size: 10px;
   }
 
   .mon-mobile-row strong {
     font-size: 10px;
     text-align: right;
+    color: var(--mon-text);
   }
 
   .mon-mobile-bottom {
@@ -2882,7 +3049,7 @@ const css = `
   }
 }
 
-@media(max-width:400px) {
+@media (max-width:400px) {
   .mon-stat-grid {
     grid-template-columns: 1fr;
   }
@@ -2892,9 +3059,42 @@ const css = `
   }
 }
 
-/* PRINT */
+/* =====================================================
+   PRINT — FORCE LIGHT THEME
+   ===================================================== */
+
+@page {
+  size: A4 landscape;
+  margin: 9mm;
+}
 
 @media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #173654 !important;
+  }
+
+  .mon-app,
+  :root[data-theme="dark"] .mon-app {
+    --mon-bg: #ffffff;
+    --mon-surface: #ffffff;
+    --mon-surface-soft: #f6f9fb;
+    --mon-surface-muted: #f1f6f8;
+    --mon-text: #173654;
+    --mon-heading: #123e70;
+    --mon-muted: #718596;
+    --mon-muted-soft: #8198a5;
+    --mon-border: #dce7ef;
+    --mon-border-soft: #eaf0f3;
+    --mon-hover: #ffffff;
+    --mon-primary-text: #087c75;
+    --mon-shadow: transparent;
+
+    background: #ffffff !important;
+    color: #173654 !important;
+  }
+
   .mon-topbar,
   .mon-refresh,
   .mon-tabs,
@@ -2907,6 +3107,7 @@ const css = `
 
   .mon-container {
     padding: 0;
+    max-width: none;
   }
 
   .mon-hero {
@@ -2916,7 +3117,39 @@ const css = `
 
   .mon-card,
   .mon-stat {
-    box-shadow: none;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #173654 !important;
+    border: 1px solid #dce7ef !important;
+    break-inside: avoid-page;
+  }
+
+  .mon-section-title h2,
+  .mon-stat-content strong,
+  .mon-person strong,
+  .mon-process-item strong,
+  .mon-program-dates strong {
+    color: #173654 !important;
+  }
+
+  .mon-table {
+    color: #173654 !important;
+  }
+
+  .mon-table th {
+    background: #eaf1f6 !important;
+    color: #426178 !important;
+  }
+
+  .mon-table td {
+    color: #355265 !important;
+  }
+
+  .mon-stat-icon,
+  .mon-status,
+  .mon-week-node {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }
 `;
