@@ -6,25 +6,14 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 // ======================================================
-// OJT MINETRACK V2.0
-// DASHBOARD PESERTA — GREEN ENTERPRISE
-// RESPONSIVE DESKTOP & MOBILE
+// OJT MINETRACK V2.0 — DASHBOARD PESERTA
 //
-// DIPERTAHANKAN:
-// - Login dan validasi role
-// - Persetujuan pendaftaran
-// - Preview Administrator
-// - Kalender global Week 01–25
-// - Rumus Achievement asli
-// - Rumus SIMPER V2 asli
-// - Rumus minggu aktivitas per program
-// - Data dan struktur database lama
-// - Refresh dan logout
-//
-// JADWAL:
-// - Week 08 berdasarkan agenda yang diberikan
-// - Belum memerlukan tabel database baru
-// - Jadwal minggu lain tidak dibuat fiktif
+// PERBAIKAN:
+// 1. Dashboard selalu mengikuti minggu berjalan (WITA).
+// 2. Jadwal Kegiatan memiliki pilihan Week tersendiri.
+// 3. Mengubah Week Jadwal tidak mengubah Dashboard.
+// 4. Dashboard diperbarui saat tanggal/minggu berganti.
+// 5. Tidak mengubah rumus Achievement, SIMPER, dan akses.
 // ======================================================
 
 const TOTAL_WEEKS = 25;
@@ -43,10 +32,9 @@ const META_START = "[[SIMPER_V2]]";
 const META_END = "[[/SIMPER_V2]]";
 
 // ======================================================
-// JADWAL MINGGUAN
-// Agenda Week 08 sesuai data yang diberikan pengguna.
-// Data ini bersifat statis sampai modul kelola jadwal
-// Admin dan tabel jadwal dibuat.
+// JADWAL KEGIATAN
+// Sementara menggunakan agenda Week 08.
+// Agenda minggu lainnya belum diisi agar tidak fiktif.
 // ======================================================
 
 const WEEKLY_SCHEDULE = [
@@ -80,13 +68,13 @@ const WEEKLY_SCHEDULE = [
     type: "Praktik",
     title: "Praktik Donning & Doffing TOG",
     description:
-      "Praktik penggunaan dan pelepasan Turnout Gear sesuai prosedur. Waktu menyesuaikan jadwal site.",
+      "Praktik penggunaan dan pelepasan Turnout Gear sesuai prosedur. Waktu pelaksanaan menyesuaikan jadwal site.",
     icon: "vest",
   },
 ];
 
 // ======================================================
-// HELPERS
+// UTILITIES
 // ======================================================
 
 function normalize(value) {
@@ -109,7 +97,7 @@ function initials(value) {
       .trim()
       .split(/\s+/)
       .slice(0, 2)
-      .map((part) => part.charAt(0))
+      .map((word) => word.charAt(0))
       .join("")
       .toUpperCase() || "P"
   );
@@ -145,7 +133,6 @@ function parseDate(value) {
 
 function addDays(value, count) {
   const date = parseDate(value);
-
   if (!date) return null;
 
   date.setUTCDate(date.getUTCDate() + count);
@@ -155,7 +142,6 @@ function addDays(value, count) {
 
 function formatDate(value) {
   const date = parseDate(value);
-
   if (!date) return "—";
 
   return date.toLocaleDateString("id-ID", {
@@ -168,7 +154,6 @@ function formatDate(value) {
 
 function shortDate(value) {
   const date = parseDate(value);
-
   if (!date) return "—";
 
   return date.toLocaleDateString("id-ID", {
@@ -180,7 +165,6 @@ function shortDate(value) {
 
 function dayName(value) {
   const date = parseDate(value);
-
   if (!date) return "—";
 
   return date.toLocaleDateString("id-ID", {
@@ -188,6 +172,12 @@ function dayName(value) {
     timeZone: "UTC",
   });
 }
+
+// ======================================================
+// TANGGAL WITA
+// Tidak memakai tanggal UTC agar pergantian minggu
+// sesuai waktu Indonesia Tengah.
+// ======================================================
 
 function todayWITA() {
   const parts = new Intl.DateTimeFormat(
@@ -207,6 +197,13 @@ function todayWITA() {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+// ======================================================
+// KALENDER GLOBAL OJT
+// Week 01 = 12–18 September 2026
+// Week 02 = 20–26 September 2026
+// Week 25 = 28 Februari–6 Maret 2027
+// ======================================================
+
 function getGlobalWeek(number) {
   if (
     !Number.isInteger(number) ||
@@ -218,7 +215,7 @@ function getGlobalWeek(number) {
 
   if (number === 1) {
     return {
-      number,
+      number: 1,
       start: "2026-09-12",
       end: "2026-09-18",
     };
@@ -237,18 +234,18 @@ function getGlobalWeek(number) {
 }
 
 function globalWeekOf(value) {
-  const date = String(value ?? "").slice(0, 10);
+  const date = String(value || "").slice(0, 10);
 
   if (!parseDate(date)) return null;
 
-  for (let week = 1; week <= TOTAL_WEEKS; week++) {
-    const item = getGlobalWeek(week);
+  for (let number = 1; number <= TOTAL_WEEKS; number++) {
+    const week = getGlobalWeek(number);
 
     if (
-      date >= item.start &&
-      date <= item.end
+      date >= week.start &&
+      date <= week.end
     ) {
-      return week;
+      return number;
     }
   }
 
@@ -256,12 +253,24 @@ function globalWeekOf(value) {
 }
 
 function getCurrentGlobalWeek() {
-  return globalWeekOf(todayWITA()) || 1;
+  const today = todayWITA();
+  const matched = globalWeekOf(today);
+
+  if (matched !== null) {
+    return matched;
+  }
+
+  // Di luar tanggal program, tampilkan batas program.
+  if (today < "2026-09-12") return 1;
+  if (today > "2027-03-06") return TOTAL_WEEKS;
+
+  // 19 September 2026 adalah jeda antara Week 01 dan 02.
+  return 1;
 }
 
 // ======================================================
-// RUMUS MINGGU ASLI — JANGAN DIUBAH
-// Berdasarkan tanggal mulai program peserta.
+// RUMUS MINGGU PROGRAM ASLI
+// Berdasarkan start_date masing-masing program.
 // ======================================================
 
 function weekOf(value, startValue) {
@@ -302,15 +311,15 @@ function scoreText(value) {
 
   const number = Number(value);
 
-  return Number.isFinite(number)
-    ? number.toLocaleString("id-ID", {
-        maximumFractionDigits: 2,
-      })
-    : "—";
+  if (!Number.isFinite(number)) return "—";
+
+  return number.toLocaleString("id-ID", {
+    maximumFractionDigits: 2,
+  });
 }
 
 function averageScores(rows) {
-  const scores = rows
+  const values = rows
     .map((item) => item.score)
     .filter(
       (value) =>
@@ -321,11 +330,11 @@ function averageScores(rows) {
     .map(Number)
     .filter(Number.isFinite);
 
-  if (!scores.length) return null;
+  if (!values.length) return null;
 
   return (
-    scores.reduce((sum, score) => sum + score, 0) /
-    scores.length
+    values.reduce((sum, value) => sum + value, 0) /
+    values.length
   );
 }
 
@@ -352,7 +361,7 @@ function emptyWeeklyData() {
 }
 
 // ======================================================
-// ACHIEVEMENT — RUMUS ASLI
+// ACHIEVEMENT — RUMUS TETAP
 // ======================================================
 
 function calculateAchievements(
@@ -417,7 +426,7 @@ function calculateAchievements(
   });
 
   const total = categories.reduce(
-    (sum, item) => sum + item.progress,
+    (sum, category) => sum + category.progress,
     0
   );
 
@@ -433,7 +442,7 @@ function calculateAchievements(
 }
 
 // ======================================================
-// SIMPER V2 — RUMUS ASLI
+// SIMPER V2 — RUMUS TETAP
 // ======================================================
 
 function parseSimperMetadata(notes) {
@@ -481,9 +490,7 @@ function calculateSimper(record) {
     meta?.orientation_status === "completed",
   ];
 
-  const completed = steps.filter(
-    Boolean
-  ).length;
+  const completed = steps.filter(Boolean).length;
 
   return {
     progress: Math.round(
@@ -496,7 +503,7 @@ function calculateSimper(record) {
 }
 
 // ======================================================
-// RINGKASAN PROGRAM — RUMUS ASLI
+// RINGKASAN PROGRAM — RUMUS TETAP
 // ======================================================
 
 function buildProgress(program, data) {
@@ -634,24 +641,14 @@ function Icon({ name, size = 20 }) {
         <path d="M12 7v5l3 2" />
       </>
     ),
-    check: (
-      <path d="m4 12 5 5L20 6" />
-    ),
-    menu: (
-      <path d="M4 7h16M4 12h16M4 17h16" />
-    ),
-    close: (
-      <path d="M5 5l14 14M19 5 5 19" />
-    ),
+    check: <path d="m4 12 5 5L20 6" />,
+    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+    close: <path d="M5 5l14 14M19 5 5 19" />,
     arrow: (
       <path d="M5 12h14m-6-6 6 6-6 6" />
     ),
-    left: (
-      <path d="m15 18-6-6 6-6" />
-    ),
-    right: (
-      <path d="m9 18 6-6-6-6" />
-    ),
+    left: <path d="m15 18-6-6 6-6" />,
+    right: <path d="m9 18 6-6-6-6" />,
     refresh: (
       <>
         <path d="M20 11a8 8 0 0 0-14-5L3 9" />
@@ -703,12 +700,6 @@ function Icon({ name, size = 20 }) {
         <path d="M12 9v5M12 18h.01" />
       </>
     ),
-    layers: (
-      <>
-        <path d="m12 2 9 5-9 5-9-5 9-5Z" />
-        <path d="m3 12 9 5 9-5M3 17l9 5 9-5" />
-      </>
-    ),
     info: (
       <>
         <circle cx="12" cy="12" r="9" />
@@ -735,7 +726,7 @@ function Icon({ name, size = 20 }) {
 }
 
 // ======================================================
-// KOMPONEN TAMPILAN
+// COMPONENTS
 // ======================================================
 
 function ProgressBar({ value }) {
@@ -749,9 +740,7 @@ function ProgressBar({ value }) {
       aria-valuemax={100}
       aria-valuenow={safe}
     >
-      <span
-        style={{ width: `${safe}%` }}
-      />
+      <span style={{ width: `${safe}%` }} />
     </div>
   );
 }
@@ -804,11 +793,11 @@ function WeekSelector({
   );
 }
 
-function ActivityItem({ activity, compact = false }) {
+function ActivityItem({ activity }) {
   const isRange = activity.start !== activity.end;
 
   return (
-    <div className={`mt-activity ${compact ? "compact" : ""}`}>
+    <div className="mt-activity">
       <div
         className={
           "mt-date-block " +
@@ -831,7 +820,14 @@ function ActivityItem({ activity, compact = false }) {
             : activity.start.slice(8)}
         </strong>
 
-        <span>NOV</span>
+        <span>
+          {parseDate(activity.start)
+            ?.toLocaleDateString("id-ID", {
+              month: "short",
+              timeZone: "UTC",
+            })
+            .toUpperCase() || "—"}
+        </span>
       </div>
 
       <span className="mt-activity-icon">
@@ -840,7 +836,7 @@ function ActivityItem({ activity, compact = false }) {
 
       <div className="mt-activity-content">
         <strong>{activity.title}</strong>
-        {!compact && <p>{activity.description}</p>}
+        <p>{activity.description}</p>
       </div>
 
       <span
@@ -886,7 +882,7 @@ function EmptyState({ children }) {
 }
 
 // ======================================================
-// HALAMAN UTAMA
+// COMPONENT UTAMA
 // ======================================================
 
 export default function DashboardPeserta() {
@@ -896,9 +892,7 @@ export default function DashboardPeserta() {
   const [profile, setProfile] = useState(null);
   const [program, setProgram] = useState(null);
   const [registration, setRegistration] = useState(null);
-
-  const [participants, setParticipants] =
-    useState([]);
+  const [participants, setParticipants] = useState([]);
 
   const [
     selectedParticipantId,
@@ -917,16 +911,35 @@ export default function DashboardPeserta() {
   const [weeklyData, setWeeklyData] =
     useState(emptyWeeklyData());
 
+  // ====================================================
+  // PERBAIKAN UTAMA
+  //
+  // currentWeek:
+  //   Khusus Dashboard Awal.
+  //   Otomatis mengikuti tanggal hari ini.
+  //
+  // selectedWeek:
+  //   Pilihan manual pada Jadwal, Monitoring, Evaluasi.
+  //   Tidak boleh mengubah currentWeek.
+  // ====================================================
+
+  const [currentWeek, setCurrentWeek] =
+    useState(1);
+
   const [selectedWeek, setSelectedWeek] =
     useState(1);
 
   const [page, setPage] = useState("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
-  const [resultTab, setResultTab] = useState("posttest");
-  const [reportTab, setReportTab] = useState("evaluasi");
+  const [resultTab, setResultTab] =
+    useState("posttest");
+
+  const [reportTab, setReportTab] =
+    useState("evaluasi");
 
   const requestIdRef = useRef(0);
   const selectedIdRef = useRef("");
+  const currentWeekRef = useRef(1);
 
   const isAdmin =
     normalize(account?.role) === "admin";
@@ -939,7 +952,68 @@ export default function DashboardPeserta() {
   const isAdminEmptyView = isAdmin && !profile;
 
   // ====================================================
-  // LOAD DAFTAR PESERTA PREVIEW ADMIN
+  // OTOMATISASI MINGGU BERJALAN
+  //
+  // - Saat halaman pertama dibuka
+  // - Saat tab kembali aktif
+  // - Saat browser kembali fokus
+  // - Pemeriksaan berkala setiap menit
+  //
+  // Tidak mengubah pilihan selectedWeek kecuali
+  // saat pertama kali masuk halaman.
+  // ====================================================
+
+  useEffect(() => {
+    const initialWeek = getCurrentGlobalWeek();
+
+    currentWeekRef.current = initialWeek;
+    setCurrentWeek(initialWeek);
+    setSelectedWeek(initialWeek);
+
+    const syncCurrentWeek = () => {
+      const latest = getCurrentGlobalWeek();
+
+      if (latest !== currentWeekRef.current) {
+        currentWeekRef.current = latest;
+        setCurrentWeek(latest);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncCurrentWeek();
+      }
+    };
+
+    window.addEventListener("focus", syncCurrentWeek);
+
+    document.addEventListener(
+      "visibilitychange",
+      onVisibilityChange
+    );
+
+    const interval = window.setInterval(
+      syncCurrentWeek,
+      60000
+    );
+
+    return () => {
+      window.removeEventListener(
+        "focus",
+        syncCurrentWeek
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        onVisibilityChange
+      );
+
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  // ====================================================
+  // DATA PESERTA UNTUK ADMIN PREVIEW
   // ====================================================
 
   async function fetchParticipantList() {
@@ -993,7 +1067,7 @@ export default function DashboardPeserta() {
   }
 
   // ====================================================
-  // AMBIL PROGRES & NILAI
+  // AMBIL DATA PROGRES
   // ====================================================
 
   async function fetchProgramProgress(activeProgram) {
@@ -1028,7 +1102,7 @@ export default function DashboardPeserta() {
       supabase
         .from("weekly_practice_scores")
         .select(
-          "id,program_id,practice_date,practice_name,score"
+          "id,program_id,practice_date,score"
         )
         .eq("program_id", id),
 
@@ -1074,7 +1148,10 @@ export default function DashboardPeserta() {
     };
 
     return {
-      progress: buildProgress(activeProgram, data),
+      progress: buildProgress(
+        activeProgram,
+        data
+      ),
       weekly: {
         achievements: data.achievements,
         postTests: data.postTests,
@@ -1085,7 +1162,7 @@ export default function DashboardPeserta() {
   }
 
   // ====================================================
-  // DATA PESERTA & PERSETUJUAN
+  // DATA PESERTA DAN PERSETUJUAN
   // ====================================================
 
   async function fetchParticipantDashboard(
@@ -1115,12 +1192,14 @@ export default function DashboardPeserta() {
         role: selected.role,
       };
     } else {
-      const { data, error: profileError } =
-        await supabase
-          .from("profiles")
-          .select("id,full_name,department,role")
-          .eq("id", participantId)
-          .maybeSingle();
+      const {
+        data,
+        error: profileError,
+      } = await supabase
+        .from("profiles")
+        .select("id,full_name,department,role")
+        .eq("id", participantId)
+        .maybeSingle();
 
       if (profileError) throw profileError;
 
@@ -1139,26 +1218,31 @@ export default function DashboardPeserta() {
       currentProfile = data;
     }
 
-    const { data: activePrograms, error: programError } =
-      await supabase
-        .from("ojt_programs")
-        .select(`
-          id,
-          participant_id,
-          start_date,
-          end_date,
-          status,
-          site,
-          legacy_access
-        `)
-        .eq("participant_id", participantId)
-        .eq("status", "active")
-        .order("start_date", { ascending: false })
-        .limit(1);
+    const {
+      data: activePrograms,
+      error: programError,
+    } = await supabase
+      .from("ojt_programs")
+      .select(`
+        id,
+        participant_id,
+        start_date,
+        end_date,
+        status,
+        site,
+        legacy_access
+      `)
+      .eq("participant_id", participantId)
+      .eq("status", "active")
+      .order("start_date", {
+        ascending: false,
+      })
+      .limit(1);
 
     if (programError) throw programError;
 
-    const activeProgram = activePrograms?.[0] || null;
+    const activeProgram =
+      activePrograms?.[0] || null;
 
     if (adminPreview) {
       const bundle = activeProgram
@@ -1180,36 +1264,44 @@ export default function DashboardPeserta() {
       };
     }
 
-    const { data: newRequests, error: newError } =
-      await supabase
-        .from("ojt_registration_requests")
-        .select(`
-          id,
-          status,
-          rejection_reason,
-          site,
-          start_date,
-          end_date,
-          created_at
-        `)
-        .eq("participant_id", participantId)
-        .order("created_at", { ascending: false });
+    const {
+      data: newRequests,
+      error: newError,
+    } = await supabase
+      .from("ojt_registration_requests")
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        start_date,
+        end_date,
+        created_at
+      `)
+      .eq("participant_id", participantId)
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (newError) throw newError;
 
-    const { data: oldRequests, error: oldError } =
-      await supabase
-        .from("participant_registrations")
-        .select(`
-          id,
-          status,
-          rejection_reason,
-          site,
-          created_at
-        `)
-        .eq("user_id", participantId)
-        .order("created_at", { ascending: false })
-        .limit(1);
+    const {
+      data: oldRequests,
+      error: oldError,
+    } = await supabase
+      .from("participant_registrations")
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        created_at
+      `)
+      .eq("user_id", participantId)
+      .order("created_at", {
+        ascending: false,
+      })
+      .limit(1);
 
     if (oldError) throw oldError;
 
@@ -1226,30 +1318,39 @@ export default function DashboardPeserta() {
         : latestNew || oldRegistration;
 
     const hasPendingNew = newList.some(
-      (item) => normalize(item.status) === "pending"
+      (item) =>
+        normalize(item.status) === "pending"
     );
 
     const hasApprovedNew = newList.some(
-      (item) => normalize(item.status) === "approved"
+      (item) =>
+        normalize(item.status) === "approved"
     );
 
     const hasApprovedOld =
-      normalize(oldRegistration?.status) === "approved";
+      normalize(oldRegistration?.status) ===
+      "approved";
 
     const hasPendingOld =
-      normalize(oldRegistration?.status) === "pending";
+      normalize(oldRegistration?.status) ===
+      "pending";
 
     const approvedProgram =
       Boolean(activeProgram) &&
-      (hasApprovedNew ||
+      (
+        hasApprovedNew ||
         hasApprovedOld ||
-        activeProgram.legacy_access === true);
+        activeProgram.legacy_access === true
+      );
 
     let nextAccess = "no_program";
 
     if (approvedProgram) {
       nextAccess = "approved";
-    } else if (hasPendingNew || hasPendingOld) {
+    } else if (
+      hasPendingNew ||
+      hasPendingOld
+    ) {
       nextAccess = "pending";
     } else if (
       normalize(latestRegistration?.status) ===
@@ -1268,7 +1369,8 @@ export default function DashboardPeserta() {
 
     return {
       profile: currentProfile,
-      registration: latestRegistration || null,
+      registration:
+        latestRegistration || null,
       program:
         nextAccess === "approved"
           ? activeProgram
@@ -1292,19 +1394,29 @@ export default function DashboardPeserta() {
     setProfile(data.profile);
     setRegistration(data.registration);
     setProgram(data.program);
-    setProgress(data.progress || emptyProgress());
-    setWeeklyData(data.weekly || emptyWeeklyData());
+    setProgress(
+      data.progress || emptyProgress()
+    );
+    setWeeklyData(
+      data.weekly || emptyWeeklyData()
+    );
     setAccess(data.access);
   }
 
   // ====================================================
-  // LOGIN & LOAD
+  // LOAD DASHBOARD
   // ====================================================
 
   async function loadDashboard(
     isRefresh = false,
     requestedParticipantId = null
   ) {
+    // Perbarui minggu otomatis ketika refresh,
+    // tanpa mengubah selectedWeek pengguna.
+    const latestWeek = getCurrentGlobalWeek();
+    currentWeekRef.current = latestWeek;
+    setCurrentWeek(latestWeek);
+
     const requestId = ++requestIdRef.current;
 
     if (isRefresh) {
@@ -1322,7 +1434,9 @@ export default function DashboardPeserta() {
         error: authError,
       } = await supabase.auth.getUser();
 
-      if (requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
 
       if (authError || !user) {
         setAccount(null);
@@ -1330,6 +1444,7 @@ export default function DashboardPeserta() {
         setSelectedParticipantId("");
         selectedIdRef.current = "";
         clearDashboard();
+
         router.replace("/login");
         return;
       }
@@ -1339,11 +1454,15 @@ export default function DashboardPeserta() {
         error: accountError,
       } = await supabase
         .from("profiles")
-        .select("id,full_name,department,role")
+        .select(
+          "id,full_name,department,role"
+        )
         .eq("id", user.id)
         .maybeSingle();
 
-      if (requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
 
       if (accountError) throw accountError;
 
@@ -1353,7 +1472,9 @@ export default function DashboardPeserta() {
         );
       }
 
-      const role = normalize(currentAccount.role);
+      const role = normalize(
+        currentAccount.role
+      );
 
       if (role === "mentor") {
         setAccount(null);
@@ -1380,7 +1501,9 @@ export default function DashboardPeserta() {
       if (role === "admin") {
         const list = await fetchParticipantList();
 
-        if (requestId !== requestIdRef.current) return;
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
 
         setParticipants(list);
 
@@ -1423,13 +1546,16 @@ export default function DashboardPeserta() {
         selectedIdRef.current = targetId;
         setSelectedParticipantId(targetId);
 
-        const next = await fetchParticipantDashboard(
-          targetId,
-          true,
-          list
-        );
+        const next =
+          await fetchParticipantDashboard(
+            targetId,
+            true,
+            list
+          );
 
-        if (requestId !== requestIdRef.current) return;
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
 
         applyDashboard(next);
       } else {
@@ -1437,17 +1563,22 @@ export default function DashboardPeserta() {
         setSelectedParticipantId("");
         selectedIdRef.current = "";
 
-        const next = await fetchParticipantDashboard(
-          user.id,
-          false
-        );
+        const next =
+          await fetchParticipantDashboard(
+            user.id,
+            false
+          );
 
-        if (requestId !== requestIdRef.current) return;
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
 
         applyDashboard(next);
       }
     } catch (err) {
-      if (requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
 
       clearDashboard();
 
@@ -1466,8 +1597,6 @@ export default function DashboardPeserta() {
   }
 
   useEffect(() => {
-    setSelectedWeek(getCurrentGlobalWeek());
-
     loadDashboard();
 
     return () => {
@@ -1482,7 +1611,9 @@ export default function DashboardPeserta() {
   // ====================================================
 
   async function changePreviewParticipant(id) {
-    if (!isAdmin || loading || refreshing) return;
+    if (!isAdmin || loading || refreshing) {
+      return;
+    }
 
     const requestId = ++requestIdRef.current;
 
@@ -1498,7 +1629,9 @@ export default function DashboardPeserta() {
         error: authError,
       } = await supabase.auth.getUser();
 
-      if (requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
 
       if (authError || !user) {
         router.replace("/login");
@@ -1514,12 +1647,15 @@ export default function DashboardPeserta() {
         .eq("id", user.id)
         .maybeSingle();
 
-      if (requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
 
       if (accountError) throw accountError;
 
       if (
-        normalize(verifiedAccount?.role) !== "admin"
+        normalize(verifiedAccount?.role) !==
+        "admin"
       ) {
         throw new Error(
           "Hanya Admin yang dapat menggunakan tinjauan peserta."
@@ -1543,20 +1679,27 @@ export default function DashboardPeserta() {
       );
 
       if (!selected) {
-        throw new Error("Peserta tidak ditemukan.");
+        throw new Error(
+          "Peserta tidak ditemukan."
+        );
       }
 
-      const next = await fetchParticipantDashboard(
-        id,
-        true,
-        participants
-      );
+      const next =
+        await fetchParticipantDashboard(
+          id,
+          true,
+          participants
+        );
 
-      if (requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
 
       applyDashboard(next);
     } catch (err) {
-      if (requestId !== requestIdRef.current) return;
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
 
       clearDashboard();
 
@@ -1584,8 +1727,9 @@ export default function DashboardPeserta() {
     requestIdRef.current += 1;
 
     try {
-      const { error: logoutError } =
-        await supabase.auth.signOut();
+      const {
+        error: logoutError,
+      } = await supabase.auth.signOut();
 
       if (logoutError) throw logoutError;
 
@@ -1605,7 +1749,20 @@ export default function DashboardPeserta() {
     }
   }
 
+  // ====================================================
+  // NAVIGASI
+  // ====================================================
+
   function navigatePage(nextPage) {
+    if (nextPage === "dashboard") {
+      // Dashboard selalu kembali menggunakan
+      // tanggal WITA terbaru, bukan selectedWeek.
+      const latestWeek = getCurrentGlobalWeek();
+
+      currentWeekRef.current = latestWeek;
+      setCurrentWeek(latestWeek);
+    }
+
     setPage(nextPage);
     setMobileMenu(false);
 
@@ -1621,67 +1778,100 @@ export default function DashboardPeserta() {
   }
 
   // ====================================================
-  // DATA MINGGU TERPILIH
+  // PEMISAHAN DATA WEEK
   // ====================================================
 
-  const weekInfo = getGlobalWeek(selectedWeek);
+  // A. DASHBOARD OTOMATIS
+  const dashboardWeekInfo =
+    getGlobalWeek(currentWeek);
 
-  const weeklyAchievements =
-    weeklyData.achievements.filter(
-      (item) =>
-        globalWeekOf(item.activity_date) ===
-        selectedWeek
+  const dashboardSchedule =
+    WEEKLY_SCHEDULE.filter(
+      (item) => item.week === currentWeek
     );
 
-  const weeklyPostTests =
-    weeklyData.postTests.filter(
-      (item) =>
-        globalWeekOf(item.test_date) ===
-        selectedWeek
+  // B. HALAMAN JADWAL MANUAL
+  const selectedWeekInfo =
+    getGlobalWeek(selectedWeek);
+
+  const selectedSchedule =
+    WEEKLY_SCHEDULE.filter(
+      (item) => item.week === selectedWeek
     );
 
-  const weeklyPractices =
-    weeklyData.practices.filter(
-      (item) =>
-        globalWeekOf(item.practice_date) ===
-        selectedWeek
-    );
+  // ====================================================
+  // DATA PER MINGGU (GLOBAL)
+  // ====================================================
 
-  const weeklySamapta =
-    weeklyData.samapta.filter(
-      (item) =>
-        globalWeekOf(item.test_date) ===
-        selectedWeek
-    );
+  function getWeekRecords(weekNumber) {
+    const achievements =
+      weeklyData.achievements.filter(
+        (item) =>
+          globalWeekOf(item.activity_date) ===
+          weekNumber
+      );
 
-  const weeklyRecords = [
-    ...weeklyPostTests,
-    ...weeklyPractices,
-  ];
+    const postTests =
+      weeklyData.postTests.filter(
+        (item) =>
+          globalWeekOf(item.test_date) ===
+          weekNumber
+      );
 
-  const weeklyScore =
-    averageScores(weeklyRecords);
+    const practices =
+      weeklyData.practices.filter(
+        (item) =>
+          globalWeekOf(item.practice_date) ===
+          weekNumber
+      );
 
-  const totalSelectedActivities =
-    weeklyAchievements.length +
-    weeklyPostTests.length +
-    weeklyPractices.length +
-    weeklySamapta.length;
+    const samapta =
+      weeklyData.samapta.filter(
+        (item) =>
+          globalWeekOf(item.test_date) ===
+          weekNumber
+      );
 
-  const verifiedWeeklyAchievements =
-    weeklyAchievements.filter(
-      (item) =>
-        normalize(item.status) === "verified"
-    ).length;
+    return {
+      achievements,
+      postTests,
+      practices,
+      samapta,
+      total:
+        achievements.length +
+        postTests.length +
+        practices.length +
+        samapta.length,
+      verifiedAchievements:
+        achievements.filter(
+          (item) =>
+            normalize(item.status) ===
+            "verified"
+        ).length,
+      average: averageScores([
+        ...postTests,
+        ...practices,
+      ]),
+    };
+  }
+
+  // Data khusus dashboard awal.
+  // Hanya berubah saat currentWeek berubah.
+  const dashboardWeekly =
+    getWeekRecords(currentWeek);
+
+  // Data halaman yang menggunakan selectedWeek.
+  const selectedWeekly =
+    getWeekRecords(selectedWeek);
 
   const weeksWithData = new Set();
 
   if (hasActiveProgram) {
     const markGlobal = (date) => {
-      const week = globalWeekOf(date);
+      const number = globalWeekOf(date);
 
-      if (week !== null) {
-        weeksWithData.add(week);
+      if (number !== null) {
+        weeksWithData.add(number);
       }
     };
 
@@ -1702,11 +1892,6 @@ export default function DashboardPeserta() {
     );
   }
 
-  const selectedSchedule =
-    WEEKLY_SCHEDULE.filter(
-      (item) => item.week === selectedWeek
-    );
-
   const categories =
     progress.categories.length
       ? progress.categories
@@ -1724,17 +1909,6 @@ export default function DashboardPeserta() {
 
   const overallScore =
     averageScores(allScores);
-
-  const hasAnyScores = allScores.some(
-    (item) =>
-      item.score !== null &&
-      item.score !== undefined &&
-      item.score !== "" &&
-      Number.isFinite(Number(item.score))
-  );
-
-  const weekLabel =
-    `Week ${String(selectedWeek).padStart(2, "0")}`;
 
   const showDashboardContent =
     !loading &&
@@ -1792,8 +1966,16 @@ export default function DashboardPeserta() {
 
   const participantName =
     profile?.full_name ||
-    (isAdmin ? "Tinjauan Peserta" : account?.full_name) ||
+    (isAdmin
+      ? "Tinjauan Peserta"
+      : account?.full_name) ||
     "Peserta OJT";
+
+  const dashboardWeekLabel =
+    `Week ${String(currentWeek).padStart(2, "0")}`;
+
+  const selectedWeekLabel =
+    `Week ${String(selectedWeek).padStart(2, "0")}`;
 
   // ====================================================
   // RENDER
@@ -1812,7 +1994,7 @@ export default function DashboardPeserta() {
           onClick={() =>
             setMobileMenu((old) => !old)
           }
-          aria-label="Buka menu navigasi"
+          aria-label="Buka menu"
           aria-expanded={mobileMenu}
         >
           <Icon
@@ -1824,7 +2006,9 @@ export default function DashboardPeserta() {
         <button
           type="button"
           className="mt-top-brand"
-          onClick={() => navigatePage("dashboard")}
+          onClick={() =>
+            navigatePage("dashboard")
+          }
         >
           OJT <span>MineTrack</span>
           <small>v2.0</small>
@@ -1841,17 +2025,18 @@ export default function DashboardPeserta() {
 
           <div>
             <strong>
-              {account?.full_name || "Pengguna"}
+              {account?.full_name ||
+                "Pengguna"}
             </strong>
 
             <small>
-              {isAdmin ? "Administrator" : "Peserta OJT"}
+              {isAdmin
+                ? "Administrator"
+                : "Peserta OJT"}
             </small>
           </div>
         </div>
       </header>
-
-      {/* LAYOUT */}
 
       <div className="mt-layout">
 
@@ -1891,13 +2076,18 @@ export default function DashboardPeserta() {
                 key={item.id}
                 className={
                   "mt-sidebar-item " +
-                  (page === item.id ? "active" : "")
+                  (page === item.id
+                    ? "active"
+                    : "")
                 }
                 onClick={() =>
                   navigatePage(item.id)
                 }
               >
-                <Icon name={item.icon} size={20} />
+                <Icon
+                  name={item.icon}
+                  size={20}
+                />
                 <span>{item.label}</span>
               </button>
             ))}
@@ -1908,7 +2098,9 @@ export default function DashboardPeserta() {
               type="button"
               className={
                 "mt-sidebar-item " +
-                (page === "profil" ? "active" : "")
+                (page === "profil"
+                  ? "active"
+                  : "")
               }
               onClick={() =>
                 navigatePage("profil")
@@ -1939,19 +2131,21 @@ export default function DashboardPeserta() {
           <button
             type="button"
             className="mt-mobile-overlay"
-            onClick={() => setMobileMenu(false)}
+            onClick={() =>
+              setMobileMenu(false)
+            }
             aria-label="Tutup menu"
           />
         )}
 
-        {/* KONTEN */}
+        {/* MAIN CONTENT */}
 
         <main className="mt-main">
-
           <div className="mt-page-heading">
             <div>
               <h1>
-                {pageTitles[page] || "Dashboard Peserta"}
+                {pageTitles[page] ||
+                  "Dashboard Peserta"}
               </h1>
 
               <p>
@@ -1964,17 +2158,27 @@ export default function DashboardPeserta() {
             <button
               type="button"
               className="mt-refresh"
-              disabled={loading || refreshing}
-              onClick={() => loadDashboard(true)}
+              disabled={
+                loading || refreshing
+              }
+              onClick={() =>
+                loadDashboard(true)
+              }
             >
-              <Icon name="refresh" size={17} />
+              <Icon
+                name="refresh"
+                size={17}
+              />
+
               <span>
-                {refreshing ? "Memuat..." : "Refresh"}
+                {refreshing
+                  ? "Memuat..."
+                  : "Refresh"}
               </span>
             </button>
           </div>
 
-          {/* HERO DASHBOARD */}
+          {/* BANNER DASHBOARD OTOMATIS */}
 
           {page === "dashboard" && (
             <section
@@ -2006,13 +2210,20 @@ export default function DashboardPeserta() {
                 </p>
 
                 <div className="mt-hero-period">
-                  <Icon name="calendar" size={20} />
+                  <Icon
+                    name="calendar"
+                    size={20}
+                  />
 
-                  {shortDate(weekInfo?.start)}
+                  {formatDate(
+                    dashboardWeekInfo?.start
+                  )}
                   {" – "}
-                  {formatDate(weekInfo?.end)}
+                  {formatDate(
+                    dashboardWeekInfo?.end
+                  )}
                   {" "}
-                  ({weekLabel})
+                  ({dashboardWeekLabel})
                 </div>
 
                 <div className="mt-hero-profile">
@@ -2021,7 +2232,10 @@ export default function DashboardPeserta() {
                   </span>
 
                   <div>
-                    <strong>{participantName}</strong>
+                    <strong>
+                      {participantName}
+                    </strong>
+
                     <small>
                       {isAdmin
                         ? "Tinjauan Administrator"
@@ -2032,6 +2246,8 @@ export default function DashboardPeserta() {
               </div>
             </section>
           )}
+
+          {/* LOADING & ERROR */}
 
           {loading && (
             <div className="mt-alert">
@@ -2046,30 +2262,40 @@ export default function DashboardPeserta() {
           )}
 
           {error && (
-            <div className="mt-alert error" role="alert">
+            <div
+              className="mt-alert error"
+              role="alert"
+            >
               {error}
             </div>
           )}
 
-          {/* PREVIEW ADMIN */}
+          {/* ADMIN PREVIEW */}
 
           {isAdmin && (
             <section className="mt-admin-preview">
               <div>
                 <strong>
-                  <Icon name="shield" size={18} />
+                  <Icon
+                    name="shield"
+                    size={18}
+                  />
                   Tinjauan Administrator
                 </strong>
 
                 <p>
-                  Melihat Dashboard Peserta tanpa
-                  mengubah data program.
+                  Melihat Dashboard Peserta
+                  tanpa mengubah data program.
                 </p>
               </div>
 
               <select
-                value={selectedParticipantId}
-                disabled={loading || refreshing}
+                value={
+                  selectedParticipantId
+                }
+                disabled={
+                  loading || refreshing
+                }
                 onChange={(event) =>
                   changePreviewParticipant(
                     event.target.value
@@ -2086,14 +2312,18 @@ export default function DashboardPeserta() {
                     value={item.id}
                   >
                     {item.full_name}
-                    {item.site ? ` — ${item.site}` : ""}
+                    {item.site
+                      ? ` — ${item.site}`
+                      : ""}
                   </option>
                 ))}
               </select>
 
               <button
                 type="button"
-                onClick={() => router.push("/")}
+                onClick={() =>
+                  router.push("/")
+                }
               >
                 Kembali ke Dashboard Admin
               </button>
@@ -2102,60 +2332,72 @@ export default function DashboardPeserta() {
 
           {/* STATUS PENDAFTARAN */}
 
-          {!loading && access === "pending" && (
-            <section className="mt-status-message amber">
-              <h3>Menunggu Persetujuan Mentor</h3>
+          {!loading &&
+            access === "pending" && (
+              <section className="mt-status-message amber">
+                <h3>
+                  Menunggu Persetujuan Mentor
+                </h3>
 
-              <p>
-                Pengajuan OJT sudah tercatat
-                dan menunggu persetujuan.
-              </p>
+                <p>
+                  Pengajuan OJT sudah tercatat
+                  dan menunggu persetujuan.
+                </p>
 
-              <p>
-                <strong>Site:</strong>{" "}
-                {registration?.site || "—"}
-              </p>
+                <p>
+                  <strong>Site:</strong>{" "}
+                  {registration?.site || "—"}
+                </p>
 
-              <p>
-                <strong>Periode:</strong>{" "}
-                {formatDate(registration?.start_date)}
-                {" – "}
-                {formatDate(registration?.end_date)}
-              </p>
+                <p>
+                  <strong>Periode:</strong>{" "}
+                  {formatDate(
+                    registration?.start_date
+                  )}
+                  {" – "}
+                  {formatDate(
+                    registration?.end_date
+                  )}
+                </p>
 
-              <p>
-                Fitur monitoring aktif setelah
-                pengajuan disetujui.
-              </p>
-            </section>
-          )}
+                <p>
+                  Monitoring tersedia setelah
+                  program disetujui Mentor.
+                </p>
+              </section>
+            )}
 
-          {!loading && access === "rejected" && (
-            <section className="mt-status-message red">
-              <h3>Pengajuan Belum Disetujui</h3>
+          {!loading &&
+            access === "rejected" && (
+              <section className="mt-status-message red">
+                <h3>
+                  Pengajuan Belum Disetujui
+                </h3>
 
-              <p>
-                Pengajuan OJT ditolak oleh Mentor.
-              </p>
+                <p>
+                  Pengajuan ditolak oleh Mentor.
+                </p>
 
-              <p>
-                <strong>Alasan:</strong>{" "}
-                {registration?.rejection_reason ||
-                  "Belum tersedia."}
-              </p>
+                <p>
+                  <strong>Alasan:</strong>{" "}
+                  {registration?.rejection_reason ||
+                    "Belum tersedia."}
+                </p>
 
-              {!isAdmin && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    router.push("/pengajuan-peserta")
-                  }
-                >
-                  Perbaiki Pengajuan
-                </button>
-              )}
-            </section>
-          )}
+                {!isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(
+                        "/pengajuan-peserta"
+                      )
+                    }
+                  >
+                    Perbaiki Pengajuan
+                  </button>
+                )}
+              </section>
+            )}
 
           {!loading &&
             !error &&
@@ -2163,12 +2405,14 @@ export default function DashboardPeserta() {
             profile &&
             !isAdminEmptyView && (
               <section className="mt-status-message">
-                <h3>Program OJT Belum Aktif</h3>
+                <h3>
+                  Program OJT Belum Aktif
+                </h3>
 
                 <p>
-                  Belum ada program aktif yang
-                  dapat diakses. Silakan perbarui
-                  status atau hubungi Mentor.
+                  Belum ada program OJT aktif.
+                  Silakan perbarui status
+                  atau hubungi Mentor.
                 </p>
               </section>
             )}
@@ -2177,28 +2421,42 @@ export default function DashboardPeserta() {
             <>
 
               {/* =====================================
-                  HALAMAN DASHBOARD
+                  DASHBOARD AWAL
+                  MENGGUNAKAN currentWeek
+                  BUKAN selectedWeek
                   ===================================== */}
 
               {page === "dashboard" && (
                 <>
+                  {/* KARTU STATISTIK */}
+
                   <section className="mt-stat-grid">
                     <div className="mt-stat-card">
                       <span className="mt-stat-icon">
-                        <Icon name="calendar" size={26} />
+                        <Icon
+                          name="calendar"
+                          size={26}
+                        />
                       </span>
 
                       <div>
-                        <small>Minggu Program</small>
+                        <small>
+                          Minggu Program
+                        </small>
+
                         <strong>
-                          {weekLabel} / 25
+                          {dashboardWeekLabel}
+                          {" / 25"}
                         </strong>
                       </div>
                     </div>
 
                     <div className="mt-stat-card">
                       <span className="mt-stat-icon">
-                        <Icon name="chart" size={26} />
+                        <Icon
+                          name="chart"
+                          size={26}
+                        />
                       </span>
 
                       <div>
@@ -2224,11 +2482,16 @@ export default function DashboardPeserta() {
 
                     <div className="mt-stat-card">
                       <span className="mt-stat-icon">
-                        <Icon name="shield" size={26} />
+                        <Icon
+                          name="shield"
+                          size={26}
+                        />
                       </span>
 
                       <div>
-                        <small>Status SIMPER</small>
+                        <small>
+                          Status SIMPER
+                        </small>
 
                         <strong className="mt-status-text">
                           {!hasActiveProgram
@@ -2243,42 +2506,60 @@ export default function DashboardPeserta() {
                     </div>
                   </section>
 
+                  {/* JADWAL & RINGKASAN */}
+
                   <section className="mt-dashboard-columns">
 
-                    {/* JADWAL KIRI */}
+                    {/* JADWAL MINGGU BERJALAN */}
 
                     <div className="mt-panel">
                       <div className="mt-panel-header">
                         <div>
-                          <Icon name="calendar" size={23} />
+                          <Icon
+                            name="calendar"
+                            size={23}
+                          />
+
                           <strong>
                             Jadwal Kegiatan Minggu Ini
                           </strong>
                         </div>
 
-                        <span>{weekLabel}</span>
+                        <span>
+                          {dashboardWeekLabel}
+                        </span>
                       </div>
 
                       <div className="mt-period-strip">
-                        <Icon name="calendar" size={18} />
+                        <Icon
+                          name="calendar"
+                          size={18}
+                        />
 
-                        {formatDate(weekInfo?.start)}
+                        {formatDate(
+                          dashboardWeekInfo?.start
+                        )}
                         {" – "}
-                        {formatDate(weekInfo?.end)}
+                        {formatDate(
+                          dashboardWeekInfo?.end
+                        )}
                       </div>
 
                       <div className="mt-activities">
-                        {selectedSchedule.length ? (
-                          selectedSchedule.map((item) => (
-                            <ActivityItem
-                              key={item.id}
-                              activity={item}
-                            />
-                          ))
+                        {dashboardSchedule.length ? (
+                          dashboardSchedule.map(
+                            (item) => (
+                              <ActivityItem
+                                key={item.id}
+                                activity={item}
+                              />
+                            )
+                          )
                         ) : (
                           <EmptyState>
                             Belum ada jadwal kegiatan
-                            yang diumumkan untuk minggu ini.
+                            yang diumumkan untuk
+                            minggu berjalan.
                           </EmptyState>
                         )}
                       </div>
@@ -2291,22 +2572,31 @@ export default function DashboardPeserta() {
                         }
                       >
                         Lihat Semua Jadwal
-                        <Icon name="arrow" size={17} />
+                        <Icon
+                          name="arrow"
+                          size={17}
+                        />
                       </button>
                     </div>
 
-                    {/* RINGKASAN KANAN */}
+                    {/* RINGKASAN MINGGU BERJALAN */}
 
                     <div className="mt-panel">
                       <div className="mt-panel-header">
                         <div>
-                          <Icon name="chart" size={23} />
+                          <Icon
+                            name="chart"
+                            size={23}
+                          />
+
                           <strong>
                             Ringkasan Mingguan
                           </strong>
                         </div>
 
-                        <span>{weekLabel}</span>
+                        <span>
+                          {dashboardWeekLabel}
+                        </span>
                       </div>
 
                       <div className="mt-score-summary">
@@ -2317,7 +2607,9 @@ export default function DashboardPeserta() {
 
                           <strong>
                             {hasActiveProgram
-                              ? scoreText(weeklyScore)
+                              ? scoreText(
+                                  dashboardWeekly.average
+                                )
                               : "—"}
                           </strong>
                         </div>
@@ -2329,7 +2621,7 @@ export default function DashboardPeserta() {
 
                           <strong>
                             {hasActiveProgram
-                              ? totalSelectedActivities
+                              ? dashboardWeekly.total
                               : "—"}
                           </strong>
                         </div>
@@ -2344,11 +2636,16 @@ export default function DashboardPeserta() {
                         <button
                           type="button"
                           onClick={() =>
-                            navigatePage("achievement")
+                            navigatePage(
+                              "achievement"
+                            )
                           }
                         >
                           Lihat Detail
-                          <Icon name="arrow" size={15} />
+                          <Icon
+                            name="arrow"
+                            size={15}
+                          />
                         </button>
                       </div>
 
@@ -2362,10 +2659,10 @@ export default function DashboardPeserta() {
                       </div>
 
                       <p className="mt-panel-note">
-                        Nilai berasal dari Post-Test
-                        dan Praktik yang tercatat.
-                        Achievement dihitung menggunakan
-                        rumus program yang sudah ada.
+                        Ringkasan nilai dan aktivitas
+                        mengikuti minggu berjalan.
+                        Achievement merupakan
+                        progres keseluruhan program.
                       </p>
                     </div>
                   </section>
@@ -2373,17 +2670,21 @@ export default function DashboardPeserta() {
               )}
 
               {/* =====================================
-                  HALAMAN JADWAL KEGIATAN
+                  JADWAL KEGIATAN
+                  MENGGUNAKAN selectedWeek
                   ===================================== */}
 
               {page === "jadwal" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Jadwal Kegiatan OJT</h2>
+                      <h2>
+                        Jadwal Kegiatan OJT
+                      </h2>
+
                       <p>
-                        Agenda kegiatan berdasarkan
-                        kalender global Week 01–25.
+                        Pilih Week 01–25 untuk
+                        melihat agenda kegiatan.
                       </p>
                     </div>
 
@@ -2395,63 +2696,78 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-week-info">
-                    <strong>{weekLabel}</strong>
+                    <strong>
+                      {selectedWeekLabel}
+                    </strong>
 
                     <span>
-                      {formatDate(weekInfo?.start)}
+                      {formatDate(
+                        selectedWeekInfo?.start
+                      )}
                       {" – "}
-                      {formatDate(weekInfo?.end)}
+                      {formatDate(
+                        selectedWeekInfo?.end
+                      )}
                     </span>
 
                     <small>
                       {selectedSchedule.length}
-                      {" "}
-                      kegiatan dijadwalkan
+                      {" kegiatan dijadwalkan"}
                     </small>
                   </div>
 
                   <div className="mt-activities mt-full-activities">
                     {selectedSchedule.length ? (
-                      selectedSchedule.map((item) => (
-                        <ActivityItem
-                          key={item.id}
-                          activity={item}
-                        />
-                      ))
+                      selectedSchedule.map(
+                        (item) => (
+                          <ActivityItem
+                            key={item.id}
+                            activity={item}
+                          />
+                        )
+                      )
                     ) : (
                       <EmptyState>
                         Belum ada agenda yang
-                        diumumkan untuk {weekLabel}.
+                        diumumkan untuk{" "}
+                        {selectedWeekLabel}.
                       </EmptyState>
                     )}
                   </div>
 
                   <div className="mt-info-box">
-                    <Icon name="info" size={19} />
+                    <Icon
+                      name="info"
+                      size={19}
+                    />
+
                     <span>
-                      Peserta onsite mengikuti
-                      jadwal kegiatan. Praktik TOG
-                      dikoordinasikan dengan
-                      IC/Leader masing-masing.
-                      Jadwal ini akan dapat dikelola
-                      Admin setelah modul pengelolaan
-                      jadwal disiapkan.
+                      Peserta dapat melihat
+                      jadwal minggu sebelumnya
+                      maupun berikutnya.
+                      Mengganti Week pada halaman
+                      ini tidak memengaruhi
+                      Dashboard awal.
                     </span>
                   </div>
                 </section>
               )}
 
               {/* =====================================
-                  HALAMAN MONITORING MINGGUAN
+                  MONITORING MINGGUAN
+                  MENGGUNAKAN selectedWeek
                   ===================================== */}
 
               {page === "monitoring" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Monitoring Mingguan OJT</h2>
+                      <h2>
+                        Monitoring Mingguan OJT
+                      </h2>
+
                       <p>
-                        Rekap jumlah kegiatan dan
+                        Rekap aktivitas dan
                         status verifikasi.
                       </p>
                     </div>
@@ -2464,12 +2780,18 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-week-info">
-                    <strong>{weekLabel}</strong>
+                    <strong>
+                      {selectedWeekLabel}
+                    </strong>
 
                     <span>
-                      {formatDate(weekInfo?.start)}
+                      {formatDate(
+                        selectedWeekInfo?.start
+                      )}
                       {" – "}
-                      {formatDate(weekInfo?.end)}
+                      {formatDate(
+                        selectedWeekInfo?.end
+                      )}
                     </span>
                   </div>
 
@@ -2477,26 +2799,32 @@ export default function DashboardPeserta() {
                     {[
                       {
                         label: "Achievement",
-                        value: weeklyAchievements.length,
+                        value:
+                          selectedWeekly.achievements.length,
                       },
                       {
                         label: "Post-Test",
-                        value: weeklyPostTests.length,
+                        value:
+                          selectedWeekly.postTests.length,
                       },
                       {
                         label: "Praktik",
-                        value: weeklyPractices.length,
+                        value:
+                          selectedWeekly.practices.length,
                       },
                       {
                         label: "Samapta",
-                        value: weeklySamapta.length,
+                        value:
+                          selectedWeekly.samapta.length,
                       },
                     ].map((item) => (
                       <div
                         className="mt-mini-stat"
                         key={item.label}
                       >
-                        <span>{item.label}</span>
+                        <span>
+                          {item.label}
+                        </span>
 
                         <strong>
                           {hasActiveProgram
@@ -2508,23 +2836,26 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-info-box">
-                    <Icon name="check" size={19} />
+                    <Icon
+                      name="check"
+                      size={19}
+                    />
 
                     <span>
                       Achievement terverifikasi:
                       {" "}
                       <strong>
                         {hasActiveProgram
-                          ? verifiedWeeklyAchievements
+                          ? selectedWeekly.verifiedAchievements
                           : "—"}
                       </strong>
                     </span>
                   </div>
 
                   <p className="mt-panel-note">
-                    Angka merupakan jumlah catatan
-                    kegiatan, bukan jumlah kehadiran
-                    atau nilai kelulusan.
+                    Data monitoring dihitung
+                    berdasarkan tanggal catatan
+                    pada Week yang dipilih.
                   </p>
 
                   {hasActiveProgram && (
@@ -2537,23 +2868,29 @@ export default function DashboardPeserta() {
                         )
                       }
                     >
-                      Buka Monitoring dan Evaluasi
-                      Mingguan Lengkap
-                      <Icon name="arrow" size={18} />
+                      Buka Monitoring Mingguan
+                      Lengkap
+                      <Icon
+                        name="arrow"
+                        size={18}
+                      />
                     </button>
                   )}
                 </section>
               )}
 
               {/* =====================================
-                  HALAMAN ACHIEVEMENT
+                  ACHIEVEMENT
                   ===================================== */}
 
               {page === "achievement" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Achievement OJT</h2>
+                      <h2>
+                        Achievement OJT
+                      </h2>
+
                       <p>
                         Progres enam kategori
                         berdasarkan kegiatan
@@ -2563,10 +2900,15 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-achievement-total">
-                    <Icon name="trophy" size={30} />
+                    <Icon
+                      name="trophy"
+                      size={30}
+                    />
 
                     <div>
-                      <small>Total Achievement</small>
+                      <small>
+                        Total Achievement
+                      </small>
 
                       <strong>
                         {hasActiveProgram
@@ -2595,21 +2937,28 @@ export default function DashboardPeserta() {
                             name={item.icon}
                             size={25}
                           />
-
-                          <strong>{item.name}</strong>
+                          <strong>
+                            {item.name}
+                          </strong>
                         </div>
 
                         <h3>
-                          {Math.round(item.progress)}%
+                          {Math.round(
+                            item.progress
+                          )}%
                         </h3>
 
                         <ProgressBar
-                          value={item.progress}
+                          value={
+                            item.progress
+                          }
                         />
 
                         <p>
                           Realisasi:{" "}
-                          {Number(item.amount).toLocaleString(
+                          {Number(
+                            item.amount
+                          ).toLocaleString(
                             "id-ID",
                             {
                               maximumFractionDigits: 3,
@@ -2625,14 +2974,6 @@ export default function DashboardPeserta() {
                     ))}
                   </div>
 
-                  <p className="mt-panel-note">
-                    Rumus dan target Achievement
-                    tidak diubah dari kode asli.
-                    Hanya catatan Verified yang
-                    memenuhi periode program
-                    yang dihitung.
-                  </p>
-
                   {hasActiveProgram && (
                     <button
                       type="button"
@@ -2644,7 +2985,10 @@ export default function DashboardPeserta() {
                       }
                     >
                       Lihat Riwayat Achievement
-                      <Icon name="arrow" size={18} />
+                      <Icon
+                        name="arrow"
+                        size={18}
+                      />
                     </button>
                   )}
                 </section>
@@ -2658,7 +3002,10 @@ export default function DashboardPeserta() {
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Hasil Post-Test & Praktik</h2>
+                      <h2>
+                        Hasil Post-Test & Praktik
+                      </h2>
+
                       <p>
                         Daftar nilai yang telah
                         tercatat selama OJT.
@@ -2698,17 +3045,21 @@ export default function DashboardPeserta() {
 
                   <div className="mt-score-summary">
                     <div>
-                      <small>Rata-Rata Nilai</small>
+                      <small>
+                        Rata-Rata Nilai
+                      </small>
 
                       <strong>
-                        {hasAnyScores
+                        {hasActiveProgram
                           ? scoreText(overallScore)
                           : "—"}
                       </strong>
                     </div>
 
                     <div>
-                      <small>Penilaian Tercatat</small>
+                      <small>
+                        Penilaian Tercatat
+                      </small>
 
                       <strong>
                         {hasActiveProgram
@@ -2755,30 +3106,38 @@ export default function DashboardPeserta() {
                                 ? item.test_date
                                 : item.practice_date;
 
+                            const week =
+                              globalWeekOf(date);
+
                             return (
                               <tr key={item.id}>
-                                <td>{index + 1}</td>
+                                <td>
+                                  {index + 1}
+                                </td>
 
                                 <td>
                                   {resultTab === "posttest"
                                     ? "Post-Test"
-                                    : item.practice_name ||
-                                      "Praktik OJT"}
+                                    : "Praktik OJT"}
                                 </td>
 
-                                <td>{formatDate(date)}</td>
+                                <td>
+                                  {formatDate(date)}
+                                </td>
 
                                 <td>
-                                  {globalWeekOf(date)
+                                  {week
                                     ? `W${String(
-                                        globalWeekOf(date)
+                                        week
                                       ).padStart(2, "0")}`
                                     : "—"}
                                 </td>
 
                                 <td>
                                   <strong>
-                                    {scoreText(item.score)}
+                                    {scoreText(
+                                      item.score
+                                    )}
                                   </strong>
                                 </td>
                               </tr>
@@ -2793,17 +3152,15 @@ export default function DashboardPeserta() {
                     : weeklyData.practices
                   ).length === 0 && (
                     <EmptyState>
-                      Belum ada nilai yang tercatat.
+                      Belum ada nilai tercatat.
                     </EmptyState>
                   )}
 
                   <p className="mt-panel-note">
-                    Nilai diambil langsung dari
-                    post_test_scores dan
-                    weekly_practice_scores.
-                    Halaman ini tidak memberikan
-                    akses perubahan nilai kepada
-                    peserta.
+                    Data bersifat hanya-baca.
+                    Nama materi yang belum
+                    tersedia pada query ini
+                    tidak dibuat secara fiktif.
                   </p>
                 </section>
               )}
@@ -2816,16 +3173,22 @@ export default function DashboardPeserta() {
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Status SIMPER</h2>
+                      <h2>
+                        Status SIMPER
+                      </h2>
+
                       <p>
-                        Pemenuhan tiga persyaratan
-                        dan status penerbitan SIMPER.
+                        Pemenuhan persyaratan
+                        dan penerbitan SIMPER.
                       </p>
                     </div>
                   </div>
 
                   <div className="mt-simper-overview">
-                    <Icon name="shield" size={34} />
+                    <Icon
+                      name="shield"
+                      size={34}
+                    />
 
                     <div>
                       <small>
@@ -2850,10 +3213,15 @@ export default function DashboardPeserta() {
 
                   <div className="mt-simper-list">
                     <div>
-                      <Icon name="check" size={21} />
+                      <Icon
+                        name="check"
+                        size={21}
+                      />
+
                       <span>
-                        Persyaratan yang terpenuhi
+                        Persyaratan Terpenuhi
                       </span>
+
                       <strong>
                         {hasActiveProgram
                           ? `${progress.simperCompleted}/3`
@@ -2862,8 +3230,15 @@ export default function DashboardPeserta() {
                     </div>
 
                     <div>
-                      <Icon name="shield" size={21} />
-                      <span>Status Penerbitan</span>
+                      <Icon
+                        name="shield"
+                        size={21}
+                      />
+
+                      <span>
+                        Status Penerbitan
+                      </span>
+
                       <strong>
                         {hasActiveProgram
                           ? progress.simperIssued
@@ -2873,12 +3248,6 @@ export default function DashboardPeserta() {
                       </strong>
                     </div>
                   </div>
-
-                  <p className="mt-panel-note">
-                    Status mengikuti data SIMPER
-                    yang telah dicatat dan
-                    rumus SIMPER V2 yang berlaku.
-                  </p>
 
                   {hasActiveProgram && (
                     <button
@@ -2891,7 +3260,10 @@ export default function DashboardPeserta() {
                       }
                     >
                       Lihat Detail SIMPER
-                      <Icon name="arrow" size={18} />
+                      <Icon
+                        name="arrow"
+                        size={18}
+                      />
                     </button>
                   )}
                 </section>
@@ -2899,17 +3271,20 @@ export default function DashboardPeserta() {
 
               {/* =====================================
                   RAPOR & EVALUASI
+                  MENGGUNAKAN selectedWeek
                   ===================================== */}
 
               {page === "rapor" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Rapor & Evaluasi OJT</h2>
+                      <h2>
+                        Rapor & Evaluasi OJT
+                      </h2>
+
                       <p>
                         Rekap evaluasi mingguan
-                        dan laporan perkembangan
-                        peserta.
+                        dan laporan program.
                       </p>
                     </div>
 
@@ -2953,48 +3328,68 @@ export default function DashboardPeserta() {
                       />
 
                       <div className="mt-week-info">
-                        <strong>{weekLabel}</strong>
+                        <strong>
+                          {selectedWeekLabel}
+                        </strong>
 
                         <span>
-                          {formatDate(weekInfo?.start)}
+                          {formatDate(
+                            selectedWeekInfo?.start
+                          )}
                           {" – "}
-                          {formatDate(weekInfo?.end)}
+                          {formatDate(
+                            selectedWeekInfo?.end
+                          )}
                         </span>
                       </div>
 
                       <div className="mt-four-grid">
                         <div className="mt-mini-stat">
-                          <span>Achievement</span>
+                          <span>
+                            Achievement
+                          </span>
+
                           <strong>
                             {hasActiveProgram
-                              ? weeklyAchievements.length
+                              ? selectedWeekly.achievements.length
                               : "—"}
                           </strong>
                         </div>
 
                         <div className="mt-mini-stat">
-                          <span>Post-Test</span>
+                          <span>
+                            Post-Test
+                          </span>
+
                           <strong>
                             {hasActiveProgram
-                              ? weeklyPostTests.length
+                              ? selectedWeekly.postTests.length
                               : "—"}
                           </strong>
                         </div>
 
                         <div className="mt-mini-stat">
-                          <span>Praktik</span>
+                          <span>
+                            Praktik
+                          </span>
+
                           <strong>
                             {hasActiveProgram
-                              ? weeklyPractices.length
+                              ? selectedWeekly.practices.length
                               : "—"}
                           </strong>
                         </div>
 
                         <div className="mt-mini-stat">
-                          <span>Rata-Rata Nilai</span>
+                          <span>
+                            Rata-Rata Nilai
+                          </span>
+
                           <strong>
                             {hasActiveProgram
-                              ? scoreText(weeklyScore)
+                              ? scoreText(
+                                  selectedWeekly.average
+                                )
                               : "—"}
                           </strong>
                         </div>
@@ -3011,7 +3406,10 @@ export default function DashboardPeserta() {
                           }
                         >
                           Buka Evaluasi Mingguan
-                          <Icon name="arrow" size={18} />
+                          <Icon
+                            name="arrow"
+                            size={18}
+                          />
                         </button>
                       )}
                     </>
@@ -3022,6 +3420,7 @@ export default function DashboardPeserta() {
                           <span>
                             Achievement
                           </span>
+
                           <strong>
                             {hasActiveProgram
                               ? `${progress.achievement}%`
@@ -3033,6 +3432,7 @@ export default function DashboardPeserta() {
                           <span>
                             Minggu Beraktivitas
                           </span>
+
                           <strong>
                             {hasActiveProgram
                               ? `${progress.activityWeeks}/25`
@@ -3041,7 +3441,10 @@ export default function DashboardPeserta() {
                         </div>
 
                         <div className="mt-mini-stat">
-                          <span>SIMPER</span>
+                          <span>
+                            SIMPER
+                          </span>
+
                           <strong>
                             {hasActiveProgram
                               ? `${progress.simper}%`
@@ -3050,9 +3453,12 @@ export default function DashboardPeserta() {
                         </div>
 
                         <div className="mt-mini-stat">
-                          <span>Rata-Rata Nilai</span>
+                          <span>
+                            Rata-Rata Nilai
+                          </span>
+
                           <strong>
-                            {hasAnyScores
+                            {hasActiveProgram
                               ? scoreText(overallScore)
                               : "—"}
                           </strong>
@@ -3069,8 +3475,11 @@ export default function DashboardPeserta() {
                             )
                           }
                         >
-                          Buka Rapor OJT dan Cetak PDF
-                          <Icon name="arrow" size={18} />
+                          Buka Rapor OJT
+                          <Icon
+                            name="arrow"
+                            size={18}
+                          />
                         </button>
                       )}
                     </>
@@ -3116,7 +3525,9 @@ export default function DashboardPeserta() {
                     </span>
 
                     <div>
-                      <h2>{participantName}</h2>
+                      <h2>
+                        {participantName}
+                      </h2>
 
                       <p>
                         {isAdmin
@@ -3128,21 +3539,30 @@ export default function DashboardPeserta() {
 
                   <div className="mt-profile-rows">
                     <div>
-                      <span>Departemen</span>
+                      <span>
+                        Departemen
+                      </span>
+
                       <strong>
                         {profile?.department || "—"}
                       </strong>
                     </div>
 
                     <div>
-                      <span>Site Penempatan</span>
+                      <span>
+                        Site Penempatan
+                      </span>
+
                       <strong>
                         {program?.site || "—"}
                       </strong>
                     </div>
 
                     <div>
-                      <span>Periode OJT</span>
+                      <span>
+                        Periode OJT
+                      </span>
+
                       <strong>
                         {program
                           ? `${formatDate(
@@ -3155,14 +3575,20 @@ export default function DashboardPeserta() {
                     </div>
 
                     <div>
-                      <span>Status Program</span>
+                      <span>
+                        Status Program
+                      </span>
+
                       <strong>
                         {getStatusInfo(access)}
                       </strong>
                     </div>
 
                     <div>
-                      <span>Email Akun Login</span>
+                      <span>
+                        Email Akun Login
+                      </span>
+
                       <strong>
                         {isAdmin
                           ? "Tidak ditampilkan dalam preview"
@@ -3170,17 +3596,6 @@ export default function DashboardPeserta() {
                       </strong>
                     </div>
                   </div>
-
-                  {isAdmin && (
-                    <div className="mt-info-box">
-                      <Icon name="info" size={18} />
-                      <span>
-                        Preview Admin tidak
-                        mengubah atau memberikan
-                        akses tambahan kepada akun peserta.
-                      </span>
-                    </div>
-                  )}
                 </section>
               )}
 
@@ -3191,7 +3606,8 @@ export default function DashboardPeserta() {
                 </span>
 
                 <span>
-                  PT Berau Coal · Program 2026–2027
+                  PT Berau Coal ·
+                  Program 2026–2027
                 </span>
               </footer>
             </>
@@ -3203,7 +3619,7 @@ export default function DashboardPeserta() {
 }
 
 // ======================================================
-// CSS — DESKTOP & MOBILE
+// CSS DESKTOP + MOBILE
 // ======================================================
 
 const dashboardCSS = `
@@ -4452,7 +4868,7 @@ const dashboardCSS = `
   font-size: 10px;
 }
 
-/* RESPONSIVE TABLET */
+/* TABLET */
 
 @media (max-width: 1200px) {
   .mt-sidebar {
@@ -4465,10 +4881,6 @@ const dashboardCSS = `
 
   .mt-dashboard-columns {
     grid-template-columns: 1fr;
-  }
-
-  .mt-activity-content strong {
-    font-size: 13px;
   }
 }
 
@@ -4494,13 +4906,9 @@ const dashboardCSS = `
   .mt-stat-card strong {
     font-size: 18px;
   }
-
-  .mt-category-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
 }
 
-/* RESPONSIVE MOBILE */
+/* MOBILE */
 
 @media (max-width: 700px) {
   .mt-topbar {
@@ -4605,16 +5013,19 @@ const dashboardCSS = `
 
   .mt-hero-period {
     font-size: 11px;
+    flex-wrap: wrap;
   }
 
   .mt-stat-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(
+      3,
+      minmax(0, 1fr)
+    );
     gap: 7px;
   }
 
   .mt-stat-card {
     min-height: 112px;
-    display: flex;
     flex-direction: column;
     align-items: flex-start;
     justify-content: flex-start;
@@ -4696,7 +5107,10 @@ const dashboardCSS = `
   }
 
   .mt-category-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(
+      2,
+      minmax(0, 1fr)
+    );
     gap: 8px;
   }
 
@@ -4723,11 +5137,17 @@ const dashboardCSS = `
   }
 
   .mt-four-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(
+      2,
+      minmax(0, 1fr)
+    );
   }
 
   .mt-large-categories {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(
+      2,
+      minmax(0, 1fr)
+    );
   }
 
   .mt-tab-buttons button {
