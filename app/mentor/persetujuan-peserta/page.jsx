@@ -15,6 +15,10 @@ import { supabase } from "../../../lib/supabase";
 // PERSETUJUAN PESERTA OJT — MENTOR
 // LIGHT & DARK MODE
 //
+// UPDATE:
+// - Penambahan Site PMO
+// - Penambahan Site TSP
+//
 // Tidak mengubah database, RPC, atau API.
 // Feature flags tetap diverifikasi di server.
 // Tema mengikuti html[data-theme] dari RootLayout.
@@ -22,6 +26,10 @@ import { supabase } from "../../../lib/supabase";
 
 const FLAGS_URL = "/api/system/feature-flags";
 const BACKGROUND_IMAGE = "/background-erg.png.PNG";
+
+// ======================================================
+// DAFTAR SITE OJT
+// ======================================================
 
 const SITES = [
   "LMO",
@@ -33,6 +41,8 @@ const SITES = [
   "BMO 3",
   "SRN",
   "HO",
+  "PMO",
+  "TSP",
 ];
 
 const NAV = [
@@ -231,8 +241,6 @@ function sourceOf(item) {
   if (item?.source === "new") return "new";
   if (item?.source === "legacy") return "legacy";
 
-  // Jika API belum mengirim sumber,
-  // tabel pengajuan tidak diterka.
   return null;
 }
 
@@ -522,7 +530,12 @@ export default function PersetujuanPesertaPage() {
     setDetail(null);
     setDecision(type);
 
-    setSite(item.site || "");
+    setSite(
+      SITES.includes(item.site)
+        ? item.site
+        : ""
+    );
+
     setStartDate(dateOnly(item.start_date));
     setEndDate(dateOnly(item.end_date));
     setReason("");
@@ -974,9 +987,7 @@ export default function PersetujuanPesertaPage() {
     <div className="ap-app">
       <style>{css}</style>
 
-      {/* ================================================
-          TOPBAR
-          ================================================ */}
+      {/* TOPBAR */}
 
       <header className="ap-topbar">
         <button
@@ -1081,9 +1092,7 @@ export default function PersetujuanPesertaPage() {
 
       <main className="ap-container">
 
-        {/* ============================================
-            HERO
-            ============================================ */}
+        {/* HERO */}
 
         <section
           className="ap-hero"
@@ -1159,9 +1168,7 @@ export default function PersetujuanPesertaPage() {
           </div>
         </section>
 
-        {/* ============================================
-            BREADCRUMB
-            ============================================ */}
+        {/* BREADCRUMB */}
 
         <div className="ap-breadcrumb">
           <button
@@ -1180,9 +1187,7 @@ export default function PersetujuanPesertaPage() {
           </strong>
         </div>
 
-        {/* ============================================
-            SUCCESS MESSAGE
-            ============================================ */}
+        {/* SUCCESS MESSAGE */}
 
         {message && (
           <div
@@ -1207,9 +1212,7 @@ export default function PersetujuanPesertaPage() {
           </div>
         )}
 
-        {/* ============================================
-            ERROR MESSAGE
-            ============================================ */}
+        {/* ERROR MESSAGE */}
 
         {error && (
           <div
@@ -1234,9 +1237,7 @@ export default function PersetujuanPesertaPage() {
           </div>
         )}
 
-        {/* ============================================
-            STATISTICS
-            ============================================ */}
+        {/* STATISTICS */}
 
         <div className="ap-stats">
           {[
@@ -1323,9 +1324,7 @@ export default function PersetujuanPesertaPage() {
           )}
         </div>
 
-        {/* ============================================
-            FEATURE FLAGS
-            ============================================ */}
+        {/* FEATURE FLAGS */}
 
         <section className="ap-feature">
           <div>
@@ -1384,9 +1383,7 @@ export default function PersetujuanPesertaPage() {
           </div>
         </section>
 
-        {/* ============================================
-            REGISTRATIONS CARD
-            ============================================ */}
+        {/* REGISTRATIONS CARD */}
 
         <section className="ap-card">
 
@@ -1437,9 +1434,7 @@ export default function PersetujuanPesertaPage() {
             </button>
           </div>
 
-          {/* ==========================================
-              FILTERS
-              ========================================== */}
+          {/* FILTERS */}
 
           <div className="ap-filterbar">
             <div className="ap-tabs">
@@ -1508,9 +1503,7 @@ export default function PersetujuanPesertaPage() {
             {" pengajuan."}
           </p>
 
-          {/* ==========================================
-              REGISTRATION DATA
-              ========================================== */}
+          {/* REGISTRATION DATA */}
 
           {loading ? (
             <div className="ap-empty">
@@ -1551,8 +1544,6 @@ export default function PersetujuanPesertaPage() {
                             {index + 1}
                           </td>
 
-                          {/* PARTICIPANT */}
-
                           <td>
                             <div className="ap-person">
                               <span className="ap-person-avatar">
@@ -1588,8 +1579,6 @@ export default function PersetujuanPesertaPage() {
                             </div>
                           </td>
 
-                          {/* DEPARTMENT / SITE */}
-
                           <td>
                             <strong>
                               {item.department ||
@@ -1602,8 +1591,6 @@ export default function PersetujuanPesertaPage() {
                             </small>
                           </td>
 
-                          {/* PERIOD */}
-
                           <td>
                             {formatDate(
                               item.start_date
@@ -1615,15 +1602,11 @@ export default function PersetujuanPesertaPage() {
                             )}
                           </td>
 
-                          {/* CREATED AT */}
-
                           <td>
                             {formatTime(
                               item.created_at
                             )}
                           </td>
-
-                          {/* STATUS */}
 
                           <td>
                             <StatusBadge
@@ -1632,8 +1615,6 @@ export default function PersetujuanPesertaPage() {
                               }
                             />
                           </td>
-
-                          {/* ACTIONS */}
 
                           <td>
                             <div className="ap-actions">
@@ -1756,11 +1737,10 @@ export default function PersetujuanPesertaPage() {
           )}
         </section>
 
-        {/* ============================================
-            BOTTOM PANELS
-            ============================================ */}
+        {/* BOTTOM PANELS */}
 
         <section className="ap-bottom">
+
           {/* GLOBAL CALENDAR */}
 
           <div className="ap-card">
@@ -1914,9 +1894,7 @@ export default function PersetujuanPesertaPage() {
           </div>
         </section>
 
-        {/* ============================================
-            BACK BUTTON
-            ============================================ */}
+        {/* BACK BUTTON */}
 
         <div className="ap-bottom-actions">
           <button
@@ -1934,9 +1912,7 @@ export default function PersetujuanPesertaPage() {
           </button>
         </div>
 
-        {/* ============================================
-            FOOTER
-            ============================================ */}
+        {/* FOOTER */}
 
         <footer className="ap-footer">
           <span>
@@ -1951,9 +1927,7 @@ export default function PersetujuanPesertaPage() {
         </footer>
       </main>
 
-      {/* ================================================
-          DETAIL MODAL
-          ================================================ */}
+      {/* DETAIL MODAL */}
 
       {detail && (
         <div
@@ -2126,9 +2100,7 @@ export default function PersetujuanPesertaPage() {
         </div>
       )}
 
-      {/* ================================================
-          DECISION MODAL
-          ================================================ */}
+      {/* DECISION MODAL */}
 
       {selected && (
         <div
