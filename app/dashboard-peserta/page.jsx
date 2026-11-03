@@ -7,11 +7,27 @@ import { supabase } from "../../lib/supabase";
 
 // ======================================================
 // OJT MINETRACK V2.0
-// DASHBOARD PESERTA — WEEK 08–15
+// DASHBOARD PESERTA — LIGHT & DARK MODE
+//
+// FITUR:
+// 1. Tema terang dan gelap
+// 2. Tombol tema hanya pada Dashboard awal
+// 3. Preferensi tersimpan di localStorage
+// 4. Tema mengikuti layout global
+// 5. Dashboard mengikuti Week berjalan (WITA)
+// 6. Jadwal Kegiatan dapat memilih Week 01–25
+// 7. Jadwal Week 08–15
+// 8. Monitoring dan Achievement
+// 9. Hasil Post-Test dan Praktik
+// 10. SIMPER, Rapor, Evaluasi, Profil
+// 11. Preview Administrator
+//
+// Tidak memerlukan perubahan tabel Supabase.
 // ======================================================
 
 const TOTAL_WEEKS = 25;
 const BACKGROUND_IMAGE = "/background-erg.png.PNG";
+const THEME_KEY = "ojt-minetrack-theme";
 
 const TARGETS = [
   { name: "Fisik", target: 25, icon: "run" },
@@ -27,8 +43,6 @@ const META_END = "[[/SIMPER_V2]]";
 
 // ======================================================
 // JADWAL OJT WEEK 08–15
-// Tanggal praktik adalah rentang minggu.
-// Pelaksanaan mengikuti jadwal site masing-masing.
 // ======================================================
 
 const WEEKLY_SCHEDULE = [
@@ -63,7 +77,7 @@ const WEEKLY_SCHEDULE = [
     type: "Praktik",
     title: "Praktik Donning & Doffing TOG",
     description:
-      "Praktik penggunaan dan pelepasan Turnout Gear sesuai prosedur. Pelaksanaan mengikuti jadwal masing-masing site.",
+      "Praktik penggunaan dan pelepasan Turnout Gear sesuai prosedur. Pelaksanaan mengikuti jadwal site.",
     icon: "vest",
   },
 
@@ -98,7 +112,7 @@ const WEEKLY_SCHEDULE = [
     type: "Praktik",
     title: "Praktik Ekstrikasi Ram, Spreader & Cutter",
     description:
-      "Praktik penggunaan peralatan hidraulik untuk ekstrikasi korban: Ram, Spreader, dan Cutter. Pelaksanaan mengikuti jadwal site.",
+      "Praktik penggunaan peralatan hidraulik Ram, Spreader, dan Cutter. Pelaksanaan mengikuti jadwal site.",
     icon: "tools",
   },
 
@@ -133,7 +147,7 @@ const WEEKLY_SCHEDULE = [
     type: "Praktik",
     title: "Praktik CPR & AED",
     description:
-      "Praktik bantuan hidup dasar, teknik CPR, penggunaan AED, koordinasi tim, dan evaluasi sesuai prosedur. Pelaksanaan mengikuti jadwal site.",
+      "Praktik bantuan hidup dasar, teknik CPR, penggunaan AED, koordinasi tim, dan evaluasi sesuai prosedur. Jadwal mengikuti site.",
     icon: "medical",
   },
 
@@ -146,7 +160,7 @@ const WEEKLY_SCHEDULE = [
     type: "Post-Test",
     title: "Post Test Materi HAR",
     description:
-      "Evaluasi High Angle Rescue, identifikasi bahaya ketinggian, anchor dan belay, penggunaan rope rescue, pengangkatan dan penurunan korban.",
+      "Evaluasi High Angle Rescue, identifikasi bahaya ketinggian, anchor dan belay, rope rescue, serta pengangkatan dan penurunan korban.",
     icon: "rope",
   },
   {
@@ -157,7 +171,7 @@ const WEEKLY_SCHEDULE = [
     type: "Post-Test",
     title: "Post Test Materi Fire",
     description:
-      "Evaluasi klasifikasi kebakaran, bahaya kebakaran, teknik pemadaman, penggunaan APAR dan peralatan fire fighting, serta keselamatan.",
+      "Evaluasi klasifikasi dan bahaya kebakaran, teknik pemadaman, penggunaan APAR dan peralatan fire fighting, serta keselamatan.",
     icon: "fire",
   },
   {
@@ -168,7 +182,7 @@ const WEEKLY_SCHEDULE = [
     type: "Praktik",
     title: "Praktik Patient Assessment (Trauma)",
     description:
-      "Praktik scene size-up, primary assessment, secondary assessment, trauma management, dan patient handover. Pelaksanaan mengikuti jadwal site.",
+      "Praktik scene size-up, primary assessment, secondary assessment, trauma management, dan patient handover. Jadwal mengikuti site.",
     icon: "medical",
   },
 
@@ -181,7 +195,7 @@ const WEEKLY_SCHEDULE = [
     type: "Post-Test",
     title: "Post Test Materi Hazmat",
     description:
-      "Evaluasi identifikasi bahan berbahaya, karakteristik bahaya, penggunaan APD, penanganan insiden HAZMAT, serta pengendalian risiko.",
+      "Evaluasi identifikasi bahan berbahaya, karakteristik bahaya, penggunaan APD, penanganan insiden HAZMAT, dan pengendalian risiko.",
     icon: "warning",
   },
   {
@@ -203,7 +217,7 @@ const WEEKLY_SCHEDULE = [
     type: "Praktik",
     title: "Praktik Spinal Immobilization",
     description:
-      "Praktik penanganan korban dengan dugaan cedera tulang belakang menggunakan teknik dan peralatan imobilisasi yang sesuai. Jadwal mengikuti site.",
+      "Praktik penanganan korban dengan dugaan cedera tulang belakang menggunakan teknik dan peralatan imobilisasi. Jadwal mengikuti site.",
     icon: "medical",
   },
 
@@ -308,13 +322,13 @@ const WEEKLY_SCHEDULE = [
     type: "Praktik",
     title: "Praktik SCBA",
     description:
-      "Praktik identifikasi komponen SCBA, inspeksi sebelum penggunaan, facepiece fit & seal check, air management, prosedur darurat, serta pemeriksaan dan pengembalian peralatan.",
+      "Praktik identifikasi komponen SCBA, inspeksi, pemeriksaan facepiece, air management, prosedur darurat, serta pengembalian peralatan.",
     icon: "shield",
   },
 ];
 
 // ======================================================
-// HELPERS
+// DATE & GENERAL HELPERS
 // ======================================================
 
 function normalize(value) {
@@ -335,28 +349,29 @@ function initials(value) {
       .trim()
       .split(/\s+/)
       .slice(0, 2)
-      .map((part) => part.charAt(0))
+      .map((word) => word.charAt(0))
       .join("")
       .toUpperCase() || "P"
   );
 }
 
 function parseDate(value) {
-  const text = String(value ?? "").slice(0, 10);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const match = String(value ?? "")
+    .slice(0, 10)
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
 
   if (!match) return null;
 
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
 
-  const date = new Date(Date.UTC(year, month - 1, day));
+  const date = new Date(Date.UTC(y, m - 1, d));
 
   if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
+    date.getUTCFullYear() !== y ||
+    date.getUTCMonth() !== m - 1 ||
+    date.getUTCDate() !== d
   ) {
     return null;
   }
@@ -366,14 +381,17 @@ function parseDate(value) {
 
 function addDays(value, count) {
   const date = parseDate(value);
+
   if (!date) return null;
 
   date.setUTCDate(date.getUTCDate() + count);
+
   return date.toISOString().slice(0, 10);
 }
 
 function formatDate(value) {
   const date = parseDate(value);
+
   if (!date) return "—";
 
   return date.toLocaleDateString("id-ID", {
@@ -384,8 +402,21 @@ function formatDate(value) {
   });
 }
 
+function formatShort(value) {
+  const date = parseDate(value);
+
+  if (!date) return "—";
+
+  return date.toLocaleDateString("id-ID", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
 function dayName(value) {
   const date = parseDate(value);
+
   if (!date) return "—";
 
   return date.toLocaleDateString("id-ID", {
@@ -409,10 +440,7 @@ function todayWITA() {
 }
 
 // ======================================================
-// KALENDER GLOBAL
-// Week 01 = 12–18 September 2026
-// Week 02 = 20–26 September 2026
-// Week 25 = 28 Februari–06 Maret 2027
+// KALENDER GLOBAL 25 WEEK
 // ======================================================
 
 function getGlobalWeek(number) {
@@ -426,7 +454,7 @@ function getGlobalWeek(number) {
 
   if (number === 1) {
     return {
-      number: 1,
+      number,
       start: "2026-09-12",
       end: "2026-09-18",
     };
@@ -443,6 +471,7 @@ function getGlobalWeek(number) {
 
 function globalWeekOf(value) {
   const date = String(value ?? "").slice(0, 10);
+
   if (!parseDate(date)) return null;
 
   for (let i = 1; i <= TOTAL_WEEKS; i++) {
@@ -469,7 +498,7 @@ function getCurrentGlobalWeek() {
 }
 
 // ======================================================
-// RUMUS MINGGU PROGRAM ASLI
+// RUMUS MINGGU PROGRAM PESERTA
 // ======================================================
 
 function weekOf(value, startValue) {
@@ -505,6 +534,7 @@ function scoreText(value) {
   }
 
   const number = Number(value);
+
   if (!Number.isFinite(number)) return "—";
 
   return number.toLocaleString("id-ID", {
@@ -526,10 +556,8 @@ function averageScores(records) {
 
   if (!values.length) return null;
 
-  return (
-    values.reduce((sum, value) => sum + value, 0) /
-    values.length
-  );
+  return values.reduce((sum, value) => sum + value, 0) /
+    values.length;
 }
 
 function emptyProgress() {
@@ -555,7 +583,7 @@ function emptyWeeklyData() {
 }
 
 // ======================================================
-// ACHIEVEMENT — RUMUS ASLI
+// ACHIEVEMENT — RUMUS TETAP
 // ======================================================
 
 function calculateAchievements(records, types, startDate) {
@@ -588,10 +616,8 @@ function calculateAchievements(records, types, startDate) {
       amount = matching.reduce((sum, record) => {
         const km = Number(record.distance_km);
 
-        return (
-          sum +
-          (Number.isFinite(km) && km > 0 ? km : 0)
-        );
+        return sum +
+          (Number.isFinite(km) && km > 0 ? km : 0);
       }, 0);
     } else {
       amount = matching.length;
@@ -620,7 +646,7 @@ function calculateAchievements(records, types, startDate) {
 }
 
 // ======================================================
-// SIMPER V2 — RUMUS ASLI
+// SIMPER V2 — RUMUS TETAP
 // ======================================================
 
 function parseSimperMetadata(notes) {
@@ -673,7 +699,7 @@ function calculateSimper(record) {
 }
 
 // ======================================================
-// RINGKASAN PROGRAM — RUMUS ASLI
+// PROGRESS PROGRAM — RUMUS TETAP
 // ======================================================
 
 function buildProgress(program, data) {
@@ -695,21 +721,19 @@ function buildProgress(program, data) {
 
   function markWeek(date) {
     const week = weekOf(date, program.start_date);
+
     if (week !== null) weeks.add(week);
   }
 
   data.achievements.forEach((record) =>
     markWeek(record.activity_date)
   );
-
   data.postTests.forEach((record) =>
     markWeek(record.test_date)
   );
-
   data.practices.forEach((record) =>
     markWeek(record.practice_date)
   );
-
   data.samapta.forEach((record) =>
     markWeek(record.test_date)
   );
@@ -729,15 +753,15 @@ function buildProgress(program, data) {
 }
 
 function getStatusInfo(access) {
-  const statuses = {
-    pending: "Menunggu Persetujuan Mentor",
-    rejected: "Pengajuan Ditolak",
-    approved: "Program OJT Aktif",
-    no_program: "Belum Ada Program",
-    error: "Terjadi Kesalahan",
-  };
-
-  return statuses[access] || "Memuat...";
+  return (
+    {
+      pending: "Menunggu Persetujuan Mentor",
+      rejected: "Pengajuan Ditolak",
+      approved: "Program OJT Aktif",
+      no_program: "Belum Ada Program",
+      error: "Terjadi Kesalahan",
+    }[access] || "Memuat..."
+  );
 }
 
 // ======================================================
@@ -890,6 +914,15 @@ function Icon({ name, size = 20 }) {
         <path d="M12 11v6M12 7h.01" />
       </>
     ),
+    sun: (
+      <>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" />
+      </>
+    ),
+    moon: (
+      <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5 8.5 8.5 0 1 0 20.5 14.5Z" />
+    ),
   };
 
   return (
@@ -929,11 +962,7 @@ function ProgressBar({ value }) {
   );
 }
 
-function WeekSelector({
-  week,
-  onChange,
-  weeksWithData,
-}) {
+function WeekSelector({ week, onChange, weeksWithData }) {
   return (
     <div className="mt-week-nav">
       <button
@@ -980,14 +1009,6 @@ function WeekSelector({
 function ActivityItem({ activity }) {
   const isRange = activity.start !== activity.end;
 
-  const month =
-    parseDate(activity.start)
-      ?.toLocaleDateString("id-ID", {
-        month: "short",
-        timeZone: "UTC",
-      })
-      .toUpperCase() || "—";
-
   return (
     <div className="mt-activity">
       <div
@@ -1009,11 +1030,18 @@ function ActivityItem({ activity }) {
 
         <strong>
           {isRange
-            ? `${activity.start.slice(8)}–${activity.end.slice(8)}`
+            ? activity.start.slice(8)
             : activity.start.slice(8)}
         </strong>
 
-        <span>{month}</span>
+        <span>
+          {parseDate(activity.start)
+            ?.toLocaleDateString("id-ID", {
+              month: "short",
+              timeZone: "UTC",
+            })
+            .toUpperCase() || "—"}
+        </span>
       </div>
 
       <span className="mt-activity-icon">
@@ -1022,7 +1050,15 @@ function ActivityItem({ activity }) {
 
       <div className="mt-activity-content">
         <strong>{activity.title}</strong>
+
         <p>{activity.description}</p>
+
+        {isRange && (
+          <small className="mt-activity-period">
+            {formatShort(activity.start)} –{" "}
+            {formatShort(activity.end)}
+          </small>
+        )}
       </div>
 
       <span
@@ -1072,6 +1108,65 @@ function EmptyState({ children }) {
 export default function DashboardPeserta() {
   const router = useRouter();
 
+  // ====================================================
+  // LIGHT / DARK MODE
+  //
+  // Tombol hanya muncul di halaman Dashboard.
+  // Tema diterapkan pada root HTML agar bertahan saat
+  // berpindah ke halaman Next.js lain.
+  // ====================================================
+
+  const [theme, setTheme] = useState("light");
+
+  useEffect(() => {
+    const readTheme = () => {
+      const current =
+        document.documentElement.getAttribute(
+          "data-theme"
+        );
+
+      setTheme(current === "dark" ? "dark" : "light");
+    };
+
+    readTheme();
+
+    const observer = new MutationObserver(readTheme);
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  function toggleTheme() {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+
+    document.documentElement.setAttribute(
+      "data-theme",
+      nextTheme
+    );
+
+    document.documentElement.style.colorScheme =
+      nextTheme;
+
+    try {
+      localStorage.setItem(THEME_KEY, nextTheme);
+    } catch (error) {
+      console.warn(
+        "Preferensi tema tidak dapat disimpan.",
+        error
+      );
+    }
+
+    setTheme(nextTheme);
+  }
+
+  // ====================================================
+  // STATE APLIKASI
+  // ====================================================
+
   const [account, setAccount] = useState(null);
   const [profile, setProfile] = useState(null);
   const [program, setProgram] = useState(null);
@@ -1095,8 +1190,10 @@ export default function DashboardPeserta() {
   const [weeklyData, setWeeklyData] =
     useState(emptyWeeklyData());
 
-  // Dashboard otomatis: currentWeek.
-  // Pilihan menu Jadwal/Monitoring: selectedWeek.
+  // Dua minggu yang terpisah:
+  // currentWeek = minggu otomatis Dashboard
+  // selectedWeek = minggu yang dipilih pada menu lain
+
   const [currentWeek, setCurrentWeek] = useState(1);
   const [selectedWeek, setSelectedWeek] = useState(1);
 
@@ -1109,8 +1206,7 @@ export default function DashboardPeserta() {
   const [resultTab, setResultTab] = useState("posttest");
   const [reportTab, setReportTab] = useState("evaluasi");
 
-  const isAdmin =
-    normalize(account?.role) === "admin";
+  const isAdmin = normalize(account?.role) === "admin";
 
   const hasActiveProgram =
     access === "approved" &&
@@ -1119,9 +1215,9 @@ export default function DashboardPeserta() {
 
   const isAdminEmptyView = isAdmin && !profile;
 
-  // ===================================================
-  // OTOMATISASI WEEK BERJALAN
-  // ===================================================
+  // ====================================================
+  // OTOMATISASI WEEK WITA
+  // ====================================================
 
   useEffect(() => {
     const initialWeek = getCurrentGlobalWeek();
@@ -1146,6 +1242,7 @@ export default function DashboardPeserta() {
     };
 
     window.addEventListener("focus", syncWeek);
+
     document.addEventListener(
       "visibilitychange",
       onVisibilityChange
@@ -1163,9 +1260,9 @@ export default function DashboardPeserta() {
     };
   }, []);
 
-  // ===================================================
-  // ADMIN PREVIEW
-  // ===================================================
+  // ====================================================
+  // DAFTAR PESERTA PREVIEW ADMIN
+  // ====================================================
 
   async function fetchParticipantList() {
     const { data, error: listError } = await supabase
@@ -1217,9 +1314,9 @@ export default function DashboardPeserta() {
     );
   }
 
-  // ===================================================
+  // ====================================================
   // FETCH PROGRESS
-  // ===================================================
+  // ====================================================
 
   async function fetchProgramProgress(activeProgram) {
     if (!activeProgram?.id) {
@@ -1309,9 +1406,9 @@ export default function DashboardPeserta() {
     };
   }
 
-  // ===================================================
-  // FETCH PARTICIPANT
-  // ===================================================
+  // ====================================================
+  // FETCH PROFIL & APPROVAL
+  // ====================================================
 
   async function fetchParticipantDashboard(
     participantId,
@@ -1350,9 +1447,7 @@ export default function DashboardPeserta() {
       if (profileError) throw profileError;
 
       if (!data) {
-        throw new Error(
-          "Profil peserta tidak tersedia."
-        );
+        throw new Error("Profil peserta tidak tersedia.");
       }
 
       if (!isParticipantRole(data.role)) {
@@ -1364,22 +1459,24 @@ export default function DashboardPeserta() {
       currentProfile = data;
     }
 
-    const { data: activePrograms, error: programError } =
-      await supabase
-        .from("ojt_programs")
-        .select(`
-          id,
-          participant_id,
-          start_date,
-          end_date,
-          status,
-          site,
-          legacy_access
-        `)
-        .eq("participant_id", participantId)
-        .eq("status", "active")
-        .order("start_date", { ascending: false })
-        .limit(1);
+    const {
+      data: activePrograms,
+      error: programError,
+    } = await supabase
+      .from("ojt_programs")
+      .select(`
+        id,
+        participant_id,
+        start_date,
+        end_date,
+        status,
+        site,
+        legacy_access
+      `)
+      .eq("participant_id", participantId)
+      .eq("status", "active")
+      .order("start_date", { ascending: false })
+      .limit(1);
 
     if (programError) throw programError;
 
@@ -1405,36 +1502,40 @@ export default function DashboardPeserta() {
       };
     }
 
-    const { data: newRequests, error: newError } =
-      await supabase
-        .from("ojt_registration_requests")
-        .select(`
-          id,
-          status,
-          rejection_reason,
-          site,
-          start_date,
-          end_date,
-          created_at
-        `)
-        .eq("participant_id", participantId)
-        .order("created_at", { ascending: false });
+    const {
+      data: newRequests,
+      error: newError,
+    } = await supabase
+      .from("ojt_registration_requests")
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        start_date,
+        end_date,
+        created_at
+      `)
+      .eq("participant_id", participantId)
+      .order("created_at", { ascending: false });
 
     if (newError) throw newError;
 
-    const { data: oldRequests, error: oldError } =
-      await supabase
-        .from("participant_registrations")
-        .select(`
-          id,
-          status,
-          rejection_reason,
-          site,
-          created_at
-        `)
-        .eq("user_id", participantId)
-        .order("created_at", { ascending: false })
-        .limit(1);
+    const {
+      data: oldRequests,
+      error: oldError,
+    } = await supabase
+      .from("participant_registrations")
+      .select(`
+        id,
+        status,
+        rejection_reason,
+        site,
+        created_at
+      `)
+      .eq("user_id", participantId)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
     if (oldError) throw oldError;
 
@@ -1466,9 +1567,11 @@ export default function DashboardPeserta() {
 
     const approvedProgram =
       Boolean(activeProgram) &&
-      (hasApprovedNew ||
+      (
+        hasApprovedNew ||
         hasApprovedOld ||
-        activeProgram.legacy_access === true);
+        activeProgram.legacy_access === true
+      );
 
     let nextAccess = "no_program";
 
@@ -1477,7 +1580,8 @@ export default function DashboardPeserta() {
     } else if (hasPendingNew || hasPendingOld) {
       nextAccess = "pending";
     } else if (
-      normalize(latestRegistration?.status) === "rejected"
+      normalize(latestRegistration?.status) ===
+      "rejected"
     ) {
       nextAccess = "rejected";
     }
@@ -1521,9 +1625,9 @@ export default function DashboardPeserta() {
     setAccess(data.access);
   }
 
-  // ===================================================
+  // ====================================================
   // LOAD DASHBOARD
-  // ===================================================
+  // ====================================================
 
   async function loadDashboard(
     isRefresh = false,
@@ -1558,7 +1662,9 @@ export default function DashboardPeserta() {
         setParticipants([]);
         setSelectedParticipantId("");
         selectedIdRef.current = "";
+
         clearDashboard();
+
         router.replace("/login");
         return;
       }
@@ -1577,9 +1683,7 @@ export default function DashboardPeserta() {
       if (accountError) throw accountError;
 
       if (!currentAccount) {
-        throw new Error(
-          "Profil akun tidak tersedia."
-        );
+        throw new Error("Profil akun tidak tersedia.");
       }
 
       const role = normalize(currentAccount.role);
@@ -1652,11 +1756,12 @@ export default function DashboardPeserta() {
         selectedIdRef.current = targetId;
         setSelectedParticipantId(targetId);
 
-        const next = await fetchParticipantDashboard(
-          targetId,
-          true,
-          list
-        );
+        const next =
+          await fetchParticipantDashboard(
+            targetId,
+            true,
+            list
+          );
 
         if (requestId !== requestIdRef.current) return;
 
@@ -1666,10 +1771,11 @@ export default function DashboardPeserta() {
         setSelectedParticipantId("");
         selectedIdRef.current = "";
 
-        const next = await fetchParticipantDashboard(
-          user.id,
-          false
-        );
+        const next =
+          await fetchParticipantDashboard(
+            user.id,
+            false
+          );
 
         if (requestId !== requestIdRef.current) return;
 
@@ -1704,9 +1810,9 @@ export default function DashboardPeserta() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===================================================
-  // CHANGE PREVIEW ADMIN
-  // ===================================================
+  // ====================================================
+  // ADMIN PREVIEW
+  // ====================================================
 
   async function changePreviewParticipant(id) {
     if (!isAdmin || loading || refreshing) return;
@@ -1800,9 +1906,9 @@ export default function DashboardPeserta() {
     }
   }
 
-  // ===================================================
+  // ====================================================
   // LOGOUT
-  // ===================================================
+  // ====================================================
 
   async function logout() {
     if (loggingOut) return;
@@ -1820,6 +1926,7 @@ export default function DashboardPeserta() {
       setParticipants([]);
       setSelectedParticipantId("");
       selectedIdRef.current = "";
+
       clearDashboard();
 
       router.replace("/login");
@@ -1832,13 +1939,14 @@ export default function DashboardPeserta() {
     }
   }
 
-  // ===================================================
+  // ====================================================
   // NAVIGATION
-  // ===================================================
+  // ====================================================
 
   function navigatePage(nextPage) {
     if (nextPage === "dashboard") {
       const latestWeek = getCurrentGlobalWeek();
+
       currentWeekRef.current = latestWeek;
       setCurrentWeek(latestWeek);
     }
@@ -1857,9 +1965,9 @@ export default function DashboardPeserta() {
     router.push(path);
   }
 
-  // ===================================================
-  // WEEK SEPARATION
-  // ===================================================
+  // ====================================================
+  // WEEK DASHBOARD VS WEEK PILIHAN
+  // ====================================================
 
   const dashboardWeekInfo =
     getGlobalWeek(currentWeek);
@@ -1909,7 +2017,8 @@ export default function DashboardPeserta() {
         practices.length +
         samapta.length,
       verifiedAchievements: achievements.filter(
-        (item) => normalize(item.status) === "verified"
+        (item) =>
+          normalize(item.status) === "verified"
       ).length,
       average: averageScores([
         ...postTests,
@@ -1929,7 +2038,10 @@ export default function DashboardPeserta() {
   if (hasActiveProgram) {
     const markGlobal = (date) => {
       const number = globalWeekOf(date);
-      if (number !== null) weeksWithData.add(number);
+
+      if (number !== null) {
+        weeksWithData.add(number);
+      }
     };
 
     weeklyData.achievements.forEach(
@@ -1984,13 +2096,41 @@ export default function DashboardPeserta() {
     "Peserta OJT";
 
   const sidebarMenus = [
-    { id: "dashboard", label: "Dashboard", icon: "home" },
-    { id: "jadwal", label: "Jadwal Kegiatan", icon: "calendar" },
-    { id: "monitoring", label: "Monitoring Mingguan", icon: "chart" },
-    { id: "achievement", label: "Achievement OJT", icon: "trophy" },
-    { id: "hasil", label: "Hasil Post-Test & Praktik", icon: "file" },
-    { id: "simper", label: "Status SIMPER", icon: "shield" },
-    { id: "rapor", label: "Rapor & Evaluasi", icon: "file" },
+    {
+      id: "dashboard",
+      label: "Dashboard",
+      icon: "home",
+    },
+    {
+      id: "jadwal",
+      label: "Jadwal Kegiatan",
+      icon: "calendar",
+    },
+    {
+      id: "monitoring",
+      label: "Monitoring Mingguan",
+      icon: "chart",
+    },
+    {
+      id: "achievement",
+      label: "Achievement OJT",
+      icon: "trophy",
+    },
+    {
+      id: "hasil",
+      label: "Hasil Post-Test & Praktik",
+      icon: "file",
+    },
+    {
+      id: "simper",
+      label: "Status SIMPER",
+      icon: "shield",
+    },
+    {
+      id: "rapor",
+      label: "Rapor & Evaluasi",
+      icon: "file",
+    },
   ];
 
   const pageTitles = {
@@ -2004,13 +2144,15 @@ export default function DashboardPeserta() {
     profil: "Profil Akun",
   };
 
-  // ===================================================
+  // ====================================================
   // RENDER
-  // ===================================================
+  // ====================================================
 
   return (
     <div className="mt-app">
       <style>{dashboardCSS}</style>
+
+      {/* HEADER */}
 
       <header className="mt-topbar">
         <button
@@ -2031,7 +2173,9 @@ export default function DashboardPeserta() {
         <button
           type="button"
           className="mt-top-brand"
-          onClick={() => navigatePage("dashboard")}
+          onClick={() =>
+            navigatePage("dashboard")
+          }
         >
           OJT <span>MineTrack</span>
           <small>v2.0</small>
@@ -2052,13 +2196,18 @@ export default function DashboardPeserta() {
             </strong>
 
             <small>
-              {isAdmin ? "Administrator" : "Peserta OJT"}
+              {isAdmin
+                ? "Administrator"
+                : "Peserta OJT"}
             </small>
           </div>
         </div>
       </header>
 
       <div className="mt-layout">
+
+        {/* SIDEBAR */}
+
         <aside
           className={
             "mt-sidebar " +
@@ -2091,11 +2240,18 @@ export default function DashboardPeserta() {
                 key={item.id}
                 className={
                   "mt-sidebar-item " +
-                  (page === item.id ? "active" : "")
+                  (page === item.id
+                    ? "active"
+                    : "")
                 }
-                onClick={() => navigatePage(item.id)}
+                onClick={() =>
+                  navigatePage(item.id)
+                }
               >
-                <Icon name={item.icon} size={20} />
+                <Icon
+                  name={item.icon}
+                  size={20}
+                />
                 <span>{item.label}</span>
               </button>
             ))}
@@ -2106,9 +2262,13 @@ export default function DashboardPeserta() {
               type="button"
               className={
                 "mt-sidebar-item " +
-                (page === "profil" ? "active" : "")
+                (page === "profil"
+                  ? "active"
+                  : "")
               }
-              onClick={() => navigatePage("profil")}
+              onClick={() =>
+                navigatePage("profil")
+              }
             >
               <Icon name="user" size={20} />
               Profil Akun
@@ -2121,6 +2281,7 @@ export default function DashboardPeserta() {
               onClick={logout}
             >
               <Icon name="logout" size={20} />
+
               {loggingOut
                 ? "Sedang keluar..."
                 : "Keluar Akun"}
@@ -2134,16 +2295,21 @@ export default function DashboardPeserta() {
           <button
             type="button"
             className="mt-mobile-overlay"
-            onClick={() => setMobileMenu(false)}
+            onClick={() =>
+              setMobileMenu(false)
+            }
             aria-label="Tutup menu"
           />
         )}
+
+        {/* MAIN CONTENT */}
 
         <main className="mt-main">
           <div className="mt-page-heading">
             <div>
               <h1>
-                {pageTitles[page] || "Dashboard Peserta"}
+                {pageTitles[page] ||
+                  "Dashboard Peserta"}
               </h1>
 
               <p>
@@ -2153,17 +2319,64 @@ export default function DashboardPeserta() {
               </p>
             </div>
 
-            <button
-              type="button"
-              className="mt-refresh"
-              disabled={loading || refreshing}
-              onClick={() => loadDashboard(true)}
-            >
-              <Icon name="refresh" size={17} />
-              <span>
-                {refreshing ? "Memuat..." : "Refresh"}
-              </span>
-            </button>
+            <div className="mt-heading-actions">
+
+              {/* TOMBOL TEMA:
+                  HANYA DI DASHBOARD AWAL */}
+
+              {page === "dashboard" && (
+                <button
+                  type="button"
+                  className="mt-theme-toggle"
+                  onClick={toggleTheme}
+                  aria-label={
+                    theme === "dark"
+                      ? "Aktifkan Mode Terang"
+                      : "Aktifkan Mode Gelap"
+                  }
+                  title={
+                    theme === "dark"
+                      ? "Ubah ke Mode Terang"
+                      : "Ubah ke Mode Gelap"
+                  }
+                >
+                  <Icon
+                    name={
+                      theme === "dark"
+                        ? "sun"
+                        : "moon"
+                    }
+                    size={18}
+                  />
+
+                  <span>
+                    {theme === "dark"
+                      ? "Mode Terang"
+                      : "Mode Gelap"}
+                  </span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="mt-refresh"
+                disabled={loading || refreshing}
+                onClick={() =>
+                  loadDashboard(true)
+                }
+              >
+                <Icon
+                  name="refresh"
+                  size={17}
+                />
+
+                <span>
+                  {refreshing
+                    ? "Memuat..."
+                    : "Refresh"}
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* HERO DASHBOARD */}
@@ -2198,16 +2411,26 @@ export default function DashboardPeserta() {
                 </p>
 
                 <div className="mt-hero-period">
-                  <Icon name="calendar" size={20} />
-                  {formatDate(dashboardWeekInfo?.start)}
+                  <Icon
+                    name="calendar"
+                    size={20}
+                  />
+
+                  {formatDate(
+                    dashboardWeekInfo?.start
+                  )}
                   {" – "}
-                  {formatDate(dashboardWeekInfo?.end)}
+                  {formatDate(
+                    dashboardWeekInfo?.end
+                  )}
                   {" "}
                   ({dashboardWeekLabel})
                 </div>
 
                 <div className="mt-hero-profile">
-                  <span>{initials(participantName)}</span>
+                  <span>
+                    {initials(participantName)}
+                  </span>
 
                   <div>
                     <strong>{participantName}</strong>
@@ -2223,6 +2446,8 @@ export default function DashboardPeserta() {
             </section>
           )}
 
+          {/* LOADING & ERROR */}
+
           {loading && (
             <div className="mt-alert">
               Memuat Dashboard Peserta...
@@ -2236,7 +2461,10 @@ export default function DashboardPeserta() {
           )}
 
           {error && (
-            <div className="mt-alert error" role="alert">
+            <div
+              className="mt-alert error"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -2247,13 +2475,16 @@ export default function DashboardPeserta() {
             <section className="mt-admin-preview">
               <div>
                 <strong>
-                  <Icon name="shield" size={18} />
+                  <Icon
+                    name="shield"
+                    size={18}
+                  />
                   Tinjauan Administrator
                 </strong>
 
                 <p>
-                  Melihat Dashboard Peserta tanpa
-                  mengubah data program.
+                  Melihat Dashboard Peserta
+                  tanpa mengubah data program.
                 </p>
               </div>
 
@@ -2276,14 +2507,18 @@ export default function DashboardPeserta() {
                     value={item.id}
                   >
                     {item.full_name}
-                    {item.site ? ` — ${item.site}` : ""}
+                    {item.site
+                      ? ` — ${item.site}`
+                      : ""}
                   </option>
                 ))}
               </select>
 
               <button
                 type="button"
-                onClick={() => router.push("/")}
+                onClick={() =>
+                  router.push("/")
+                }
               >
                 Kembali ke Dashboard Admin
               </button>
@@ -2292,52 +2527,67 @@ export default function DashboardPeserta() {
 
           {/* STATUS PENDAFTARAN */}
 
-          {!loading && access === "pending" && (
-            <section className="mt-status-message amber">
-              <h3>Menunggu Persetujuan Mentor</h3>
-              <p>
-                Pengajuan OJT sudah tercatat
-                dan menunggu persetujuan.
-              </p>
-              <p>
-                <strong>Site:</strong>{" "}
-                {registration?.site || "—"}
-              </p>
-              <p>
-                <strong>Periode:</strong>{" "}
-                {formatDate(registration?.start_date)}
-                {" – "}
-                {formatDate(registration?.end_date)}
-              </p>
-            </section>
-          )}
+          {!loading &&
+            access === "pending" && (
+              <section className="mt-status-message amber">
+                <h3>
+                  Menunggu Persetujuan Mentor
+                </h3>
 
-          {!loading && access === "rejected" && (
-            <section className="mt-status-message red">
-              <h3>Pengajuan Belum Disetujui</h3>
+                <p>
+                  Pengajuan OJT sudah tercatat
+                  dan menunggu persetujuan.
+                </p>
 
-              <p>
-                Pengajuan OJT ditolak oleh Mentor.
-              </p>
+                <p>
+                  <strong>Site:</strong>{" "}
+                  {registration?.site || "—"}
+                </p>
 
-              <p>
-                <strong>Alasan:</strong>{" "}
-                {registration?.rejection_reason ||
-                  "Belum tersedia."}
-              </p>
+                <p>
+                  <strong>Periode:</strong>{" "}
+                  {formatDate(
+                    registration?.start_date
+                  )}
+                  {" – "}
+                  {formatDate(
+                    registration?.end_date
+                  )}
+                </p>
+              </section>
+            )}
 
-              {!isAdmin && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    router.push("/pengajuan-peserta")
-                  }
-                >
-                  Perbaiki Pengajuan
-                </button>
-              )}
-            </section>
-          )}
+          {!loading &&
+            access === "rejected" && (
+              <section className="mt-status-message red">
+                <h3>
+                  Pengajuan Belum Disetujui
+                </h3>
+
+                <p>
+                  Pengajuan OJT ditolak oleh Mentor.
+                </p>
+
+                <p>
+                  <strong>Alasan:</strong>{" "}
+                  {registration?.rejection_reason ||
+                    "Belum tersedia."}
+                </p>
+
+                {!isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(
+                        "/pengajuan-peserta"
+                      )
+                    }
+                  >
+                    Perbaiki Pengajuan
+                  </button>
+                )}
+              </section>
+            )}
 
           {!loading &&
             !error &&
@@ -2345,29 +2595,41 @@ export default function DashboardPeserta() {
             profile &&
             !isAdminEmptyView && (
               <section className="mt-status-message">
-                <h3>Program OJT Belum Aktif</h3>
+                <h3>
+                  Program OJT Belum Aktif
+                </h3>
+
                 <p>
                   Belum ada program OJT aktif.
-                  Silakan perbarui status atau
-                  hubungi Mentor.
+                  Silakan perbarui status
+                  atau hubungi Mentor.
                 </p>
               </section>
             )}
 
           {showDashboardContent && (
             <>
-              {/* DASHBOARD AWAL */}
+
+              {/* ============================
+                  DASHBOARD AWAL
+                  ============================ */}
 
               {page === "dashboard" && (
                 <>
                   <section className="mt-stat-grid">
                     <div className="mt-stat-card">
                       <span className="mt-stat-icon">
-                        <Icon name="calendar" size={26} />
+                        <Icon
+                          name="calendar"
+                          size={26}
+                        />
                       </span>
 
                       <div>
-                        <small>Minggu Program</small>
+                        <small>
+                          Minggu Program
+                        </small>
+
                         <strong>
                           {dashboardWeekLabel} / 25
                         </strong>
@@ -2376,11 +2638,16 @@ export default function DashboardPeserta() {
 
                     <div className="mt-stat-card">
                       <span className="mt-stat-icon">
-                        <Icon name="chart" size={26} />
+                        <Icon
+                          name="chart"
+                          size={26}
+                        />
                       </span>
 
                       <div>
-                        <small>Progres OJT</small>
+                        <small>
+                          Progres OJT
+                        </small>
 
                         <strong>
                           {hasActiveProgram
@@ -2400,11 +2667,16 @@ export default function DashboardPeserta() {
 
                     <div className="mt-stat-card">
                       <span className="mt-stat-icon">
-                        <Icon name="shield" size={26} />
+                        <Icon
+                          name="shield"
+                          size={26}
+                        />
                       </span>
 
                       <div>
-                        <small>Status SIMPER</small>
+                        <small>
+                          Status SIMPER
+                        </small>
 
                         <strong className="mt-status-text">
                           {!hasActiveProgram
@@ -2420,35 +2692,52 @@ export default function DashboardPeserta() {
                   </section>
 
                   <section className="mt-dashboard-columns">
+
                     {/* JADWAL MINGGU BERJALAN */}
 
                     <div className="mt-panel">
                       <div className="mt-panel-header">
                         <div>
-                          <Icon name="calendar" size={23} />
+                          <Icon
+                            name="calendar"
+                            size={23}
+                          />
+
                           <strong>
                             Jadwal Kegiatan Minggu Ini
                           </strong>
                         </div>
 
-                        <span>{dashboardWeekLabel}</span>
+                        <span>
+                          {dashboardWeekLabel}
+                        </span>
                       </div>
 
                       <div className="mt-period-strip">
-                        <Icon name="calendar" size={18} />
-                        {formatDate(dashboardWeekInfo?.start)}
+                        <Icon
+                          name="calendar"
+                          size={18}
+                        />
+
+                        {formatDate(
+                          dashboardWeekInfo?.start
+                        )}
                         {" – "}
-                        {formatDate(dashboardWeekInfo?.end)}
+                        {formatDate(
+                          dashboardWeekInfo?.end
+                        )}
                       </div>
 
                       <div className="mt-activities">
                         {dashboardSchedule.length ? (
-                          dashboardSchedule.map((item) => (
-                            <ActivityItem
-                              key={item.id}
-                              activity={item}
-                            />
-                          ))
+                          dashboardSchedule.map(
+                            (item) => (
+                              <ActivityItem
+                                key={item.id}
+                                activity={item}
+                              />
+                            )
+                          )
                         ) : (
                           <EmptyState>
                             Belum ada jadwal kegiatan
@@ -2460,10 +2749,16 @@ export default function DashboardPeserta() {
                       <button
                         type="button"
                         className="mt-panel-link"
-                        onClick={() => navigatePage("jadwal")}
+                        onClick={() =>
+                          navigatePage("jadwal")
+                        }
                       >
                         Lihat Semua Jadwal
-                        <Icon name="arrow" size={17} />
+
+                        <Icon
+                          name="arrow"
+                          size={17}
+                        />
                       </button>
                     </div>
 
@@ -2472,13 +2767,19 @@ export default function DashboardPeserta() {
                     <div className="mt-panel">
                       <div className="mt-panel-header">
                         <div>
-                          <Icon name="chart" size={23} />
+                          <Icon
+                            name="chart"
+                            size={23}
+                          />
+
                           <strong>
                             Ringkasan Mingguan
                           </strong>
                         </div>
 
-                        <span>{dashboardWeekLabel}</span>
+                        <span>
+                          {dashboardWeekLabel}
+                        </span>
                       </div>
 
                       <div className="mt-score-summary">
@@ -2518,11 +2819,17 @@ export default function DashboardPeserta() {
                         <button
                           type="button"
                           onClick={() =>
-                            navigatePage("achievement")
+                            navigatePage(
+                              "achievement"
+                            )
                           }
                         >
                           Lihat Detail
-                          <Icon name="arrow" size={15} />
+
+                          <Icon
+                            name="arrow"
+                            size={15}
+                          />
                         </button>
                       </div>
 
@@ -2538,25 +2845,29 @@ export default function DashboardPeserta() {
                       <p className="mt-panel-note">
                         Ringkasan nilai dan aktivitas
                         mengikuti minggu berjalan.
-                        Achievement merupakan
-                        progres keseluruhan program.
+                        Achievement merupakan progres
+                        keseluruhan program.
                       </p>
                     </div>
                   </section>
                 </>
               )}
 
-              {/* JADWAL KEGIATAN */}
+              {/* ============================
+                  JADWAL KEGIATAN
+                  ============================ */}
 
               {page === "jadwal" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Jadwal Kegiatan OJT</h2>
+                      <h2>
+                        Jadwal Kegiatan OJT
+                      </h2>
 
                       <p>
-                        Agenda kegiatan berdasarkan
-                        kalender global Week 01–25.
+                        Agenda berdasarkan kalender
+                        global Week 01–25.
                       </p>
                     </div>
 
@@ -2568,28 +2879,36 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-week-info">
-                    <strong>{selectedWeekLabel}</strong>
+                    <strong>
+                      {selectedWeekLabel}
+                    </strong>
 
                     <span>
-                      {formatDate(selectedWeekInfo?.start)}
+                      {formatDate(
+                        selectedWeekInfo?.start
+                      )}
                       {" – "}
-                      {formatDate(selectedWeekInfo?.end)}
+                      {formatDate(
+                        selectedWeekInfo?.end
+                      )}
                     </span>
 
                     <small>
-                      {selectedSchedule.length} kegiatan
-                      dijadwalkan
+                      {selectedSchedule.length}
+                      {" kegiatan dijadwalkan"}
                     </small>
                   </div>
 
                   <div className="mt-activities mt-full-activities">
                     {selectedSchedule.length ? (
-                      selectedSchedule.map((item) => (
-                        <ActivityItem
-                          key={item.id}
-                          activity={item}
-                        />
-                      ))
+                      selectedSchedule.map(
+                        (item) => (
+                          <ActivityItem
+                            key={item.id}
+                            activity={item}
+                          />
+                        )
+                      )
                     ) : (
                       <EmptyState>
                         Belum ada agenda yang diumumkan
@@ -2599,32 +2918,37 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-info-box">
-                    <Icon name="info" size={19} />
+                    <Icon
+                      name="info"
+                      size={19}
+                    />
 
                     <span>
-                      Peserta dapat memilih Week 01–25
-                      untuk melihat agenda. Pilihan
-                      Week pada menu Jadwal Kegiatan
-                      tidak mengubah minggu berjalan
-                      pada Dashboard awal. Praktik
-                      dikoordinasikan oleh IC/Leader
-                      masing-masing site.
+                      Peserta dapat memilih Week 01–25.
+                      Pilihan ini tidak mengubah
+                      minggu pada Dashboard awal.
+                      Praktik mengikuti koordinasi
+                      IC/Leader masing-masing site.
                     </span>
                   </div>
                 </section>
               )}
 
-              {/* MONITORING MINGGUAN */}
+              {/* ============================
+                  MONITORING MINGGUAN
+                  ============================ */}
 
               {page === "monitoring" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Monitoring Mingguan OJT</h2>
+                      <h2>
+                        Monitoring Mingguan OJT
+                      </h2>
 
                       <p>
-                        Rekap aktivitas dan
-                        status verifikasi.
+                        Rekap aktivitas dan status
+                        verifikasi.
                       </p>
                     </div>
 
@@ -2636,12 +2960,18 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-week-info">
-                    <strong>{selectedWeekLabel}</strong>
+                    <strong>
+                      {selectedWeekLabel}
+                    </strong>
 
                     <span>
-                      {formatDate(selectedWeekInfo?.start)}
+                      {formatDate(
+                        selectedWeekInfo?.start
+                      )}
                       {" – "}
-                      {formatDate(selectedWeekInfo?.end)}
+                      {formatDate(
+                        selectedWeekInfo?.end
+                      )}
                     </span>
                   </div>
 
@@ -2672,7 +3002,9 @@ export default function DashboardPeserta() {
                         className="mt-mini-stat"
                         key={item.label}
                       >
-                        <span>{item.label}</span>
+                        <span>
+                          {item.label}
+                        </span>
 
                         <strong>
                           {hasActiveProgram
@@ -2684,7 +3016,10 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-info-box">
-                    <Icon name="check" size={19} />
+                    <Icon
+                      name="check"
+                      size={19}
+                    />
 
                     <span>
                       Achievement terverifikasi:
@@ -2708,19 +3043,28 @@ export default function DashboardPeserta() {
                       }
                     >
                       Buka Monitoring Mingguan Lengkap
-                      <Icon name="arrow" size={18} />
+
+                      <Icon
+                        name="arrow"
+                        size={18}
+                      />
                     </button>
                   )}
                 </section>
               )}
 
-              {/* ACHIEVEMENT */}
+              {/* ============================
+                  ACHIEVEMENT OJT
+                  ============================ */}
 
               {page === "achievement" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Achievement OJT</h2>
+                      <h2>
+                        Achievement OJT
+                      </h2>
+
                       <p>
                         Progres enam kategori
                         berdasarkan kegiatan
@@ -2730,10 +3074,16 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-achievement-total">
-                    <Icon name="trophy" size={30} />
+                    <Icon
+                      name="trophy"
+                      size={30}
+                    />
 
                     <div>
-                      <small>Total Achievement</small>
+                      <small>
+                        Total Achievement
+                      </small>
+
                       <strong>
                         {hasActiveProgram
                           ? `${progress.achievement}%`
@@ -2761,11 +3111,16 @@ export default function DashboardPeserta() {
                             name={item.icon}
                             size={25}
                           />
-                          <strong>{item.name}</strong>
+
+                          <strong>
+                            {item.name}
+                          </strong>
                         </div>
 
                         <h3>
-                          {Math.round(item.progress)}%
+                          {Math.round(
+                            item.progress
+                          )}%
                         </h3>
 
                         <ProgressBar
@@ -2776,9 +3131,12 @@ export default function DashboardPeserta() {
                           Realisasi:{" "}
                           {Number(
                             item.amount
-                          ).toLocaleString("id-ID", {
-                            maximumFractionDigits: 3,
-                          })}
+                          ).toLocaleString(
+                            "id-ID",
+                            {
+                              maximumFractionDigits: 3,
+                            }
+                          )}
                           {" / "}
                           {item.target}
                           {item.name === "Fisik"
@@ -2800,19 +3158,28 @@ export default function DashboardPeserta() {
                       }
                     >
                       Lihat Riwayat Achievement
-                      <Icon name="arrow" size={18} />
+
+                      <Icon
+                        name="arrow"
+                        size={18}
+                      />
                     </button>
                   )}
                 </section>
               )}
 
-              {/* HASIL POST-TEST & PRAKTIK */}
+              {/* ============================
+                  HASIL POST-TEST & PRAKTIK
+                  ============================ */}
 
               {page === "hasil" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Hasil Post-Test & Praktik</h2>
+                      <h2>
+                        Hasil Post-Test & Praktik
+                      </h2>
+
                       <p>
                         Nilai yang telah dicatat
                         selama program OJT.
@@ -2852,7 +3219,10 @@ export default function DashboardPeserta() {
 
                   <div className="mt-score-summary">
                     <div>
-                      <small>Rata-Rata Nilai</small>
+                      <small>
+                        Rata-Rata Nilai
+                      </small>
+
                       <strong>
                         {hasActiveProgram
                           ? scoreText(overallScore)
@@ -2861,7 +3231,10 @@ export default function DashboardPeserta() {
                     </div>
 
                     <div>
-                      <small>Penilaian Tercatat</small>
+                      <small>
+                        Penilaian Tercatat
+                      </small>
+
                       <strong>
                         {hasActiveProgram
                           ? allScores.length
@@ -2912,13 +3285,20 @@ export default function DashboardPeserta() {
 
                             return (
                               <tr key={item.id}>
-                                <td>{index + 1}</td>
+                                <td>
+                                  {index + 1}
+                                </td>
+
                                 <td>
                                   {resultTab === "posttest"
                                     ? "Post-Test"
                                     : "Praktik OJT"}
                                 </td>
-                                <td>{formatDate(date)}</td>
+
+                                <td>
+                                  {formatDate(date)}
+                                </td>
+
                                 <td>
                                   {week
                                     ? `W${String(
@@ -2926,9 +3306,12 @@ export default function DashboardPeserta() {
                                       ).padStart(2, "0")}`
                                     : "—"}
                                 </td>
+
                                 <td>
                                   <strong>
-                                    {scoreText(item.score)}
+                                    {scoreText(
+                                      item.score
+                                    )}
                                   </strong>
                                 </td>
                               </tr>
@@ -2949,13 +3332,18 @@ export default function DashboardPeserta() {
                 </section>
               )}
 
-              {/* STATUS SIMPER */}
+              {/* ============================
+                  STATUS SIMPER
+                  ============================ */}
 
               {page === "simper" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Status SIMPER</h2>
+                      <h2>
+                        Status SIMPER
+                      </h2>
+
                       <p>
                         Pemenuhan persyaratan dan
                         penerbitan SIMPER.
@@ -2964,10 +3352,16 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="mt-simper-overview">
-                    <Icon name="shield" size={34} />
+                    <Icon
+                      name="shield"
+                      size={34}
+                    />
 
                     <div>
-                      <small>Progres Pemenuhan</small>
+                      <small>
+                        Progres Pemenuhan
+                      </small>
+
                       <strong>
                         {hasActiveProgram
                           ? `${progress.simper}%`
@@ -2986,8 +3380,15 @@ export default function DashboardPeserta() {
 
                   <div className="mt-simper-list">
                     <div>
-                      <Icon name="check" size={21} />
-                      <span>Persyaratan Terpenuhi</span>
+                      <Icon
+                        name="check"
+                        size={21}
+                      />
+
+                      <span>
+                        Persyaratan Terpenuhi
+                      </span>
+
                       <strong>
                         {hasActiveProgram
                           ? `${progress.simperCompleted}/3`
@@ -2996,8 +3397,15 @@ export default function DashboardPeserta() {
                     </div>
 
                     <div>
-                      <Icon name="shield" size={21} />
-                      <span>Status Penerbitan</span>
+                      <Icon
+                        name="shield"
+                        size={21}
+                      />
+
+                      <span>
+                        Status Penerbitan
+                      </span>
+
                       <strong>
                         {hasActiveProgram
                           ? progress.simperIssued
@@ -3019,19 +3427,28 @@ export default function DashboardPeserta() {
                       }
                     >
                       Lihat Detail SIMPER
-                      <Icon name="arrow" size={18} />
+
+                      <Icon
+                        name="arrow"
+                        size={18}
+                      />
                     </button>
                   )}
                 </section>
               )}
 
-              {/* RAPOR & EVALUASI */}
+              {/* ============================
+                  RAPOR DAN EVALUASI
+                  ============================ */}
 
               {page === "rapor" && (
                 <section className="mt-panel mt-page-panel">
                   <div className="mt-section-heading">
                     <div>
-                      <h2>Rapor & Evaluasi OJT</h2>
+                      <h2>
+                        Rapor & Evaluasi OJT
+                      </h2>
+
                       <p>
                         Rekap evaluasi mingguan
                         dan laporan program.
@@ -3078,11 +3495,18 @@ export default function DashboardPeserta() {
                       />
 
                       <div className="mt-week-info">
-                        <strong>{selectedWeekLabel}</strong>
+                        <strong>
+                          {selectedWeekLabel}
+                        </strong>
+
                         <span>
-                          {formatDate(selectedWeekInfo?.start)}
+                          {formatDate(
+                            selectedWeekInfo?.start
+                          )}
                           {" – "}
-                          {formatDate(selectedWeekInfo?.end)}
+                          {formatDate(
+                            selectedWeekInfo?.end
+                          )}
                         </span>
                       </div>
 
@@ -3106,14 +3530,19 @@ export default function DashboardPeserta() {
                           {
                             label: "Rata-Rata Nilai",
                             value:
-                              scoreText(selectedWeekly.average),
+                              scoreText(
+                                selectedWeekly.average
+                              ),
                           },
                         ].map((item) => (
                           <div
                             className="mt-mini-stat"
                             key={item.label}
                           >
-                            <span>{item.label}</span>
+                            <span>
+                              {item.label}
+                            </span>
+
                             <strong>
                               {hasActiveProgram
                                 ? item.value
@@ -3134,7 +3563,11 @@ export default function DashboardPeserta() {
                           }
                         >
                           Buka Evaluasi Mingguan
-                          <Icon name="arrow" size={18} />
+
+                          <Icon
+                            name="arrow"
+                            size={18}
+                          />
                         </button>
                       )}
                     </>
@@ -3167,7 +3600,10 @@ export default function DashboardPeserta() {
                             className="mt-mini-stat"
                             key={item.label}
                           >
-                            <span>{item.label}</span>
+                            <span>
+                              {item.label}
+                            </span>
+
                             <strong>
                               {hasActiveProgram
                                 ? item.value
@@ -3188,7 +3624,11 @@ export default function DashboardPeserta() {
                           }
                         >
                           Buka Rapor OJT
-                          <Icon name="arrow" size={18} />
+
+                          <Icon
+                            name="arrow"
+                            size={18}
+                          />
                         </button>
                       )}
                     </>
@@ -3222,7 +3662,9 @@ export default function DashboardPeserta() {
                 </section>
               )}
 
-              {/* PROFIL AKUN */}
+              {/* ============================
+                  PROFIL AKUN
+                  ============================ */}
 
               {page === "profil" && (
                 <section className="mt-panel mt-page-panel">
@@ -3232,7 +3674,10 @@ export default function DashboardPeserta() {
                     </span>
 
                     <div>
-                      <h2>{participantName}</h2>
+                      <h2>
+                        {participantName}
+                      </h2>
+
                       <p>
                         {isAdmin
                           ? "Tinjauan Administrator"
@@ -3243,21 +3688,30 @@ export default function DashboardPeserta() {
 
                   <div className="mt-profile-rows">
                     <div>
-                      <span>Departemen</span>
+                      <span>
+                        Departemen
+                      </span>
+
                       <strong>
                         {profile?.department || "—"}
                       </strong>
                     </div>
 
                     <div>
-                      <span>Site Penempatan</span>
+                      <span>
+                        Site Penempatan
+                      </span>
+
                       <strong>
                         {program?.site || "—"}
                       </strong>
                     </div>
 
                     <div>
-                      <span>Periode OJT</span>
+                      <span>
+                        Periode OJT
+                      </span>
+
                       <strong>
                         {program
                           ? `${formatDate(
@@ -3270,14 +3724,20 @@ export default function DashboardPeserta() {
                     </div>
 
                     <div>
-                      <span>Status Program</span>
+                      <span>
+                        Status Program
+                      </span>
+
                       <strong>
                         {getStatusInfo(access)}
                       </strong>
                     </div>
 
                     <div>
-                      <span>Email Akun Login</span>
+                      <span>
+                        Email Akun Login
+                      </span>
+
                       <strong>
                         {isAdmin
                           ? "Tidak ditampilkan dalam preview"
@@ -3295,7 +3755,8 @@ export default function DashboardPeserta() {
                 </span>
 
                 <span>
-                  PT Berau Coal · Program 2026–2027
+                  PT Berau Coal ·
+                  Program 2026–2027
                 </span>
               </footer>
             </>
@@ -3307,28 +3768,57 @@ export default function DashboardPeserta() {
 }
 
 // ======================================================
-// CSS RESPONSIVE — DESKTOP & MOBILE
+// CSS RESPONSIVE + LIGHT / DARK MODE
 // ======================================================
 
 const dashboardCSS = `
+/* =====================================================
+   THEME VARIABLES
+   ===================================================== */
+
+.mt-app {
+  --bg: #f2f7fb;
+  --surface: #ffffff;
+  --surface2: #f5faf7;
+  --text: #14283a;
+  --muted: #718293;
+  --border: #dce7eb;
+  --primary: #008b58;
+  --accent: #087947;
+  --light-green: #e7f8ef;
+  --green-text: #07572d;
+  --sidebar: #00352f;
+  --topbar: #003e35;
+  --shadow: rgba(20,59,58,.06);
+}
+
+:root[data-theme="dark"] .mt-app {
+  --bg: #0d171b;
+  --surface: #17272b;
+  --surface2: #203438;
+  --text: #edf8f4;
+  --muted: #a5bbb8;
+  --border: #30484b;
+  --primary: #28c88b;
+  --accent: #83edb8;
+  --light-green: #203b35;
+  --green-text: #8ff0bb;
+  --sidebar: #081f1d;
+  --topbar: #081f1d;
+  --shadow: rgba(0,0,0,.20);
+}
+
 .mt-app,
 .mt-app * {
   box-sizing: border-box;
 }
 
 .mt-app {
-  --green: #008b58;
-  --green-dark: #003e35;
-  --green-deep: #002c28;
-  --green-light: #e7f8ef;
-  --text: #14283a;
-  --muted: #718293;
-  --border: #dce7eb;
-
   min-height: 100vh;
-  background: #f2f7fb;
+  background: var(--bg);
   color: var(--text);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color .2s, color .2s;
 }
 
 .mt-app button,
@@ -3351,7 +3841,9 @@ const dashboardCSS = `
   outline-offset: 2px;
 }
 
-/* HEADER */
+/* =====================================================
+   HEADER
+   ===================================================== */
 
 .mt-topbar {
   height: 64px;
@@ -3362,7 +3854,7 @@ const dashboardCSS = `
   align-items: center;
   gap: 20px;
   padding: 0 25px;
-  background: #003e35;
+  background: var(--topbar);
   color: white;
 }
 
@@ -3434,7 +3926,9 @@ const dashboardCSS = `
   padding: 7px;
 }
 
-/* LAYOUT */
+/* =====================================================
+   SIDEBAR
+   ===================================================== */
 
 .mt-layout {
   display: flex;
@@ -3453,7 +3947,7 @@ const dashboardCSS = `
   background: linear-gradient(
     165deg,
     #004d3f 0%,
-    #00352f 53%,
+    var(--sidebar) 55%,
     #002a27 100%
   );
   color: white;
@@ -3461,6 +3955,15 @@ const dashboardCSS = `
   display: flex;
   flex-direction: column;
   z-index: 50;
+}
+
+:root[data-theme="dark"] .mt-sidebar {
+  background: linear-gradient(
+    165deg,
+    #092c28 0%,
+    #081f1d 55%,
+    #061614 100%
+  );
 }
 
 .mt-sidebar-brand {
@@ -3536,6 +4039,10 @@ const dashboardCSS = `
   box-shadow: 0 4px 11px #001d1829;
 }
 
+:root[data-theme="dark"] .mt-sidebar-item.active {
+  background: #087e57;
+}
+
 .mt-sidebar-bottom {
   display: grid;
   gap: 6px;
@@ -3567,7 +4074,9 @@ const dashboardCSS = `
   display: none;
 }
 
-/* MAIN */
+/* =====================================================
+   MAIN
+   ===================================================== */
 
 .mt-main {
   min-width: 0;
@@ -3575,6 +4084,7 @@ const dashboardCSS = `
   padding: 23px;
   max-width: 1700px;
   margin: 0 auto;
+  background: var(--bg);
 }
 
 .mt-page-heading {
@@ -3588,30 +4098,55 @@ const dashboardCSS = `
 .mt-page-heading h1 {
   font-size: 27px;
   margin: 0 0 6px;
-  color: #173b34;
+  color: var(--text);
   letter-spacing: -.6px;
 }
 
 .mt-page-heading p {
   font-size: 12px;
-  color: #718293;
+  color: var(--muted);
   margin: 0;
 }
 
-.mt-refresh {
-  display: inline-flex;
+.mt-heading-actions {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  border: 1px solid #bfe5d1;
-  border-radius: 9px;
-  background: white;
-  color: #087c58;
-  font-size: 11px;
-  font-weight: 800;
-  padding: 10px 13px;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-shrink: 0;
 }
 
-/* HERO */
+.mt-refresh,
+.mt-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 39px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 9px 13px;
+}
+
+.mt-theme-toggle:hover,
+.mt-refresh:hover {
+  background: var(--light-green);
+}
+
+:root[data-theme="dark"] .mt-theme-toggle,
+:root[data-theme="dark"] .mt-refresh {
+  background: #1d3336;
+  color: #8eebbd;
+  border-color: #35544c;
+}
+
+/* =====================================================
+   HERO
+   ===================================================== */
 
 .mt-hero {
   min-height: 205px;
@@ -3622,7 +4157,7 @@ const dashboardCSS = `
   background-size: cover;
   background-position: center;
   overflow: hidden;
-  box-shadow: 0 5px 16px #194d3a19;
+  box-shadow: 0 5px 16px var(--shadow);
 }
 
 .mt-hero-copy {
@@ -3697,30 +4232,32 @@ const dashboardCSS = `
   color: #d3f1e0;
 }
 
-/* COMMON */
+/* =====================================================
+   COMMON
+   ===================================================== */
 
 .mt-alert {
   padding: 14px;
   margin-bottom: 15px;
   border-radius: 10px;
-  background: #e4f4eb;
-  border: 1px solid #b8e2c7;
-  color: #146e4b;
+  background: var(--light-green);
+  border: 1px solid var(--border);
+  color: var(--green-text);
   font-size: 12px;
 }
 
 .mt-alert.error {
-  background: #fff1f1;
-  border-color: #f1bcbc;
-  color: #b72d2d;
+  background: #562529;
+  border-color: #8e454b;
+  color: #ffe3e3;
 }
 
 .mt-admin-preview {
   display: grid;
   gap: 12px;
-  background: #e8f7f0;
+  background: var(--light-green);
   padding: 17px;
-  border: 1px solid #b8e7cf;
+  border: 1px solid var(--border);
   border-radius: 13px;
   margin-bottom: 16px;
 }
@@ -3729,37 +4266,37 @@ const dashboardCSS = `
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #056e4f;
+  color: var(--green-text);
 }
 
 .mt-admin-preview p {
   margin: 7px 0 0;
   font-size: 11px;
-  color: #607c70;
+  color: var(--muted);
 }
 
-.mt-admin-preview select {
+.mt-admin-preview select,
+.mt-admin-preview button {
   width: 100%;
+  min-height: 40px;
   padding: 11px;
-  background: white;
-  border: 1px solid #cfe2d8;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 9px;
 }
 
 .mt-admin-preview button {
-  min-height: 40px;
-  background: white;
-  color: #146f50;
-  border: 1px solid #cce2d5;
-  border-radius: 9px;
+  color: var(--accent);
   font-weight: 800;
 }
 
 .mt-status-message {
   margin-bottom: 17px;
   padding: 20px;
-  background: white;
-  border: 1px solid #dce7eb;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 12px;
   font-size: 12px;
   line-height: 1.8;
@@ -3770,13 +4307,11 @@ const dashboardCSS = `
 }
 
 .mt-status-message.amber {
-  background: #fff7e9;
-  border-color: #f5d7a5;
+  border-color: #ac8c43;
 }
 
 .mt-status-message.red {
-  background: #fff0f0;
-  border-color: #eec6c6;
+  border-color: #ae6262;
 }
 
 .mt-status-message button {
@@ -3788,7 +4323,9 @@ const dashboardCSS = `
   font-weight: 800;
 }
 
-/* STATS */
+/* =====================================================
+   STAT CARDS
+   ===================================================== */
 
 .mt-stat-grid {
   display: grid;
@@ -3804,10 +4341,11 @@ const dashboardCSS = `
   align-items: center;
   gap: 17px;
   padding: 18px;
-  background: white;
+  background: var(--surface);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 13px;
-  box-shadow: 0 5px 17px #143b3a0c;
+  box-shadow: 0 5px 17px var(--shadow);
 }
 
 .mt-stat-icon {
@@ -3817,8 +4355,8 @@ const dashboardCSS = `
   height: 53px;
   flex-shrink: 0;
   border-radius: 12px;
-  color: #047c4e;
-  background: #dcf6e7;
+  color: var(--accent);
+  background: var(--light-green);
 }
 
 .mt-stat-card > div {
@@ -3830,19 +4368,20 @@ const dashboardCSS = `
   display: block;
   margin-bottom: 7px;
   font-size: 12px;
-  color: #516779;
+  color: var(--muted);
 }
 
 .mt-stat-card strong {
   display: block;
   font-size: 25px;
   line-height: 1.25;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .mt-stat-card .mt-status-text {
   font-size: 15px;
-  color: #075c39;
+  color: var(--green-text);
 }
 
 .mt-progress {
@@ -3851,7 +4390,7 @@ const dashboardCSS = `
   margin-top: 10px;
   overflow: hidden;
   border-radius: 30px;
-  background: #dbe4e9;
+  background: var(--border);
 }
 
 .mt-progress span {
@@ -3861,7 +4400,13 @@ const dashboardCSS = `
   background: linear-gradient(90deg, #00a74e, #078d35);
 }
 
-/* DASHBOARD COLUMNS */
+:root[data-theme="dark"] .mt-progress span {
+  background: linear-gradient(90deg, #13b97c, #49e0a1);
+}
+
+/* =====================================================
+   DASHBOARD PANELS
+   ===================================================== */
 
 .mt-dashboard-columns {
   display: grid;
@@ -3872,11 +4417,12 @@ const dashboardCSS = `
 
 .mt-panel {
   min-width: 0;
-  background: white;
+  background: var(--surface);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 15px;
   overflow: hidden;
-  box-shadow: 0 5px 20px #18394e0e;
+  box-shadow: 0 5px 20px var(--shadow);
 }
 
 .mt-panel-header {
@@ -3888,6 +4434,10 @@ const dashboardCSS = `
   padding: 14px 17px;
   background: linear-gradient(110deg, #004f39, #007b4d);
   color: white;
+}
+
+:root[data-theme="dark"] .mt-panel-header {
+  background: linear-gradient(110deg, #063c31, #075c46);
 }
 
 .mt-panel-header > div {
@@ -3915,7 +4465,8 @@ const dashboardCSS = `
   align-items: center;
   gap: 9px;
   padding: 13px 17px;
-  background: #f5faf7;
+  background: var(--surface2);
+  color: var(--text);
   font-size: 12px;
   font-weight: 800;
 }
@@ -3929,7 +4480,7 @@ const dashboardCSS = `
   align-items: center;
   gap: 11px;
   padding: 13px 5px;
-  border-bottom: 1px solid #edf0f3;
+  border-bottom: 1px solid var(--border);
 }
 
 .mt-activity:last-child {
@@ -3982,12 +4533,8 @@ const dashboardCSS = `
 }
 
 .mt-activity-icon {
-  color: #087d58;
+  color: var(--accent);
   flex-shrink: 0;
-}
-
-.mt-date-block.orange + .mt-activity-icon {
-  color: #f38d14;
 }
 
 .mt-activity-content {
@@ -3998,14 +4545,22 @@ const dashboardCSS = `
 .mt-activity-content strong {
   display: block;
   font-size: 12px;
-  color: #142b38;
+  color: var(--text);
 }
 
 .mt-activity-content p {
   margin: 6px 0 0;
-  color: #607484;
+  color: var(--muted);
   font-size: 10px;
   line-height: 1.65;
+}
+
+.mt-activity-period {
+  display: block;
+  margin-top: 7px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .mt-activity-type {
@@ -4015,8 +4570,6 @@ const dashboardCSS = `
   font-size: 10px;
   font-weight: 900;
   border-radius: 10px;
-  color: #05643a;
-  background: #e6f8eb;
 }
 
 .mt-activity-type.posttest {
@@ -4037,10 +4590,10 @@ const dashboardCSS = `
   width: calc(100% - 26px);
   min-height: 41px;
   margin: 4px 13px 13px;
-  border: 1px solid #bce7c7;
+  border: 1px solid var(--border);
   border-radius: 9px;
-  background: #ecfaf0;
-  color: #087442;
+  background: var(--light-green);
+  color: var(--accent);
   font-weight: 900;
   font-size: 11px;
 }
@@ -4048,7 +4601,7 @@ const dashboardCSS = `
 .mt-score-summary {
   margin: 14px;
   padding: 15px;
-  background: #e7f8ef;
+  background: var(--light-green);
   border-radius: 11px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4061,19 +4614,19 @@ const dashboardCSS = `
 }
 
 .mt-score-summary > div + div {
-  border-left: 1px solid #a9d4be;
+  border-left: 1px solid var(--border);
 }
 
 .mt-score-summary small {
   display: block;
   font-size: 10px;
   font-weight: 800;
-  color: #22543a;
+  color: var(--muted);
 }
 
 .mt-score-summary strong {
   display: block;
-  color: #07572d;
+  color: var(--green-text);
   font-size: 31px;
   margin-top: 7px;
 }
@@ -4097,7 +4650,7 @@ const dashboardCSS = `
   background: none;
   border: none;
   font-size: 11px;
-  color: #087947;
+  color: var(--accent);
   font-weight: 900;
   white-space: nowrap;
 }
@@ -4112,9 +4665,9 @@ const dashboardCSS = `
 .mt-category-card {
   min-width: 0;
   padding: 14px 9px;
-  border: 1px solid #dde8e8;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: white;
+  background: var(--surface);
   text-align: center;
 }
 
@@ -4122,11 +4675,11 @@ const dashboardCSS = `
   display: grid;
   justify-items: center;
   gap: 6px;
-  color: #067f4d;
+  color: var(--accent);
 }
 
 .mt-category-heading strong {
-  color: #223441;
+  color: var(--text);
   font-size: 10px;
 }
 
@@ -4134,7 +4687,7 @@ const dashboardCSS = `
   margin-top: 9px;
   font-size: 20px;
   font-weight: 900;
-  color: #066b32;
+  color: var(--green-text);
 }
 
 .mt-category-card .mt-progress {
@@ -4144,12 +4697,14 @@ const dashboardCSS = `
 
 .mt-panel-note {
   font-size: 10px;
-  color: #748493;
+  color: var(--muted);
   line-height: 1.6;
   margin: 4px 15px 15px;
 }
 
-/* INNER PAGES */
+/* =====================================================
+   INNER PAGES
+   ===================================================== */
 
 .mt-page-panel {
   padding: 23px;
@@ -4168,12 +4723,12 @@ const dashboardCSS = `
 .mt-section-heading h2 {
   margin: 0;
   font-size: 21px;
-  color: #143d32;
+  color: var(--text);
 }
 
 .mt-section-heading p {
   margin: 6px 0 0;
-  color: #728392;
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -4186,20 +4741,20 @@ const dashboardCSS = `
 .mt-week-nav button {
   min-width: 38px;
   height: 39px;
-  border: 1px solid #d8e6e2;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: var(--surface);
   border-radius: 9px;
-  color: #096b4b;
+  color: var(--accent);
 }
 
 .mt-week-nav select {
   min-height: 39px;
   max-width: 240px;
-  border: 1px solid #d8e6e2;
+  border: 1px solid var(--border);
   border-radius: 9px;
   padding: 9px;
-  background: #f7fbf9;
-  color: #214637;
+  background: var(--surface2);
+  color: var(--text);
   font-size: 12px;
   font-weight: 800;
 }
@@ -4211,29 +4766,29 @@ const dashboardCSS = `
   gap: 10px;
   padding: 17px;
   border-radius: 11px;
-  background: #e6f7ed;
+  background: var(--light-green);
   margin-bottom: 13px;
 }
 
 .mt-week-info strong {
   font-size: 21px;
-  color: #075a39;
+  color: var(--green-text);
 }
 
 .mt-week-info span {
   font-size: 12px;
-  color: #41695b;
+  color: var(--muted);
 }
 
 .mt-week-info small {
   margin-left: auto;
   font-size: 11px;
-  color: #087047;
+  color: var(--accent);
 }
 
 .mt-full-activities {
   padding: 0;
-  border: 1px solid #e6eded;
+  border: 1px solid var(--border);
   border-radius: 11px;
 }
 
@@ -4248,8 +4803,8 @@ const dashboardCSS = `
   padding: 13px;
   margin-top: 17px;
   border-radius: 10px;
-  background: #ecf8f2;
-  color: #416d5a;
+  background: var(--light-green);
+  color: var(--text);
   font-size: 11px;
   line-height: 1.7;
 }
@@ -4262,7 +4817,7 @@ const dashboardCSS = `
   display: grid;
   justify-items: center;
   padding: 28px;
-  color: #80918d;
+  color: var(--muted);
   text-align: center;
 }
 
@@ -4282,14 +4837,14 @@ const dashboardCSS = `
 .mt-mini-stat {
   padding: 17px 8px;
   text-align: center;
-  background: #f2f9f5;
-  border: 1px solid #e1ece6;
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 11px;
 }
 
 .mt-mini-stat span {
   display: block;
-  color: #647a70;
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -4297,7 +4852,7 @@ const dashboardCSS = `
   display: block;
   margin-top: 9px;
   font-size: 26px;
-  color: #066f43;
+  color: var(--green-text);
 }
 
 .mt-action-button {
@@ -4321,9 +4876,9 @@ const dashboardCSS = `
   align-items: center;
   gap: 18px;
   padding: 19px;
-  background: #eaf8ee;
+  background: var(--light-green);
   border-radius: 12px;
-  color: #067944;
+  color: var(--accent);
 }
 
 .mt-achievement-total > div {
@@ -4332,7 +4887,7 @@ const dashboardCSS = `
 
 .mt-achievement-total small {
   display: block;
-  color: #456b58;
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -4340,6 +4895,7 @@ const dashboardCSS = `
   display: block;
   margin-top: 4px;
   font-size: 29px;
+  color: var(--green-text);
 }
 
 .mt-large-categories {
@@ -4348,38 +4904,38 @@ const dashboardCSS = `
 }
 
 .mt-achievement-card {
-  border: 1px solid #e0e9e8;
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
-  background: white;
+  background: var(--surface);
 }
 
 .mt-achievement-card > div:first-child {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #087d4a;
+  color: var(--accent);
 }
 
 .mt-achievement-card > div:first-child strong {
   font-size: 12px;
-  color: #193b30;
+  color: var(--text);
 }
 
 .mt-achievement-card h3 {
   font-size: 27px;
-  color: #087941;
+  color: var(--green-text);
   margin: 12px 0;
 }
 
 .mt-achievement-card p {
   font-size: 11px;
-  color: #798b81;
+  color: var(--muted);
 }
 
 .mt-tab-buttons {
   display: flex;
-  background: #ecf2f0;
+  background: var(--surface2);
   padding: 4px;
   border-radius: 10px;
   gap: 3px;
@@ -4390,7 +4946,7 @@ const dashboardCSS = `
   border-radius: 7px;
   padding: 10px 13px;
   background: transparent;
-  color: #5b756b;
+  color: var(--muted);
   font-size: 11px;
   font-weight: 800;
 }
@@ -4415,14 +4971,15 @@ const dashboardCSS = `
 .mt-table th,
 .mt-table td {
   padding: 13px;
-  border-bottom: 1px solid #e4ebeb;
+  border-bottom: 1px solid var(--border);
   text-align: left;
+  color: var(--text);
 }
 
 .mt-table th {
-  background: #eaf4ed;
+  background: var(--light-green);
   font-size: 11px;
-  color: #305e46;
+  color: var(--green-text);
 }
 
 .mt-simper-overview {
@@ -4430,8 +4987,8 @@ const dashboardCSS = `
   gap: 14px;
   align-items: center;
   padding: 18px;
-  color: #067343;
-  background: #e9f8ed;
+  color: var(--accent);
+  background: var(--light-green);
   border-radius: 11px;
   margin-bottom: 10px;
 }
@@ -4458,14 +5015,14 @@ const dashboardCSS = `
   align-items: center;
   gap: 10px;
   padding: 15px;
-  background: #f8fbf8;
-  border: 1px solid #e5eee8;
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 10px;
   font-size: 12px;
 }
 
 .mt-simper-list svg {
-  color: #078a52;
+  color: var(--accent);
 }
 
 .mt-simper-list span {
@@ -4482,9 +5039,9 @@ const dashboardCSS = `
 .mt-secondary-actions button {
   flex: 1;
   min-height: 44px;
-  border: 1px solid #bdddc8;
-  color: #087d4f;
-  background: #f0fbf4;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  background: var(--light-green);
   border-radius: 9px;
   font-size: 11px;
   font-weight: 800;
@@ -4495,7 +5052,7 @@ const dashboardCSS = `
   align-items: center;
   gap: 15px;
   padding: 20px;
-  background: #edf9f2;
+  background: var(--light-green);
   border-radius: 12px;
 }
 
@@ -4514,11 +5071,12 @@ const dashboardCSS = `
 .mt-profile-card h2 {
   font-size: 20px;
   margin: 0;
+  color: var(--text);
 }
 
 .mt-profile-card p {
   font-size: 12px;
-  color: #688673;
+  color: var(--muted);
 }
 
 .mt-profile-rows {
@@ -4531,16 +5089,17 @@ const dashboardCSS = `
   justify-content: space-between;
   gap: 14px;
   padding: 15px 8px;
-  border-bottom: 1px solid #e8eeee;
+  border-bottom: 1px solid var(--border);
 }
 
 .mt-profile-rows span {
-  color: #738391;
+  color: var(--muted);
   font-size: 12px;
 }
 
 .mt-profile-rows strong {
   font-size: 12px;
+  color: var(--text);
   text-align: right;
   overflow-wrap: anywhere;
 }
@@ -4551,12 +5110,59 @@ const dashboardCSS = `
   gap: 12px;
   padding: 23px 0;
   margin-top: 22px;
-  color: #8a999f;
-  border-top: 1px solid #dce7e9;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
   font-size: 10px;
 }
 
-/* TABLET */
+/* =====================================================
+   DARK MODE: EXTRA ADJUSTMENTS
+   ===================================================== */
+
+:root[data-theme="dark"] .mt-stat-icon {
+  background: #20443a;
+  color: #83edb8;
+}
+
+:root[data-theme="dark"] .mt-date-block {
+  background: #20443a;
+  color: #b7f4d3;
+}
+
+:root[data-theme="dark"] .mt-date-block.orange {
+  background: #49371f;
+  color: #ffd6a2;
+}
+
+:root[data-theme="dark"] .mt-activity-type.posttest {
+  background: #214b3c;
+  color: #aaf0c9;
+}
+
+:root[data-theme="dark"] .mt-activity-type.practice {
+  background: #49371f;
+  color: #ffd6a2;
+}
+
+:root[data-theme="dark"] .mt-action-button {
+  background: #087e57;
+}
+
+:root[data-theme="dark"] .mt-admin-preview {
+  background: #17352e;
+}
+
+:root[data-theme="dark"] .mt-status-message.amber {
+  background: #302a1d;
+}
+
+:root[data-theme="dark"] .mt-status-message.red {
+  background: #342126;
+}
+
+/* =====================================================
+   TABLET
+   ===================================================== */
 
 @media (max-width: 1200px) {
   .mt-sidebar {
@@ -4596,7 +5202,9 @@ const dashboardCSS = `
   }
 }
 
-/* MOBILE */
+/* =====================================================
+   MOBILE
+   ===================================================== */
 
 @media (max-width: 700px) {
   .mt-topbar {
@@ -4664,20 +5272,32 @@ const dashboardCSS = `
     padding: 12px;
   }
 
+  .mt-page-heading {
+    gap: 8px;
+  }
+
   .mt-page-heading h1 {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .mt-page-heading p {
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1.5;
   }
 
-  .mt-refresh {
-    padding: 9px;
+  .mt-heading-actions {
+    gap: 5px;
   }
 
-  .mt-refresh span {
+  .mt-refresh,
+  .mt-theme-toggle {
+    padding: 9px;
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .mt-refresh span,
+  .mt-theme-toggle span {
     display: none;
   }
 
@@ -4705,10 +5325,7 @@ const dashboardCSS = `
   }
 
   .mt-stat-grid {
-    grid-template-columns: repeat(
-      3,
-      minmax(0, 1fr)
-    );
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 7px;
   }
 
@@ -4794,10 +5411,7 @@ const dashboardCSS = `
   }
 
   .mt-category-grid {
-    grid-template-columns: repeat(
-      2,
-      minmax(0, 1fr)
-    );
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -4824,17 +5438,11 @@ const dashboardCSS = `
   }
 
   .mt-four-grid {
-    grid-template-columns: repeat(
-      2,
-      minmax(0, 1fr)
-    );
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mt-large-categories {
-    grid-template-columns: repeat(
-      2,
-      minmax(0, 1fr)
-    );
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mt-tab-buttons button {
