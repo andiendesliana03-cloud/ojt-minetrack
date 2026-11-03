@@ -7,8 +7,20 @@ import { supabase } from "../../../lib/supabase";
 
 // =====================================================
 // OJT MINETRACK V2.0
-// INPUT ACHIEVEMENT — NAVY MONITORING TEMPLATE
-// Kalender Global 25 Week + CRUD + Dokumentasi
+// INPUT ACHIEVEMENT — LIGHT / DARK MODE
+//
+// Tema mengikuti html[data-theme] dari RootLayout.
+// Tidak menambahkan tombol tema di halaman ini.
+//
+// DIPERTAHANKAN:
+// - Supabase dan struktur database
+// - CRUD Achievement
+// - Dokumentasi Supabase Storage
+// - Kalender Global Week 01–25
+// - Target dan perhitungan Achievement
+// - Filter kategori, status, dan pencarian
+// - Hak akses Admin dan Mentor
+// - Tampilan desktop dan mobile
 // =====================================================
 
 const BUCKET = "achievement-files";
@@ -23,10 +35,12 @@ const TARGETS = [
   { name: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
 ];
 
-// Metadata file disimpan di kolom description,
-// sehingga tidak membutuhkan kolom evidence tambahan.
 const FILE_MARKER = "[[OJT_FILE_V1:";
 const FILE_END = "]]";
+
+// =====================================================
+// HELPERS
+// =====================================================
 
 function normalize(value) {
   return String(value ?? "")
@@ -73,6 +87,10 @@ function addDays(value, days) {
 
   return date.toISOString().slice(0, 10);
 }
+
+// =====================================================
+// KALENDER GLOBAL — 25 MINGGU
+// =====================================================
 
 const GLOBAL_WEEKS = Array.from(
   { length: 25 },
@@ -406,8 +424,6 @@ function getRecordFile(record) {
 
   if (embedded) return embedded;
 
-  // Kompatibilitas jika proyek sebelumnya
-  // sudah memiliki kolom evidence tersendiri.
   const url =
     record.evidence_url ||
     record.file_url ||
@@ -430,9 +446,19 @@ function getRecordFile(record) {
     : null;
 }
 
+// =====================================================
+// PROGRESS BAR
+// =====================================================
+
 function ProgressBar({ value }) {
   return (
-    <div className="ia-progress">
+    <div
+      className="ia-progress"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={clamp(value)}
+    >
       <span style={{ width: `${clamp(value)}%` }} />
     </div>
   );
@@ -459,23 +485,30 @@ export default function InputAchievementPage() {
 
   const [formType, setFormType] = useState("");
   const [formDate, setFormDate] = useState(todayWITA());
+
   const [formDescription, setFormDescription] =
     useState("");
+
   const [formKm, setFormKm] = useState("");
   const [formMeter, setFormMeter] = useState("");
+
   const [formFile, setFormFile] = useState(null);
   const [retainedFile, setRetainedFile] = useState(null);
+
   const [editId, setEditId] = useState(null);
 
   const [search, setSearch] = useState("");
+
   const [categoryFilter, setCategoryFilter] =
     useState("all");
+
   const [statusFilter, setStatusFilter] =
     useState("all");
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+
   const [deletingId, setDeletingId] = useState(null);
   const [openingId, setOpeningId] = useState(null);
 
@@ -502,7 +535,7 @@ export default function InputAchievementPage() {
   const selectedGlobal = GLOBAL_WEEKS[week - 1];
 
   // ===================================================
-  // SUPABASE
+  // SUPABASE — EXISTING SCHEMA
   // ===================================================
 
   async function fetchAchievements(id) {
@@ -588,6 +621,10 @@ export default function InputAchievementPage() {
     };
   }
 
+  // ===================================================
+  // INITIAL LOAD
+  // ===================================================
+
   useEffect(() => {
     if (!programId) {
       setError("ID program tidak tersedia.");
@@ -650,6 +687,10 @@ export default function InputAchievementPage() {
     };
   }, [programId, router]);
 
+  // ===================================================
+  // REFRESH
+  // ===================================================
+
   async function refresh() {
     if (refreshing || loading || saving) return;
 
@@ -674,7 +715,7 @@ export default function InputAchievementPage() {
   }
 
   // ===================================================
-  // WEEK GLOBAL DAN KATEGORI
+  // GLOBAL WEEKS AND CATEGORIES
   // ===================================================
 
   const availableWeeks = useMemo(
@@ -724,6 +765,10 @@ export default function InputAchievementPage() {
 
   const isFisik = currentCategory === "Fisik";
 
+  // ===================================================
+  // WEEKLY RECORDS
+  // ===================================================
+
   const weeklyRows = useMemo(() => {
     return records.filter(item =>
       insideProgram(item.activity_date, program) &&
@@ -746,6 +791,10 @@ export default function InputAchievementPage() {
       ),
     [weeklyRows]
   );
+
+  // ===================================================
+  // CATEGORY PROGRESS — ORIGINAL FORMULA
+  // ===================================================
 
   const categories = useMemo(() => {
     return TARGETS.map(target => {
@@ -791,7 +840,7 @@ export default function InputAchievementPage() {
   ).length;
 
   // ===================================================
-  // FILTER RIWAYAT SPREADSHEET
+  // HISTORY FILTER
   // ===================================================
 
   const history = useMemo(() => {
@@ -835,7 +884,7 @@ export default function InputAchievementPage() {
   ]);
 
   // ===================================================
-  // FORM
+  // FORM ACTIONS
   // ===================================================
 
   function changeWeek(value) {
@@ -909,6 +958,11 @@ export default function InputAchievementPage() {
     setRetainedFile(getRecordFile(item));
     setFormFile(null);
 
+    const input =
+      document.getElementById("ia-evidence-file");
+
+    if (input) input.value = "";
+
     if (category === "Fisik") {
       const meters = Math.round(
         Math.max(0, Number(item.distance_km) || 0) *
@@ -957,6 +1011,10 @@ export default function InputAchievementPage() {
 
     return result;
   }
+
+  // ===================================================
+  // FILE UPLOAD
+  // ===================================================
 
   async function uploadFile(file) {
     if (!file) return null;
@@ -1021,6 +1079,10 @@ export default function InputAchievementPage() {
       .from(BUCKET)
       .remove([file.path]);
   }
+
+  // ===================================================
+  // SAVE ACHIEVEMENT
+  // ===================================================
 
   async function saveAchievement(event) {
     event.preventDefault();
@@ -1091,10 +1153,6 @@ export default function InputAchievementPage() {
         verified_by: manager.id,
       };
 
-      // Untuk file lama yang memakai URL eksternal,
-      // URL dipertahankan hanya jika ada kolomnya.
-      // File baru selalu tersimpan dengan storage path.
-
       let result;
 
       if (editId) {
@@ -1123,8 +1181,6 @@ export default function InputAchievementPage() {
 
       databaseSaved = true;
 
-      // Hapus dokumen lama hanya sesudah
-      // pembaruan database berhasil.
       if (
         editId &&
         newlyUploadedFile &&
@@ -1165,6 +1221,10 @@ export default function InputAchievementPage() {
       setSaving(false);
     }
   }
+
+  // ===================================================
+  // DELETE ACHIEVEMENT
+  // ===================================================
 
   async function deleteAchievement(item) {
     if (
@@ -1230,7 +1290,7 @@ export default function InputAchievementPage() {
   }
 
   // ===================================================
-  // DOKUMENTASI
+  // OPEN DOCUMENTATION
   // ===================================================
 
   async function openEvidence(item) {
@@ -1243,8 +1303,6 @@ export default function InputAchievementPage() {
       return;
     }
 
-    // Buka tab saat interaksi pengguna, agar browser
-    // tidak memblokir tab setelah proses asynchronous.
     const tab = window.open(
       "about:blank",
       "_blank"
@@ -1297,12 +1355,13 @@ export default function InputAchievementPage() {
   }
 
   // ===================================================
-  // RENDER
+  // LOADING / ACCESS SCREEN
   // ===================================================
 
   if (loading) {
     return (
       <main className="ia-loading">
+        <style>{css}</style>
         Memuat Input Achievement OJT...
       </main>
     );
@@ -1311,10 +1370,14 @@ export default function InputAchievementPage() {
   if (!manager || !program) {
     return (
       <main className="ia-loading">
+        <style>{css}</style>
         <div>
           <h2>Input Achievement tidak tersedia</h2>
           <p>{error || "Akses tidak tersedia."}</p>
-          <button onClick={() => router.push("/")}>
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+          >
             Kembali ke Dashboard
           </button>
         </div>
@@ -1322,11 +1385,17 @@ export default function InputAchievementPage() {
     );
   }
 
+  // ===================================================
+  // MAIN UI
+  // ===================================================
+
   return (
     <main className="ia-root">
       <style>{css}</style>
 
-      {/* HEADER */}
+      {/* ================================================
+          HEADER
+          ================================================ */}
 
       <header className="ia-header">
         <div className="ia-brand">
@@ -1341,6 +1410,7 @@ export default function InputAchievementPage() {
           </div>
 
           <button
+            type="button"
             onClick={() =>
               router.push(`/peserta/${programId}`)
             }
@@ -1352,16 +1422,16 @@ export default function InputAchievementPage() {
 
       <div className="ia-container">
 
-        {/* HERO */}
+        {/* ============================================
+            HERO
+            ============================================ */}
 
         <section className="ia-hero">
           <small>
             EMERGENCY RESPONSE GROUP · PT BERAU COAL
           </small>
 
-          <h1>
-            Input Achievement OJT
-          </h1>
+          <h1>Input Achievement OJT</h1>
 
           <p>
             Pencatatan kegiatan dan dokumentasi
@@ -1376,11 +1446,13 @@ export default function InputAchievementPage() {
 
             <div>
               <strong>{participantName}</strong>
+
               <span>
                 {participant?.department || "—"}
                 {" · "}
                 {program.site || "—"}
               </span>
+
               <small>
                 {formatDate(program.start_date)}
                 {" – "}
@@ -1390,7 +1462,9 @@ export default function InputAchievementPage() {
           </div>
         </section>
 
-        {/* NAVIGASI */}
+        {/* ============================================
+            NAVIGATION
+            ============================================ */}
 
         <nav className="ia-tabs">
           <span className="active">
@@ -1398,6 +1472,7 @@ export default function InputAchievementPage() {
           </span>
 
           <button
+            type="button"
             onClick={() =>
               router.push(
                 `/achievement/${programId}/monitoring`
@@ -1408,28 +1483,43 @@ export default function InputAchievementPage() {
           </button>
         </nav>
 
+        {/* ALERTS */}
+
         {error && (
-          <div className="ia-alert error" role="alert">
+          <div
+            className="ia-alert error"
+            role="alert"
+          >
             {error}
           </div>
         )}
 
         {message && (
-          <div className="ia-alert success">
+          <div
+            className="ia-alert success"
+            role="status"
+          >
             ✓ {message}
           </div>
         )}
 
-        {/* TOOLBAR */}
+        {/* ============================================
+            TOOLBAR
+            ============================================ */}
 
         <div className="ia-toolbar">
           <div>
-            <strong>Dashboard Input Achievement</strong>
-            <small>Kalender Global OJT 2026–2027</small>
+            <strong>
+              Dashboard Input Achievement
+            </strong>
+            <small>
+              Kalender Global OJT 2026–2027
+            </small>
           </div>
 
           <div className="ia-toolbar-actions">
             <button
+              type="button"
               onClick={refresh}
               disabled={refreshing || saving}
             >
@@ -1439,6 +1529,7 @@ export default function InputAchievementPage() {
             </button>
 
             <button
+              type="button"
               className="primary"
               onClick={() =>
                 router.push(
@@ -1451,12 +1542,17 @@ export default function InputAchievementPage() {
           </div>
         </div>
 
-        {/* RINGKASAN MINGGUAN */}
+        {/* ============================================
+            WEEKLY SUMMARY
+            ============================================ */}
 
         <section className="ia-card">
           <div className="ia-section-head">
             <div>
-              <h2>Ringkasan Achievement Mingguan</h2>
+              <h2>
+                Ringkasan Achievement Mingguan
+              </h2>
+
               <p>
                 Target dan kegiatan terverifikasi
                 pada minggu terpilih.
@@ -1465,17 +1561,20 @@ export default function InputAchievementPage() {
 
             <div className="ia-week-control">
               <button
+                type="button"
                 disabled={
                   !availableWeeks.some(
                     item => item.week === week - 1
                   )
                 }
                 onClick={() => changeWeek(week - 1)}
+                aria-label="Minggu sebelumnya"
               >
                 ‹
               </button>
 
               <select
+                aria-label="Pilih Week Global"
                 value={week}
                 onChange={event =>
                   changeWeek(event.target.value)
@@ -1492,12 +1591,14 @@ export default function InputAchievementPage() {
               </select>
 
               <button
+                type="button"
                 disabled={
                   !availableWeeks.some(
                     item => item.week === week + 1
                   )
                 }
                 onClick={() => changeWeek(week + 1)}
+                aria-label="Minggu berikutnya"
               >
                 ›
               </button>
@@ -1517,8 +1618,7 @@ export default function InputAchievementPage() {
 
             {selectedRange && (
               <small>
-                Periode peserta:
-                {" "}
+                Periode peserta:{" "}
                 {formatShort(selectedRange.start)}
                 {" – "}
                 {formatShort(selectedRange.end)}
@@ -1529,9 +1629,17 @@ export default function InputAchievementPage() {
           <div className="ia-summary-grid">
             <div className="ia-summary-card progress">
               <div>
-                <small>Rata-rata Pencapaian</small>
-                <strong>{numberText(overall)}%</strong>
-                <span>Enam kategori mingguan</span>
+                <small>
+                  Rata-rata Pencapaian
+                </small>
+
+                <strong>
+                  {numberText(overall)}%
+                </strong>
+
+                <span>
+                  Enam kategori mingguan
+                </span>
               </div>
 
               <div
@@ -1570,11 +1678,13 @@ export default function InputAchievementPage() {
           </div>
         </section>
 
-        {/* FORM DAN RIWAYAT */}
+        {/* ============================================
+            FORM AND HISTORY
+            ============================================ */}
 
         <div className="ia-main-grid">
 
-          {/* FORM INPUT */}
+          {/* INPUT FORM */}
 
           <section className="ia-card">
             <div className="ia-section-head">
@@ -1591,7 +1701,9 @@ export default function InputAchievementPage() {
                 </p>
               </div>
 
-              <span className="ia-form-icon">✍️</span>
+              <span className="ia-form-icon">
+                ✍️
+              </span>
             </div>
 
             <form
@@ -1599,7 +1711,9 @@ export default function InputAchievementPage() {
               onSubmit={saveAchievement}
             >
               <label>
-                <span>Kategori Achievement</span>
+                <span>
+                  Kategori Achievement
+                </span>
 
                 <select
                   value={formType}
@@ -1648,7 +1762,9 @@ export default function InputAchievementPage() {
               </label>
 
               <label>
-                <span>Tanggal Pencapaian</span>
+                <span>
+                  Tanggal Pencapaian
+                </span>
 
                 <input
                   type="date"
@@ -1665,6 +1781,7 @@ export default function InputAchievementPage() {
               {selectedRange && (
                 <div className="ia-range-note">
                   Tanggal yang diperbolehkan:
+
                   <strong>
                     {formatDate(selectedRange.start)}
                     {" – "}
@@ -1691,7 +1808,9 @@ export default function InputAchievementPage() {
                   </label>
 
                   <label>
-                    <span>Tambahan Meter</span>
+                    <span>
+                      Tambahan Meter
+                    </span>
 
                     <input
                       type="number"
@@ -1709,7 +1828,9 @@ export default function InputAchievementPage() {
               )}
 
               <label>
-                <span>Deskripsi Pencapaian</span>
+                <span>
+                  Deskripsi Pencapaian
+                </span>
 
                 <textarea
                   rows={4}
@@ -1750,8 +1871,7 @@ export default function InputAchievementPage() {
               {retainedFile && (
                 <div className="ia-existing-file">
                   <span>
-                    📎 Dokumentasi saat ini:
-                    {" "}
+                    📎 Dokumentasi saat ini:{" "}
                     {retainedFile.name ||
                       "File tersimpan"}
                   </span>
@@ -1792,15 +1912,19 @@ export default function InputAchievementPage() {
             </form>
           </section>
 
-          {/* TABEL RIWAYAT */}
+          {/* ========================================
+              HISTORY TABLE
+              ======================================== */}
 
           <section className="ia-card ia-history-card">
             <div className="ia-section-head">
               <div>
-                <h2>Riwayat Achievement</h2>
+                <h2>
+                  Riwayat Achievement
+                </h2>
+
                 <p>
-                  Catatan kegiatan pada
-                  {" "}
+                  Catatan kegiatan pada{" "}
                   Week {String(week).padStart(2, "0")}.
                 </p>
               </div>
@@ -1880,7 +2004,8 @@ export default function InputAchievementPage() {
                     const category =
                       recordCategory(item);
 
-                    const file = getRecordFile(item);
+                    const file =
+                      getRecordFile(item);
 
                     return (
                       <tr key={item.id}>
@@ -2024,15 +2149,19 @@ export default function InputAchievementPage() {
           </section>
         </div>
 
-        {/* PROGRES ENAM KATEGORI */}
+        {/* ============================================
+            SIX CATEGORY PROGRESS
+            ============================================ */}
 
         <section className="ia-card">
           <div className="ia-section-head">
             <div>
-              <h2>Progres Enam Kategori</h2>
+              <h2>
+                Progres Enam Kategori
+              </h2>
+
               <p>
-                Realisasi Verified pada Week
-                {" "}
+                Realisasi Verified pada Week{" "}
                 {String(week).padStart(2, "0")}.
               </p>
             </div>
@@ -2052,7 +2181,10 @@ export default function InputAchievementPage() {
                   <strong>
                     {item.icon} {item.name}
                   </strong>
-                  <b>{numberText(item.percent)}%</b>
+
+                  <b>
+                    {numberText(item.percent)}%
+                  </b>
                 </div>
 
                 <div className="ia-category-amount">
@@ -2078,10 +2210,13 @@ export default function InputAchievementPage() {
           </p>
         </section>
 
-        {/* BOTTOM */}
+        {/* ============================================
+            BOTTOM NAVIGATION
+            ============================================ */}
 
         <div className="ia-bottom">
           <button
+            type="button"
             onClick={() =>
               router.push(`/peserta/${programId}`)
             }
@@ -2090,6 +2225,7 @@ export default function InputAchievementPage() {
           </button>
 
           <button
+            type="button"
             className="primary"
             onClick={() =>
               router.push(
@@ -2112,21 +2248,84 @@ export default function InputAchievementPage() {
 }
 
 // =====================================================
-// CSS — NAVY MONITORING TEMPLATE
+// CSS — LIGHT / DARK MODE
 // =====================================================
 
 const css = `
+
+/* =====================================================
+   THEME VARIABLES — LIGHT MODE
+   ===================================================== */
+
 .ia-root,
-.ia-root * {
+.ia-root *,
+.ia-loading,
+.ia-loading * {
   box-sizing: border-box;
 }
 
-.ia-root {
+.ia-root,
+.ia-loading {
+  --ia-bg: #f2f6f7;
+  --ia-surface: #ffffff;
+  --ia-surface-soft: #f7faf8;
+  --ia-surface-muted: #edf8f1;
+
+  --ia-text: #17352d;
+  --ia-heading: #18372e;
+  --ia-muted: #82948a;
+  --ia-border: #e1ebe6;
+  --ia-border-soft: #ecf1ed;
+
+  --ia-input: #ffffff;
+  --ia-input-text: #18392e;
+  --ia-table-head: #eaf5ee;
+  --ia-table-even: #fbfdfb;
+  --ia-table-hover: #f0f9f4;
+
+  --ia-green: #07885f;
+  --ia-progress-track: #e2ece5;
+  --ia-shadow: rgba(21,61,43,.035);
+
   min-height: 100vh;
-  background: #f2f6f7;
-  color: #17352d;
+
+  background: var(--ia-bg);
+  color: var(--ia-text);
+
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* =====================================================
+   THEME VARIABLES — DARK MODE
+   ===================================================== */
+
+:root[data-theme="dark"] .ia-root,
+:root[data-theme="dark"] .ia-loading {
+  --ia-bg: #0d171b;
+  --ia-surface: #17272b;
+  --ia-surface-soft: #203438;
+  --ia-surface-muted: #1b3933;
+
+  --ia-text: #e6f4ef;
+  --ia-heading: #f0faf6;
+  --ia-muted: #a5bbb8;
+  --ia-border: #30484b;
+  --ia-border-soft: #2b4145;
+
+  --ia-input: #1b3034;
+  --ia-input-text: #edf8f4;
+  --ia-table-head: #233b3d;
+  --ia-table-even: #1a2c30;
+  --ia-table-hover: #25413d;
+
+  --ia-green: #55d6a7;
+  --ia-progress-track: #344b4b;
+  --ia-shadow: rgba(0,0,0,.18);
+}
+
+/* =====================================================
+   GLOBAL CONTROLS
+   ===================================================== */
 
 .ia-root button,
 .ia-root input,
@@ -2144,27 +2343,60 @@ const css = `
   cursor: not-allowed;
 }
 
+.ia-root button:focus-visible,
+.ia-root input:focus-visible,
+.ia-root select:focus-visible,
+.ia-root textarea:focus-visible {
+  outline: 3px solid #61d8ae;
+  outline-offset: 2px;
+}
+
+/* =====================================================
+   LOADING / ACCESS
+   ===================================================== */
+
 .ia-loading {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 30px;
-  background: #f2f6f7;
-  font: 14px Arial, sans-serif;
+
+  font-size: 14px;
+  text-align: center;
+}
+
+.ia-loading h2 {
+  color: var(--ia-heading);
+}
+
+.ia-loading p {
+  color: var(--ia-muted);
+  line-height: 1.6;
 }
 
 .ia-loading button {
   padding: 12px 15px;
+  border: 0;
+  border-radius: 9px;
+
+  background: #07885f;
+  color: white;
+  font-weight: 800;
+  cursor: pointer;
 }
 
-/* HEADER */
+/* =====================================================
+   HEADER
+   ===================================================== */
 
 .ia-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 15px;
+
   padding: 15px 25px;
+
   background: #071e25;
   color: white;
 }
@@ -2205,19 +2437,28 @@ const css = `
 
 .ia-account strong {
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .ia-account button {
   border: 1px solid #ffffff40;
   background: #ffffff15;
   color: white;
+
   border-radius: 9px;
   padding: 11px 13px;
+
   font-size: 12px;
   font-weight: 800;
 }
 
-/* LAYOUT */
+.ia-account button:hover {
+  background: #ffffff2a;
+}
+
+/* =====================================================
+   LAYOUT
+   ===================================================== */
 
 .ia-container {
   max-width: 1500px;
@@ -2225,12 +2466,15 @@ const css = `
   padding: 20px;
 }
 
-/* HERO */
+/* =====================================================
+   HERO
+   ===================================================== */
 
 .ia-hero {
   padding: 28px;
   border-radius: 17px;
   color: white;
+
   background:
     linear-gradient(
       100deg,
@@ -2238,12 +2482,14 @@ const css = `
       rgba(5,61,53,.75)
     ),
     url("/background-erg.png.PNG");
+
   background-size: cover;
   background-position: center;
 }
 
 .ia-hero > small {
   color: #e7c777;
+
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 1px;
@@ -2265,11 +2511,14 @@ const css = `
   display: flex;
   align-items: center;
   gap: 12px;
+
   margin-top: 20px;
   width: fit-content;
   max-width: 100%;
+
   padding: 12px;
   border-radius: 11px;
+
   background: #092a2dcc;
   border: 1px solid #ffffff38;
 }
@@ -2278,11 +2527,15 @@ const css = `
   display: grid;
   place-items: center;
   flex-shrink: 0;
+
   width: 44px;
   height: 44px;
+
   background: #e2f4e8;
   color: #087655;
+
   border-radius: 10px;
+
   font-size: 16px;
   font-weight: 900;
 }
@@ -2295,6 +2548,7 @@ const css = `
 
 .ia-person strong {
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .ia-person span,
@@ -2304,7 +2558,9 @@ const css = `
   font-size: 11px;
 }
 
-/* NAVIGATION */
+/* =====================================================
+   NAVIGATION TABS
+   ===================================================== */
 
 .ia-tabs {
   display: flex;
@@ -2315,11 +2571,13 @@ const css = `
 
 .ia-tabs button,
 .ia-tabs span {
-  border: 1px solid #dbe8df;
-  background: white;
-  color: #24664d;
+  border: 1px solid var(--ia-border);
+  background: var(--ia-surface);
+  color: var(--ia-green);
+
   border-radius: 10px;
   padding: 12px 16px;
+
   font-size: 12px;
   font-weight: 800;
 }
@@ -2330,12 +2588,19 @@ const css = `
   border-color: #078b61;
 }
 
-/* ALERT */
+.ia-tabs button:hover {
+  background: var(--ia-surface-soft);
+}
+
+/* =====================================================
+   ALERTS
+   ===================================================== */
 
 .ia-alert {
   padding: 13px 15px;
   border-radius: 10px;
   margin-bottom: 14px;
+
   font-size: 12px;
   line-height: 1.6;
 }
@@ -2352,13 +2617,28 @@ const css = `
   border: 1px solid #bce8ce;
 }
 
-/* TOOLBAR */
+:root[data-theme="dark"] .ia-alert.error {
+  background: #44272c;
+  color: #ffbdc6;
+  border-color: #76434c;
+}
+
+:root[data-theme="dark"] .ia-alert.success {
+  background: #1b4534;
+  color: #b2f2cc;
+  border-color: #35674f;
+}
+
+/* =====================================================
+   TOOLBAR
+   ===================================================== */
 
 .ia-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
+
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -2370,12 +2650,13 @@ const css = `
 
 .ia-toolbar strong {
   font-size: 14px;
+  color: var(--ia-heading);
 }
 
 .ia-toolbar small {
   font-size: 11px;
   margin-top: 5px;
-  color: #82948b;
+  color: var(--ia-muted);
 }
 
 .ia-toolbar-actions {
@@ -2386,13 +2667,21 @@ const css = `
 
 .ia-toolbar-actions button,
 .ia-bottom button {
-  background: white;
-  color: #176147;
-  border: 1px solid #d8e6dc;
+  background: var(--ia-surface);
+  color: var(--ia-green);
+
+  border: 1px solid var(--ia-border);
+
   padding: 11px 14px;
   border-radius: 9px;
+
   font-size: 12px;
   font-weight: 800;
+}
+
+.ia-toolbar-actions button:hover:not(:disabled),
+.ia-bottom button:hover:not(:disabled) {
+  background: var(--ia-surface-soft);
 }
 
 .ia-toolbar-actions .primary,
@@ -2402,16 +2691,26 @@ const css = `
   border-color: #07885f;
 }
 
-/* CARD */
+.ia-toolbar-actions .primary:hover,
+.ia-bottom .primary:hover {
+  background: #09996c;
+}
+
+/* =====================================================
+   MAIN CARDS
+   ===================================================== */
 
 .ia-card {
-  background: white;
-  border: 1px solid #e1ebe6;
+  background: var(--ia-surface);
+  border: 1px solid var(--ia-border);
   border-radius: 15px;
+
   padding: 19px;
   margin-bottom: 15px;
+
   min-width: 0;
-  box-shadow: 0 5px 17px #153d2b08;
+
+  box-shadow: 0 5px 17px var(--ia-shadow);
 }
 
 .ia-section-head {
@@ -2419,6 +2718,7 @@ const css = `
   justify-content: space-between;
   align-items: flex-start;
   flex-wrap: wrap;
+
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -2426,17 +2726,20 @@ const css = `
 .ia-section-head h2 {
   font-size: 18px;
   margin: 0;
-  color: #18372e;
+  color: var(--ia-heading);
 }
 
 .ia-section-head p {
   margin: 7px 0 0;
-  color: #82948a;
+  color: var(--ia-muted);
+
   font-size: 12px;
   line-height: 1.5;
 }
 
-/* WEEK */
+/* =====================================================
+   WEEK CONTROLS
+   ===================================================== */
 
 .ia-week-control {
   display: flex;
@@ -2446,12 +2749,28 @@ const css = `
 .ia-week-control select,
 .ia-week-control button {
   padding: 10px;
-  border: 1px solid #d9e7dd;
-  background: #f8fbf9;
-  color: #17694d;
+
+  border: 1px solid var(--ia-border);
+  background: var(--ia-surface-soft);
+  color: var(--ia-green);
+
   border-radius: 8px;
+
   font-size: 12px;
   font-weight: 800;
+}
+
+.ia-week-control select {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] .ia-week-control select {
+  color-scheme: dark;
+}
+
+.ia-week-control option {
+  color: var(--ia-input-text);
+  background: var(--ia-input);
 }
 
 .ia-period {
@@ -2459,46 +2778,57 @@ const css = `
   align-items: center;
   gap: 13px;
   flex-wrap: wrap;
-  background: #edf8f1;
-  color: #577869;
+
+  background: var(--ia-surface-muted);
+  color: var(--ia-muted);
+
   padding: 12px;
   border-radius: 10px;
+
   font-size: 12px;
   margin-bottom: 14px;
 }
 
 .ia-period strong {
-  color: #07855c;
+  color: var(--ia-green);
 }
 
 .ia-period small {
   font-size: 11px;
 }
 
-/* SUMMARY */
+/* =====================================================
+   SUMMARY GRID
+   ===================================================== */
 
 .ia-summary-grid {
   display: grid;
-  grid-template-columns: 1.45fr repeat(4,minmax(0,1fr));
+
+  grid-template-columns:
+    1.45fr repeat(4,minmax(0,1fr));
+
   gap: 10px;
 }
 
 .ia-summary-card {
   min-width: 0;
+
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
   gap: 8px;
+
   padding: 15px;
   border-radius: 12px;
-  background: #f7faf8;
-  border: 1px solid #e7efe9;
+
+  background: var(--ia-surface-soft);
+  border: 1px solid var(--ia-border);
 }
 
 .ia-summary-card small {
   font-size: 11px;
-  color: #72897e;
+  color: var(--ia-muted);
 }
 
 .ia-summary-card > span {
@@ -2507,7 +2837,7 @@ const css = `
 
 .ia-summary-card > strong {
   font-size: 28px;
-  color: #123b2e;
+  color: var(--ia-heading);
 }
 
 .ia-summary-card.green {
@@ -2522,71 +2852,116 @@ const css = `
   background: #eaf3ff;
 }
 
+:root[data-theme="dark"] .ia-summary-card.green {
+  background: #214b39;
+}
+
+:root[data-theme="dark"] .ia-summary-card.orange {
+  background: #4a3922;
+}
+
+:root[data-theme="dark"] .ia-summary-card.blue {
+  background: #253f58;
+}
+
 .ia-summary-card.progress {
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
+
   gap: 12px;
   background: #e8f8ef;
+}
+
+:root[data-theme="dark"] .ia-summary-card.progress {
+  background: #1b4235;
 }
 
 .ia-summary-card.progress strong {
   display: block;
   margin: 7px 0;
+
   font-size: 29px;
-  color: #07845a;
+  color: var(--ia-green);
 }
 
 .ia-summary-card.progress span {
-  color: #759287;
+  color: var(--ia-muted);
   font-size: 10px;
 }
 
+/* =====================================================
+   DONUT
+   ===================================================== */
+
 .ia-donut {
   --progress: 0%;
+
   width: 74px;
   height: 74px;
   padding: 8px;
+
   border-radius: 50%;
   flex-shrink: 0;
+
   display: grid;
   place-items: center;
+
   background: conic-gradient(
     #0aa875 var(--progress),
-    #d3e6da var(--progress)
+    var(--ia-progress-track) var(--progress)
   );
 }
 
 .ia-donut > div {
   width: 100%;
   height: 100%;
+
   border-radius: 50%;
-  background: white;
+
+  background: var(--ia-surface);
+
   display: grid;
   place-items: center;
+
   font-size: 19px;
 }
 
-/* MAIN GRID */
+/* =====================================================
+   MAIN GRID
+   ===================================================== */
 
 .ia-main-grid {
   display: grid;
-  grid-template-columns: minmax(300px,.8fr) minmax(0,1.7fr);
+
+  grid-template-columns:
+    minmax(300px,.8fr)
+    minmax(0,1.7fr);
+
   gap: 15px;
   align-items: start;
 }
 
-/* FORM */
+/* =====================================================
+   FORM
+   ===================================================== */
 
 .ia-form-icon {
   width: 37px;
   height: 37px;
+
   display: grid;
   place-items: center;
+
   background: #e2f5e9;
   border-radius: 9px;
+
   font-size: 19px;
+}
+
+:root[data-theme="dark"] .ia-form-icon {
+  background: #2b4b3c;
 }
 
 .ia-form {
@@ -2601,7 +2976,7 @@ const css = `
 
 .ia-form label > span {
   font-size: 12px;
-  color: #264437;
+  color: var(--ia-heading);
   font-weight: 800;
 }
 
@@ -2610,13 +2985,35 @@ const css = `
 .ia-form textarea {
   width: 100%;
   min-width: 0;
-  background: #fff;
-  color: #18392e;
-  border: 1px solid #d9e6dd;
+
+  background: var(--ia-input);
+  color: var(--ia-input-text);
+
+  border: 1px solid var(--ia-border);
   border-radius: 9px;
+
   padding: 12px;
   font-size: 13px;
+
   outline: none;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] .ia-form select,
+:root[data-theme="dark"] .ia-form input,
+:root[data-theme="dark"] .ia-form textarea {
+  color-scheme: dark;
+}
+
+.ia-form select option {
+  background: var(--ia-input);
+  color: var(--ia-input-text);
+}
+
+.ia-form input::placeholder,
+.ia-form textarea::placeholder {
+  color: var(--ia-muted);
+  opacity: 1;
 }
 
 .ia-form select:focus,
@@ -2625,6 +3022,8 @@ const css = `
 .ia-filters input:focus,
 .ia-filters select:focus {
   border-color: #0c9b6c;
+  outline: 2px solid #0c9b6c40;
+  outline-offset: 1px;
 }
 
 .ia-form textarea {
@@ -2635,40 +3034,70 @@ const css = `
 
 .ia-character {
   text-align: right;
-  color: #83958a;
+  color: var(--ia-muted);
   font-size: 10px;
 }
 
 .ia-file-note {
-  color: #8a9b92;
+  color: var(--ia-muted);
   font-size: 10px;
 }
 
+.ia-form input[type="file"] {
+  cursor: pointer;
+}
+
+.ia-form input[type="file"]::file-selector-button {
+  border: 1px solid var(--ia-border);
+  border-radius: 7px;
+
+  padding: 8px 11px;
+  margin-right: 10px;
+
+  background: var(--ia-surface-soft);
+  color: var(--ia-text);
+
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* =====================================================
+   INPUT NOTES
+   ===================================================== */
+
 .ia-range-note {
-  background: #eff8f2;
+  background: var(--ia-surface-muted);
   border-radius: 8px;
+
   padding: 10px;
-  color: #6c8876;
+  color: var(--ia-muted);
+
   font-size: 11px;
   line-height: 1.7;
 }
 
 .ia-range-note strong {
   display: block;
-  color: #16724f;
+  color: var(--ia-green);
   margin-top: 4px;
 }
 
 .ia-distance-grid {
   display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
+
+  grid-template-columns:
+    repeat(2,minmax(0,1fr));
+
   gap: 10px;
 }
 
 .ia-existing-file {
   padding: 11px;
-  background: #eff8f2;
+
+  background: var(--ia-surface-muted);
   border-radius: 9px;
+
   font-size: 11px;
   overflow-wrap: anywhere;
 }
@@ -2680,8 +3109,12 @@ const css = `
 
 .ia-existing-file small {
   margin-top: 5px;
-  color: #71887c;
+  color: var(--ia-muted);
 }
+
+/* =====================================================
+   FORM BUTTONS
+   ===================================================== */
 
 .ia-form-actions {
   display: flex;
@@ -2693,7 +3126,9 @@ const css = `
 .ia-secondary {
   border: 0;
   border-radius: 9px;
+
   padding: 13px 15px;
+
   font-size: 12px;
   font-weight: 900;
 }
@@ -2704,15 +3139,26 @@ const css = `
   color: white;
 }
 
+.ia-primary:hover:not(:disabled) {
+  background: #09996c;
+}
+
 .ia-secondary {
   background: #e8efeb;
   color: #466451;
 }
 
-/* TABLE */
+:root[data-theme="dark"] .ia-secondary {
+  background: #30484b;
+  color: #e8f5ef;
+}
+
+/* =====================================================
+   HISTORY FILTERS
+   ===================================================== */
 
 .ia-count {
-  color: #078a5e;
+  color: var(--ia-green);
   font-size: 12px;
 }
 
@@ -2720,6 +3166,7 @@ const css = `
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+
   margin-bottom: 14px;
 }
 
@@ -2727,36 +3174,64 @@ const css = `
 .ia-filters select {
   min-width: 0;
   padding: 10px;
+
   border-radius: 8px;
-  background: #f9fbfa;
-  border: 1px solid #dce8e1;
-  color: #375447;
+
+  background: var(--ia-input);
+  border: 1px solid var(--ia-border);
+  color: var(--ia-input-text);
+
   font-size: 11px;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] .ia-filters input,
+:root[data-theme="dark"] .ia-filters select {
+  color-scheme: dark;
+}
+
+.ia-filters select option {
+  color: var(--ia-input-text);
+  background: var(--ia-input);
+}
+
+.ia-filters input::placeholder {
+  color: var(--ia-muted);
+  opacity: 1;
 }
 
 .ia-filters input {
   flex: 1 1 170px;
 }
 
+/* =====================================================
+   HISTORY TABLE
+   ===================================================== */
+
 .ia-table-scroll {
   overflow-x: auto;
   width: 100%;
-  border: 1px solid #e4ece7;
+
+  border: 1px solid var(--ia-border);
   border-radius: 10px;
 }
 
 .ia-table {
   width: 100%;
   min-width: 880px;
+
   border-collapse: collapse;
   text-align: left;
+
   font-size: 11px;
 }
 
 .ia-table th {
   padding: 13px 10px;
-  color: #45695a;
-  background: #eaf5ee;
+
+  color: var(--ia-heading);
+  background: var(--ia-table-head);
+
   white-space: nowrap;
   font-size: 10px;
   font-weight: 900;
@@ -2764,17 +3239,19 @@ const css = `
 
 .ia-table td {
   padding: 12px 10px;
-  border-bottom: 1px solid #ecf1ed;
+
+  border-bottom: 1px solid var(--ia-border-soft);
+
   vertical-align: middle;
-  color: #385448;
+  color: var(--ia-text);
 }
 
 .ia-table tbody tr:nth-child(even) {
-  background: #fbfdfb;
+  background: var(--ia-table-even);
 }
 
 .ia-table tbody tr:hover {
-  background: #f0f9f4;
+  background: var(--ia-table-hover);
 }
 
 .ia-nowrap {
@@ -2784,8 +3261,10 @@ const css = `
 .ia-description {
   min-width: 160px;
   max-width: 280px;
+
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+
   line-height: 1.55;
 }
 
@@ -2795,13 +3274,19 @@ const css = `
 }
 
 .ia-muted {
-  color: #9baaa0;
+  color: var(--ia-muted);
 }
+
+/* =====================================================
+   STATUS BADGES
+   ===================================================== */
 
 .ia-status {
   display: inline-block;
+
   padding: 7px 9px;
   border-radius: 20px;
+
   font-size: 10px;
   font-weight: 900;
   white-space: nowrap;
@@ -2817,16 +3302,43 @@ const css = `
   background: #fff2d9;
 }
 
+:root[data-theme="dark"] .ia-status.verified {
+  background: #214b39;
+  color: #a5f0c6;
+}
+
+:root[data-theme="dark"] .ia-status.pending {
+  background: #4b391d;
+  color: #ffd393;
+}
+
+/* =====================================================
+   DOCUMENT BUTTONS
+   ===================================================== */
+
 .ia-document-button {
   background: #e8f3ff;
   color: #236eb2;
+
   border: 1px solid #cddff4;
   border-radius: 7px;
+
   padding: 8px;
+
   font-size: 10px;
   font-weight: 800;
   white-space: nowrap;
 }
+
+:root[data-theme="dark"] .ia-document-button {
+  background: #223f58;
+  border-color: #345f82;
+  color: #b0d9ff;
+}
+
+/* =====================================================
+   EDIT / DELETE
+   ===================================================== */
 
 .ia-table-actions {
   display: flex;
@@ -2836,8 +3348,10 @@ const css = `
 .ia-table-actions button {
   border: 0;
   border-radius: 6px;
+
   font-size: 10px;
   font-weight: 900;
+
   padding: 8px 10px;
 }
 
@@ -2851,39 +3365,62 @@ const css = `
   color: #b92f3b;
 }
 
+:root[data-theme="dark"] .ia-edit {
+  background: #263f60;
+  color: #acd2ff;
+}
+
+:root[data-theme="dark"] .ia-delete {
+  background: #4d2930;
+  color: #ffb8c1;
+}
+
+/* =====================================================
+   EMPTY / FOOTER TABLE
+   ===================================================== */
+
 .ia-empty {
   text-align: center;
   padding: 35px !important;
-  color: #84968a !important;
+  color: var(--ia-muted) !important;
 }
 
 .ia-table-footer {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
+
   gap: 10px;
   margin-top: 12px;
+
   font-size: 10px;
-  color: #85968b;
+  color: var(--ia-muted);
 }
 
-/* CATEGORY PROGRESS */
+/* =====================================================
+   CATEGORY PROGRESS
+   ===================================================== */
 
 .ia-overall {
   font-size: 23px;
-  color: #07885e;
+  color: var(--ia-green);
 }
 
 .ia-category-grid {
   display: grid;
-  grid-template-columns: repeat(6,minmax(0,1fr));
+
+  grid-template-columns:
+    repeat(6,minmax(0,1fr));
+
   gap: 10px;
 }
 
 .ia-category-card {
   min-width: 0;
-  background: #fcfefd;
-  border: 1px solid #e1ece5;
+
+  background: var(--ia-surface-soft);
+  border: 1px solid var(--ia-border);
+
   padding: 13px;
   border-radius: 11px;
 }
@@ -2892,59 +3429,78 @@ const css = `
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
+
   gap: 5px;
   font-size: 11px;
 }
 
+.ia-category-top strong {
+  color: var(--ia-heading);
+}
+
 .ia-category-top b {
-  color: #07885e;
+  color: var(--ia-green);
 }
 
 .ia-category-amount {
   font-size: 16px;
   font-weight: 900;
+
   margin: 14px 0 10px;
-  color: #24503c;
+  color: var(--ia-heading);
 }
 
+/* =====================================================
+   PROGRESS BARS
+   ===================================================== */
+
 .ia-progress {
-  background: #e2ece5;
+  background: var(--ia-progress-track);
+
   height: 9px;
   border-radius: 20px;
+
   overflow: hidden;
 }
 
 .ia-progress span {
   display: block;
   height: 100%;
+
   background: linear-gradient(
     90deg,
     #2fc38c,
     #078b61
   );
+
   border-radius: inherit;
 }
 
 .ia-category-card small {
   display: block;
   margin-top: 10px;
+
   font-size: 10px;
-  color: #86988b;
+  color: var(--ia-muted);
 }
 
 .ia-note {
   font-size: 11px;
-  color: #819488;
+  color: var(--ia-muted);
+
   line-height: 1.7;
   margin: 15px 0 0;
 }
 
-/* BOTTOM */
+/* =====================================================
+   BOTTOM NAVIGATION
+   ===================================================== */
 
 .ia-bottom {
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
+
   gap: 10px;
   margin-bottom: 15px;
 }
@@ -2955,16 +3511,20 @@ const css = `
 
 .ia-footer {
   padding: 20px 0;
+
   text-align: center;
   font-size: 11px;
-  color: #899a8e;
+  color: var(--ia-muted);
 }
 
-/* RESPONSIVE */
+/* =====================================================
+   RESPONSIVE — DESKTOP / TABLET
+   ===================================================== */
 
 @media(max-width:1250px) {
   .ia-summary-grid {
-    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-columns:
+      repeat(3,minmax(0,1fr));
   }
 
   .ia-summary-card.progress {
@@ -2972,11 +3532,14 @@ const css = `
   }
 
   .ia-category-grid {
-    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-columns:
+      repeat(3,minmax(0,1fr));
   }
 
   .ia-main-grid {
-    grid-template-columns: minmax(280px,.8fr) minmax(0,1.2fr);
+    grid-template-columns:
+      minmax(280px,.8fr)
+      minmax(0,1.2fr);
   }
 }
 
@@ -2986,13 +3549,19 @@ const css = `
   }
 
   .ia-summary-grid {
-    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-columns:
+      repeat(3,minmax(0,1fr));
   }
 
   .ia-category-grid {
-    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-columns:
+      repeat(3,minmax(0,1fr));
   }
 }
+
+/* =====================================================
+   RESPONSIVE — MOBILE
+   ===================================================== */
 
 @media(max-width:650px) {
   .ia-header {
@@ -3032,6 +3601,7 @@ const css = `
   .ia-tabs span {
     flex: 1;
     text-align: center;
+
     font-size: 11px;
     padding: 11px 8px;
   }
@@ -3045,7 +3615,8 @@ const css = `
   }
 
   .ia-summary-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr));
+    grid-template-columns:
+      repeat(2,minmax(0,1fr));
   }
 
   .ia-summary-card.progress {
@@ -3057,7 +3628,8 @@ const css = `
   }
 
   .ia-category-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr));
+    grid-template-columns:
+      repeat(2,minmax(0,1fr));
   }
 
   .ia-filters input {
@@ -3087,12 +3659,40 @@ const css = `
   }
 }
 
-/* PRINT */
+/* =====================================================
+   PRINT — FORCE LIGHT MODE
+   ===================================================== */
 
 @media print {
   @page {
     size: A4 landscape;
     margin: 10mm;
+  }
+
+  .ia-root,
+  :root[data-theme="dark"] .ia-root {
+    --ia-bg: #ffffff;
+    --ia-surface: #ffffff;
+    --ia-surface-soft: #f7faf8;
+    --ia-surface-muted: #edf8f1;
+
+    --ia-text: #17352d;
+    --ia-heading: #18372e;
+    --ia-muted: #82948a;
+    --ia-border: #e1ebe6;
+    --ia-border-soft: #ecf1ed;
+
+    --ia-input: #ffffff;
+    --ia-input-text: #18392e;
+    --ia-table-head: #eaf5ee;
+    --ia-table-even: #fbfdfb;
+    --ia-table-hover: #f0f9f4;
+
+    --ia-green: #07885f;
+    --ia-progress-track: #e2ece5;
+
+    background: white !important;
+    color: #17352d !important;
   }
 
   .ia-header,
@@ -3110,8 +3710,10 @@ const css = `
     max-width: none;
   }
 
-  .ia-card {
-    box-shadow: none;
+  .ia-card,
+  .ia-category-card,
+  .ia-summary-card {
+    box-shadow: none !important;
     break-inside: avoid;
   }
 
@@ -3119,9 +3721,19 @@ const css = `
     grid-template-columns: 1fr;
   }
 
-  .ia-hero {
+  .ia-table-wrap,
+  .ia-table-scroll {
+    overflow: visible;
+  }
+
+  .ia-hero,
+  .ia-progress,
+  .ia-progress span,
+  .ia-donut,
+  .ia-summary-card {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 }
+
 `;
