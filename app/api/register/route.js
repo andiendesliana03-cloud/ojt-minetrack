@@ -16,6 +16,8 @@ const VALID_SITES = [
   "BMO 3",
   "SRN",
   "HO",
+  "PMO",
+  "TSP",
 ];
 
 function respond(data, status = 200) {
