@@ -16,8 +16,9 @@ import { supabase } from "../../../lib/supabase";
  * MONITORING PESERTA — LIGHT & DARK MODE
  * =====================================================
  *
- * Tema mengikuti data-theme dari app/layout.jsx.
- * Tombol tema hanya ada pada Dashboard utama.
+ * PENAMBAHAN SITE:
+ * - PMO
+ * - TSP
  *
  * Dipertahankan:
  * - Supabase dan struktur database
@@ -28,9 +29,14 @@ import { supabase } from "../../../lib/supabase";
  * - Rumus progres Achievement
  * - Ringkasan Post-Test, Praktik, Samapta, SIMPER
  * - Navigasi detail peserta
+ * - Light & Dark Mode
  *
  * Tidak menambahkan tabel atau kolom database.
  */
+
+// =====================================================
+// CONSTANTS
+// =====================================================
 
 const TOTAL_WEEKS = 25;
 
@@ -43,6 +49,8 @@ const SITES = [
   "BMO 2",
   "BMO 3",
   "SRN",
+  "PMO",
+  "TSP",
   "HO",
 ];
 
@@ -96,6 +104,12 @@ const normalize = (value) =>
 
 const normalizeKey = (value) =>
   normalize(value).replace(/[^a-z0-9]/g, "");
+
+function normalizeSite(value) {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase();
+}
 
 // =====================================================
 // DATE HELPERS
@@ -1441,14 +1455,19 @@ export default function MonitoringPesertaPage() {
               keyword
             );
 
+          const programSite =
+            normalizeSite(
+              program.site
+            );
+
           const matchesSite =
             selectedSite ===
               "ALL" ||
             (
               selectedSite ===
               "UNASSIGNED"
-                ? !program.site
-                : program.site ===
+                ? !programSite
+                : programSite ===
                   selectedSite
             );
 
@@ -1498,7 +1517,7 @@ export default function MonitoringPesertaPage() {
     programs.filter(
       (item) =>
         SITES.includes(
-          item.site
+          normalizeSite(item.site)
         )
     ).length;
 
@@ -1531,13 +1550,15 @@ export default function MonitoringPesertaPage() {
       0
     );
 
+  // Gabungkan daftar site resmi dan site
+  // yang sudah tersimpan pada program lama.
   const availableSites = [
     ...new Set([
       ...SITES,
       ...programs
         .map(
           (item) =>
-            item.site
+            normalizeSite(item.site)
         )
         .filter(Boolean),
     ]),
@@ -2008,7 +2029,9 @@ export default function MonitoringPesertaPage() {
                         {/* SITE */}
 
                         <td>
-                          {program.site ||
+                          {normalizeSite(
+                            program.site
+                          ) ||
                             "Belum Ditentukan"}
                         </td>
 
