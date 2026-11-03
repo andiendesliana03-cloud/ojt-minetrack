@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 // OJT MINETRACK V2.0
 // PENDAFTARAN PESERTA OJT
 // CORPORATE NAVY & EMERALD
+// SITE UPDATE: PMO & TSP
 // ======================================================
 
 const BACKGROUND = "/background-erg.png.PNG";
@@ -27,6 +28,8 @@ const SITES = [
   "BMO 3",
   "SRN",
   "HO",
+  "PMO",
+  "TSP",
 ];
 
 const DEPARTMENTS = [
@@ -262,6 +265,7 @@ export default function DaftarPesertaOJT() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [success, setSuccess] = useState(false);
+
   const [registeredPeriod, setRegisteredPeriod] =
     useState(null);
 
@@ -390,8 +394,6 @@ export default function DaftarPesertaOJT() {
       department: form.department,
       site: form.site,
 
-      // Disimpan pada ojt_registration_requests
-      // melalui /api/register.
       start_date: form.startDate,
       end_date: form.endDate,
     };
@@ -451,9 +453,6 @@ export default function DaftarPesertaOJT() {
         );
       }
 
-      // Periode harus tersimpan pada jalur baru.
-      // Jika tidak, jangan tampilkan konfirmasi
-      // seolah-olah tanggal sudah berhasil disimpan.
       if (
         result.source !== "new" ||
         result.start_date !== payload.start_date ||
