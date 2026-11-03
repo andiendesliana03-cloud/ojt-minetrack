@@ -16,6 +16,8 @@ const SITES = [
   "BMO 2",
   "BMO 3",
   "SRN",
+  "PMO",
+  "TSP",
   "HO",
 ];
 
