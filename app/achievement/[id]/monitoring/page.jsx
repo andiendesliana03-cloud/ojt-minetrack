@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,8 +6,20 @@ import { supabase } from "../../../../lib/supabase";
 
 // =====================================================
 // OJT MINETRACK V2.0
-// MONITORING ACHIEVEMENT - COMPACT ENTERPRISE
-// GLOBAL CALENDAR WEEK 01-25
+// MONITORING ACHIEVEMENT — GLOBAL LIGHT / DARK MODE
+//
+// Tema mengikuti html[data-theme] dari RootLayout.
+// Tidak menambahkan tombol tema pada halaman ini.
+//
+// DIPERTAHANKAN:
+// - Struktur database dan query Supabase
+// - Hak akses Admin, Mentor, dan Peserta
+// - Kalender Global Week 01–25
+// - Periode program peserta
+// - Target, rumus, dan perhitungan Achievement
+// - Refresh, navigasi minggu, dan grafik
+// - Mode Presentasi dan Cetak
+// - Tampilan responsif desktop dan mobile
 // =====================================================
 
 const TOTAL_WEEKS = 25;
@@ -42,7 +53,6 @@ function parseDate(value) {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-
   const date = new Date(Date.UTC(year, month - 1, day));
 
   if (
@@ -139,10 +149,7 @@ function percentText(value) {
 }
 
 function clamp(value) {
-  return Math.max(
-    0,
-    Math.min(100, Number(value) || 0)
-  );
+  return Math.max(0, Math.min(100, Number(value) || 0));
 }
 
 function initials(name) {
@@ -166,17 +173,14 @@ function programWeekRange(program, week) {
     return null;
   }
 
-  const startProgram = String(program.start_date)
-    .slice(0, 10);
+  const startProgram = String(program.start_date).slice(0, 10);
 
   const endProgram = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
 
   const start =
-    global.start > startProgram
-      ? global.start
-      : startProgram;
+    global.start > startProgram ? global.start : startProgram;
 
   const end =
     endProgram && endProgram < global.end
@@ -200,6 +204,7 @@ function insideProgram(value, program) {
   }
 
   const start = String(program.start_date).slice(0, 10);
+
   const end = parseDate(program.end_date)
     ? String(program.end_date).slice(0, 10)
     : null;
@@ -219,18 +224,12 @@ function initialWeek(program) {
   const current = available.find(item => {
     const range = programWeekRange(program, item.week);
 
-    return (
-      range &&
-      today >= range.start &&
-      today <= range.end
-    );
+    return range && today >= range.start && today <= range.end;
   });
 
   if (current) return current.week;
 
-  const previous = available.filter(
-    item => item.end < today
-  );
+  const previous = available.filter(item => item.end < today);
 
   if (previous.length) {
     return previous[previous.length - 1].week;
@@ -251,15 +250,12 @@ function categoryOf(value) {
   }
 
   if (
-    ["training", "internaltraining", "pelatihan"]
-      .includes(key)
+    ["training", "internaltraining", "pelatihan"].includes(key)
   ) {
     return "Training";
   }
 
-  if (
-    ["sosialisasi", "socialization"].includes(key)
-  ) {
+  if (["sosialisasi", "socialization"].includes(key)) {
     return "Sosialisasi";
   }
 
@@ -268,15 +264,13 @@ function categoryOf(value) {
   }
 
   if (
-    ["orientasi", "orientasiarea", "areaorientation"]
-      .includes(key)
+    ["orientasi", "orientasiarea", "areaorientation"].includes(key)
   ) {
     return "Orientasi Area";
   }
 
   if (
-    ["hazard", "hazardidentification", "identifikasibahaya"]
-      .includes(key)
+    ["hazard", "hazardidentification", "identifikasibahaya"].includes(key)
   ) {
     return "Hazard";
   }
@@ -334,6 +328,7 @@ function ProgressBar({ value }) {
     <div
       className="am-progress"
       role="progressbar"
+      aria-label="Progres pencapaian target"
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={safe}
@@ -367,10 +362,8 @@ export default function MonitoringAchievementPage() {
 
   const [account, setAccount] = useState(null);
   const [program, setProgram] = useState(null);
-
   const [types, setTypes] = useState([]);
   const [records, setRecords] = useState([]);
-
   const [week, setWeek] = useState(1);
 
   const [loading, setLoading] = useState(true);
@@ -379,12 +372,8 @@ export default function MonitoringAchievementPage() {
   const [error, setError] = useState("");
 
   const role = roleOf(account?.role);
-
-  const canManage =
-    role === "admin" || role === "mentor";
-
-  const isParticipant =
-    role === "participant" || role === "peserta";
+  const canManage = role === "admin" || role === "mentor";
+  const isParticipant = role === "participant" || role === "peserta";
 
   const participant = Array.isArray(program?.peserta)
     ? program.peserta[0]
@@ -404,11 +393,7 @@ export default function MonitoringAchievementPage() {
   );
 
   const selectedPeriod = GLOBAL_WEEKS[week - 1];
-
-  const selectedParticipantRange = programWeekRange(
-    program,
-    week
-  );
+  const selectedParticipantRange = programWeekRange(program, week);
 
   // ===================================================
   // SUPABASE
@@ -469,8 +454,7 @@ export default function MonitoringAchievementPage() {
     const currentRole = roleOf(profile.role);
 
     if (
-      !["admin", "mentor", "participant", "peserta"]
-        .includes(currentRole)
+      !["admin", "mentor", "participant", "peserta"].includes(currentRole)
     ) {
       throw new Error(
         "Akun tidak memiliki akses Monitoring Achievement."
@@ -526,11 +510,7 @@ export default function MonitoringAchievementPage() {
       );
     }
 
-    return {
-      user,
-      profile,
-      programData,
-    };
+    return { user, profile, programData };
   }
 
   useEffect(() => {
@@ -548,10 +528,7 @@ export default function MonitoringAchievementPage() {
 
       try {
         const access = await verifyAccess();
-
-        const data = await fetchMonitoringData(
-          access.programData.id
-        );
+        const data = await fetchMonitoringData(access.programData.id);
 
         if (!active) return;
 
@@ -559,14 +536,12 @@ export default function MonitoringAchievementPage() {
         setProgram(access.programData);
         setTypes(data.types);
         setRecords(data.records);
-
         setWeek(initialWeek(access.programData));
       } catch (err) {
         if (!active) return;
 
         setError(
-          err?.message ||
-          "Gagal memuat Monitoring Achievement."
+          err?.message || "Gagal memuat Monitoring Achievement."
         );
       } finally {
         if (active) setLoading(false);
@@ -598,17 +573,13 @@ export default function MonitoringAchievementPage() {
         );
       }
 
-      const data = await fetchMonitoringData(
-        access.programData.id
-      );
+      const data = await fetchMonitoringData(access.programData.id);
 
       setProgram(access.programData);
       setTypes(data.types);
       setRecords(data.records);
     } catch (err) {
-      setError(
-        err?.message || "Gagal memperbarui data."
-      );
+      setError(err?.message || "Gagal memperbarui data.");
     } finally {
       setRefreshing(false);
     }
@@ -634,25 +605,30 @@ export default function MonitoringAchievementPage() {
   // VALID DATA DALAM PERIODE PESERTA
   // ===================================================
 
-  const programRecords = useMemo(() => {
-    return records.filter(
-      item => insideProgram(item.activity_date, program)
-    );
-  }, [records, program]);
+  const programRecords = useMemo(
+    () =>
+      records.filter(
+        item => insideProgram(item.activity_date, program)
+      ),
+    [records, program]
+  );
 
-  const outsideProgram = useMemo(() => {
-    return records.length - programRecords.length;
-  }, [records, programRecords]);
+  const outsideProgram = useMemo(
+    () => records.length - programRecords.length,
+    [records, programRecords]
+  );
 
   // ===================================================
   // MINGGU TERPILIH
   // ===================================================
 
-  const weeklyRecords = useMemo(() => {
-    return programRecords.filter(
-      item => globalWeekOf(item.activity_date) === week
-    );
-  }, [programRecords, week]);
+  const weeklyRecords = useMemo(
+    () =>
+      programRecords.filter(
+        item => globalWeekOf(item.activity_date) === week
+      ),
+    [programRecords, week]
+  );
 
   const verified = useMemo(
     () =>
@@ -678,38 +654,36 @@ export default function MonitoringAchievementPage() {
   // PROGRES ENAM KATEGORI
   // ===================================================
 
-  const categories = useMemo(() => {
-    return TARGETS.map(category => {
-      const related = weeklyRecords.filter(
-        item =>
-          categoryFor(item, types)?.name === category.name
-      );
+  const categories = useMemo(
+    () =>
+      TARGETS.map(category => {
+        const related = weeklyRecords.filter(
+          item => categoryFor(item, types)?.name === category.name
+        );
 
-      const valid = related.filter(
-        item => roleOf(item.status) === "verified"
-      );
+        const valid = related.filter(
+          item => roleOf(item.status) === "verified"
+        );
 
-      const waiting = related.filter(
-        item => roleOf(item.status) === "pending"
-      );
+        const waiting = related.filter(
+          item => roleOf(item.status) === "pending"
+        );
 
-      const actual = achievedValue(valid, category);
+        const actual = achievedValue(valid, category);
+        const targetPercent = clamp((actual / category.target) * 100);
 
-      const targetPercent = clamp(
-        (actual / category.target) * 100
-      );
-
-      return {
-        ...category,
-        actual,
-        total: related.length,
-        verified: valid.length,
-        pending: waiting.length,
-        targetPercent,
-        completed: actual >= category.target,
-      };
-    });
-  }, [weeklyRecords, types]);
+        return {
+          ...category,
+          actual,
+          total: related.length,
+          verified: valid.length,
+          pending: waiting.length,
+          targetPercent,
+          completed: actual >= category.target,
+        };
+      }),
+    [weeklyRecords, types]
+  );
 
   const weeklyAchievementProgress = useMemo(() => {
     if (!categories.length) return 0;
@@ -730,31 +704,29 @@ export default function MonitoringAchievementPage() {
   // GRAFIK GLOBAL 25 MINGGU
   // ===================================================
 
-  const chart = useMemo(() => {
-    return GLOBAL_WEEKS.map(item => {
-      const matching = programRecords.filter(
-        record =>
-          globalWeekOf(record.activity_date) === item.week
-      );
+  const chart = useMemo(
+    () =>
+      GLOBAL_WEEKS.map(item => {
+        const matching = programRecords.filter(
+          record => globalWeekOf(record.activity_date) === item.week
+        );
 
-      return {
-        ...item,
-        inProgram: availableWeekNumbers.has(item.week),
-        total: matching.length,
-        verified: matching.filter(
-          record => roleOf(record.status) === "verified"
-        ).length,
-        pending: matching.filter(
-          record => roleOf(record.status) === "pending"
-        ).length,
-      };
-    });
-  }, [programRecords, availableWeekNumbers]);
-
-  const maxChart = Math.max(
-    1,
-    ...chart.map(item => item.verified)
+        return {
+          ...item,
+          inProgram: availableWeekNumbers.has(item.week),
+          total: matching.length,
+          verified: matching.filter(
+            record => roleOf(record.status) === "verified"
+          ).length,
+          pending: matching.filter(
+            record => roleOf(record.status) === "pending"
+          ).length,
+        };
+      }),
+    [programRecords, availableWeekNumbers]
   );
+
+  const maxChart = Math.max(1, ...chart.map(item => item.verified));
 
   const activeWeeks = chart.filter(
     item => item.inProgram && item.total > 0
@@ -767,39 +739,48 @@ export default function MonitoringAchievementPage() {
   const totalAvailableWeeks = availableWeeks.length;
 
   // ===================================================
-  // LOADING
+  // LOADING DAN ERROR
+  // Style tetap dimuat agar kedua layar mengikuti tema.
   // ===================================================
 
   if (loading) {
     return (
-      <main className="am-loading">
-        <h2>OJT MineTrack</h2>
-        <p>Memuat Monitoring Achievement...</p>
+      <main className="am-root am-loading" aria-busy="true">
+        <style>{css}</style>
+
+        <div className="am-state-card" role="status">
+          <div className="am-loading-mark" aria-hidden="true">
+            OJT
+          </div>
+          <h2>OJT MineTrack</h2>
+          <p>Memuat Monitoring Achievement...</p>
+        </div>
       </main>
     );
   }
 
   if (!account || !program) {
     return (
-      <main className="am-loading">
-        <h2>Monitoring Tidak Dapat Ditampilkan</h2>
+      <main className="am-root am-loading">
+        <style>{css}</style>
 
-        <p>
-          {error || "Data peserta tidak tersedia."}
-        </p>
+        <div className="am-state-card">
+          <h2>Monitoring Tidak Dapat Ditampilkan</h2>
+          <p role="alert">
+            {error || "Data peserta tidak tersedia."}
+          </p>
 
-        <button onClick={() => router.push("/")}>
-          Kembali ke Dashboard
-        </button>
+          <button type="button" onClick={() => router.push("/")}>
+            Kembali ke Dashboard
+          </button>
+        </div>
       </main>
     );
   }
 
   return (
     <main
-      className={`am-root ${
-        presentation ? "am-presentation" : ""
-      }`}
+      className={`am-root ${presentation ? "am-presentation" : ""}`}
     >
       <style>{css}</style>
 
@@ -820,10 +801,7 @@ export default function MonitoringAchievementPage() {
                 ? "Mentor OJT"
                 : "Peserta OJT"}
             </small>
-
-            <strong>
-              {account.full_name || "Pengguna"}
-            </strong>
+            <strong>{account.full_name || "Pengguna"}</strong>
           </div>
 
           <button type="button" onClick={goBack}>
@@ -833,19 +811,14 @@ export default function MonitoringAchievementPage() {
       </header>
 
       <div className="am-container">
-
         {/* HERO */}
 
         <section className="am-hero">
-          <small>
-            EMERGENCY RESPONSE GROUP · PT BERAU COAL
-          </small>
-
+          <small>EMERGENCY RESPONSE GROUP · PT BERAU COAL</small>
           <h1>Monitoring Achievement OJT</h1>
-
           <p>
-            Evaluasi pencapaian, verifikasi, dan
-            aktivitas berdasarkan Kalender Global.
+            Evaluasi pencapaian, verifikasi, dan aktivitas berdasarkan
+            Kalender Global.
           </p>
 
           <div className="am-person">
@@ -857,13 +830,11 @@ export default function MonitoringAchievementPage() {
               <strong>
                 {participant?.full_name || "Peserta OJT"}
               </strong>
-
               <span>
                 {participant?.department || "—"}
                 {" · "}
                 {program.site || "—"}
               </span>
-
               <small>
                 {formatDate(program.start_date)}
                 {" – "}
@@ -875,19 +846,17 @@ export default function MonitoringAchievementPage() {
 
         {/* NAVIGATION */}
 
-        <nav className="am-tabs">
+        <nav className="am-tabs" aria-label="Menu Achievement">
           {canManage && (
             <button
               type="button"
-              onClick={() =>
-                router.push(`/achievement/${programId}`)
-              }
+              onClick={() => router.push(`/achievement/${programId}`)}
             >
               ✍️ Input Achievement
             </button>
           )}
 
-          <span className="active">
+          <span className="active" aria-current="page">
             📊 Monitoring Achievement
           </span>
         </nav>
@@ -903,10 +872,7 @@ export default function MonitoringAchievementPage() {
         <div className="am-toolbar">
           <div>
             <strong>Dashboard Monitoring</strong>
-
-            <small>
-              Kalender Global OJT 2026–2027
-            </small>
+            <small>Kalender Global OJT 2026–2027</small>
           </div>
 
           <div className="am-actions">
@@ -915,27 +881,19 @@ export default function MonitoringAchievementPage() {
               onClick={refresh}
               disabled={refreshing}
             >
-              {refreshing
-                ? "Memperbarui..."
-                : "↻ Refresh"}
+              {refreshing ? "Memperbarui..." : "↻ Refresh"}
             </button>
 
             <button
               type="button"
               className="primary"
-              onClick={() =>
-                setPresentation(value => !value)
-              }
+              aria-pressed={presentation}
+              onClick={() => setPresentation(value => !value)}
             >
-              {presentation
-                ? "Tampilan Normal"
-                : "▣ Mode Presentasi"}
+              {presentation ? "Tampilan Normal" : "▣ Mode Presentasi"}
             </button>
 
-            <button
-              type="button"
-              onClick={() => window.print()}
-            >
+            <button type="button" onClick={() => window.print()}>
               🖨 Cetak
             </button>
           </div>
@@ -947,20 +905,17 @@ export default function MonitoringAchievementPage() {
           <div className="am-section-head">
             <div>
               <h2>Monitoring Mingguan</h2>
-
               <p>
-                Ringkasan Achievement pada minggu
-                global terpilih.
+                Ringkasan Achievement pada minggu global terpilih.
               </p>
             </div>
 
             <div className="am-week-control">
               <button
                 type="button"
+                aria-label="Minggu sebelumnya"
                 disabled={
-                  availableWeeks.findIndex(
-                    item => item.week === week
-                  ) <= 0
+                  availableWeeks.findIndex(item => item.week === week) <= 0
                 }
                 onClick={() => {
                   const index = availableWeeks.findIndex(
@@ -977,16 +932,11 @@ export default function MonitoringAchievementPage() {
 
               <select
                 value={week}
-                onChange={event =>
-                  changeWeek(event.target.value)
-                }
+                onChange={event => changeWeek(event.target.value)}
                 aria-label="Pilih minggu global"
               >
                 {availableWeeks.map(item => (
-                  <option
-                    key={item.week}
-                    value={item.week}
-                  >
+                  <option key={item.week} value={item.week}>
                     {weekLabel(item.week)}
                   </option>
                 ))}
@@ -994,10 +944,10 @@ export default function MonitoringAchievementPage() {
 
               <button
                 type="button"
+                aria-label="Minggu berikutnya"
                 disabled={
-                  availableWeeks.findIndex(
-                    item => item.week === week
-                  ) >= availableWeeks.length - 1
+                  availableWeeks.findIndex(item => item.week === week) >=
+                  availableWeeks.length - 1
                 }
                 onClick={() => {
                   const index = availableWeeks.findIndex(
@@ -1019,7 +969,6 @@ export default function MonitoringAchievementPage() {
 
           <div className="am-period">
             <strong>{weekLabel(week)}</strong>
-
             <span>
               {formatDate(selectedPeriod?.start)}
               {" – "}
@@ -1028,8 +977,7 @@ export default function MonitoringAchievementPage() {
 
             {selectedParticipantRange && (
               <small>
-                Periode peserta:
-                {" "}
+                Periode peserta:{" "}
                 {formatDate(selectedParticipantRange.start)}
                 {" – "}
                 {formatDate(selectedParticipantRange.end)}
@@ -1043,21 +991,18 @@ export default function MonitoringAchievementPage() {
               value={weeklyRecords.length}
               note="Minggu terpilih"
             />
-
             <StatCard
               label="Verified"
               value={verified.length}
               note="Sudah terverifikasi"
               tone="green"
             />
-
             <StatCard
               label="Pending"
               value={pending.length}
               note="Menunggu verifikasi"
               tone="orange"
             />
-
             <StatCard
               label="Persentase Verifikasi"
               value={percentText(verificationPercent)}
@@ -1073,79 +1018,51 @@ export default function MonitoringAchievementPage() {
           <div className="am-section-head">
             <div>
               <h2>Progres Enam Kategori</h2>
-
               <p>
-                Target dan realisasi Verified pada
-                {" "}
-                {weekLabel(week)}.
+                Target dan realisasi Verified pada {weekLabel(week)}.
               </p>
             </div>
 
             <div className="am-week-progress">
               <small>Rata-rata pencapaian</small>
-
               <strong>
                 {percentText(weeklyAchievementProgress)}
               </strong>
-
-              <span>
-                {completedCategories}/6 kategori tercapai
-              </span>
+              <span>{completedCategories}/6 kategori tercapai</span>
             </div>
           </div>
 
           <div className="am-category-grid">
             {categories.map(item => (
-              <article
-                className="am-category"
-                key={item.name}
-              >
+              <article className="am-category" key={item.name}>
                 <div className="am-category-head">
-                  <span className="am-icon">
-                    {item.icon}
-                  </span>
-
+                  <span className="am-icon">{item.icon}</span>
                   <div>
                     <strong>{item.name}</strong>
-
                     <small>
-                      Target {item.target} {item.unit}
-                      {" / minggu"}
+                      Target {item.target} {item.unit} / minggu
                     </small>
                   </div>
                 </div>
 
                 <div className="am-category-actual">
-                  <strong>
-                    {amountText(item.actual, item)}
-                  </strong>
-
-                  <span>
-                    {percentText(item.targetPercent)}
-                  </span>
+                  <strong>{amountText(item.actual, item)}</strong>
+                  <span>{percentText(item.targetPercent)}</span>
                 </div>
 
-                <ProgressBar
-                  value={item.targetPercent}
-                />
+                <ProgressBar value={item.targetPercent} />
 
                 <div className="am-category-footer">
-                  <span>
-                    {item.verified} Verified
-                  </span>
-
-                  <span>
-                    {item.pending} Pending
-                  </span>
+                  <span>{item.verified} Verified</span>
+                  <span>{item.pending} Pending</span>
                 </div>
               </article>
             ))}
           </div>
 
           <p className="am-note">
-            Progres berdasarkan target mingguan.
-            Hanya kegiatan terverifikasi yang
-            dihitung. Persentase maksimal 100%,
+            Progres berdasarkan target mingguan. Hanya kegiatan
+            terverifikasi yang dihitung. Persentase maksimal 100%,
             sedangkan realisasi asli tetap ditampilkan.
           </p>
         </section>
@@ -1153,32 +1070,31 @@ export default function MonitoringAchievementPage() {
         {/* DUA PANEL SEIMBANG */}
 
         <div className="am-two-columns">
-
           {/* GRAFIK */}
 
           <section className="am-card am-chart-panel">
             <div className="am-section-head">
               <div>
                 <h2>Grafik Achievement Mingguan</h2>
-
                 <p>
-                  Jumlah kegiatan Verified
-                  pada Kalender Global Week 01–25.
+                  Jumlah kegiatan Verified pada Kalender Global
+                  Week 01–25.
                 </p>
               </div>
             </div>
 
-            <div className="am-chart-scroll">
+            <div
+              className="am-chart-scroll"
+              tabIndex={0}
+              role="region"
+              aria-label="Grafik Achievement 25 minggu, dapat digeser horizontal"
+            >
               <div className="am-chart">
                 {chart.map(item => {
-                  const selected =
-                    item.week === week;
+                  const selected = item.week === week;
 
                   const height = item.verified
-                    ? Math.max(
-                        6,
-                        (item.verified / maxChart) * 100
-                      )
+                    ? Math.max(6, (item.verified / maxChart) * 100)
                     : 2;
 
                   return (
@@ -1186,16 +1102,13 @@ export default function MonitoringAchievementPage() {
                       type="button"
                       key={item.week}
                       disabled={!item.inProgram}
+                      aria-pressed={selected}
                       className={[
                         "am-chart-column",
                         selected ? "selected" : "",
-                        !item.inProgram
-                          ? "outside"
-                          : "",
+                        !item.inProgram ? "outside" : "",
                       ].join(" ")}
-                      onClick={() =>
-                        changeWeek(item.week)
-                      }
+                      onClick={() => changeWeek(item.week)}
                       title={
                         `${weekLabel(item.week)}: ` +
                         `${item.verified} Verified · ` +
@@ -1204,17 +1117,11 @@ export default function MonitoringAchievementPage() {
                       }
                     >
                       <strong>
-                        {item.inProgram
-                          ? item.verified
-                          : "–"}
+                        {item.inProgram ? item.verified : "–"}
                       </strong>
 
                       <span className="am-bar-track">
-                        <i
-                          style={{
-                            height: `${height}%`,
-                          }}
-                        />
+                        <i style={{ height: `${height}%` }} />
                       </span>
 
                       <small>
@@ -1227,23 +1134,20 @@ export default function MonitoringAchievementPage() {
             </div>
 
             <p className="am-note">
-              Pilih batang untuk melihat pencapaian
-              pada minggu tersebut. Tinggi batang
-              menunjukkan jumlah kegiatan Verified,
+              Pilih batang untuk melihat pencapaian pada minggu tersebut.
+              Tinggi batang menunjukkan jumlah kegiatan Verified,
               bukan total kilometer.
             </p>
           </section>
 
-          {/* AKTIVITAS 25 MINGGU - COMPACT */}
+          {/* AKTIVITAS 25 MINGGU */}
 
           <section className="am-card am-activity-panel">
             <div className="am-section-head">
               <div>
                 <h2>Aktivitas 25 Minggu</h2>
-
                 <p>
-                  Sebaran minggu yang memiliki
-                  catatan Achievement.
+                  Sebaran minggu yang memiliki catatan Achievement.
                 </p>
               </div>
 
@@ -1257,7 +1161,6 @@ export default function MonitoringAchievementPage() {
                 <strong>{activeWeeks}</strong>
                 <span>Minggu memiliki kegiatan</span>
               </div>
-
               <div>
                 <strong>{verifiedWeeks}</strong>
                 <span>Minggu memiliki Verified</span>
@@ -1274,26 +1177,21 @@ export default function MonitoringAchievementPage() {
                     type="button"
                     key={item.week}
                     disabled={!item.inProgram}
+                    aria-pressed={selected}
                     className={[
                       "am-week",
                       active ? "has-data" : "",
                       selected ? "selected" : "",
-                      !item.inProgram
-                        ? "outside"
-                        : "",
+                      !item.inProgram ? "outside" : "",
                     ].join(" ")}
-                    onClick={() =>
-                      changeWeek(item.week)
-                    }
+                    onClick={() => changeWeek(item.week)}
                     title={
                       `${weekLabel(item.week)} · ` +
                       `${formatDate(item.start)} – ` +
                       `${formatDate(item.end)} · ` +
-                      (
-                        item.inProgram
-                          ? `${item.total} kegiatan`
-                          : "Di luar periode peserta"
-                      )
+                      (item.inProgram
+                        ? `${item.total} kegiatan`
+                        : "Di luar periode peserta")
                     }
                   >
                     W{String(item.week).padStart(2, "0")}
@@ -1307,12 +1205,10 @@ export default function MonitoringAchievementPage() {
                 <i className="am-dot active" />
                 Ada kegiatan
               </span>
-
               <span>
                 <i className="am-dot inactive" />
                 Belum ada
               </span>
-
               <span>
                 <i className="am-dot outside" />
                 Di luar periode
@@ -1321,9 +1217,8 @@ export default function MonitoringAchievementPage() {
 
             {outsideProgram > 0 && (
               <p className="am-note">
-                {outsideProgram} catatan berada di luar
-                Kalender Global atau periode peserta.
-                Data tetap tersimpan, tetapi tidak
+                {outsideProgram} catatan berada di luar Kalender Global
+                atau periode peserta. Data tetap tersimpan, tetapi tidak
                 dihitung dalam monitoring ini.
               </p>
             )}
@@ -1333,22 +1228,15 @@ export default function MonitoringAchievementPage() {
         {/* BOTTOM ACTION */}
 
         <div className="am-bottom">
-          <button
-            type="button"
-            onClick={goBack}
-          >
-            ← {isParticipant
-              ? "Dashboard Peserta"
-              : "Detail Peserta"}
+          <button type="button" onClick={goBack}>
+            ← {isParticipant ? "Dashboard Peserta" : "Detail Peserta"}
           </button>
 
           {canManage && (
             <button
               type="button"
               className="primary"
-              onClick={() =>
-                router.push(`/achievement/${programId}`)
-              }
+              onClick={() => router.push(`/achievement/${programId}`)}
             >
               ✍️ Input Achievement
             </button>
@@ -1366,10 +1254,158 @@ export default function MonitoringAchievementPage() {
 }
 
 // =====================================================
-// CSS - COMPACT PROFESSIONAL DASHBOARD
+// CSS — GLOBAL LIGHT / DARK MODE
+// Variabel dibatasi pada halaman Monitoring Achievement.
+// Perubahan html[data-theme] langsung diterapkan oleh CSS.
 // =====================================================
 
 const css = `
+  /* LIGHT MODE — DEFAULT */
+
+  .am-root {
+    color-scheme: light;
+
+    --am-bg: #f3f7f8;
+    --am-surface: #ffffff;
+    --am-surface-soft: #f6f9f7;
+    --am-surface-category: #fcfefd;
+    --am-control-bg: #f8fbf9;
+    --am-text: #17352d;
+    --am-text-strong: #153c2f;
+    --am-muted: #587166;
+    --am-secondary: #496c5b;
+    --am-border: #dce8e1;
+    --am-border-soft: #e3ece6;
+    --am-shadow: 0 4px 16px #153d2b09;
+
+    --am-accent: #087e59;
+    --am-accent-strong: #087453;
+    --am-primary: #078b61;
+    --am-primary-hover: #066f4e;
+    --am-primary-text: #ffffff;
+    --am-tint: #edf8f1;
+    --am-icon-bg: #e4f5eb;
+
+    --am-stat-green: #e7f7ee;
+    --am-stat-orange: #fff5e6;
+    --am-stat-blue: #eaf4ff;
+
+    --am-progress-track: #e4ece7;
+    --am-progress-start: #28bf8c;
+    --am-progress-end: #07885f;
+
+    --am-chart-bar: #40c59a;
+    --am-chart-selected: #268bd6;
+    --am-chart-selected-text: #1769a7;
+    --am-chart-outside: #dce5e0;
+
+    --am-week-bg: #f3f7f5;
+    --am-week-data-bg: #ccefe0;
+    --am-week-data-border: #b7e6d0;
+    --am-week-data-text: #087453;
+    --am-week-selected: #087b59;
+    --am-week-outside-bg: #f6f7f7;
+    --am-week-outside-border: #e3e8e5;
+    --am-week-outside-text: #7c8e85;
+
+    --am-error-bg: #fff1f1;
+    --am-error-border: #fecaca;
+    --am-error-text: #b91c1c;
+    --am-focus: #237fd0;
+
+    --am-header-bg: #071e25;
+    --am-header-text: #ffffff;
+    --am-header-muted: #bdd5cc;
+    --am-header-button-bg: #ffffff15;
+    --am-header-button-border: #ffffff38;
+    --am-brand-accent: #2dcd97;
+
+    --am-hero-start: rgba(6,29,35,.96);
+    --am-hero-end: rgba(7,80,62,.82);
+    --am-hero-text: #ffffff;
+    --am-hero-muted: #dcece4;
+    --am-hero-label: #edca79;
+    --am-person-bg: #092b2cc4;
+    --am-person-border: #ffffff2a;
+    --am-person-muted: #c8e0d7;
+    --am-avatar-bg: #d8f3e7;
+    --am-avatar-text: #087453;
+  }
+
+  /* DARK MODE — ROOTLAYOUT */
+
+  html[data-theme="dark"] .am-root {
+    color-scheme: dark;
+
+    --am-bg: #0b141b;
+    --am-surface: #13212b;
+    --am-surface-soft: #192a34;
+    --am-surface-category: #152630;
+    --am-control-bg: #192d37;
+    --am-text: #e3eee9;
+    --am-text-strong: #f0f7f3;
+    --am-muted: #a8bfb4;
+    --am-secondary: #b4cdbf;
+    --am-border: #30463f;
+    --am-border-soft: #293e38;
+    --am-shadow: 0 4px 18px rgba(0,0,0,.18);
+
+    --am-accent: #5bdeb0;
+    --am-accent-strong: #81e8c3;
+    --am-primary: #087b59;
+    --am-primary-hover: #096b50;
+    --am-primary-text: #ffffff;
+    --am-tint: #17382d;
+    --am-icon-bg: #204536;
+
+    --am-stat-green: #173d2f;
+    --am-stat-orange: #3c3021;
+    --am-stat-blue: #19354d;
+
+    --am-progress-track: #2b4239;
+    --am-progress-start: #54dfad;
+    --am-progress-end: #17a779;
+
+    --am-chart-bar: #46cfa1;
+    --am-chart-selected: #67b8fa;
+    --am-chart-selected-text: #8ccaff;
+    --am-chart-outside: #45594f;
+
+    --am-week-bg: #1a2b34;
+    --am-week-data-bg: #214c3b;
+    --am-week-data-border: #347259;
+    --am-week-data-text: #91edc8;
+    --am-week-selected: #087b59;
+    --am-week-outside-bg: #172129;
+    --am-week-outside-border: #2b383e;
+    --am-week-outside-text: #899c93;
+
+    --am-error-bg: #3c2028;
+    --am-error-border: #82404c;
+    --am-error-text: #ffc2c7;
+    --am-focus: #82caff;
+
+    --am-header-bg: #071219;
+    --am-header-text: #edf7f1;
+    --am-header-muted: #b4cec0;
+    --am-header-button-bg: #ffffff0d;
+    --am-header-button-border: #ffffff30;
+    --am-brand-accent: #5bdeb0;
+
+    --am-hero-start: rgba(4,17,24,.97);
+    --am-hero-end: rgba(7,57,45,.91);
+    --am-hero-text: #f0f8f3;
+    --am-hero-muted: #d0e5d9;
+    --am-hero-label: #f0d28a;
+    --am-person-bg: #071e25cc;
+    --am-person-border: #7cbba53b;
+    --am-person-muted: #bddbcc;
+    --am-avatar-bg: #204b3b;
+    --am-avatar-text: #94efca;
+  }
+
+  /* BASE */
+
   .am-root,
   .am-root * {
     box-sizing: border-box;
@@ -1377,9 +1413,10 @@ const css = `
 
   .am-root {
     min-height: 100vh;
-    background: #f3f7f8;
-    color: #17352d;
+    background: var(--am-bg);
+    color: var(--am-text);
     font-family: Arial, Helvetica, sans-serif;
+    line-height: 1.5;
   }
 
   .am-root button,
@@ -1389,32 +1426,81 @@ const css = `
 
   .am-root button {
     cursor: pointer;
+    touch-action: manipulation;
   }
 
   .am-root button:disabled {
     cursor: not-allowed;
   }
 
+  .am-root button:focus-visible,
+  .am-root select:focus-visible,
+  .am-chart-scroll:focus-visible {
+    outline: 3px solid var(--am-focus);
+    outline-offset: 3px;
+  }
+
+  .am-root select option {
+    background: var(--am-surface);
+    color: var(--am-text);
+  }
+
+  /* LOADING / ERROR SCREEN */
+
   .am-loading {
-    min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: 30px;
-    font-family: Arial, sans-serif;
     text-align: center;
-    background: #f3f7f8;
-    color: #17352d;
+  }
+
+  .am-state-card {
+    width: 100%;
+    max-width: 480px;
+    padding: 28px;
+    border: 1px solid var(--am-border);
+    border-radius: 16px;
+    background: var(--am-surface);
+    box-shadow: var(--am-shadow);
+  }
+
+  .am-state-card h2 {
+    margin: 0 0 10px;
+    color: var(--am-text-strong);
+    font-size: 22px;
+    line-height: 1.4;
+  }
+
+  .am-state-card p {
+    margin: 0;
+    color: var(--am-muted);
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+
+  .am-loading-mark {
+    display: grid;
+    place-items: center;
+    width: 58px;
+    height: 58px;
+    margin: 0 auto 18px;
+    border-radius: 15px;
+    background: var(--am-tint);
+    color: var(--am-accent);
+    font-size: 16px;
+    font-weight: 900;
   }
 
   .am-loading button {
-    margin-top: 10px;
+    margin-top: 18px;
     padding: 12px 16px;
-    border: 0;
-    background: #07865e;
-    color: white;
+    border: 1px solid var(--am-primary);
     border-radius: 9px;
+    background: var(--am-primary);
+    color: var(--am-primary-text);
     font-weight: 800;
   }
 
@@ -1426,8 +1512,8 @@ const css = `
     justify-content: space-between;
     gap: 14px;
     padding: 15px 24px;
-    color: #fff;
-    background: #071e25;
+    color: var(--am-header-text);
+    background: var(--am-header-bg);
   }
 
   .am-brand {
@@ -1437,19 +1523,25 @@ const css = `
   }
 
   .am-brand span {
-    color: #2dcd97;
+    color: var(--am-brand-accent);
   }
 
   .am-brand small {
     margin-left: 6px;
     font-size: 10px;
-    color: #b8d2c7;
+    color: var(--am-header-muted);
   }
 
   .am-account {
     display: flex;
     align-items: center;
     gap: 15px;
+    min-width: 0;
+  }
+
+  .am-account > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .am-account small,
@@ -1459,19 +1551,21 @@ const css = `
   }
 
   .am-account small {
-    font-size: 10px;
-    color: #bdd5cc;
     margin-bottom: 5px;
+    font-size: 10px;
+    color: var(--am-header-muted);
   }
 
   .am-account strong {
+    color: var(--am-header-text);
     font-size: 12px;
   }
 
   .am-account button {
-    border: 1px solid #ffffff38;
-    background: #ffffff15;
-    color: #fff;
+    flex-shrink: 0;
+    border: 1px solid var(--am-header-button-border);
+    background: var(--am-header-button-bg);
+    color: var(--am-header-text);
     border-radius: 9px;
     padding: 10px 13px;
     font-size: 12px;
@@ -1492,12 +1586,12 @@ const css = `
   .am-hero {
     border-radius: 15px;
     padding: 24px;
-    color: #fff;
+    color: var(--am-hero-text);
     background:
       linear-gradient(
         100deg,
-        rgba(6,29,35,.96),
-        rgba(7,80,62,.82)
+        var(--am-hero-start),
+        var(--am-hero-end)
       ),
       url("/background-erg.png.PNG");
     background-position: center;
@@ -1505,20 +1599,22 @@ const css = `
   }
 
   .am-hero > small {
-    color: #edca79;
+    color: var(--am-hero-label);
     font-size: 10px;
     font-weight: 900;
     letter-spacing: 1px;
   }
 
   .am-hero h1 {
+    color: var(--am-hero-text);
     font-size: clamp(24px, 3vw, 35px);
     margin: 10px 0 7px;
+    line-height: 1.25;
   }
 
   .am-hero > p {
     margin: 0;
-    color: #dcece4;
+    color: var(--am-hero-muted);
     font-size: 12px;
     line-height: 1.6;
   }
@@ -1531,9 +1627,14 @@ const css = `
     max-width: 100%;
     margin-top: 17px;
     padding: 11px;
-    background: #092b2cc4;
-    border: 1px solid #ffffff2a;
+    background: var(--am-person-bg);
+    border: 1px solid var(--am-person-border);
     border-radius: 11px;
+  }
+
+  .am-person > div:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .am-avatar {
@@ -1542,8 +1643,8 @@ const css = `
     width: 43px;
     height: 43px;
     flex-shrink: 0;
-    color: #087453;
-    background: #d8f3e7;
+    color: var(--am-avatar-text);
+    background: var(--am-avatar-bg);
     border-radius: 10px;
     font-weight: 900;
   }
@@ -1555,13 +1656,14 @@ const css = `
   }
 
   .am-person strong {
+    color: var(--am-hero-text);
     font-size: 13px;
   }
 
   .am-person span,
   .am-person small {
     font-size: 10px;
-    color: #c8e0d7;
+    color: var(--am-person-muted);
     margin-top: 5px;
   }
 
@@ -1569,6 +1671,7 @@ const css = `
 
   .am-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin: 14px 0;
   }
@@ -1576,28 +1679,30 @@ const css = `
   .am-tabs button,
   .am-tabs span {
     padding: 11px 16px;
-    border: 1px solid #dceae3;
-    background: #fff;
-    color: #326b56;
+    border: 1px solid var(--am-border);
+    background: var(--am-surface);
+    color: var(--am-accent-strong);
     border-radius: 9px;
     font-size: 12px;
     font-weight: 800;
+    line-height: 1.5;
   }
 
   .am-tabs .active {
-    background: #078b61;
-    border-color: #078b61;
-    color: #fff;
+    background: var(--am-primary);
+    border-color: var(--am-primary);
+    color: var(--am-primary-text);
   }
 
   .am-error {
     padding: 13px;
     margin-bottom: 13px;
-    border: 1px solid #fecaca;
-    background: #fff1f1;
-    color: #b91c1c;
+    border: 1px solid var(--am-error-border);
+    background: var(--am-error-bg);
+    color: var(--am-error-text);
     border-radius: 10px;
     font-size: 12px;
+    overflow-wrap: anywhere;
   }
 
   /* TOOLBAR */
@@ -1614,11 +1719,12 @@ const css = `
   .am-toolbar > div > strong {
     display: block;
     font-size: 14px;
+    color: var(--am-text-strong);
   }
 
   .am-toolbar > div > small {
     display: block;
-    color: #87978f;
+    color: var(--am-muted);
     font-size: 10px;
     margin-top: 5px;
   }
@@ -1632,19 +1738,19 @@ const css = `
   .am-actions button,
   .am-bottom button {
     padding: 10px 13px;
-    border: 1px solid #d9e7df;
+    border: 1px solid var(--am-border);
     border-radius: 9px;
-    background: white;
-    color: #166347;
+    background: var(--am-surface);
+    color: var(--am-accent-strong);
     font-size: 11px;
     font-weight: 800;
   }
 
   .am-actions button.primary,
   .am-bottom button.primary {
-    background: #078b61;
-    color: white;
-    border-color: #078b61;
+    background: var(--am-primary);
+    color: var(--am-primary-text);
+    border-color: var(--am-primary);
   }
 
   .am-actions button:disabled {
@@ -1657,10 +1763,10 @@ const css = `
     min-width: 0;
     padding: 18px;
     margin-bottom: 14px;
-    border: 1px solid #e1ebe6;
+    border: 1px solid var(--am-border);
     border-radius: 14px;
-    background: white;
-    box-shadow: 0 4px 16px #153d2b09;
+    background: var(--am-surface);
+    box-shadow: var(--am-shadow);
   }
 
   .am-section-head {
@@ -1672,8 +1778,13 @@ const css = `
     margin-bottom: 14px;
   }
 
+  .am-section-head > div {
+    min-width: 0;
+  }
+
   .am-section-head h2 {
     margin: 0;
+    color: var(--am-text-strong);
     font-size: 17px;
     line-height: 1.4;
   }
@@ -1681,7 +1792,7 @@ const css = `
   .am-section-head p {
     margin: 5px 0 0;
     font-size: 11px;
-    color: #82948a;
+    color: var(--am-muted);
     line-height: 1.6;
   }
 
@@ -1694,11 +1805,15 @@ const css = `
   .am-week-control select {
     padding: 9px;
     border-radius: 8px;
-    border: 1px solid #dce8df;
-    color: #146b4c;
-    background: #f8fbf9;
+    border: 1px solid var(--am-border);
+    color: var(--am-accent-strong);
+    background: var(--am-control-bg);
     font-size: 12px;
     font-weight: 800;
+  }
+
+  .am-week-control button {
+    min-width: 34px;
   }
 
   .am-week-control button:disabled {
@@ -1714,21 +1829,21 @@ const css = `
     gap: 10px;
     padding: 11px 13px;
     margin-bottom: 13px;
-    background: #edf8f1;
+    background: var(--am-tint);
     border-radius: 9px;
     font-size: 11px;
   }
 
   .am-period strong {
-    color: #087e59;
+    color: var(--am-accent);
   }
 
   .am-period span {
-    color: #58796a;
+    color: var(--am-secondary);
   }
 
   .am-period small {
-    color: #738e7f;
+    color: var(--am-muted);
     margin-left: auto;
     font-size: 10px;
   }
@@ -1744,35 +1859,38 @@ const css = `
   .am-stat {
     min-width: 0;
     padding: 14px;
-    background: #f6f9f7;
-    border: 1px solid #e7eee9;
+    background: var(--am-surface-soft);
+    border: 1px solid var(--am-border-soft);
     border-radius: 10px;
   }
 
   .am-stat.green {
-    background: #e7f7ee;
+    background: var(--am-stat-green);
   }
 
   .am-stat.orange {
-    background: #fff5e6;
+    background: var(--am-stat-orange);
   }
 
   .am-stat.blue {
-    background: #eaf4ff;
+    background: var(--am-stat-blue);
   }
 
   .am-stat span,
   .am-stat small {
     display: block;
     font-size: 10px;
-    color: #6f8779;
+    color: var(--am-muted);
+    overflow-wrap: anywhere;
   }
 
   .am-stat strong {
     display: block;
     font-size: 27px;
-    color: #153c2f;
+    color: var(--am-text-strong);
     margin: 7px 0;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
   }
 
   /* CATEGORY */
@@ -1784,7 +1902,7 @@ const css = `
   .am-week-progress small,
   .am-week-progress span {
     display: block;
-    color: #81958a;
+    color: var(--am-muted);
     font-size: 10px;
   }
 
@@ -1792,7 +1910,8 @@ const css = `
     display: block;
     font-size: 23px;
     margin: 5px 0;
-    color: #07885f;
+    color: var(--am-accent);
+    line-height: 1.25;
   }
 
   .am-category-grid {
@@ -1804,9 +1923,9 @@ const css = `
   .am-category {
     min-width: 0;
     padding: 14px;
-    border: 1px solid #e3ece6;
+    border: 1px solid var(--am-border-soft);
     border-radius: 11px;
-    background: #fcfefd;
+    background: var(--am-surface-category);
   }
 
   .am-category-head {
@@ -1815,13 +1934,17 @@ const css = `
     gap: 10px;
   }
 
+  .am-category-head > div {
+    min-width: 0;
+  }
+
   .am-icon {
     display: grid;
     place-items: center;
     flex-shrink: 0;
     width: 38px;
     height: 38px;
-    background: #e4f5eb;
+    background: var(--am-icon-bg);
     border-radius: 9px;
     font-size: 19px;
   }
@@ -1832,11 +1955,12 @@ const css = `
   }
 
   .am-category-head strong {
+    color: var(--am-text-strong);
     font-size: 13px;
   }
 
   .am-category-head small {
-    color: #8a9b90;
+    color: var(--am-muted);
     font-size: 10px;
     margin-top: 5px;
   }
@@ -1850,13 +1974,15 @@ const css = `
   }
 
   .am-category-actual strong {
-    color: #087e58;
+    color: var(--am-accent);
     font-size: 18px;
+    overflow-wrap: anywhere;
+    min-width: 0;
   }
 
   .am-category-actual span {
     font-size: 11px;
-    color: #668776;
+    color: var(--am-secondary);
     white-space: nowrap;
   }
 
@@ -1864,7 +1990,7 @@ const css = `
     width: 100%;
     height: 9px;
     border-radius: 20px;
-    background: #e4ece7;
+    background: var(--am-progress-track);
     overflow: hidden;
   }
 
@@ -1874,17 +2000,18 @@ const css = `
     border-radius: inherit;
     background: linear-gradient(
       90deg,
-      #28bf8c,
-      #07885f
+      var(--am-progress-start),
+      var(--am-progress-end)
     );
   }
 
   .am-category-footer {
     display: flex;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 8px;
     margin-top: 11px;
-    color: #7c9184;
+    color: var(--am-muted);
     font-size: 10px;
   }
 
@@ -1892,23 +2019,26 @@ const css = `
 
   .am-two-columns {
     display: grid;
-    grid-template-columns:
-      minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: stretch;
     gap: 14px;
+    margin-bottom: 14px;
   }
 
   .am-two-columns > .am-card {
     min-width: 0;
     height: 100%;
+    margin-bottom: 0;
   }
 
-  /* CHART - COMPACT */
+  /* CHART */
 
   .am-chart-scroll {
     width: 100%;
     overflow-x: auto;
     padding-bottom: 7px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--am-border) var(--am-surface);
   }
 
   .am-chart {
@@ -1917,7 +2047,7 @@ const css = `
     width: max-content;
     gap: 5px;
     height: 183px;
-    border-bottom: 1px solid #dde9e1;
+    border-bottom: 1px solid var(--am-border);
   }
 
   .am-chart-column {
@@ -1925,11 +2055,12 @@ const css = `
     flex-direction: column;
     align-items: center;
     justify-content: flex-end;
+    flex-shrink: 0;
     width: 25px;
     padding: 0;
     border: none;
     background: transparent;
-    color: #7b9386;
+    color: var(--am-muted);
     gap: 6px;
   }
 
@@ -1944,33 +2075,34 @@ const css = `
     align-items: flex-end;
     width: 16px;
     height: 125px;
+    flex-shrink: 0;
   }
 
   .am-bar-track i {
     display: block;
     width: 100%;
     border-radius: 4px 4px 0 0;
-    background: #40c59a;
+    background: var(--am-chart-bar);
   }
 
   .am-chart-column.selected .am-bar-track i {
-    background: #268bd6;
+    background: var(--am-chart-selected);
   }
 
   .am-chart-column.selected {
-    color: #207bc1;
+    color: var(--am-chart-selected-text);
     font-weight: 900;
   }
 
   .am-chart-column.outside {
-    opacity: .25;
+    opacity: .4;
   }
 
   .am-chart-column.outside .am-bar-track i {
-    background: #dce5e0;
+    background: var(--am-chart-outside);
   }
 
-  /* ACTIVITY PANEL - SMALLER */
+  /* ACTIVITY PANEL */
 
   .am-activity-panel {
     display: flex;
@@ -1978,7 +2110,7 @@ const css = `
   }
 
   .am-highlight {
-    color: #078b60;
+    color: var(--am-accent);
     font-size: 22px;
     font-weight: 900;
   }
@@ -1994,13 +2126,13 @@ const css = `
     min-width: 0;
     padding: 11px 12px;
     border-radius: 9px;
-    background: #edf8f2;
+    background: var(--am-tint);
   }
 
   .am-activity-stats strong {
     display: block;
     font-size: 21px;
-    color: #087e59;
+    color: var(--am-accent);
     line-height: 1.1;
   }
 
@@ -2009,7 +2141,7 @@ const css = `
     font-size: 9px;
     line-height: 1.5;
     margin-top: 5px;
-    color: #698677;
+    color: var(--am-secondary);
   }
 
   .am-week-grid {
@@ -2022,10 +2154,10 @@ const css = `
     min-width: 0;
     min-height: 29px;
     padding: 7px 2px;
-    border: 1px solid #dce8e1;
+    border: 1px solid var(--am-border);
     border-radius: 6px;
-    background: #f3f7f5;
-    color: #718a7a;
+    background: var(--am-week-bg);
+    color: var(--am-muted);
     font-size: 9px;
     font-weight: 800;
     text-align: center;
@@ -2033,23 +2165,25 @@ const css = `
   }
 
   .am-week.has-data {
-    color: #087c58;
-    background: #ccefe0;
-    border-color: #b7e6d0;
+    color: var(--am-week-data-text);
+    background: var(--am-week-data-bg);
+    border-color: var(--am-week-data-border);
   }
 
   .am-week.selected {
-    background: #087b59;
-    color: white;
-    border-color: #087b59;
+    background: var(--am-week-selected);
+    color: #ffffff;
+    border-color: var(--am-week-selected);
+    box-shadow: 0 0 0 1px var(--am-week-selected);
   }
 
   .am-week.outside {
-    background: #f6f7f7;
-    border-color: #edf0ef;
-    color: #bec9c4;
+    background: var(--am-week-outside-bg);
+    border-color: var(--am-week-outside-border);
+    color: var(--am-week-outside-text);
     opacity: .65;
     cursor: not-allowed;
+    box-shadow: none;
   }
 
   .am-legend {
@@ -2058,7 +2192,7 @@ const css = `
     flex-wrap: wrap;
     gap: 12px;
     margin-top: 11px;
-    color: #87998e;
+    color: var(--am-muted);
     font-size: 9px;
   }
 
@@ -2071,28 +2205,30 @@ const css = `
   .am-dot {
     width: 8px;
     height: 8px;
+    flex-shrink: 0;
     border-radius: 3px;
     display: inline-block;
   }
 
   .am-dot.active {
-    background: #28b786;
+    background: var(--am-chart-bar);
   }
 
   .am-dot.inactive {
-    background: #d7e3dc;
+    background: var(--am-progress-track);
+    border: 1px solid var(--am-border);
   }
 
   .am-dot.outside {
-    background: #f6f7f7;
-    border: 1px solid #c4d0ca;
+    background: var(--am-week-outside-bg);
+    border: 1px solid var(--am-week-outside-text);
   }
 
   /* COMMON NOTE */
 
   .am-note {
     margin: 11px 0 0;
-    color: #87998e;
+    color: var(--am-muted);
     font-size: 10px;
     line-height: 1.65;
   }
@@ -2109,8 +2245,39 @@ const css = `
   .am-footer {
     padding: 14px 0 22px;
     text-align: center;
-    color: #8da095;
+    color: var(--am-muted);
     font-size: 10px;
+  }
+
+  /* HOVER */
+
+  @media (hover: hover) {
+    .am-actions button:not(.primary):not(:disabled):hover,
+    .am-bottom button:not(.primary):hover,
+    .am-tabs button:hover,
+    .am-week-control button:not(:disabled):hover {
+      background: var(--am-tint);
+      border-color: var(--am-accent);
+    }
+
+    .am-actions button.primary:hover,
+    .am-bottom button.primary:hover,
+    .am-loading button:hover {
+      background: var(--am-primary-hover);
+      border-color: var(--am-primary-hover);
+    }
+
+    .am-account button:hover {
+      background: #ffffff24;
+    }
+
+    .am-week:not(:disabled):hover {
+      border-color: var(--am-accent);
+    }
+
+    .am-chart-column:not(:disabled):hover .am-bar-track i {
+      background: var(--am-chart-selected);
+    }
   }
 
   /* PRESENTATION MODE */
@@ -2177,6 +2344,12 @@ const css = `
       font-size: 24px;
     }
 
+    .am-tabs button,
+    .am-tabs span {
+      padding: 10px 12px;
+      font-size: 11px;
+    }
+
     .am-card {
       padding: 14px;
     }
@@ -2206,6 +2379,11 @@ const css = `
       text-align: left;
     }
 
+    .am-period small {
+      width: 100%;
+      margin-left: 0;
+    }
+
     .am-week {
       font-size: 9px;
     }
@@ -2225,6 +2403,24 @@ const css = `
   }
 
   @media (max-width: 390px) {
+    .am-header {
+      flex-wrap: wrap;
+    }
+
+    .am-account {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+    .am-account > div {
+      max-width: calc(100% - 90px);
+    }
+
+    .am-account small,
+    .am-account strong {
+      text-align: left;
+    }
+
     .am-week {
       padding: 7px 1px;
       font-size: 8px;
@@ -2234,14 +2430,85 @@ const css = `
       gap: 7px;
       font-size: 8px;
     }
+
+    .am-state-card {
+      padding: 20px;
+    }
   }
 
-  /* PRINT */
+  /* PRINT — SELALU MENGGUNAKAN PALET TERANG */
 
   @media print {
     @page {
       size: A4 landscape;
       margin: 10mm;
+    }
+
+    .am-root,
+    html[data-theme="dark"] .am-root {
+      color-scheme: light;
+
+      --am-bg: #ffffff;
+      --am-surface: #ffffff;
+      --am-surface-soft: #f6f9f7;
+      --am-surface-category: #fcfefd;
+      --am-control-bg: #f8fbf9;
+      --am-text: #17352d;
+      --am-text-strong: #153c2f;
+      --am-muted: #587166;
+      --am-secondary: #496c5b;
+      --am-border: #dce8e1;
+      --am-border-soft: #e3ece6;
+      --am-shadow: none;
+
+      --am-accent: #087e59;
+      --am-accent-strong: #087453;
+      --am-primary: #078b61;
+      --am-primary-text: #ffffff;
+      --am-tint: #edf8f1;
+      --am-icon-bg: #e4f5eb;
+
+      --am-stat-green: #e7f7ee;
+      --am-stat-orange: #fff5e6;
+      --am-stat-blue: #eaf4ff;
+
+      --am-progress-track: #e4ece7;
+      --am-progress-start: #28bf8c;
+      --am-progress-end: #07885f;
+
+      --am-chart-bar: #40c59a;
+      --am-chart-selected: #268bd6;
+      --am-chart-selected-text: #1769a7;
+      --am-chart-outside: #dce5e0;
+
+      --am-week-bg: #f3f7f5;
+      --am-week-data-bg: #ccefe0;
+      --am-week-data-border: #b7e6d0;
+      --am-week-data-text: #087453;
+      --am-week-selected: #087b59;
+      --am-week-outside-bg: #f6f7f7;
+      --am-week-outside-border: #e3e8e5;
+      --am-week-outside-text: #7c8e85;
+
+      --am-error-bg: #fff1f1;
+      --am-error-border: #fecaca;
+      --am-error-text: #b91c1c;
+
+      --am-hero-start: rgba(6,29,35,.96);
+      --am-hero-end: rgba(7,80,62,.82);
+      --am-hero-text: #ffffff;
+      --am-hero-muted: #dcece4;
+      --am-hero-label: #edca79;
+      --am-person-bg: #092b2cc4;
+      --am-person-border: #ffffff2a;
+      --am-person-muted: #c8e0d7;
+      --am-avatar-bg: #d8f3e7;
+      --am-avatar-text: #087453;
+
+      background: #ffffff;
+      color: #17352d;
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
     }
 
     .am-header,
@@ -2252,13 +2519,8 @@ const css = `
       display: none !important;
     }
 
-    .am-root {
-      background: white;
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-
-    .am-container {
+    .am-container,
+    .am-presentation .am-container {
       max-width: none;
       padding: 0;
     }
@@ -2273,12 +2535,41 @@ const css = `
       -webkit-print-color-adjust: exact;
     }
 
+    .am-stats {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .am-category-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
     .am-two-columns {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .am-chart-scroll {
       overflow: visible;
+    }
+
+    .am-chart {
+      width: 100%;
+      gap: 2px;
+    }
+
+    .am-chart-column {
+      flex: 1 1 0;
+      min-width: 0;
+      width: auto;
+    }
+
+    .am-chart-column strong,
+    .am-chart-column small {
+      font-size: 7px;
+    }
+
+    .am-bar-track {
+      width: 70%;
+      max-width: 16px;
     }
   }
 `;
