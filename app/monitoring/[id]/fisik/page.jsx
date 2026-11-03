@@ -1,9 +1,29 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../../lib/supabase";
+
+// =====================================================
+// OJT MINETRACK V2.0
+// MONITORING FISIK — GLOBAL LIGHT / DARK MODE
+//
+// Tema mengikuti html[data-theme] dari RootLayout.
+// Tidak menambahkan tombol tema.
+//
+// DIPERTAHANKAN:
+// - Hak akses Admin, Mentor, dan Peserta
+// - Database dan kebijakan RLS Supabase
+// - Target 25 km per minggu
+// - Perhitungan kilometer dalam satuan meter
+// - Hanya verified dengan jarak valid dihitung
+// - Pemilihan 25 minggu dan riwayat kegiatan
+// - Refresh dan pemeriksaan ulang akses
+//
+// CATATAN:
+// Perhitungan minggu mengikuti kode asal:
+// berbasis start_date peserta.
+// =====================================================
 
 const TOTAL_WEEKS = 25;
 const TARGET_KM = 25;
@@ -58,7 +78,6 @@ function weekLabel(week) {
   return `Week ${String(week).padStart(2, "0")}`;
 }
 
-// Format kilometer tanpa desimal yang tidak diperlukan.
 // Contoh: 8,000 menjadi 8; 12,500 menjadi 12,5.
 function formatKm(value) {
   const number = Number(value);
@@ -163,13 +182,12 @@ export default function MonitoringFisikPage() {
 
   const [program, setProgram] = useState(null);
   const [records, setRecords] = useState([]);
+  const [account, setAccount] = useState(null);
 
   const [selectedWeek, setSelectedWeek] = useState(1);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-
   const [viewerId, setViewerId] = useState(null);
 
   // ==================================================
@@ -177,7 +195,6 @@ export default function MonitoringFisikPage() {
   //
   // Admin dan Mentor boleh melihat seluruh program.
   // Peserta hanya boleh melihat program miliknya.
-  //
   // RLS Supabase tetap menjadi pengaman utama.
   // ==================================================
 
@@ -198,26 +215,19 @@ export default function MonitoringFisikPage() {
       error: profileError,
     } = await supabase
       .from("profiles")
-      .select("id,role")
+      .select("id,role,full_name")
       .eq("id", user.id)
       .single();
 
     if (profileError) throw profileError;
 
     if (!profile) {
-      throw new Error(
-        "Profil akun tidak ditemukan."
-      );
+      throw new Error("Profil akun tidak ditemukan.");
     }
 
     const role = normalizeRole(profile.role);
-
-    // PERBAIKAN:
-    // Admin sekarang diterima sebagai pengelola,
-    // sama seperti Mentor.
     const isAdmin = role === "admin";
     const isMentor = role === "mentor";
-
     const isManager = isAdmin || isMentor;
 
     const isParticipant = [
@@ -246,16 +256,8 @@ export default function MonitoringFisikPage() {
       `)
       .eq("id", programId);
 
-    // Admin:
-    // - Seluruh program sesuai RLS.
-    //
-    // Mentor:
-    // - Seluruh program sesuai RLS.
-    //
-    // Peserta:
-    // - Hanya program dengan participant_id
-    //   yang sama dengan akun login.
-
+    // Admin dan Mentor mengikuti akses seluruh program
+    // yang diizinkan RLS. Peserta hanya program sendiri.
     if (isParticipant) {
       programQuery = programQuery.eq(
         "participant_id",
@@ -276,8 +278,6 @@ export default function MonitoringFisikPage() {
       );
     }
 
-    // Validasi tambahan untuk Peserta.
-    // Tidak menggantikan pemeriksaan RLS.
     if (
       isParticipant &&
       programResult.data.participant_id !== user.id
@@ -288,9 +288,7 @@ export default function MonitoringFisikPage() {
     }
 
     if (!parseDate(programResult.data.start_date)) {
-      throw new Error(
-        "Tanggal mulai OJT belum valid."
-      );
+      throw new Error("Tanggal mulai OJT belum valid.");
     }
 
     const typeResult = await supabase
@@ -309,9 +307,7 @@ export default function MonitoringFisikPage() {
     );
 
     if (!fisikType) {
-      throw new Error(
-        "Kategori Fisik tidak ditemukan."
-      );
+      throw new Error("Kategori Fisik tidak ditemukan.");
     }
 
     const recordResult = await supabase
@@ -342,6 +338,7 @@ export default function MonitoringFisikPage() {
     return {
       viewerId: user.id,
       role,
+      profile,
       program: programResult.data,
       records: recordResult.data || [],
     };
@@ -360,6 +357,7 @@ export default function MonitoringFisikPage() {
       setProgram(null);
       setRecords([]);
       setViewerId(null);
+      setAccount(null);
 
       try {
         if (!programId) {
@@ -375,6 +373,7 @@ export default function MonitoringFisikPage() {
         setProgram(result.program);
         setRecords(result.records);
         setViewerId(result.viewerId);
+        setAccount(result.profile);
 
         const now = new Date();
 
@@ -435,9 +434,7 @@ export default function MonitoringFisikPage() {
 
   // ==================================================
   // REFRESH DATA
-  //
-  // Akses dicek ulang supaya perubahan role,
-  // sesi, dan hak melihat program ikut diterapkan.
+  // Akses diperiksa ulang seperti pada kode asal.
   // ==================================================
 
   async function refresh() {
@@ -465,12 +462,12 @@ export default function MonitoringFisikPage() {
       setProgram(result.program);
       setRecords(result.records);
       setViewerId(result.viewerId);
+      setAccount(result.profile);
     } catch (err) {
-      // Jangan tampilkan data lama ketika
-      // verifikasi akses ulang gagal.
       setProgram(null);
       setRecords([]);
       setViewerId(null);
+      setAccount(null);
 
       if (
         String(err?.message || "").includes(
@@ -490,11 +487,7 @@ export default function MonitoringFisikPage() {
   }
 
   // ==================================================
-  // PERHITUNGAN FISIK
-  //
-  // Seluruh rumus dipertahankan.
-  // Target tetap 25 km per minggu.
-  // Hanya verified dihitung untuk target.
+  // PERHITUNGAN FISIK — DIPERTAHANKAN
   // ==================================================
 
   const summary = useMemo(() => {
@@ -523,9 +516,7 @@ export default function MonitoringFisikPage() {
     );
 
     const weeklyKm = totalMeters / 1000;
-
-    const percentage =
-      (weeklyKm / TARGET_KM) * 100;
+    const percentage = (weeklyKm / TARGET_KM) * 100;
 
     const remainingMeters = Math.max(
       0,
@@ -562,439 +553,45 @@ export default function MonitoringFisikPage() {
     ? addDays(startWeekDate, 6)
     : null;
 
-  // ==================================================
-  // TAMPILAN MONITORING FISIK
-  // Seluruh desain lama dipertahankan.
-  // ==================================================
+  const accountRole = normalizeRole(account?.role);
+
+  const roleLabel =
+    accountRole === "admin"
+      ? "Administrator"
+      : accountRole === "mentor"
+      ? "Mentor OJT"
+      : "Peserta OJT";
 
   return (
     <main className="mf-root">
-      <style>{`
-        .mf-root {
-          min-height: 100vh;
-          background: #f1f6f5;
-          color: #19362e;
-          font-family: Arial, Helvetica, sans-serif;
-        }
-
-        .mf-root * {
-          box-sizing: border-box;
-        }
-
-        .mf-header {
-          background: #07313a;
-          color: white;
-          padding: 18px 24px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-        }
-
-        .mf-brand {
-          font-size: 22px;
-          font-weight: 900;
-        }
-
-        .mf-brand span {
-          color: #3bc78e;
-        }
-
-        .mf-back {
-          border: 0;
-          border-radius: 10px;
-          background: #e2f3e9;
-          color: #0a694d;
-          padding: 11px 15px;
-          font-size: 13px;
-          font-weight: 800;
-          cursor: pointer;
-        }
-
-        .mf-container {
-          max-width: 1050px;
-          margin: 0 auto;
-          padding: 24px;
-        }
-
-        .mf-title {
-          font-size: 27px;
-          font-weight: 900;
-          margin: 0 0 8px;
-        }
-
-        .mf-subtitle {
-          color: #758780;
-          font-size: 13px;
-          line-height: 1.6;
-          margin: 0 0 20px;
-        }
-
-        .mf-card {
-          background: white;
-          border: 1px solid #e0e9e5;
-          border-radius: 16px;
-          padding: 21px;
-          margin-bottom: 17px;
-          box-shadow: 0 4px 18px #183d2b0a;
-        }
-
-        .mf-profile-name {
-          font-size: 19px;
-          font-weight: 900;
-          margin-bottom: 7px;
-        }
-
-        .mf-profile-meta {
-          font-size: 12px;
-          color: #74867d;
-          line-height: 1.7;
-        }
-
-        .mf-section-title {
-          font-size: 18px;
-          font-weight: 900;
-          margin: 0 0 12px;
-        }
-
-        .mf-label {
-          display: block;
-          font-size: 13px;
-          font-weight: 800;
-          margin-bottom: 9px;
-        }
-
-        .mf-select {
-          display: block;
-          width: 100%;
-          padding: 13px;
-          border: 1px solid #cddbd4;
-          border-radius: 10px;
-          background: white;
-          color: #183b2b;
-          font-size: 16px;
-        }
-
-        .mf-week-dates {
-          margin-top: 10px;
-          color: #778980;
-          font-size: 12px;
-        }
-
-        .mf-target-card {
-          background: #242424;
-          color: white;
-          border-radius: 17px;
-          padding: 24px;
-        }
-
-        .mf-target-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-        }
-
-        .mf-target-label {
-          font-size: 14px;
-          color: #b7b7b7;
-          margin-bottom: 10px;
-        }
-
-        .mf-target-value {
-          font-size: 38px;
-          font-weight: 900;
-          line-height: 1.2;
-          overflow-wrap: anywhere;
-        }
-
-        .mf-target-value span {
-          font-size: 18px;
-          color: #b6b6b6;
-          font-weight: 700;
-        }
-
-        .mf-percent {
-          background: #3b3028;
-          color: #ff8c47;
-          border-radius: 40px;
-          padding: 9px 12px;
-          font-weight: 900;
-          font-size: 15px;
-          white-space: nowrap;
-        }
-
-        .mf-percent.done {
-          background: #153f2b;
-          color: #5ae1a0;
-        }
-
-        .mf-progress {
-          background: #373737;
-          height: 11px;
-          border-radius: 20px;
-          overflow: hidden;
-          margin-top: 22px;
-        }
-
-        .mf-progress div {
-          background: #39a75b;
-          height: 100%;
-          border-radius: inherit;
-          transition: width .2s;
-        }
-
-        .mf-target-stats {
-          display: grid;
-          grid-template-columns:
-            repeat(2, minmax(0, 1fr));
-          gap: 20px;
-          margin-top: 24px;
-        }
-
-        .mf-target-stats span {
-          display: block;
-          color: #b7b7b7;
-          font-size: 12px;
-          margin-bottom: 9px;
-        }
-
-        .mf-target-stats strong {
-          font-size: 25px;
-          font-weight: 900;
-          overflow-wrap: anywhere;
-        }
-
-        .mf-stats-grid {
-          display: grid;
-          grid-template-columns:
-            repeat(3, minmax(0, 1fr));
-          gap: 12px;
-        }
-
-        .mf-stat {
-          background: #f2faf5;
-          border: 1px solid #d9ede0;
-          border-radius: 12px;
-          padding: 15px;
-        }
-
-        .mf-stat span {
-          display: block;
-          color: #6c8575;
-          font-size: 11px;
-          margin-bottom: 8px;
-        }
-
-        .mf-stat strong {
-          display: block;
-          color: #0d7952;
-          font-size: 22px;
-          overflow-wrap: anywhere;
-        }
-
-        .mf-status-text {
-          margin-top: 12px;
-          font-size: 12px;
-          font-weight: 800;
-          color: #8bdbad;
-        }
-
-        .mf-status-text.pending {
-          color: #ffc68a;
-        }
-
-        .mf-history {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .mf-history-item {
-          display: grid;
-          grid-template-columns:
-            52px minmax(0, 1fr) auto;
-          gap: 13px;
-          align-items: start;
-          padding: 17px 0;
-          border-bottom: 1px solid #edf0ed;
-        }
-
-        .mf-history-item:last-child {
-          border-bottom: 0;
-        }
-
-        .mf-history-icon {
-          width: 48px;
-          height: 48px;
-          display: grid;
-          place-items: center;
-          background: #edf4ef;
-          border-radius: 12px;
-          font-size: 23px;
-        }
-
-        .mf-history-date {
-          font-size: 14px;
-          font-weight: 900;
-          margin-bottom: 6px;
-        }
-
-        .mf-history-status {
-          font-size: 12px;
-          color: #73877a;
-        }
-
-        .mf-history-desc {
-          color: #7a8b80;
-          font-size: 12px;
-          line-height: 1.5;
-          margin-top: 7px;
-          overflow-wrap: anywhere;
-        }
-
-        .mf-history-distance {
-          text-align: right;
-          font-size: 17px;
-          font-weight: 900;
-          white-space: nowrap;
-        }
-
-        .mf-verified {
-          color: #0a8758;
-        }
-
-        .mf-pending {
-          color: #c28624;
-        }
-
-        .mf-muted {
-          color: #809187;
-          font-size: 12px;
-          line-height: 1.6;
-        }
-
-        .mf-alert {
-          background: #fff0f0;
-          border: 1px solid #f1c1c1;
-          color: #a52535;
-          padding: 15px;
-          border-radius: 12px;
-          margin-bottom: 16px;
-          overflow-wrap: anywhere;
-        }
-
-        .mf-actions {
-          display: flex;
-          justify-content: flex-end;
-          margin-bottom: 15px;
-        }
-
-        .mf-refresh {
-          border: 1px solid #cde7d7;
-          background: #e9f7ee;
-          color: #0b8057;
-          border-radius: 9px;
-          padding: 10px 14px;
-          font-weight: 800;
-          cursor: pointer;
-        }
-
-        .mf-refresh:disabled {
-          opacity: .6;
-        }
-
-        @media (max-width: 760px) {
-          .mf-header {
-            padding: 15px;
-          }
-
-          .mf-brand {
-            font-size: 19px;
-          }
-
-          .mf-container {
-            padding: 12px;
-          }
-
-          .mf-title {
-            font-size: 22px;
-          }
-
-          .mf-card {
-            padding: 16px;
-            border-radius: 14px;
-            margin-bottom: 12px;
-          }
-
-          .mf-target-card {
-            padding: 19px;
-          }
-
-          .mf-target-value {
-            font-size: 30px;
-          }
-
-          .mf-target-value span {
-            font-size: 15px;
-          }
-
-          .mf-percent {
-            font-size: 13px;
-          }
-
-          .mf-target-stats strong {
-            font-size: 20px;
-          }
-
-          .mf-stats-grid {
-            grid-template-columns:
-              repeat(2, minmax(0, 1fr));
-          }
-
-          .mf-history-item {
-            grid-template-columns:
-              40px minmax(0, 1fr);
-            gap: 10px;
-          }
-
-          .mf-history-icon {
-            width: 38px;
-            height: 38px;
-            font-size: 19px;
-          }
-
-          .mf-history-distance {
-            grid-column: 2;
-            text-align: left;
-            font-size: 17px;
-          }
-        }
-
-        @media (max-width: 370px) {
-          .mf-target-top {
-            flex-wrap: wrap;
-          }
-
-          .mf-target-value {
-            font-size: 27px;
-          }
-        }
-      `}</style>
+      <style>{STYLES}</style>
 
       <header className="mf-header">
         <div className="mf-brand">
           OJT <span>MineTrack</span>
+          <small>v2.0</small>
         </div>
 
-        <button
-          type="button"
-          className="mf-back"
-          onClick={() =>
-            router.push(`/monitoring/${programId}`)
-          }
-        >
-          ← Kembali
-        </button>
+        <div className="mf-header-actions">
+          {account && (
+            <div className="mf-account">
+              <small>{roleLabel}</small>
+              <strong>
+                {account.full_name || "Pengguna"}
+              </strong>
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="mf-back"
+            onClick={() =>
+              router.push(`/monitoring/${programId}`)
+            }
+          >
+            ← Kembali
+          </button>
+        </div>
       </header>
 
       <div className="mf-container">
@@ -1009,17 +606,28 @@ export default function MonitoringFisikPage() {
         </p>
 
         {loading ? (
-          <section className="mf-card">
-            Memuat data Monitoring Fisik...
+          <section
+            className="mf-card mf-loading"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="mf-loading-icon" aria-hidden="true">
+              🏃
+            </div>
+            <strong>Memuat Monitoring Fisik</strong>
+            <p className="mf-muted">
+              Memuat data peserta dan riwayat kegiatan...
+            </p>
           </section>
         ) : error && !program ? (
-          <div className="mf-alert">
+          <div className="mf-alert" role="alert">
             {error}
           </div>
         ) : (
           <>
             {error && (
-              <div className="mf-alert">
+              <div className="mf-alert" role="alert">
                 {error}
               </div>
             )}
@@ -1049,9 +657,7 @@ export default function MonitoringFisikPage() {
                 className="mf-select"
                 value={selectedWeek}
                 onChange={(event) =>
-                  setSelectedWeek(
-                    Number(event.target.value)
-                  )
+                  setSelectedWeek(Number(event.target.value))
                 }
               >
                 {Array.from(
@@ -1094,16 +700,11 @@ export default function MonitoringFisikPage() {
                   </div>
                 </div>
 
-                <ProgressBar
-                  percentage={summary.percentage}
-                />
+                <ProgressBar percentage={summary.percentage} />
 
                 <div className="mf-target-stats">
                   <div>
-                    <span>
-                      Kegiatan lari terverifikasi
-                    </span>
-
+                    <span>Kegiatan lari terverifikasi</span>
                     <strong>
                       {summary.verifiedCount} kali
                     </strong>
@@ -1111,7 +712,6 @@ export default function MonitoringFisikPage() {
 
                   <div>
                     <span>Sisa target minggu ini</span>
-
                     <strong>
                       {formatKm(summary.remainingKm)} km
                     </strong>
@@ -1120,9 +720,7 @@ export default function MonitoringFisikPage() {
 
                 <div
                   className={`mf-status-text ${
-                    summary.achieved
-                      ? ""
-                      : "pending"
+                    summary.achieved ? "" : "pending"
                   }`}
                 >
                   {summary.achieved
@@ -1174,9 +772,7 @@ export default function MonitoringFisikPage() {
                   onClick={refresh}
                   disabled={refreshing}
                 >
-                  {refreshing
-                    ? "Memuat..."
-                    : "↻ Refresh"}
+                  {refreshing ? "Memuat..." : "↻ Refresh"}
                 </button>
               </div>
 
@@ -1185,9 +781,8 @@ export default function MonitoringFisikPage() {
               </h2>
 
               <p className="mf-muted">
-                {summary.activityCount} catatan
-                kegiatan pada minggu ini.
-                Setiap kegiatan ditampilkan
+                {summary.activityCount} catatan kegiatan pada
+                minggu ini. Setiap kegiatan ditampilkan
                 berdasarkan tanggal dan statusnya.
               </p>
 
@@ -1198,65 +793,60 @@ export default function MonitoringFisikPage() {
                 </p>
               ) : (
                 <div className="mf-history">
-                  {summary.weeklyRecords.map(
-                    (item, index) => {
-                      const verified =
-                        item.status === "verified";
+                  {summary.weeklyRecords.map((item, index) => {
+                    const verified = item.status === "verified";
 
-                      return (
+                    return (
+                      <div
+                        className="mf-history-item"
+                        key={item.id}
+                      >
                         <div
-                          className="mf-history-item"
-                          key={item.id}
+                          className="mf-history-icon"
+                          aria-hidden="true"
                         >
-                          <div className="mf-history-icon">
-                            🏃
-                          </div>
-
-                          <div>
-                            <div className="mf-history-date">
-                              Lari ke-
-                              {summary.activityCount -
-                                index}
-                              {" · "}
-                              {formatDate(
-                                item.activity_date
-                              )}
-                            </div>
-
-                            <div
-                              className={`mf-history-status ${
-                                verified
-                                  ? "mf-verified"
-                                  : "mf-pending"
-                              }`}
-                            >
-                              {verified
-                                ? "✓ Terverifikasi Mentor"
-                                : item.status === "pending"
-                                ? "Menunggu Verifikasi"
-                                : item.status ||
-                                  "Status belum tersedia"}
-                            </div>
-
-                            {item.description && (
-                              <div className="mf-history-desc">
-                                {item.description}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="mf-history-distance">
-                            {validDistance(item.distance_km)
-                              ? formatKm(
-                                  item.distance_km
-                                )
-                              : "—"}{" "}
-                            km
-                          </div>
+                          🏃
                         </div>
-                      );
-                    }
-                  )}
+
+                        <div>
+                          <div className="mf-history-date">
+                            Lari ke-
+                            {summary.activityCount - index}
+                            {" · "}
+                            {formatDate(item.activity_date)}
+                          </div>
+
+                          <div
+                            className={`mf-history-status ${
+                              verified
+                                ? "mf-verified"
+                                : "mf-pending"
+                            }`}
+                          >
+                            {verified
+                              ? "✓ Terverifikasi Mentor"
+                              : item.status === "pending"
+                              ? "Menunggu Verifikasi"
+                              : item.status ||
+                                "Status belum tersedia"}
+                          </div>
+
+                          {item.description && (
+                            <div className="mf-history-desc">
+                              {item.description}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mf-history-distance">
+                          {validDistance(item.distance_km)
+                            ? formatKm(item.distance_km)
+                            : "—"}{" "}
+                          km
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -1266,3 +856,730 @@ export default function MonitoringFisikPage() {
     </main>
   );
 }
+
+// =====================================================
+// CSS — TEMA GLOBAL
+// =====================================================
+
+const STYLES = `
+  /* LIGHT MODE */
+
+  .mf-root {
+    color-scheme: light;
+
+    --mf-bg: #f1f6f5;
+    --mf-surface: #ffffff;
+    --mf-text: #19362e;
+    --mf-heading: #19362e;
+    --mf-muted: #587165;
+    --mf-border: #e0e9e5;
+    --mf-divider: #e5ece7;
+    --mf-shadow: 0 4px 18px rgba(24,61,43,.04);
+
+    --mf-header: #07313a;
+    --mf-header-text: #ffffff;
+    --mf-header-muted: #c3ded3;
+    --mf-brand-accent: #3bc78e;
+
+    --mf-back-bg: #e2f3e9;
+    --mf-back-text: #0a694d;
+    --mf-back-hover: #ccebdc;
+
+    --mf-input-bg: #ffffff;
+    --mf-input-border: #cddbd4;
+    --mf-input-text: #183b2b;
+
+    --mf-target-bg: #edf8f1;
+    --mf-target-border: #cce7d6;
+    --mf-target-text: #173e2b;
+    --mf-target-muted: #4e705d;
+
+    --mf-percent-bg: #fff0df;
+    --mf-percent-text: #974700;
+    --mf-done-bg: #d4efdf;
+    --mf-done-text: #08623e;
+
+    --mf-progress-bg: #d4e7db;
+    --mf-progress-fill: #269858;
+
+    --mf-stat-bg: #f2faf5;
+    --mf-stat-border: #d9ede0;
+    --mf-stat-text: #0d7952;
+
+    --mf-status-done: #087448;
+    --mf-status-pending: #945000;
+
+    --mf-icon-bg: #edf4ef;
+    --mf-verified: #0a7950;
+    --mf-pending: #946000;
+
+    --mf-error-bg: #fff0f0;
+    --mf-error-border: #f1c1c1;
+    --mf-error-text: #a52535;
+
+    --mf-refresh-bg: #e9f7ee;
+    --mf-refresh-border: #cde7d7;
+    --mf-refresh-text: #0b8057;
+    --mf-refresh-hover: #d8efdf;
+
+    --mf-focus: #237fc0;
+  }
+
+  /* DARK MODE */
+
+  html[data-theme="dark"] .mf-root {
+    color-scheme: dark;
+
+    --mf-bg: #0b171c;
+    --mf-surface: #15272e;
+    --mf-text: #e3f0e8;
+    --mf-heading: #edf8f1;
+    --mf-muted: #aac1b5;
+    --mf-border: #30473f;
+    --mf-divider: #2b4038;
+    --mf-shadow: 0 4px 18px rgba(0,0,0,.18);
+
+    --mf-header: #071e25;
+    --mf-header-text: #f0f8f3;
+    --mf-header-muted: #b5d1c2;
+    --mf-brand-accent: #5bdeb0;
+
+    --mf-back-bg: #234638;
+    --mf-back-text: #bcf5d8;
+    --mf-back-hover: #2c5945;
+
+    --mf-input-bg: #1b3036;
+    --mf-input-border: #3b574b;
+    --mf-input-text: #e3f0e8;
+
+    --mf-target-bg: #10281f;
+    --mf-target-border: #2c5540;
+    --mf-target-text: #f0f8f2;
+    --mf-target-muted: #b1cdbb;
+
+    --mf-percent-bg: #493521;
+    --mf-percent-text: #ffd29f;
+    --mf-done-bg: #214b34;
+    --mf-done-text: #98efb9;
+
+    --mf-progress-bg: #2c4838;
+    --mf-progress-fill: #53d589;
+
+    --mf-stat-bg: #1b352a;
+    --mf-stat-border: #315340;
+    --mf-stat-text: #87e8b6;
+
+    --mf-status-done: #98edb8;
+    --mf-status-pending: #ffd09a;
+
+    --mf-icon-bg: #244234;
+    --mf-verified: #85e4af;
+    --mf-pending: #ffd28e;
+
+    --mf-error-bg: #40242c;
+    --mf-error-border: #7a424d;
+    --mf-error-text: #ffc3cb;
+
+    --mf-refresh-bg: #214333;
+    --mf-refresh-border: #38634b;
+    --mf-refresh-text: #a2edc1;
+    --mf-refresh-hover: #2c5540;
+
+    --mf-focus: #88caff;
+  }
+
+  /* BASE */
+
+  .mf-root,
+  .mf-root * {
+    box-sizing: border-box;
+  }
+
+  .mf-root {
+    min-height: 100vh;
+    background: var(--mf-bg);
+    color: var(--mf-text);
+    font-family: Arial, Helvetica, sans-serif;
+    line-height: 1.5;
+  }
+
+  .mf-root button,
+  .mf-root select {
+    font-family: inherit;
+  }
+
+  .mf-root button {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .mf-root button:disabled {
+    cursor: not-allowed;
+  }
+
+  .mf-root button:focus-visible,
+  .mf-root select:focus-visible {
+    outline: 3px solid var(--mf-focus);
+    outline-offset: 3px;
+  }
+
+  /* HEADER */
+
+  .mf-header {
+    background: var(--mf-header);
+    color: var(--mf-header-text);
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .mf-brand {
+    font-size: 22px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .mf-brand span {
+    color: var(--mf-brand-accent);
+  }
+
+  .mf-brand > small {
+    margin-left: 6px;
+    color: var(--mf-header-muted);
+    font-size: 10px;
+  }
+
+  .mf-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .mf-account {
+    min-width: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .mf-account small,
+  .mf-account strong {
+    display: block;
+  }
+
+  .mf-account small {
+    color: var(--mf-header-muted);
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+
+  .mf-account strong {
+    color: var(--mf-header-text);
+    font-size: 12px;
+  }
+
+  .mf-back {
+    flex-shrink: 0;
+    border: 0;
+    border-radius: 10px;
+    background: var(--mf-back-bg);
+    color: var(--mf-back-text);
+    padding: 11px 15px;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  /* PAGE */
+
+  .mf-container {
+    width: 100%;
+    max-width: 1050px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  .mf-title {
+    color: var(--mf-heading);
+    font-size: 27px;
+    font-weight: 900;
+    line-height: 1.3;
+    margin: 0 0 8px;
+  }
+
+  .mf-subtitle {
+    color: var(--mf-muted);
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 0 0 20px;
+  }
+
+  .mf-card {
+    min-width: 0;
+    background: var(--mf-surface);
+    color: var(--mf-text);
+    border: 1px solid var(--mf-border);
+    border-radius: 16px;
+    padding: 21px;
+    margin-bottom: 17px;
+    box-shadow: var(--mf-shadow);
+  }
+
+  .mf-profile-name {
+    color: var(--mf-heading);
+    font-size: 19px;
+    font-weight: 900;
+    margin-bottom: 7px;
+    overflow-wrap: anywhere;
+  }
+
+  .mf-profile-meta {
+    font-size: 12px;
+    color: var(--mf-muted);
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+
+  .mf-section-title {
+    color: var(--mf-heading);
+    font-size: 18px;
+    font-weight: 900;
+    margin: 0 0 12px;
+  }
+
+  /* WEEK SELECTION */
+
+  .mf-label {
+    display: block;
+    color: var(--mf-text);
+    font-size: 13px;
+    font-weight: 800;
+    margin-bottom: 9px;
+  }
+
+  .mf-select {
+    display: block;
+    width: 100%;
+    padding: 13px;
+    border: 1px solid var(--mf-input-border);
+    border-radius: 10px;
+    background: var(--mf-input-bg);
+    color: var(--mf-input-text);
+    font-size: 16px;
+  }
+
+  .mf-select option {
+    background: var(--mf-input-bg);
+    color: var(--mf-input-text);
+  }
+
+  .mf-week-dates {
+    margin-top: 10px;
+    color: var(--mf-muted);
+    font-size: 12px;
+  }
+
+  /* WEEKLY TARGET */
+
+  .mf-target-card {
+    background: var(--mf-target-bg);
+    color: var(--mf-target-text);
+    border: 1px solid var(--mf-target-border);
+    border-radius: 17px;
+    padding: 24px;
+  }
+
+  .mf-target-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .mf-target-top > div:first-child {
+    min-width: 0;
+  }
+
+  .mf-target-label {
+    font-size: 14px;
+    color: var(--mf-target-muted);
+    margin-bottom: 10px;
+  }
+
+  .mf-target-value {
+    color: var(--mf-target-text);
+    font-size: 38px;
+    font-weight: 900;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  .mf-target-value span {
+    font-size: 18px;
+    color: var(--mf-target-muted);
+    font-weight: 700;
+  }
+
+  .mf-percent {
+    background: var(--mf-percent-bg);
+    color: var(--mf-percent-text);
+    border-radius: 40px;
+    padding: 9px 12px;
+    font-weight: 900;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+
+  .mf-percent.done {
+    background: var(--mf-done-bg);
+    color: var(--mf-done-text);
+  }
+
+  .mf-progress {
+    background: var(--mf-progress-bg);
+    height: 11px;
+    border-radius: 20px;
+    overflow: hidden;
+    margin-top: 22px;
+  }
+
+  .mf-progress div {
+    background: var(--mf-progress-fill);
+    height: 100%;
+    border-radius: inherit;
+    transition: width .2s ease;
+  }
+
+  .mf-target-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    margin-top: 24px;
+  }
+
+  .mf-target-stats > div {
+    min-width: 0;
+  }
+
+  .mf-target-stats span {
+    display: block;
+    color: var(--mf-target-muted);
+    font-size: 12px;
+    margin-bottom: 9px;
+  }
+
+  .mf-target-stats strong {
+    color: var(--mf-target-text);
+    font-size: 25px;
+    font-weight: 900;
+    overflow-wrap: anywhere;
+  }
+
+  .mf-status-text {
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--mf-status-done);
+  }
+
+  .mf-status-text.pending {
+    color: var(--mf-status-pending);
+  }
+
+  /* ACTIVITY STATS */
+
+  .mf-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .mf-stat {
+    min-width: 0;
+    background: var(--mf-stat-bg);
+    border: 1px solid var(--mf-stat-border);
+    border-radius: 12px;
+    padding: 15px;
+  }
+
+  .mf-stat span {
+    display: block;
+    color: var(--mf-muted);
+    font-size: 11px;
+    margin-bottom: 8px;
+  }
+
+  .mf-stat strong {
+    display: block;
+    color: var(--mf-stat-text);
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+
+  /* HISTORY */
+
+  .mf-history {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mf-history-item {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr) auto;
+    gap: 13px;
+    align-items: start;
+    padding: 17px 0;
+    border-bottom: 1px solid var(--mf-divider);
+  }
+
+  .mf-history-item:last-child {
+    border-bottom: 0;
+  }
+
+  .mf-history-icon {
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    background: var(--mf-icon-bg);
+    border-radius: 12px;
+    font-size: 23px;
+  }
+
+  .mf-history-date {
+    color: var(--mf-heading);
+    font-size: 14px;
+    font-weight: 900;
+    margin-bottom: 6px;
+    overflow-wrap: anywhere;
+  }
+
+  .mf-history-status {
+    font-size: 12px;
+    color: var(--mf-muted);
+    overflow-wrap: anywhere;
+  }
+
+  .mf-history-desc {
+    color: var(--mf-muted);
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 7px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .mf-history-distance {
+    color: var(--mf-heading);
+    text-align: right;
+    font-size: 17px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .mf-verified {
+    color: var(--mf-verified);
+  }
+
+  .mf-pending {
+    color: var(--mf-pending);
+  }
+
+  /* COMMON */
+
+  .mf-muted {
+    color: var(--mf-muted);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .mf-alert {
+    background: var(--mf-error-bg);
+    border: 1px solid var(--mf-error-border);
+    color: var(--mf-error-text);
+    padding: 15px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    overflow-wrap: anywhere;
+  }
+
+  .mf-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 15px;
+  }
+
+  .mf-refresh {
+    border: 1px solid var(--mf-refresh-border);
+    background: var(--mf-refresh-bg);
+    color: var(--mf-refresh-text);
+    border-radius: 9px;
+    padding: 10px 14px;
+    font-weight: 800;
+  }
+
+  .mf-refresh:disabled {
+    opacity: .6;
+  }
+
+  /* LOADING */
+
+  .mf-loading {
+    text-align: center;
+    padding: 35px 20px;
+  }
+
+  .mf-loading-icon {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 14px;
+    border-radius: 14px;
+    background: var(--mf-icon-bg);
+    font-size: 27px;
+  }
+
+  .mf-loading > strong {
+    display: block;
+    color: var(--mf-heading);
+    font-size: 17px;
+  }
+
+  .mf-loading p {
+    margin-bottom: 0;
+  }
+
+  /* HOVER */
+
+  @media (hover: hover) {
+    .mf-back:hover {
+      background: var(--mf-back-hover);
+    }
+
+    .mf-refresh:not(:disabled):hover {
+      background: var(--mf-refresh-hover);
+    }
+  }
+
+  /* RESPONSIVE */
+
+  @media (max-width: 760px) {
+    .mf-header {
+      padding: 15px;
+    }
+
+    .mf-brand {
+      font-size: 19px;
+    }
+
+    .mf-header-actions {
+      gap: 10px;
+    }
+
+    .mf-account {
+      max-width: 150px;
+    }
+
+    .mf-container {
+      padding: 12px;
+    }
+
+    .mf-title {
+      font-size: 22px;
+    }
+
+    .mf-card {
+      padding: 16px;
+      border-radius: 14px;
+      margin-bottom: 12px;
+    }
+
+    .mf-target-card {
+      padding: 19px;
+    }
+
+    .mf-target-value {
+      font-size: 30px;
+    }
+
+    .mf-target-value span {
+      font-size: 15px;
+    }
+
+    .mf-percent {
+      font-size: 13px;
+    }
+
+    .mf-target-stats strong {
+      font-size: 20px;
+    }
+
+    .mf-stats-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .mf-history-item {
+      grid-template-columns: 40px minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .mf-history-icon {
+      width: 38px;
+      height: 38px;
+      font-size: 19px;
+    }
+
+    .mf-history-distance {
+      grid-column: 2;
+      text-align: left;
+      font-size: 17px;
+    }
+  }
+
+  @media (max-width: 540px) {
+    .mf-header {
+      flex-wrap: wrap;
+    }
+
+    .mf-header-actions {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+    .mf-account {
+      max-width: calc(100% - 105px);
+      text-align: left;
+    }
+
+    .mf-back {
+      font-size: 12px;
+      padding: 10px 12px;
+    }
+  }
+
+  @media (max-width: 370px) {
+    .mf-target-top {
+      flex-wrap: wrap;
+    }
+
+    .mf-target-value {
+      font-size: 27px;
+    }
+
+    .mf-target-stats {
+      gap: 12px;
+    }
+
+    .mf-stat {
+      padding: 12px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mf-progress div {
+      transition: none;
+    }
+  }
+`;
