@@ -16,12 +16,11 @@ import { supabase } from "../../../lib/supabase";
 // LIGHT & DARK MODE
 //
 // UPDATE:
-// - Penambahan Site PMO
-// - Penambahan Site TSP
-//
-// Tidak mengubah database, RPC, atau API.
-// Feature flags tetap diverifikasi di server.
-// Tema mengikuti html[data-theme] dari RootLayout.
+// - Token autentikasi dikirim ke Feature Flags API
+// - Penambahan Site PMO dan TSP
+// - Verifikasi sesi Mentor
+// - Transaksi tetap diproses melalui server
+// - Tidak mengubah database, RPC, atau API
 // ======================================================
 
 const FLAGS_URL = "/api/system/feature-flags";
@@ -303,6 +302,7 @@ export default function PersetujuanPesertaPage() {
 
   // ====================================================
   // FEATURE FLAGS
+  // UPDATE: TOKEN AUTENTIKASI MENTOR
   // ====================================================
 
   const loadFeatureFlags = useCallback(async () => {
@@ -314,7 +314,27 @@ export default function PersetujuanPesertaPage() {
     };
 
     try {
+      // Ambil sesi login Mentor
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      // Jika sesi tidak valid, fitur ditutup
+      if (
+        sessionError ||
+        !session?.access_token
+      ) {
+        setFeatures(disabled);
+        return disabled;
+      }
+
+      // Ambil Feature Flags dengan token autentikasi
       const response = await fetch(FLAGS_URL, {
+        headers: {
+          Authorization:
+            `Bearer ${session.access_token}`,
+        },
         cache: "no-store",
       });
 
@@ -338,9 +358,13 @@ export default function PersetujuanPesertaPage() {
 
       setFeatures(next);
       return next;
-    } catch {
+
+    } catch (err) {
+      console.error("Feature Flags:", err);
+
       setFeatures(disabled);
       return disabled;
+
     } finally {
       setFlagsLoading(false);
     }
@@ -409,6 +433,7 @@ export default function PersetujuanPesertaPage() {
 
         setRegistrations(rows);
         return true;
+
       } catch (err) {
         setError(
           err?.message ||
@@ -416,6 +441,7 @@ export default function PersetujuanPesertaPage() {
         );
 
         return false;
+
       } finally {
         setLoading(false);
       }
@@ -462,6 +488,7 @@ export default function PersetujuanPesertaPage() {
         if (active) {
           setAccount(data);
         }
+
       } catch (err) {
         if (active) {
           setError(
@@ -478,6 +505,10 @@ export default function PersetujuanPesertaPage() {
       active = false;
     };
   }, [router]);
+
+  // ====================================================
+  // INITIAL LOAD
+  // ====================================================
 
   useEffect(() => {
     loadFeatureFlags();
@@ -799,11 +830,13 @@ export default function PersetujuanPesertaPage() {
           `Pengajuan ${participantName} berhasil ditolak.`
         );
       }
+
     } catch (err) {
       setError(
         err?.message ||
           "Terjadi kesalahan."
       );
+
     } finally {
       setProcessing(false);
     }
@@ -2386,10 +2419,6 @@ export default function PersetujuanPesertaPage() {
 // ======================================================
 
 const css = `
-/* =====================================================
-   LIGHT THEME VARIABLES
-   ===================================================== */
-
 .ap-app,
 .ap-app * {
   box-sizing: border-box;
@@ -2424,9 +2453,7 @@ const css = `
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* =====================================================
-   DARK THEME VARIABLES
-   ===================================================== */
+/* DARK THEME */
 
 :root[data-theme="dark"] .ap-app {
   --ap-bg: #0d171b;
@@ -2452,9 +2479,7 @@ const css = `
   --ap-shadow: rgba(0,0,0,.20);
 }
 
-/* =====================================================
-   GLOBAL
-   ===================================================== */
+/* GLOBAL */
 
 .ap-app button,
 .ap-app input,
@@ -2480,9 +2505,7 @@ const css = `
   outline-offset: 2px;
 }
 
-/* =====================================================
-   TOPBAR
-   ===================================================== */
+/* TOPBAR */
 
 .ap-topbar {
   position: sticky;
@@ -2647,9 +2670,7 @@ const css = `
   color: white;
 }
 
-/* =====================================================
-   MAIN CONTAINER
-   ===================================================== */
+/* MAIN CONTAINER */
 
 .ap-container {
   max-width: 1500px;
@@ -2657,9 +2678,7 @@ const css = `
   padding: 23px;
 }
 
-/* =====================================================
-   HERO
-   ===================================================== */
+/* HERO */
 
 .ap-hero {
   display: flex;
@@ -2693,11 +2712,7 @@ const css = `
   margin: 12px 0;
   color: white;
 
-  font-size: clamp(
-    29px,
-    3.3vw,
-    44px
-  );
+  font-size: clamp(29px,3.3vw,44px);
 }
 
 .ap-hero h1 em {
@@ -2766,9 +2781,7 @@ const css = `
   font-size: 10px;
 }
 
-/* =====================================================
-   BREADCRUMB
-   ===================================================== */
+/* BREADCRUMB */
 
 .ap-breadcrumb {
   display: flex;
@@ -2791,9 +2804,7 @@ const css = `
   color: var(--ap-primary-text);
 }
 
-/* =====================================================
-   ALERTS
-   ===================================================== */
+/* ALERTS */
 
 .ap-alert {
   display: flex;
@@ -2843,16 +2854,11 @@ const css = `
   color: #ffbfc8;
 }
 
-/* =====================================================
-   STAT CARDS
-   ===================================================== */
+/* STAT CARDS */
 
 .ap-stats {
   display: grid;
-
-  grid-template-columns:
-    repeat(4,minmax(0,1fr));
-
+  grid-template-columns: repeat(4,minmax(0,1fr));
   gap: 13px;
   margin-bottom: 16px;
 }
@@ -2960,9 +2966,7 @@ const css = `
   color: #a4d2ff;
 }
 
-/* =====================================================
-   FEATURE FLAGS
-   ===================================================== */
+/* FEATURE FLAGS */
 
 .ap-feature {
   display: flex;
@@ -3053,9 +3057,7 @@ const css = `
   color: #f1cb84;
 }
 
-/* =====================================================
-   CARD
-   ===================================================== */
+/* CARD */
 
 .ap-card {
   min-width: 0;
@@ -3095,12 +3097,7 @@ const css = `
   flex-shrink: 0;
   border-radius: 9px;
 
-  background: linear-gradient(
-    135deg,
-    #10487e,
-    #188bcb
-  );
-
+  background: linear-gradient(135deg,#10487e,#188bcb);
   color: white;
 }
 
@@ -3137,9 +3134,7 @@ const css = `
   background: var(--ap-accent-soft);
 }
 
-/* =====================================================
-   FILTERS
-   ===================================================== */
+/* FILTERS */
 
 .ap-filterbar {
   display: flex;
@@ -3244,9 +3239,7 @@ const css = `
   color: var(--ap-primary-text);
 }
 
-/* =====================================================
-   TABLE
-   ===================================================== */
+/* TABLE */
 
 .ap-table-wrap {
   width: 100%;
@@ -3300,9 +3293,7 @@ const css = `
   font-size: 10px;
 }
 
-/* =====================================================
-   PARTICIPANT
-   ===================================================== */
+/* PARTICIPANT */
 
 .ap-person {
   display: flex;
@@ -3357,9 +3348,7 @@ const css = `
   color: #a9f2cf;
 }
 
-/* =====================================================
-   STATUS BADGES
-   ===================================================== */
+/* STATUS BADGES */
 
 .ap-status {
   display: inline-flex;
@@ -3405,9 +3394,7 @@ const css = `
   color: #ffb4c0;
 }
 
-/* =====================================================
-   ACTION BUTTONS
-   ===================================================== */
+/* ACTION BUTTONS */
 
 .ap-actions {
   display: flex;
@@ -3470,9 +3457,7 @@ const css = `
   display: none;
 }
 
-/* =====================================================
-   BOTTOM PANELS
-   ===================================================== */
+/* BOTTOM PANELS */
 
 .ap-bottom {
   display: grid;
@@ -3569,9 +3554,7 @@ const css = `
   color: #bdd5d9;
 }
 
-/* =====================================================
-   APPROVAL FLOW
-   ===================================================== */
+/* APPROVAL FLOW */
 
 .ap-flow {
   display: grid;
@@ -3624,9 +3607,7 @@ const css = `
   line-height: 1.5;
 }
 
-/* =====================================================
-   BOTTOM ACTIONS
-   ===================================================== */
+/* BOTTOM ACTIONS */
 
 .ap-bottom-actions {
   margin-top: 17px;
@@ -3663,9 +3644,7 @@ const css = `
   font-size: 10px;
 }
 
-/* =====================================================
-   MODAL OVERLAY
-   ===================================================== */
+/* MODAL OVERLAY */
 
 .ap-overlay {
   position: fixed;
@@ -3680,9 +3659,7 @@ const css = `
   background: #061e2acd;
 }
 
-/* =====================================================
-   MODAL
-   ===================================================== */
+/* MODAL */
 
 .ap-modal {
   width: min(100%,570px);
@@ -3739,9 +3716,7 @@ const css = `
   padding: 20px;
 }
 
-/* =====================================================
-   DETAIL MODAL
-   ===================================================== */
+/* DETAIL MODAL */
 
 .ap-detail-grid {
   display: grid;
@@ -3820,9 +3795,7 @@ const css = `
   font-weight: 900;
 }
 
-/* =====================================================
-   REJECTION INFO
-   ===================================================== */
+/* REJECTION INFO */
 
 .ap-rejection-info {
   margin-top: 14px;
@@ -3845,17 +3818,13 @@ const css = `
   color: #ffb2c0;
 }
 
-/* =====================================================
-   DECISION MODAL — PARTICIPANT
-   ===================================================== */
+/* DECISION MODAL */
 
 .ap-modal-person {
   margin-bottom: 18px;
 }
 
-/* =====================================================
-   PERIOD DISPLAY
-   ===================================================== */
+/* PERIOD DISPLAY */
 
 .ap-period-display {
   display: flex;
@@ -3875,9 +3844,7 @@ const css = `
   color: var(--ap-heading);
 }
 
-/* =====================================================
-   PERIOD FORM
-   ===================================================== */
+/* PERIOD FORM */
 
 .ap-period-form {
   display: grid;
@@ -3929,9 +3896,7 @@ const css = `
   gap: 10px;
 }
 
-/* =====================================================
-   REJECTION FORM
-   ===================================================== */
+/* REJECTION FORM */
 
 .ap-reason-label {
   margin-top: 15px;
@@ -3951,9 +3916,7 @@ const css = `
   color: var(--ap-muted);
 }
 
-/* =====================================================
-   NOTICE
-   ===================================================== */
+/* NOTICE */
 
 .ap-notice {
   display: flex;
@@ -3977,9 +3940,7 @@ const css = `
   color: #adefc8;
 }
 
-/* =====================================================
-   MODAL BUTTONS
-   ===================================================== */
+/* MODAL BUTTONS */
 
 .ap-modal-buttons {
   display: flex;
@@ -4015,14 +3976,11 @@ const css = `
   color: white;
 }
 
-/* =====================================================
-   RESPONSIVE — DESKTOP / TABLET
-   ===================================================== */
+/* RESPONSIVE DESKTOP / TABLET */
 
 @media (max-width:1250px) {
   .ap-stats {
-    grid-template-columns:
-      repeat(2,minmax(0,1fr));
+    grid-template-columns: repeat(2,minmax(0,1fr));
   }
 
   .ap-nav button {
@@ -4075,9 +4033,7 @@ const css = `
   }
 }
 
-/* =====================================================
-   RESPONSIVE — MOBILE
-   ===================================================== */
+/* RESPONSIVE MOBILE */
 
 @media (max-width:700px) {
   .ap-topbar {
@@ -4269,9 +4225,7 @@ const css = `
   }
 }
 
-/* =====================================================
-   PRINT — LIGHT MODE
-   ===================================================== */
+/* PRINT */
 
 @page {
   size: A4 landscape;
