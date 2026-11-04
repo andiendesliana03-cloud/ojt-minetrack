@@ -1,14 +1,37 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import {
-  canReviewOjt,
-  getOjtAccessConfig,
-} from "../../../../lib/ojt-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+// ======================================================
+// OJT MINETRACK V2.0
+// API REVIEW REGISTRATION — MENTOR
+//
+// Mendukung:
+// 1. Pengajuan baru:
+//    public.ojt_registration_requests
+//
+// 2. Pendaftaran legacy:
+//    public.participant_registrations
+//
+// RPC:
+// - New: review_ojt_registration (4 parameter)
+// - Legacy: review_ojt_registration (7 parameter)
+//
+// MODE PENGUJIAN:
+// Kedua keputusan tetap nonaktif.
+// ======================================================
+
+// WAJIB false selama pengujian.
+const APPROVAL_ENABLED = false;
+const REJECTION_ENABLED = false;
+
+// ======================================================
+// VALID SITE
+// ======================================================
 
 const VALID_SITES = [
   "LMO",
@@ -20,48 +43,38 @@ const VALID_SITES = [
   "BMO 3",
   "SRN",
   "HO",
+  "PMO",
+  "TSP",
 ];
+
+// ======================================================
+// RESPONSE
+// ======================================================
 
 function respond(data, status = 200) {
   return NextResponse.json(data, {
     status,
-    headers: { "Cache-Control": "no-store" },
+    headers: {
+      "Cache-Control": "no-store",
+    },
   });
 }
 
 function fail(message, status = 400) {
   return respond(
-    { success: false, error: message },
+    {
+      success: false,
+      error: message,
+    },
     status
   );
 }
 
-function isUuid(value) {
-  return (
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value
-    )
-  );
-}
+// ======================================================
+// SUPABASE ADMIN CLIENT
+// ======================================================
 
-function isDate(value) {
-  if (
-    typeof value !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(value)
-  ) {
-    return false;
-  }
-
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-
-  return (
-    !Number.isNaN(parsed.getTime()) &&
-    parsed.toISOString().slice(0, 10) === value
-  );
-}
-
-function getAdmin() {
+function getAdminClient() {
   const url = (
     process.env.NEXT_PUBLIC_SUPABASE_URL || ""
   ).trim();
@@ -87,127 +100,560 @@ function getAdmin() {
   });
 }
 
-async function findRegistration(admin, id, source) {
-  // Pendaftaran baru dengan periode individual.
-  async function findNew() {
-    const { data, error } = await admin
-      .from("ojt_registration_requests")
-      .select(
-        "id,participant_id,department,site,start_date,end_date,status"
-      )
-      .eq("id", id)
-      .maybeSingle();
+// ======================================================
+// VALIDATION HELPERS
+// ======================================================
 
-    if (error) throw error;
+function validUUID(value) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value
+    )
+  );
+}
 
-    return data
-      ? {
-          source: "new",
-          registration: data,
-          participantId: data.participant_id,
-        }
-      : null;
+function validDate(value) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
+    return false;
   }
 
-  // Pendaftaran melalui formulir /daftar.
-  async function findLegacy() {
-    const { data, error } = await admin
-      .from("participant_registrations")
-      .select(
-        "id,user_id,department,site,status"
-      )
-      .eq("id", id)
-      .maybeSingle();
+  const date = new Date(
+    `${value}T00:00:00.000Z`
+  );
 
-    if (error) throw error;
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
 
-    return data
-      ? {
-          source: "legacy",
-          registration: data,
-          participantId: data.user_id,
-        }
-      : null;
+function validSite(value) {
+  return (
+    typeof value === "string" &&
+    VALID_SITES.includes(value.trim())
+  );
+}
+
+function normalizeDecision(value) {
+  if (
+    value === "approved" ||
+    value === "rejected"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function normalizeSource(value) {
+  if (
+    value === "new" ||
+    value === "legacy"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+// ======================================================
+// FEATURE CONTROL
+// ======================================================
+
+function isDecisionEnabled(decision) {
+  if (decision === "approved") {
+    return APPROVAL_ENABLED;
+  }
+
+  if (decision === "rejected") {
+    return REJECTION_ENABLED;
+  }
+
+  return false;
+}
+
+// ======================================================
+// AUTHENTICATION
+// ======================================================
+
+async function authenticateMentor(request, admin) {
+  const authorization =
+    request.headers.get("authorization") || "";
+
+  if (!authorization.startsWith("Bearer ")) {
+    return {
+      success: false,
+      response: fail(
+        "Silakan login sebagai Mentor OJT.",
+        401
+      ),
+    };
+  }
+
+  const token = authorization
+    .slice(7)
+    .trim();
+
+  if (!token) {
+    return {
+      success: false,
+      response: fail(
+        "Token login tidak tersedia.",
+        401
+      ),
+    };
+  }
+
+  const {
+    data: authData,
+    error: authError,
+  } = await admin.auth.getUser(token);
+
+  if (
+    authError ||
+    !authData?.user?.id
+  ) {
+    return {
+      success: false,
+      response: fail(
+        "Sesi login tidak valid.",
+        401
+      ),
+    };
+  }
+
+  const {
+    data: mentor,
+    error: mentorError,
+  } = await admin
+    .from("profiles")
+    .select("id,full_name,role")
+    .eq("id", authData.user.id)
+    .maybeSingle();
+
+  if (mentorError) {
+    throw mentorError;
+  }
+
+  if (
+    !mentor ||
+    mentor.role !== "mentor"
+  ) {
+    return {
+      success: false,
+      response: fail(
+        "Akses hanya untuk Mentor OJT.",
+        403
+      ),
+    };
+  }
+
+  return {
+    success: true,
+    mentor,
+  };
+}
+
+// ======================================================
+// LOAD NEW REGISTRATION
+// ======================================================
+
+async function loadNewRegistration(
+  admin,
+  requestId
+) {
+  const {
+    data,
+    error,
+  } = await admin
+    .from("ojt_registration_requests")
+    .select(`
+      id,
+      participant_id,
+      site,
+      start_date,
+      end_date,
+      status
+    `)
+    .eq("id", requestId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return {
+      success: false,
+      response: fail(
+        "Pengajuan OJT baru tidak ditemukan.",
+        404
+      ),
+    };
+  }
+
+  if (data.status !== "pending") {
+    return {
+      success: false,
+      response: fail(
+        "Pengajuan sudah diproses sebelumnya.",
+        409
+      ),
+    };
+  }
+
+  return {
+    success: true,
+    registration: data,
+  };
+}
+
+// ======================================================
+// LOAD LEGACY REGISTRATION
+// ======================================================
+
+async function loadLegacyRegistration(
+  admin,
+  requestId
+) {
+  const {
+    data,
+    error,
+  } = await admin
+    .from("participant_registrations")
+    .select(`
+      id,
+      user_id,
+      status
+    `)
+    .eq("id", requestId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return {
+      success: false,
+      response: fail(
+        "Pendaftaran peserta tidak ditemukan.",
+        404
+      ),
+    };
+  }
+
+  if (data.status !== "pending") {
+    return {
+      success: false,
+      response: fail(
+        "Pendaftaran sudah diproses sebelumnya.",
+        409
+      ),
+    };
+  }
+
+  // Pastikan akun tujuan merupakan Participant.
+  const {
+    data: participant,
+    error: profileError,
+  } = await admin
+    .from("profiles")
+    .select("id,role")
+    .eq("id", data.user_id)
+    .maybeSingle();
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  if (
+    !participant ||
+    participant.role !== "participant"
+  ) {
+    return {
+      success: false,
+      response: fail(
+        "Akun peserta tidak valid.",
+        400
+      ),
+    };
+  }
+
+  return {
+    success: true,
+    registration: data,
+  };
+}
+
+// ======================================================
+// VALIDATE APPROVAL DATA
+// ======================================================
+
+function validateNewApproval(registration) {
+  if (!validSite(registration.site)) {
+    return "Site pada pengajuan OJT tidak valid.";
+  }
+
+  if (
+    !validDate(registration.start_date) ||
+    !validDate(registration.end_date)
+  ) {
+    return "Periode OJT pada pengajuan tidak valid.";
+  }
+
+  if (
+    registration.end_date <
+    registration.start_date
+  ) {
+    return "Tanggal selesai tidak boleh lebih awal dari tanggal mulai.";
+  }
+
+  return null;
+}
+
+function validateLegacyApproval(body) {
+  const site = body.site;
+  const startDate = body.start_date;
+  const endDate = body.end_date;
+
+  if (!validSite(site)) {
+    return "Pilih site OJT yang valid.";
+  }
+
+  if (
+    !validDate(startDate) ||
+    !validDate(endDate)
+  ) {
+    return "Tanggal mulai atau selesai OJT tidak valid.";
+  }
+
+  if (endDate < startDate) {
+    return "Tanggal selesai tidak boleh lebih awal dari tanggal mulai.";
+  }
+
+  return null;
+}
+
+// ======================================================
+// RPC — NEW REGISTRATION
+// ======================================================
+
+async function processNewRegistration(
+  admin,
+  requestId,
+  mentorId,
+  decision,
+  rejectionReason
+) {
+  const {
+    data,
+    error,
+  } = await admin.rpc(
+    "review_ojt_registration",
+    {
+      p_request_id: requestId,
+      p_mentor_id: mentorId,
+      p_decision: decision,
+      p_rejection_reason:
+        decision === "rejected"
+          ? rejectionReason
+          : null,
+    }
+  );
+
+  if (error) {
+    console.error(
+      "[MENTOR REVIEW] New RPC:",
+      error
+    );
+
+    throw error;
+  }
+
+  return data;
+}
+
+// ======================================================
+// RPC — LEGACY REGISTRATION
+// ======================================================
+
+async function processLegacyRegistration(
+  admin,
+  requestId,
+  mentorId,
+  decision,
+  body,
+  rejectionReason
+) {
+  const {
+    data,
+    error,
+  } = await admin.rpc(
+    "review_ojt_registration",
+    {
+      p_registration_id: requestId,
+      p_mentor_id: mentorId,
+
+      p_action:
+        decision === "approved"
+          ? "approve"
+          : "reject",
+
+      p_site:
+        decision === "approved"
+          ? body.site.trim()
+          : null,
+
+      p_start_date:
+        decision === "approved"
+          ? body.start_date
+          : null,
+
+      p_end_date:
+        decision === "approved"
+          ? body.end_date
+          : null,
+
+      p_rejection_reason:
+        decision === "rejected"
+          ? rejectionReason
+          : null,
+    }
+  );
+
+  if (error) {
+    console.error(
+      "[MENTOR REVIEW] Legacy RPC:",
+      error
+    );
+
+    throw error;
+  }
+
+  return data;
+}
+
+// ======================================================
+// NORMALIZE RPC RESULT
+// ======================================================
+
+function normalizeRpcResult(data, source) {
+  const result = Array.isArray(data)
+    ? data[0]
+    : data;
+
+  if (!result) {
+    throw new Error(
+      "Transaksi tidak mengembalikan hasil."
+    );
   }
 
   if (source === "new") {
-    return findNew();
+    return {
+      registration_id:
+        result.registration_id,
+
+      status:
+        result.registration_status,
+
+      program_id:
+        result.program_id || null,
+    };
   }
 
-  if (source === "legacy") {
-    return findLegacy();
-  }
+  return {
+    registration_id:
+      result.result_registration_id,
 
-  // Kompatibilitas frontend lama yang belum
-  // mengirimkan source.
-  const newer = await findNew();
+    status:
+      result.result_status,
 
-  if (newer) return newer;
-
-  return findLegacy();
+    program_id:
+      result.result_program_id || null,
+  };
 }
 
-function normalizeRpcResult(data) {
-  const raw = Array.isArray(data) ? data[0] : data;
-
-  if (!raw) return null;
-
-  if (typeof raw === "string") {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-
-  return raw;
-}
+// ======================================================
+// MAIN POST
+// ======================================================
 
 export async function POST(request) {
   try {
-    // ===============================================
-    // 1. BACA PERMINTAAN
-    // ===============================================
+    // ================================================
+    // 1. SUPABASE
+    // ================================================
+
+    const admin = getAdminClient();
+
+    // ================================================
+    // 2. AUTHENTICATION
+    // ================================================
+
+    const auth = await authenticateMentor(
+      request,
+      admin
+    );
+
+    if (!auth.success) {
+      return auth.response;
+    }
+
+    const mentor = auth.mentor;
+
+    // ================================================
+    // 3. READ REQUEST BODY
+    // ================================================
 
     let body;
 
     try {
       body = await request.json();
     } catch {
-      return fail("Format JSON tidak valid.");
+      return fail(
+        "Format permintaan tidak valid.",
+        400
+      );
     }
 
     const requestId = body?.request_id;
-    const decision = body?.decision;
-    const dryRun = body?.dry_run === true;
-
-    const source =
-      body?.source === "new" ||
-      body?.source === "legacy"
-        ? body.source
-        : null;
+    const source = normalizeSource(body?.source);
+    const decision = normalizeDecision(
+      body?.decision
+    );
 
     const rejectionReason =
       typeof body?.rejection_reason === "string"
         ? body.rejection_reason.trim()
         : "";
 
-    if (!isUuid(requestId)) {
-      return fail("ID pengajuan tidak valid.");
+    // ================================================
+    // 4. VALIDATE REQUEST
+    // ================================================
+
+    if (!validUUID(requestId)) {
+      return fail(
+        "ID pengajuan tidak valid.",
+        400
+      );
     }
 
-    if (
-      body?.source != null &&
-      !["new", "legacy"].includes(body.source)
-    ) {
-      return fail("Sumber pengajuan tidak valid.");
+    if (!source) {
+      return fail(
+        "Sumber pengajuan tidak valid.",
+        400
+      );
     }
 
-    if (
-      decision !== "approved" &&
-      decision !== "rejected"
-    ) {
-      return fail("Keputusan Mentor tidak valid.");
+    if (!decision) {
+      return fail(
+        "Keputusan Mentor tidak valid.",
+        400
+      );
     }
 
     if (
@@ -218,456 +664,254 @@ export async function POST(request) {
       )
     ) {
       return fail(
-        "Alasan penolakan harus 5–1000 karakter."
+        "Alasan penolakan harus 5–1000 karakter.",
+        400
       );
     }
 
-    // ===============================================
-    // 2. VERIFIKASI LOGIN
-    // ===============================================
+    // ================================================
+    // 5. FEATURE CONTROL
+    //
+    // Tidak ada perubahan database ketika
+    // fitur masih nonaktif.
+    // ================================================
 
-    const authorization =
-      request.headers.get("authorization") || "";
-
-    if (!authorization.startsWith("Bearer ")) {
+    if (!isDecisionEnabled(decision)) {
       return fail(
-        "Silakan login sebagai Mentor.",
-        401
+        decision === "approved"
+          ? "Fitur persetujuan Mentor masih dinonaktifkan selama pengujian."
+          : "Fitur penolakan Mentor masih dinonaktifkan selama pengujian.",
+        423
       );
     }
 
-    const token = authorization.slice(7).trim();
+    // ================================================
+    // 6. LOAD REGISTRATION
+    // ================================================
 
-    if (!token) {
-      return fail("Token login tidak tersedia.", 401);
+    let registration;
+
+    if (source === "new") {
+      const loaded =
+        await loadNewRegistration(
+          admin,
+          requestId
+        );
+
+      if (!loaded.success) {
+        return loaded.response;
+      }
+
+      registration = loaded.registration;
+
+      if (
+        registration.participant_id ===
+        mentor.id
+      ) {
+        return fail(
+          "Mentor dan peserta tidak boleh sama.",
+          403
+        );
+      }
+
+      if (decision === "approved") {
+        const validation =
+          validateNewApproval(registration);
+
+        if (validation) {
+          return fail(
+            validation,
+            400
+          );
+        }
+      }
+    } else {
+      const loaded =
+        await loadLegacyRegistration(
+          admin,
+          requestId
+        );
+
+      if (!loaded.success) {
+        return loaded.response;
+      }
+
+      registration = loaded.registration;
+
+      if (
+        registration.user_id === mentor.id
+      ) {
+        return fail(
+          "Mentor dan peserta tidak boleh sama.",
+          403
+        );
+      }
+
+      if (decision === "approved") {
+        const validation =
+          validateLegacyApproval(body);
+
+        if (validation) {
+          return fail(
+            validation,
+            400
+          );
+        }
+      }
     }
 
-    const admin = getAdmin();
+    // ================================================
+    // 7. EXECUTE RPC
+    //
+    // New    -> RPC 4 parameter
+    // Legacy -> RPC 7 parameter
+    //
+    // Supabase menangani transaksi.
+    // ================================================
 
-    const {
-      data: authData,
-      error: authError,
-    } = await admin.auth.getUser(token);
+    let rpcData;
 
-    if (authError || !authData?.user?.id) {
-      return fail("Sesi login tidak valid.", 401);
+    if (source === "new") {
+      rpcData =
+        await processNewRegistration(
+          admin,
+          requestId,
+          mentor.id,
+          decision,
+          rejectionReason
+        );
+    } else {
+      rpcData =
+        await processLegacyRegistration(
+          admin,
+          requestId,
+          mentor.id,
+          decision,
+          body,
+          rejectionReason
+        );
     }
 
-    const mentorId = authData.user.id;
+    // ================================================
+    // 8. NORMALIZE RESULT
+    // ================================================
 
-    // ===============================================
-    // 3. VALIDASI ROLE MENTOR
-    // ===============================================
-
-    const {
-      data: mentor,
-      error: mentorError,
-    } = await admin
-      .from("profiles")
-      .select("id,full_name,role")
-      .eq("id", mentorId)
-      .maybeSingle();
-
-    if (mentorError) throw mentorError;
-
-    if (!mentor || mentor.role !== "mentor") {
-      return fail(
-        "Hanya Mentor yang dapat memproses pengajuan.",
-        403
-      );
-    }
-
-    // ===============================================
-    // 4. CARI PENGAJUAN DI TABEL YANG BENAR
-    // ===============================================
-
-    const found = await findRegistration(
-      admin,
-      requestId,
+    const result = normalizeRpcResult(
+      rpcData,
       source
     );
 
-    if (!found) {
+    if (
+      result.registration_id !== requestId
+    ) {
+      throw new Error(
+        "ID hasil transaksi tidak sesuai."
+      );
+    }
+
+    if (result.status !== decision) {
+      throw new Error(
+        "Status hasil transaksi tidak sesuai keputusan."
+      );
+    }
+
+    if (
+      decision === "approved" &&
+      !result.program_id
+    ) {
+      throw new Error(
+        "Program OJT belum berhasil dibuat."
+      );
+    }
+
+    // ================================================
+    // 9. SUCCESS RESPONSE
+    //
+    // Format wajib sesuai frontend.
+    // ================================================
+
+    return respond({
+      success: true,
+
+      dry_run: false,
+
+      source,
+
+      request_id: requestId,
+
+      registration_id:
+        result.registration_id,
+
+      status: result.status,
+
+      program_id:
+        result.program_id,
+
+      message:
+        decision === "approved"
+          ? "Pendaftaran berhasil disetujui. Program OJT telah dibuat."
+          : "Pendaftaran berhasil ditolak.",
+
+      mentor: {
+        id: mentor.id,
+        full_name:
+          mentor.full_name || "Mentor OJT",
+      },
+    });
+  } catch (error) {
+    console.error(
+      "[MENTOR REVIEW] Server Error:",
+      error
+    );
+
+    const message = String(
+      error?.message || ""
+    );
+
+    // ==============================================
+    // 10. DATABASE ERROR MAPPING
+    // ==============================================
+
+    if (
+      message.includes("sudah diproses") ||
+      message.includes("sudah memiliki program")
+    ) {
       return fail(
-        "Pengajuan tidak ditemukan pada sumber data yang dipilih.",
+        message,
+        409
+      );
+    }
+
+    if (
+      message.includes("tidak ditemukan")
+    ) {
+      return fail(
+        message,
         404
       );
     }
 
-    const {
-      source: actualSource,
-      registration,
-      participantId,
-    } = found;
-
-    if (registration.status !== "pending") {
+    if (
+      message.includes("Akses ditolak") ||
+      message.includes("mentor tidak valid")
+    ) {
       return fail(
-        "Pengajuan sudah diproses atau bukan pending.",
-        409
-      );
-    }
-
-    if (!isUuid(participantId)) {
-      return fail(
-        "Identitas peserta tidak valid.",
-        409
-      );
-    }
-
-    if (participantId === mentorId) {
-      return fail(
-        "Mentor tidak dapat menyetujui pengajuan sendiri.",
+        "Akun Mentor tidak memiliki izin untuk memproses keputusan.",
         403
       );
     }
 
-    // ===============================================
-    // 5. PERIODE OJT INDIVIDUAL
-    // ===============================================
-
-    let site = registration.site || null;
-    let startDate = null;
-    let endDate = null;
-
-    if (actualSource === "new") {
-      startDate = registration.start_date;
-      endDate = registration.end_date;
-
-      if (decision === "approved") {
-        if (!site || !VALID_SITES.includes(site)) {
-          return fail("Site OJT tidak valid.");
-        }
-
-        if (
-          !isDate(startDate) ||
-          !isDate(endDate) ||
-          endDate < startDate
-        ) {
-          return fail(
-            "Periode OJT peserta tidak valid.",
-            400
-          );
-        }
-      }
-    }
-
-    if (actualSource === "legacy") {
-      if (decision === "approved") {
-        site =
-          typeof body?.site === "string"
-            ? body.site.trim()
-            : registration.site;
-
-        startDate = body?.start_date || null;
-        endDate = body?.end_date || null;
-
-        if (!VALID_SITES.includes(site)) {
-          return fail(
-            "Site OJT tidak valid.",
-            400
-          );
-        }
-
-        if (
-          !isDate(startDate) ||
-          !isDate(endDate) ||
-          endDate < startDate
-        ) {
-          return fail(
-            "Tanggal mulai dan selesai OJT wajib diisi dengan benar.",
-            400
-          );
-        }
-      }
-    }
-
-    // ===============================================
-    // 6. BATASAN AKSES KEPUTUSAN
-    // ===============================================
-
     if (
-      !dryRun &&
-      !canReviewOjt(
-        mentorId,
-        participantId,
-        decision
-      )
+      message.includes("Alasan penolakan")
     ) {
       return fail(
-        "Keputusan belum diizinkan oleh konfigurasi server.",
-        403
+        message,
+        400
       );
     }
-
-    // ===============================================
-    // 7. PERIKSA PROFIL PESERTA
-    // ===============================================
-
-    const {
-      data: participant,
-      error: participantError,
-    } = await admin
-      .from("profiles")
-      .select("id,full_name,role")
-      .eq("id", participantId)
-      .maybeSingle();
-
-    if (participantError) throw participantError;
-
-    if (
-      !participant ||
-      participant.role !== "participant"
-    ) {
-      return fail(
-        "Profil peserta tidak valid.",
-        409
-      );
-    }
-
-    // ===============================================
-    // 8. PERIKSA AKUN AUTH
-    // ===============================================
-
-    const {
-      data: participantAuth,
-      error: participantAuthError,
-    } = await admin.auth.admin.getUserById(
-      participantId
-    );
-
-    if (
-      participantAuthError ||
-      !participantAuth?.user
-    ) {
-      return fail(
-        "Akun peserta tidak ditemukan di Supabase Auth.",
-        409
-      );
-    }
-
-    if (!participantAuth.user.email_confirmed_at) {
-      return fail(
-        "Akun peserta belum berstatus terkonfirmasi pada Supabase Auth.",
-        409
-      );
-    }
-
-    // ===============================================
-    // 9. CEGAH PROGRAM GANDA
-    // ===============================================
-
-    if (decision === "approved") {
-      let query = admin
-        .from("ojt_programs")
-        .select("id")
-        .eq("participant_id", participantId);
-
-      if (actualSource === "new") {
-        query = query.eq("status", "active");
-      }
-
-      const {
-        data: existing,
-        error: existingError,
-      } = await query.limit(1);
-
-      if (existingError) throw existingError;
-
-      if (existing?.length) {
-        return fail(
-          actualSource === "legacy"
-            ? "Peserta sudah memiliki program OJT."
-            : "Peserta sudah memiliki program OJT aktif.",
-          409
-        );
-      }
-    }
-
-    // ===============================================
-    // 10. DRY RUN
-    // ===============================================
-
-    if (dryRun) {
-      return respond({
-        success: true,
-        dry_run: true,
-        database_changed: false,
-        source: actualSource,
-        preview: {
-          registration_id: requestId,
-          participant_id: participantId,
-          participant_name: participant.full_name,
-          mentor_name: mentor.full_name,
-          decision,
-          site,
-          start_date: startDate,
-          end_date: endDate,
-          rejection_reason:
-            decision === "rejected"
-              ? rejectionReason
-              : null,
-        },
-      });
-    }
-
-    // ===============================================
-    // 11. VALIDASI FINAL
-    // ===============================================
-
-    if (
-      !canReviewOjt(
-        mentorId,
-        participantId,
-        decision
-      )
-    ) {
-      return fail(
-        "Transaksi tidak diizinkan oleh konfigurasi server.",
-        403
-      );
-    }
-
-    const accessConfig = getOjtAccessConfig();
-
-    if (
-      accessConfig.testModeEnabled &&
-      (
-        !accessConfig.testParticipantId ||
-        !accessConfig.testMentorId
-      )
-    ) {
-      return fail(
-        "Konfigurasi akun pengujian belum lengkap.",
-        403
-      );
-    }
-
-    // ===============================================
-    // 12. RPC SESUAI JENIS PENDAFTARAN
-    // ===============================================
-
-    let rpcData;
-    let rpcError;
-
-    if (actualSource === "new") {
-      const result = await admin.rpc(
-        "review_ojt_registration",
-        {
-          p_request_id: requestId,
-          p_mentor_id: mentorId,
-          p_decision: decision,
-          p_rejection_reason:
-            decision === "rejected"
-              ? rejectionReason
-              : null,
-        }
-      );
-
-      rpcData = result.data;
-      rpcError = result.error;
-    } else {
-      const result = await admin.rpc(
-        "review_ojt_registration",
-        {
-          p_registration_id: requestId,
-          p_mentor_id: mentorId,
-          p_action:
-            decision === "approved"
-              ? "approve"
-              : "reject",
-          p_site: site,
-          p_start_date: startDate,
-          p_end_date: endDate,
-          p_rejection_reason:
-            decision === "rejected"
-              ? rejectionReason
-              : null,
-        }
-      );
-
-      rpcData = result.data;
-      rpcError = result.error;
-    }
-
-    if (rpcError) {
-      console.error(
-        "[MENTOR REVIEW] RPC error:",
-        rpcError.code,
-        rpcError.message
-      );
-
-      return fail(
-        "Persetujuan gagal diproses oleh database. " +
-        "Status pengajuan belum dapat dipastikan.",
-        409
-      );
-    }
-
-    // ===============================================
-    // 13. VALIDASI HASIL
-    // ===============================================
-
-    const result = normalizeRpcResult(rpcData);
-
-    const resultRegistrationId =
-      result?.registration_id ??
-      result?.result_registration_id ??
-      null;
-
-    const resultStatus =
-      result?.registration_status ??
-      result?.result_status ??
-      null;
-
-    const programId =
-      result?.program_id ??
-      result?.result_program_id ??
-      null;
-
-    if (
-      !result ||
-      resultStatus !== decision ||
-      !resultRegistrationId ||
-      String(resultRegistrationId) !== requestId ||
-      (
-        decision === "approved" &&
-        !programId
-      )
-    ) {
-      return fail(
-        "Hasil transaksi belum dapat dipastikan. " +
-        "Periksa status pengajuan sebelum mencoba ulang.",
-        500
-      );
-    }
-
-    // ===============================================
-    // 14. RESPONS SUKSES
-    // ===============================================
-
-    return respond({
-      success: true,
-      dry_run: false,
-      source: actualSource,
-      registration_id: resultRegistrationId,
-      status: resultStatus,
-      program_id: programId,
-      site,
-      start_date: startDate,
-      end_date: endDate,
-      message:
-        decision === "approved"
-          ? "Pengajuan berhasil disetujui dan program OJT dibuat."
-          : "Pengajuan berhasil ditolak.",
-    });
-  } catch (error) {
-    console.error(
-      "[MENTOR REVIEW] Server error:",
-      error
-    );
 
     return fail(
-      "Terjadi kesalahan server saat memproses keputusan.",
+      "Terjadi kesalahan saat memproses keputusan Mentor. Periksa log server.",
       500
     );
   }
