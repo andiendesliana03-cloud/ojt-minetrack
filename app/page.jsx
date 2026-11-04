@@ -1690,13 +1690,12 @@ export default function MentorDashboard() {
 
   // ===================================================
   // ACCOUNT AND DISPLAY
-  // ===================================================
+  // =====================================================
 
   const accountRole = isAdmin
     ? "Administrator"
     : "Mentor OJT";
-
-  const accountName =
+   const accountName =
     account?.full_name ||
     (isAdmin ? "Admin" : "Mentor OJT");
 
@@ -3695,7 +3694,7 @@ const dashboardCSS = `
 
 .mt-account-info strong {
   font-size: 11px;
-}
+ }
 
 .mt-account-info small {
   margin-top: 4px;
