@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +16,13 @@ import { supabase } from "../../lib/supabase";
 // - Monitoring dan riwayat Achievement dalam satu halaman
 // - Rumus progres dan approval dipertahankan
 // - Tidak mengubah struktur database Supabase
+//
+// PERBAIKAN DOKUMENTASI ACHIEVEMENT:
+// - Metadata OJT_FILE_V1 tidak tampil sebagai teks
+// - Deskripsi kegiatan tetap ditampilkan
+// - Nama file dokumentasi ditampilkan
+// - Tombol Lihat Bukti menggunakan Supabase Storage
+// - Cetak PDF tidak menampilkan metadata mentah
 // ======================================================
 
 const TOTAL_WEEKS = 25;
@@ -56,6 +64,89 @@ const PAGE_TITLES = {
 };
 
 // ======================================================
+// PERBAIKAN DOKUMENTASI ACHIEVEMENT
+//
+// Mengikuti format dari halaman Input Achievement.
+// Tidak memerlukan kolom database tambahan.
+// ======================================================
+
+const ACHIEVEMENT_BUCKET = "achievement-files";
+const ACHIEVEMENT_FILE_MARKER = "[[OJT_FILE_V1:";
+
+/**
+ * Pisahkan teks deskripsi dengan metadata lampiran.
+ *
+ * Format penyimpanan dari Input Achievement:
+ *
+ * Deskripsi kegiatan
+ * [[OJT_FILE_V1:<encoded JSON>]]
+ *
+ * JSON memuat:
+ * {
+ *   name: "nama-file.jpg",
+ *   path: "program-id/file.jpg"
+ * }
+ *
+ * Metadata dihapus hanya dari tampilan.
+ * Nilai asli database tidak diubah.
+ */
+function parseAchievementDescription(raw) {
+  const source = String(raw ?? "");
+  let file = null;
+
+  // Hilangkan seluruh penanda metadata yang lengkap.
+  const cleaned = source.replace(
+    /\[\[OJT_FILE_V1:([\s\S]*?)\]\]/g,
+    (_match, encoded) => {
+      try {
+        const metadata = JSON.parse(
+          decodeURIComponent(encoded)
+        );
+
+        if (
+          metadata &&
+          typeof metadata === "object" &&
+          !Array.isArray(metadata) &&
+          typeof metadata.path === "string" &&
+          metadata.path.trim()
+        ) {
+          file = {
+            name:
+              typeof metadata.name === "string" &&
+              metadata.name.trim()
+                ? metadata.name.trim()
+                : "Dokumentasi Achievement",
+            path: metadata.path.trim(),
+          };
+        }
+      } catch {
+        // Metadata tidak valid tetap disembunyikan
+        // agar tidak muncul sebagai kode mentah.
+      }
+
+      return "";
+    }
+  );
+
+  // Antisipasi metadata tidak lengkap yang tidak
+  // mempunyai penutup "]]".
+  const markerIndex = cleaned.indexOf(
+    ACHIEVEMENT_FILE_MARKER
+  );
+
+  const description = (
+    markerIndex >= 0
+      ? cleaned.slice(0, markerIndex)
+      : cleaned
+  ).trim();
+
+  return {
+    description,
+    file,
+  };
+}
+
+// ======================================================
 // JADWAL WEEK 08–15
 // Tanggal, kegiatan, dan materi dipertahankan.
 // Deskripsi panjang ditampilkan bila dibuka.
@@ -69,7 +160,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-03",
     type: "Post-Test",
     title: "Post Test Navigasi Darat",
-    description: "Evaluasi kompas, pembacaan peta, penentuan arah, dan koordinat.",
+    description:
+      "Evaluasi kompas, pembacaan peta, penentuan arah, dan koordinat.",
     icon: "compass",
   },
   {
@@ -79,7 +171,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-05",
     type: "Post-Test",
     title: "Post Test Water Rescue",
-    description: "Evaluasi keselamatan perairan, penyelamatan korban, dan penggunaan peralatan rescue.",
+    description:
+      "Evaluasi keselamatan perairan, penyelamatan korban, dan penggunaan peralatan rescue.",
     icon: "water",
   },
   {
@@ -89,7 +182,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-07",
     type: "Praktik",
     title: "Praktik Donning & Doffing TOG",
-    description: "Praktik penggunaan dan pelepasan Turnout Gear sesuai prosedur. Pelaksanaan mengikuti jadwal site.",
+    description:
+      "Praktik penggunaan dan pelepasan Turnout Gear sesuai prosedur. Pelaksanaan mengikuti jadwal site.",
     icon: "vest",
   },
   {
@@ -99,7 +193,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-10",
     type: "Post-Test",
     title: "Post Test Materi Medical",
-    description: "Evaluasi scene size-up, primary assessment, penanganan awal korban, bantuan hidup dasar, trauma, stabilisasi, dan evakuasi medis.",
+    description:
+      "Evaluasi scene size-up, primary assessment, penanganan awal korban, bantuan hidup dasar, trauma, stabilisasi, dan evakuasi medis.",
     icon: "medical",
   },
   {
@@ -109,7 +204,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-12",
     type: "Post-Test",
     title: "Post Test Materi CSSR",
-    description: "Evaluasi bahaya struktur runtuh, prosedur keselamatan, pencarian dan penyelamatan korban, serta penggunaan peralatan CSSR.",
+    description:
+      "Evaluasi bahaya struktur runtuh, prosedur keselamatan, pencarian dan penyelamatan korban, serta penggunaan peralatan CSSR.",
     icon: "rescue",
   },
   {
@@ -119,7 +215,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-14",
     type: "Praktik",
     title: "Praktik Ekstrikasi Ram, Spreader & Cutter",
-    description: "Praktik penggunaan peralatan hidraulik Ram, Spreader, dan Cutter. Pelaksanaan mengikuti jadwal site.",
+    description:
+      "Praktik penggunaan peralatan hidraulik Ram, Spreader, dan Cutter. Pelaksanaan mengikuti jadwal site.",
     icon: "tools",
   },
   {
@@ -129,7 +226,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-17",
     type: "Post-Test",
     title: "Post Test Materi Scene Size Up",
-    description: "Evaluasi identifikasi bahaya, penilaian situasi awal, prioritas penanganan, kebutuhan sumber daya, dan sistem komando.",
+    description:
+      "Evaluasi identifikasi bahaya, penilaian situasi awal, prioritas penanganan, kebutuhan sumber daya, dan sistem komando.",
     icon: "clipboard",
   },
   {
@@ -139,7 +237,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-19",
     type: "Post-Test",
     title: "Post Test Materi RAR",
-    description: "Evaluasi Road Accident Rescue, pengamanan lokasi, stabilisasi kendaraan, teknik ekstrikasi, penggunaan peralatan rescue, dan evakuasi.",
+    description:
+      "Evaluasi Road Accident Rescue, pengamanan lokasi, stabilisasi kendaraan, teknik ekstrikasi, penggunaan peralatan rescue, dan evakuasi.",
     icon: "rescue",
   },
   {
@@ -149,7 +248,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-21",
     type: "Praktik",
     title: "Praktik CPR & AED",
-    description: "Praktik bantuan hidup dasar, teknik CPR, penggunaan AED, koordinasi tim, dan evaluasi sesuai prosedur. Jadwal mengikuti site.",
+    description:
+      "Praktik bantuan hidup dasar, teknik CPR, penggunaan AED, koordinasi tim, dan evaluasi sesuai prosedur. Jadwal mengikuti site.",
     icon: "medical",
   },
   {
@@ -159,7 +259,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-24",
     type: "Post-Test",
     title: "Post Test Materi HAR",
-    description: "Evaluasi High Angle Rescue, identifikasi bahaya ketinggian, anchor dan belay, rope rescue, serta pengangkatan dan penurunan korban.",
+    description:
+      "Evaluasi High Angle Rescue, identifikasi bahaya ketinggian, anchor dan belay, rope rescue, serta pengangkatan dan penurunan korban.",
     icon: "rope",
   },
   {
@@ -169,7 +270,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-26",
     type: "Post-Test",
     title: "Post Test Materi Fire",
-    description: "Evaluasi klasifikasi dan bahaya kebakaran, teknik pemadaman, penggunaan APAR dan peralatan fire fighting, serta keselamatan.",
+    description:
+      "Evaluasi klasifikasi dan bahaya kebakaran, teknik pemadaman, penggunaan APAR dan peralatan fire fighting, serta keselamatan.",
     icon: "fire",
   },
   {
@@ -179,7 +281,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-11-28",
     type: "Praktik",
     title: "Praktik Patient Assessment (Trauma)",
-    description: "Praktik scene size-up, primary assessment, secondary assessment, trauma management, dan patient handover. Jadwal mengikuti site.",
+    description:
+      "Praktik scene size-up, primary assessment, secondary assessment, trauma management, dan patient handover. Jadwal mengikuti site.",
     icon: "medical",
   },
   {
@@ -189,7 +292,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-01",
     type: "Post-Test",
     title: "Post Test Materi Hazmat",
-    description: "Evaluasi identifikasi bahan berbahaya, karakteristik bahaya, penggunaan APD, penanganan insiden HAZMAT, dan pengendalian risiko.",
+    description:
+      "Evaluasi identifikasi bahan berbahaya, karakteristik bahaya, penggunaan APD, penanganan insiden HAZMAT, dan pengendalian risiko.",
     icon: "warning",
   },
   {
@@ -199,7 +303,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-03",
     type: "Post-Test",
     title: "Post Test Materi CSR",
-    description: "Evaluasi Confined Space Rescue, bahaya ruang terbatas, prosedur keselamatan, akses dan evakuasi korban, serta penggunaan peralatan rescue.",
+    description:
+      "Evaluasi Confined Space Rescue, bahaya ruang terbatas, prosedur keselamatan, akses dan evakuasi korban, serta penggunaan peralatan rescue.",
     icon: "rescue",
   },
   {
@@ -209,7 +314,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-05",
     type: "Praktik",
     title: "Praktik Spinal Immobilization",
-    description: "Praktik penanganan korban dengan dugaan cedera tulang belakang menggunakan teknik dan peralatan imobilisasi. Jadwal mengikuti site.",
+    description:
+      "Praktik penanganan korban dengan dugaan cedera tulang belakang menggunakan teknik dan peralatan imobilisasi. Jadwal mengikuti site.",
     icon: "medical",
   },
   {
@@ -219,7 +325,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-08",
     type: "Post-Test",
     title: "Post Test Materi Navigasi Darat",
-    description: "Evaluasi kompas, GPS, pembacaan peta topografi, penentuan arah dan koordinat, serta perencanaan rute aman.",
+    description:
+      "Evaluasi kompas, GPS, pembacaan peta topografi, penentuan arah dan koordinat, serta perencanaan rute aman.",
     icon: "compass",
   },
   {
@@ -229,7 +336,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-10",
     type: "Post-Test",
     title: "Post Test Materi Water Rescue",
-    description: "Evaluasi keselamatan perairan, penggunaan peralatan rescue, serta metode Reach, Throw, Row, dan Go.",
+    description:
+      "Evaluasi keselamatan perairan, penggunaan peralatan rescue, serta metode Reach, Throw, Row, dan Go.",
     icon: "water",
   },
   {
@@ -239,7 +347,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-12",
     type: "Praktik",
     title: "Praktik Simpul (Rescue Knots)",
-    description: "Praktik Figure Eight Knot, Bowline Knot, Clove Hitch, Double Fisherman's Knot, Prusik Knot, serta pemeriksaan simpul dan keselamatan.",
+    description:
+      "Praktik Figure Eight Knot, Bowline Knot, Clove Hitch, Double Fisherman's Knot, Prusik Knot, serta pemeriksaan simpul dan keselamatan.",
     icon: "rope",
   },
   {
@@ -249,7 +358,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-15",
     type: "Post-Test",
     title: "Post Test Materi Medical",
-    description: "Evaluasi scene size-up, primary assessment, bantuan hidup dasar, trauma management, stabilisasi, dan evakuasi medis.",
+    description:
+      "Evaluasi scene size-up, primary assessment, bantuan hidup dasar, trauma management, stabilisasi, dan evakuasi medis.",
     icon: "medical",
   },
   {
@@ -259,7 +369,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-17",
     type: "Post-Test",
     title: "Post Test Materi CSSR",
-    description: "Evaluasi bahaya struktur runtuh, teknik pencarian dan penyelamatan korban, stabilisasi struktur, serta keselamatan operasi.",
+    description:
+      "Evaluasi bahaya struktur runtuh, teknik pencarian dan penyelamatan korban, stabilisasi struktur, serta keselamatan operasi.",
     icon: "rescue",
   },
   {
@@ -269,7 +380,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-19",
     type: "Praktik",
     title: "Praktik Mechanical Advantage (MA)",
-    description: "Praktik Basic Mechanical Advantage, sistem 3:1 dan 5:1, Anchor & Pulley System, koordinasi hauling dan lowering, serta keselamatan.",
+    description:
+      "Praktik Basic Mechanical Advantage, sistem 3:1 dan 5:1, Anchor & Pulley System, koordinasi hauling dan lowering, serta keselamatan.",
     icon: "tools",
   },
   {
@@ -279,7 +391,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-22",
     type: "Post-Test",
     title: "Post Test Materi Scene Size Up",
-    description: "Evaluasi identifikasi bahaya, penilaian situasi, prioritas penanganan, kebutuhan sumber daya, sistem komando, dan pengendalian risiko.",
+    description:
+      "Evaluasi identifikasi bahaya, penilaian situasi, prioritas penanganan, kebutuhan sumber daya, sistem komando, dan pengendalian risiko.",
     icon: "clipboard",
   },
   {
@@ -289,7 +402,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-24",
     type: "Post-Test",
     title: "Post Test Materi RAR",
-    description: "Evaluasi pengamanan lokasi kecelakaan, stabilisasi kendaraan, akses dan ekstrikasi korban, serta koordinasi penanganan medis dan evakuasi.",
+    description:
+      "Evaluasi pengamanan lokasi kecelakaan, stabilisasi kendaraan, akses dan ekstrikasi korban, serta koordinasi penanganan medis dan evakuasi.",
     icon: "rescue",
   },
   {
@@ -299,7 +413,8 @@ const WEEKLY_SCHEDULE = [
     end: "2026-12-26",
     type: "Praktik",
     title: "Praktik SCBA",
-    description: "Praktik identifikasi komponen SCBA, inspeksi, pemeriksaan facepiece, air management, prosedur darurat, serta pengembalian peralatan.",
+    description:
+      "Praktik identifikasi komponen SCBA, inspeksi, pemeriksaan facepiece, air management, prosedur darurat, serta pengembalian peralatan.",
     icon: "shield",
   },
 ];
@@ -500,8 +615,10 @@ function averageScores(records) {
 
   if (!values.length) return null;
 
-  return values.reduce((sum, value) => sum + value, 0) /
-    values.length;
+  return (
+    values.reduce((sum, value) => sum + value, 0) /
+    values.length
+  );
 }
 
 function emptyProgress() {
@@ -559,7 +676,11 @@ function calculateAchievements(records, types, startDate) {
     if (target.name === "Fisik") {
       amount = matching.reduce((sum, record) => {
         const km = Number(record.distance_km);
-        return sum + (Number.isFinite(km) && km > 0 ? km : 0);
+
+        return (
+          sum +
+          (Number.isFinite(km) && km > 0 ? km : 0)
+        );
       }, 0);
     } else {
       amount = matching.length;
@@ -580,7 +701,9 @@ function calculateAchievements(records, types, startDate) {
 
   return {
     progress: Math.round(total / TARGETS.length),
-    completed: categories.filter((category) => category.completed).length,
+    completed: categories.filter(
+      (category) => category.completed
+    ).length,
     categories,
   };
 }
@@ -637,7 +760,9 @@ function buildProgress(program, data) {
   );
 
   const selectedSimper =
-    data.simper.find((record) => parseSimperMetadata(record.notes)) ||
+    data.simper.find(
+      (record) => parseSimperMetadata(record.notes)
+    ) ||
     data.simper[0] ||
     null;
 
@@ -649,17 +774,30 @@ function buildProgress(program, data) {
     if (week !== null) weeks.add(week);
   }
 
-  data.achievements.forEach((record) => markWeek(record.activity_date));
-  data.postTests.forEach((record) => markWeek(record.test_date));
-  data.practices.forEach((record) => markWeek(record.practice_date));
-  data.samapta.forEach((record) => markWeek(record.test_date));
+  data.achievements.forEach((record) =>
+    markWeek(record.activity_date)
+  );
+
+  data.postTests.forEach((record) =>
+    markWeek(record.test_date)
+  );
+
+  data.practices.forEach((record) =>
+    markWeek(record.practice_date)
+  );
+
+  data.samapta.forEach((record) =>
+    markWeek(record.test_date)
+  );
 
   return {
     achievement: achievement.progress,
     completedCategories: achievement.completed,
     categories: achievement.categories,
     activityWeeks: weeks.size,
-    activityPercent: Math.round((weeks.size / TOTAL_WEEKS) * 100),
+    activityPercent: Math.round(
+      (weeks.size / TOTAL_WEEKS) * 100
+    ),
     simper: simper.progress,
     simperCompleted: simper.completed,
     simperIssued: simper.issued,
@@ -678,8 +816,6 @@ function getStatusInfo(access) {
 
 // ======================================================
 // PEMULIHAN TAMPILAN
-// Penyimpanan hanya preferensi tampilan, bukan izin akses.
-// Data dan hak akses tetap diambil ulang dari Supabase.
 // ======================================================
 
 function viewStorageKey(accountId) {
@@ -688,23 +824,35 @@ function viewStorageKey(accountId) {
 
 function readSavedView(accountId) {
   try {
-    const raw = sessionStorage.getItem(viewStorageKey(accountId));
+    const raw = sessionStorage.getItem(
+      viewStorageKey(accountId)
+    );
+
     const value = raw ? JSON.parse(raw) : null;
-    return value && typeof value === "object" ? value : {};
+
+    return value && typeof value === "object"
+      ? value
+      : {};
   } catch {
     return {};
   }
 }
 
 function validPage(value) {
-  return Object.prototype.hasOwnProperty.call(PAGE_TITLES, value);
+  return Object.prototype.hasOwnProperty.call(
+    PAGE_TITLES,
+    value
+  );
 }
 
 function validWeek(value) {
   const number = Number(value);
-  return Number.isInteger(number) &&
+
+  return (
+    Number.isInteger(number) &&
     number >= 1 &&
-    number <= TOTAL_WEEKS;
+    number <= TOTAL_WEEKS
+  );
 }
 
 // ======================================================
@@ -725,7 +873,9 @@ function Icon({ name, size = 20 }) {
         <path d="M7 3v4M17 3v4M3 10h18" />
       </>
     ),
-    chart: <path d="M3 21h18M6 17v-5M12 17V7M18 17V3" />,
+    chart: (
+      <path d="M3 21h18M6 17v-5M12 17V7M18 17V3" />
+    ),
     trophy: (
       <>
         <path d="M7 3h10v7a5 5 0 0 1-10 0V3Z" />
@@ -784,8 +934,12 @@ function Icon({ name, size = 20 }) {
         <path d="m7 21 4-6 2-4-4-2-3 3M11 15l6 2 3 4M13 11l4-2 3 1" />
       </>
     ),
-    training: <path d="M3 9v6M21 9v6M6 7v10M18 7v10M6 12h12" />,
-    message: <path d="M4 4h16v12H9l-5 4V4Z" />,
+    training: (
+      <path d="M3 9v6M21 9v6M6 7v10M18 7v10M6 12h12" />
+    ),
+    message: (
+      <path d="M4 4h16v12H9l-5 4V4Z" />
+    ),
     warning: (
       <>
         <path d="m12 3 10 18H2L12 3Z" />
@@ -804,24 +958,38 @@ function Icon({ name, size = 20 }) {
         <path d="M12 2v2M12 20v2M5 5l1 1M18 18l1 1M2 12h2M20 12h2M5 19l1-1M18 6l1-1" />
       </>
     ),
-    moon: <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5 8.5 8.5 0 1 0 20.5 14.5Z" />,
-    water: <path d="M2 8c3-3 5 3 8 0s5 3 8 0 4 0 4 0M2 15c3-3 5 3 8 0s5 3 8 0 4 0 4 0" />,
+    moon: (
+      <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5 8.5 8.5 0 1 0 20.5 14.5Z" />
+    ),
+    water: (
+      <path d="M2 8c3-3 5 3 8 0s5 3 8 0 4 0 4 0M2 15c3-3 5 3 8 0s5 3 8 0 4 0 4 0" />
+    ),
     medical: (
       <>
         <path d="M4 7h16v14H4zM9 7V4h6v3M12 11v7M8.5 14.5h7" />
       </>
     ),
-    tools: <path d="M14 7a5 5 0 0 0-7 7L2 19l3 3 5-5a5 5 0 0 0 7-7M14 7l4-4 3 3-4 4" />,
-    rescue: <path d="M3 20h18M5 20V9l6-5 6 5v11M13 11l-3 5h4l-2 4" />,
-    rope: <path d="M5 6c2-4 7-4 9 0s-2 7-5 7-5 3-3 6 7 3 9 0M16 5c4-1 6 2 5 5s-4 4-6 3" />,
-    vest: <path d="m8 3 4 3 4-3 4 4v14H4V7l4-4ZM8 3v18M16 3v18M4 13h16" />,
+    tools: (
+      <path d="M14 7a5 5 0 0 0-7 7L2 19l3 3 5-5a5 5 0 0 0 7-7M14 7l4-4 3 3-4 4" />
+    ),
+    rescue: (
+      <path d="M3 20h18M5 20V9l6-5 6 5v11M13 11l-3 5h4l-2 4" />
+    ),
+    rope: (
+      <path d="M5 6c2-4 7-4 9 0s-2 7-5 7-5 3-3 6 7 3 9 0M16 5c4-1 6 2 5 5s-4 4-6 3" />
+    ),
+    vest: (
+      <path d="m8 3 4 3 4-3 4 4v14H4V7l4-4ZM8 3v18M16 3v18M4 13h16" />
+    ),
     clipboard: (
       <>
         <rect x="5" y="5" width="14" height="16" rx="2" />
         <path d="M9 3h6v5H9zM9 13h6M9 17h5" />
       </>
     ),
-    fire: <path d="M12 22c-5 0-8-4-8-9 0-4 3-7 5-10 0 4 3 5 4 8 2-2 3-4 3-6 4 4 5 7 5 10 0 4-4 7-9 7Z" />,
+    fire: (
+      <path d="M12 22c-5 0-8-4-8-9 0-4 3-7 5-10 0 4 3 5 4 8 2-2 3-4 3-6 4 4 5 7 5 10 0 4-4 7-9 7Z" />
+    ),
   };
 
   return (
@@ -872,17 +1040,22 @@ function WeekSelector({ week, onChange, weeksWithData }) {
 
       <select
         value={week}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(event) =>
+          onChange(Number(event.target.value))
+        }
         aria-label="Pilih minggu OJT"
       >
-        {Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1).map(
-          (number) => (
-            <option key={number} value={number}>
-              {weekLabel(number)}
-              {weeksWithData.has(number) ? " · Ada catatan" : ""}
-            </option>
-          )
-        )}
+        {Array.from(
+          { length: TOTAL_WEEKS },
+          (_, i) => i + 1
+        ).map((number) => (
+          <option key={number} value={number}>
+            {weekLabel(number)}
+            {weeksWithData.has(number)
+              ? " · Ada catatan"
+              : ""}
+          </option>
+        ))}
       </select>
 
       <button
@@ -908,10 +1081,13 @@ function Table({ columns, children }) {
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column} scope="col">{column}</th>
+              <th key={column} scope="col">
+                {column}
+              </th>
             ))}
           </tr>
         </thead>
+
         <tbody>{children}</tbody>
       </table>
     </div>
@@ -936,10 +1112,13 @@ function ActivityItem({ activity }) {
 
       <div>
         <strong>{activity.title}</strong>
+
         <small>
           {activity.start === activity.end
             ? formatDate(activity.start)
-            : `${formatShort(activity.start)} – ${formatDate(activity.end)}`}
+            : `${formatShort(activity.start)} – ${formatDate(
+                activity.end
+              )}`}
           {" · "}
           {activity.type}
         </small>
@@ -962,11 +1141,16 @@ function CategoryCards({ categories }) {
             <Icon name={item.icon} size={21} />
             <strong>{item.name}</strong>
           </div>
+
           <h3>{Math.round(item.progress)}%</h3>
+
           <ProgressBar value={item.progress} />
+
           <small>
             {amountText(item.amount)} / {item.target}
-            {item.name === "Fisik" ? " km" : " kegiatan"}
+            {item.name === "Fisik"
+              ? " km"
+              : " kegiatan"}
           </small>
         </div>
       ))}
@@ -974,22 +1158,104 @@ function CategoryCards({ categories }) {
   );
 }
 
+// ======================================================
+// RIWAYAT ACHIEVEMENT — REVISI DOKUMENTASI
+//
+// Komponen ini digunakan pada:
+// 1. Achievement OJT > Lihat Riwayat
+// 2. Monitoring Mingguan > Lihat Detail Data
+// 3. Rapor & Evaluasi > Evaluasi Mingguan
+//
+// Semua tabel menggunakan perbaikan yang sama.
+// ======================================================
+
 function AchievementHistory({ records, types }) {
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("all");
 
+  const [openingId, setOpeningId] = useState(null);
+  const [fileError, setFileError] = useState("");
+
   const typeName = (record) =>
     types.find(
       (type) =>
-        normalizeType(type.code) === normalizeType(record.type_code)
-    )?.name || record.type_code || "—";
+        normalizeType(type.code) ===
+        normalizeType(record.type_code)
+    )?.name ||
+    record.type_code ||
+    "—";
+
+  // ====================================================
+  // BUKA BUKTI DOKUMENTASI
+  //
+  // Tautan Supabase Storage ditandatangani sementara.
+  // Tidak menggunakan public URL untuk bucket privat.
+  // ====================================================
+
+  async function openAchievementEvidence(item, file) {
+    if (!file?.path || openingId !== null) return;
+
+    setOpeningId(item.id);
+    setFileError("");
+
+    // Buka tab pada interaksi klik untuk mengurangi
+    // risiko pemblokiran popup pada browser mobile.
+    const tab = window.open("about:blank", "_blank");
+
+    try {
+      const {
+        data,
+        error: signedError,
+      } = await supabase.storage
+        .from(ACHIEVEMENT_BUCKET)
+        .createSignedUrl(file.path, 600);
+
+      if (signedError) {
+        throw signedError;
+      }
+
+      const url = data?.signedUrl;
+
+      if (
+        !url ||
+        !/^https?:\/\//i.test(url)
+      ) {
+        throw new Error(
+          "Tautan dokumentasi tidak tersedia atau tidak valid."
+        );
+      }
+
+      if (!tab || tab.closed) {
+        throw new Error(
+          "Browser memblokir tab dokumentasi. " +
+          "Izinkan popup untuk membuka bukti."
+        );
+      }
+
+      tab.location.replace(url);
+    } catch (err) {
+      if (tab && !tab.closed) {
+        tab.close();
+      }
+
+      setFileError(
+        `Dokumentasi gagal dibuka: ${
+          err?.message || "File tidak tersedia."
+        }`
+      );
+    } finally {
+      setOpeningId(null);
+    }
+  }
 
   const visible = records
     .filter(
       (record) =>
         (category === "all" ||
-          normalizeType(record.type_code) === normalizeType(category)) &&
-        (status === "all" || normalize(record.status) === status)
+          normalizeType(record.type_code) ===
+            normalizeType(category)) &&
+        (status === "all" ||
+          normalize(record.status) === status)
     )
     .slice()
     .sort((a, b) =>
@@ -1003,12 +1269,20 @@ function AchievementHistory({ records, types }) {
       <div className="dp-filter-row dp-no-print">
         <select
           value={category}
-          onChange={(event) => setCategory(event.target.value)}
+          onChange={(event) =>
+            setCategory(event.target.value)
+          }
           aria-label="Filter kategori"
         >
-          <option value="all">Semua kategori</option>
+          <option value="all">
+            Semua kategori
+          </option>
+
           {types.map((type) => (
-            <option key={type.code} value={type.code}>
+            <option
+              key={type.code}
+              value={type.code}
+            >
               {type.name}
             </option>
           ))}
@@ -1016,53 +1290,145 @@ function AchievementHistory({ records, types }) {
 
         <select
           value={status}
-          onChange={(event) => setStatus(event.target.value)}
+          onChange={(event) =>
+            setStatus(event.target.value)
+          }
           aria-label="Filter status"
         >
-          <option value="all">Semua status</option>
-          <option value="verified">Verified</option>
-          <option value="pending">Pending</option>
+          <option value="all">
+            Semua status
+          </option>
+          <option value="verified">
+            Verified
+          </option>
+          <option value="pending">
+            Pending
+          </option>
         </select>
       </div>
 
-      <Table columns={["Tanggal", "Kategori", "Kegiatan", "Realisasi", "Status"]}>
-        {visible.length ? visible.map((item) => {
-          const name = typeName(item);
-          const fisik =
-            normalizeType(name) === "fisik" ||
-            normalizeType(item.type_code) === "fisik";
+      {fileError && (
+        <div
+          className="dp-alert error dp-no-print"
+          role="alert"
+        >
+          {fileError}
+        </div>
+      )}
 
-          return (
-            <tr key={item.id}>
-              <td className="dp-nowrap">{formatDate(item.activity_date)}</td>
-              <td>{name}</td>
-              <td className="dp-description">{item.description || "—"}</td>
-              <td className="dp-nowrap">
-                {fisik
-                  ? item.distance_km == null || item.distance_km === ""
-                    ? "—"
-                    : `${amountText(item.distance_km)} km`
-                  : "1 kegiatan"}
-              </td>
-              <td>
-                <span
-                  className={`dp-badge ${
-                    normalize(item.status) === "verified"
-                      ? "verified"
-                      : "pending"
-                  }`}
-                >
-                  {normalize(item.status) === "verified"
-                    ? "Verified"
-                    : normalize(item.status) === "pending"
-                    ? "Pending"
-                    : item.status || "—"}
-                </span>
-              </td>
-            </tr>
-          );
-        }) : (
-          <tr><td colSpan={5}>Belum ada data sesuai filter.</td></tr>
+      <Table
+        columns={[
+          "Tanggal",
+          "Kategori",
+          "Kegiatan",
+          "Realisasi",
+          "Status",
+        ]}
+      >
+        {visible.length ? (
+          visible.map((item) => {
+            const name = typeName(item);
+
+            const fisik =
+              normalizeType(name) === "fisik" ||
+              normalizeType(item.type_code) === "fisik";
+
+            // ==================================================
+            // PERBAIKAN UTAMA:
+            // Jangan gunakan item.description secara langsung.
+            // ==================================================
+
+            const achievementDetail =
+              parseAchievementDescription(
+                item.description
+              );
+
+            const cleanDescription =
+              achievementDetail.description;
+
+            const evidenceFile =
+              achievementDetail.file;
+
+            return (
+              <tr key={item.id}>
+                <td className="dp-nowrap">
+                  {formatDate(item.activity_date)}
+                </td>
+
+                <td>{name}</td>
+
+                <td className="dp-description">
+                  <div className="dp-achievement-description">
+                    {cleanDescription || "—"}
+                  </div>
+
+                  {evidenceFile && (
+                    <div className="dp-evidence">
+                      <div className="dp-evidence-name">
+                        <span aria-hidden="true">📎</span>
+                        <span>
+                          {evidenceFile.name}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="dp-evidence-button dp-no-print"
+                        disabled={openingId !== null}
+                        onClick={() =>
+                          openAchievementEvidence(
+                            item,
+                            evidenceFile
+                          )
+                        }
+                        title={`Buka ${evidenceFile.name}`}
+                      >
+                        {openingId === item.id
+                          ? "Membuka..."
+                          : "Lihat Bukti"}
+                      </button>
+                    </div>
+                  )}
+                </td>
+
+                <td className="dp-nowrap">
+                  {fisik
+                    ? item.distance_km == null ||
+                      item.distance_km === ""
+                      ? "—"
+                      : `${amountText(
+                          item.distance_km
+                        )} km`
+                    : "1 kegiatan"}
+                </td>
+
+                <td>
+                  <span
+                    className={`dp-badge ${
+                      normalize(item.status) ===
+                      "verified"
+                        ? "verified"
+                        : "pending"
+                    }`}
+                  >
+                    {normalize(item.status) ===
+                    "verified"
+                      ? "Verified"
+                      : normalize(item.status) ===
+                        "pending"
+                      ? "Pending"
+                      : item.status || "—"}
+                  </span>
+                </td>
+              </tr>
+            );
+          })
+        ) : (
+          <tr>
+            <td colSpan={5}>
+              Belum ada data sesuai filter.
+            </td>
+          </tr>
         )}
       </Table>
     </div>
@@ -1074,26 +1440,46 @@ function ScoreTable({ records, practice = false }) {
     String(
       practice ? b.practice_date : b.test_date
     ).localeCompare(
-      String(practice ? a.practice_date : a.test_date)
+      String(
+        practice ? a.practice_date : a.test_date
+      )
     )
   );
 
   return (
-    <Table columns={["Tanggal", "Kegiatan", "Nilai"]}>
-      {sorted.length ? sorted.map((item) => (
-        <tr key={item.id}>
-          <td className="dp-nowrap">
-            {formatDate(practice ? item.practice_date : item.test_date)}
+    <Table
+      columns={["Tanggal", "Kegiatan", "Nilai"]}
+    >
+      {sorted.length ? (
+        sorted.map((item) => (
+          <tr key={item.id}>
+            <td className="dp-nowrap">
+              {formatDate(
+                practice
+                  ? item.practice_date
+                  : item.test_date
+              )}
+            </td>
+
+            <td className="dp-description">
+              {practice
+                ? item.practice_name || "Praktik OJT"
+                : item.notes || "Post-Test"}
+            </td>
+
+            <td>
+              <strong>
+                {scoreText(item.score)}
+              </strong>
+            </td>
+          </tr>
+        ))
+      ) : (
+        <tr>
+          <td colSpan={3}>
+            Belum ada nilai.
           </td>
-          <td className="dp-description">
-            {practice
-              ? item.practice_name || "Praktik OJT"
-              : item.notes || "Post-Test"}
-          </td>
-          <td><strong>{scoreText(item.score)}</strong></td>
         </tr>
-      )) : (
-        <tr><td colSpan={3}>Belum ada nilai.</td></tr>
       )}
     </Table>
   );
@@ -1113,7 +1499,11 @@ export default function DashboardPeserta() {
   const [program, setProgram] = useState(null);
   const [registration, setRegistration] = useState(null);
   const [participants, setParticipants] = useState([]);
-  const [selectedParticipantId, setSelectedParticipantId] = useState("");
+
+  const [
+    selectedParticipantId,
+    setSelectedParticipantId,
+  ] = useState("");
 
   const [access, setAccess] = useState("loading");
   const [loading, setLoading] = useState(true);
@@ -1121,17 +1511,29 @@ export default function DashboardPeserta() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
 
-  const [progress, setProgress] = useState(emptyProgress());
-  const [weeklyData, setWeeklyData] = useState(emptyWeeklyData());
+  const [progress, setProgress] = useState(
+    emptyProgress()
+  );
+
+  const [weeklyData, setWeeklyData] = useState(
+    emptyWeeklyData()
+  );
 
   const [currentWeek, setCurrentWeek] = useState(1);
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [page, setPage] = useState("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
+
   const [resultTab, setResultTab] = useState("posttest");
   const [reportTab, setReportTab] = useState("evaluasi");
-  const [monitorDetail, setMonitorDetail] = useState(false);
-  const [achievementHistory, setAchievementHistory] = useState(false);
+
+  const [monitorDetail, setMonitorDetail] =
+    useState(false);
+
+  const [
+    achievementHistory,
+    setAchievementHistory,
+  ] = useState(false);
 
   const currentWeekRef = useRef(1);
   const requestIdRef = useRef(0);
@@ -1152,7 +1554,9 @@ export default function DashboardPeserta() {
   useEffect(() => {
     const readTheme = () => {
       setTheme(
-        document.documentElement.getAttribute("data-theme") === "dark"
+        document.documentElement.getAttribute(
+          "data-theme"
+        ) === "dark"
           ? "dark"
           : "light"
       );
@@ -1161,6 +1565,7 @@ export default function DashboardPeserta() {
     readTheme();
 
     const observer = new MutationObserver(readTheme);
+
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["data-theme"],
@@ -1170,15 +1575,21 @@ export default function DashboardPeserta() {
   }, []);
 
   function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark";
+    const next =
+      theme === "dark" ? "light" : "dark";
 
-    document.documentElement.setAttribute("data-theme", next);
-    document.documentElement.style.colorScheme = next;
+    document.documentElement.setAttribute(
+      "data-theme",
+      next
+    );
+
+    document.documentElement.style.colorScheme =
+      next;
 
     try {
       localStorage.setItem(THEME_KEY, next);
     } catch {
-      // Tema tetap diterapkan apabila penyimpanan dibatasi.
+      // Tema tetap diterapkan.
     }
 
     setTheme(next);
@@ -1190,11 +1601,13 @@ export default function DashboardPeserta() {
 
   useEffect(() => {
     const initial = getCurrentGlobalWeek();
+
     currentWeekRef.current = initial;
     setCurrentWeek(initial);
 
     const syncWeek = () => {
       const latest = getCurrentGlobalWeek();
+
       if (latest !== currentWeekRef.current) {
         currentWeekRef.current = latest;
         setCurrentWeek(latest);
@@ -1202,16 +1615,31 @@ export default function DashboardPeserta() {
     };
 
     const onVisibility = () => {
-      if (document.visibilityState === "visible") syncWeek();
+      if (document.visibilityState === "visible") {
+        syncWeek();
+      }
     };
 
     window.addEventListener("focus", syncWeek);
-    document.addEventListener("visibilitychange", onVisibility);
-    const interval = window.setInterval(syncWeek, 60000);
+
+    document.addEventListener(
+      "visibilitychange",
+      onVisibility
+    );
+
+    const interval = window.setInterval(
+      syncWeek,
+      60000
+    );
 
     return () => {
       window.removeEventListener("focus", syncWeek);
-      document.removeEventListener("visibilitychange", onVisibility);
+
+      document.removeEventListener(
+        "visibilitychange",
+        onVisibility
+      );
+
       window.clearInterval(interval);
     };
   }, []);
@@ -1235,7 +1663,9 @@ export default function DashboardPeserta() {
       sessionStorage.setItem(
         viewStorageKey(account.id),
         JSON.stringify({
-          participantId: isAdmin ? selectedParticipantId : "",
+          participantId: isAdmin
+            ? selectedParticipantId
+            : "",
           page,
           week: selectedWeek,
           resultTab,
@@ -1245,7 +1675,7 @@ export default function DashboardPeserta() {
         })
       );
     } catch {
-      // Tidak memengaruhi akses atau pemuatan data.
+      // Tidak memengaruhi akses atau data.
     }
   }, [
     account?.id,
@@ -1267,7 +1697,10 @@ export default function DashboardPeserta() {
   // ====================================================
 
   async function fetchParticipantList() {
-    const { data, error: listError } = await supabase
+    const {
+      data,
+      error: listError,
+    } = await supabase
       .from("ojt_programs")
       .select(`
         participant_id,
@@ -1289,12 +1722,18 @@ export default function DashboardPeserta() {
         ? item.peserta[0]
         : item.peserta;
 
-      if (!peserta || !isParticipantRole(peserta.role)) return;
+      if (
+        !peserta ||
+        !isParticipantRole(peserta.role)
+      ) {
+        return;
+      }
 
       if (!unique.has(item.participant_id)) {
         unique.set(item.participant_id, {
           id: item.participant_id,
-          full_name: peserta.full_name || "Peserta OJT",
+          full_name:
+            peserta.full_name || "Peserta OJT",
           department: peserta.department || "",
           site: item.site || "",
           role: normalize(peserta.role),
@@ -1309,7 +1748,6 @@ export default function DashboardPeserta() {
 
   // ====================================================
   // FETCH DATA
-  // Kolom tambahan hanya untuk menampilkan detail.
   // ====================================================
 
   async function fetchProgramProgress(activeProgram) {
@@ -1323,7 +1761,9 @@ export default function DashboardPeserta() {
     const id = activeProgram.id;
 
     const results = await Promise.all([
-      supabase.from("achievement_types").select("code,name"),
+      supabase
+        .from("achievement_types")
+        .select("code,name"),
 
       supabase
         .from("achievement_records")
@@ -1334,22 +1774,30 @@ export default function DashboardPeserta() {
 
       supabase
         .from("post_test_scores")
-        .select("id,program_id,test_date,score,notes")
+        .select(
+          "id,program_id,test_date,score,notes"
+        )
         .eq("program_id", id),
 
       supabase
         .from("weekly_practice_scores")
-        .select("id,program_id,practice_date,practice_name,score")
+        .select(
+          "id,program_id,practice_date,practice_name,score"
+        )
         .eq("program_id", id),
 
       supabase
         .from("samapta_records")
-        .select("id,program_id,test_date,test_type,outcome,result_value,score")
+        .select(
+          "id,program_id,test_date,test_type,outcome,result_value,score"
+        )
         .eq("program_id", id),
 
       supabase
         .from("simper_records")
-        .select("id,program_id,theory_status,practice_status,status,notes")
+        .select(
+          "id,program_id,theory_status,practice_status,status,notes"
+        )
         .eq("program_id", id),
     ]);
 
@@ -1364,7 +1812,9 @@ export default function DashboardPeserta() {
 
     results.forEach((result, index) => {
       if (result.error) {
-        throw new Error(`${labels[index]}: ${result.error.message}`);
+        throw new Error(
+          `${labels[index]}: ${result.error.message}`
+        );
       }
     });
 
@@ -1408,7 +1858,9 @@ export default function DashboardPeserta() {
       );
 
       if (!selected) {
-        throw new Error("Peserta tidak tersedia dalam daftar preview.");
+        throw new Error(
+          "Peserta tidak tersedia dalam daftar preview."
+        );
       }
 
       currentProfile = {
@@ -1418,67 +1870,107 @@ export default function DashboardPeserta() {
         role: selected.role,
       };
     } else {
-      const { data, error: profileError } = await supabase
+      const {
+        data,
+        error: profileError,
+      } = await supabase
         .from("profiles")
         .select("id,full_name,department,role")
         .eq("id", participantId)
         .maybeSingle();
 
       if (profileError) throw profileError;
-      if (!data) throw new Error("Profil peserta tidak tersedia.");
+
+      if (!data) {
+        throw new Error(
+          "Profil peserta tidak tersedia."
+        );
+      }
 
       if (!isParticipantRole(data.role)) {
-        throw new Error("Akun tidak terdaftar sebagai Peserta OJT.");
+        throw new Error(
+          "Akun tidak terdaftar sebagai Peserta OJT."
+        );
       }
 
       currentProfile = data;
     }
 
-    const { data: activePrograms, error: programError } = await supabase
+    const {
+      data: activePrograms,
+      error: programError,
+    } = await supabase
       .from("ojt_programs")
-      .select("id,participant_id,start_date,end_date,status,site,legacy_access")
+      .select(
+        "id,participant_id,start_date,end_date,status,site,legacy_access"
+      )
       .eq("participant_id", participantId)
       .eq("status", "active")
-      .order("start_date", { ascending: false })
+      .order("start_date", {
+        ascending: false,
+      })
       .limit(1);
 
     if (programError) throw programError;
-    const activeProgram = activePrograms?.[0] || null;
+
+    const activeProgram =
+      activePrograms?.[0] || null;
 
     if (adminPreview) {
       const bundle = activeProgram
         ? await fetchProgramProgress(activeProgram)
-        : { progress: emptyProgress(), weekly: emptyWeeklyData() };
+        : {
+            progress: emptyProgress(),
+            weekly: emptyWeeklyData(),
+          };
 
       return {
         profile: currentProfile,
         registration: null,
         program: activeProgram,
-        access: activeProgram ? "approved" : "no_program",
+        access: activeProgram
+          ? "approved"
+          : "no_program",
         progress: bundle.progress,
         weekly: bundle.weekly,
       };
     }
 
-    const { data: newRequests, error: newError } = await supabase
+    const {
+      data: newRequests,
+      error: newError,
+    } = await supabase
       .from("ojt_registration_requests")
-      .select("id,status,rejection_reason,site,start_date,end_date,created_at")
+      .select(
+        "id,status,rejection_reason,site,start_date,end_date,created_at"
+      )
       .eq("participant_id", participantId)
-      .order("created_at", { ascending: false });
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (newError) throw newError;
 
-    const { data: oldRequests, error: oldError } = await supabase
+    const {
+      data: oldRequests,
+      error: oldError,
+    } = await supabase
       .from("participant_registrations")
-      .select("id,status,rejection_reason,site,created_at")
+      .select(
+        "id,status,rejection_reason,site,created_at"
+      )
       .eq("user_id", participantId)
-      .order("created_at", { ascending: false })
+      .order("created_at", {
+        ascending: false,
+      })
       .limit(1);
 
     if (oldError) throw oldError;
 
     const newList = newRequests || [];
-    const oldRegistration = oldRequests?.[0] || null;
+    const oldRegistration =
+      oldRequests?.[0] || null;
+
     const latestNew = newList[0] || null;
 
     const latestRegistration =
@@ -1490,15 +1982,22 @@ export default function DashboardPeserta() {
         : latestNew || oldRegistration;
 
     const hasPendingNew = newList.some(
-      (item) => normalize(item.status) === "pending"
+      (item) =>
+        normalize(item.status) === "pending"
     );
+
     const hasApprovedNew = newList.some(
-      (item) => normalize(item.status) === "approved"
+      (item) =>
+        normalize(item.status) === "approved"
     );
+
     const hasApprovedOld =
-      normalize(oldRegistration?.status) === "approved";
+      normalize(oldRegistration?.status) ===
+      "approved";
+
     const hasPendingOld =
-      normalize(oldRegistration?.status) === "pending";
+      normalize(oldRegistration?.status) ===
+      "pending";
 
     const approvedProgram =
       Boolean(activeProgram) &&
@@ -1510,20 +2009,33 @@ export default function DashboardPeserta() {
 
     let nextAccess = "no_program";
 
-    if (approvedProgram) nextAccess = "approved";
-    else if (hasPendingNew || hasPendingOld) nextAccess = "pending";
-    else if (normalize(latestRegistration?.status) === "rejected") {
+    if (approvedProgram) {
+      nextAccess = "approved";
+    } else if (hasPendingNew || hasPendingOld) {
+      nextAccess = "pending";
+    } else if (
+      normalize(latestRegistration?.status) ===
+      "rejected"
+    ) {
       nextAccess = "rejected";
     }
 
-    const bundle = nextAccess === "approved"
-      ? await fetchProgramProgress(activeProgram)
-      : { progress: emptyProgress(), weekly: emptyWeeklyData() };
+    const bundle =
+      nextAccess === "approved"
+        ? await fetchProgramProgress(activeProgram)
+        : {
+            progress: emptyProgress(),
+            weekly: emptyWeeklyData(),
+          };
 
     return {
       profile: currentProfile,
-      registration: latestRegistration || null,
-      program: nextAccess === "approved" ? activeProgram : null,
+      registration:
+        latestRegistration || null,
+      program:
+        nextAccess === "approved"
+          ? activeProgram
+          : null,
       access: nextAccess,
       progress: bundle.progress,
       weekly: bundle.weekly,
@@ -1543,8 +2055,15 @@ export default function DashboardPeserta() {
     setProfile(data.profile);
     setRegistration(data.registration);
     setProgram(data.program);
-    setProgress(data.progress || emptyProgress());
-    setWeeklyData(data.weekly || emptyWeeklyData());
+
+    setProgress(
+      data.progress || emptyProgress()
+    );
+
+    setWeeklyData(
+      data.weekly || emptyWeeklyData()
+    );
+
     setAccess(data.access);
   }
 
@@ -1565,10 +2084,16 @@ export default function DashboardPeserta() {
     setError("");
 
     try {
-      const { data: { user }, error: authError } =
-        await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
 
       if (authError || !user) {
         setAccount(null);
@@ -1576,21 +2101,39 @@ export default function DashboardPeserta() {
         setSelectedParticipantId("");
         selectedIdRef.current = "";
         clearDashboard();
+
         router.replace("/login");
         return;
       }
 
-      const { data: currentAccount, error: accountError } = await supabase
+      const {
+        data: currentAccount,
+        error: accountError,
+      } = await supabase
         .from("profiles")
-        .select("id,full_name,department,role")
+        .select(
+          "id,full_name,department,role"
+        )
         .eq("id", user.id)
         .maybeSingle();
 
-      if (requestId !== requestIdRef.current) return;
-      if (accountError) throw accountError;
-      if (!currentAccount) throw new Error("Profil akun tidak tersedia.");
+      if (
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
 
-      const role = normalize(currentAccount.role);
+      if (accountError) throw accountError;
+
+      if (!currentAccount) {
+        throw new Error(
+          "Profil akun tidak tersedia."
+        );
+      }
+
+      const role = normalize(
+        currentAccount.role
+      );
 
       if (role === "mentor") {
         setAccount(null);
@@ -1599,34 +2142,70 @@ export default function DashboardPeserta() {
         return;
       }
 
-      if (role !== "admin" && !isParticipantRole(role)) {
-        throw new Error("Akun tidak memiliki akses Dashboard Peserta.");
+      if (
+        role !== "admin" &&
+        !isParticipantRole(role)
+      ) {
+        throw new Error(
+          "Akun tidak memiliki akses Dashboard Peserta."
+        );
       }
 
       const saved = readSavedView(user.id);
 
       if (!restoredViewRef.current) {
-        const params = new URLSearchParams(window.location.search);
-        const savedPage = params.get("page") || saved.page;
-        const savedWeek = params.get("week") || saved.week;
+        const params = new URLSearchParams(
+          window.location.search
+        );
 
-        setPage(validPage(savedPage) ? savedPage : "dashboard");
+        const savedPage =
+          params.get("page") || saved.page;
+
+        const savedWeek =
+          params.get("week") || saved.week;
+
+        setPage(
+          validPage(savedPage)
+            ? savedPage
+            : "dashboard"
+        );
+
         setSelectedWeek(
           validWeek(savedWeek)
             ? Number(savedWeek)
             : getCurrentGlobalWeek()
         );
-        setResultTab(saved.resultTab === "praktik" ? "praktik" : "posttest");
-        setReportTab(saved.reportTab === "rapor" ? "rapor" : "evaluasi");
-        setMonitorDetail(saved.monitorDetail === true);
-        setAchievementHistory(saved.achievementHistory === true);
+
+        setResultTab(
+          saved.resultTab === "praktik"
+            ? "praktik"
+            : "posttest"
+        );
+
+        setReportTab(
+          saved.reportTab === "rapor"
+            ? "rapor"
+            : "evaluasi"
+        );
+
+        setMonitorDetail(
+          saved.monitorDetail === true
+        );
+
+        setAchievementHistory(
+          saved.achievementHistory === true
+        );
 
         if (role === "admin") {
           const requested =
-            params.get("participant") ?? saved.participantId ?? "";
+            params.get("participant") ??
+            saved.participantId ??
+            "";
 
           selectedIdRef.current =
-            typeof requested === "string" ? requested : "";
+            typeof requested === "string"
+              ? requested
+              : "";
         }
 
         restoredViewRef.current = true;
@@ -1638,20 +2217,32 @@ export default function DashboardPeserta() {
         email: user.email || "",
       });
 
-      const latestWeek = getCurrentGlobalWeek();
+      const latestWeek =
+        getCurrentGlobalWeek();
+
       currentWeekRef.current = latestWeek;
       setCurrentWeek(latestWeek);
 
       if (role === "admin") {
-        const list = await fetchParticipantList();
-        if (requestId !== requestIdRef.current) return;
+        const list =
+          await fetchParticipantList();
+
+        if (
+          requestId !== requestIdRef.current
+        ) {
+          return;
+        }
 
         setParticipants(list);
 
-        const requestedId = selectedIdRef.current;
-        const selected = list.find((item) => item.id === requestedId);
+        const requestedId =
+          selectedIdRef.current;
 
-        // Jangan diam-diam berpindah ke peserta lain.
+        const selected = list.find(
+          (item) => item.id === requestedId
+        );
+
+        // Jangan pindah ke peserta lain otomatis.
         if (!selected) {
           selectedIdRef.current = "";
           setSelectedParticipantId("");
@@ -1660,10 +2251,22 @@ export default function DashboardPeserta() {
           return;
         }
 
-        setSelectedParticipantId(selected.id);
+        setSelectedParticipantId(
+          selected.id
+        );
 
-        const next = await fetchParticipantDashboard(selected.id, true, list);
-        if (requestId !== requestIdRef.current) return;
+        const next =
+          await fetchParticipantDashboard(
+            selected.id,
+            true,
+            list
+          );
+
+        if (
+          requestId !== requestIdRef.current
+        ) {
+          return;
+        }
 
         applyDashboard(next);
       } else {
@@ -1671,16 +2274,34 @@ export default function DashboardPeserta() {
         setSelectedParticipantId("");
         selectedIdRef.current = "";
 
-        const next = await fetchParticipantDashboard(user.id, false);
-        if (requestId !== requestIdRef.current) return;
+        const next =
+          await fetchParticipantDashboard(
+            user.id,
+            false
+          );
+
+        if (
+          requestId !== requestIdRef.current
+        ) {
+          return;
+        }
 
         applyDashboard(next);
       }
     } catch (err) {
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
 
       clearDashboard();
-      setError(err?.message || "Gagal memuat Dashboard Peserta.");
+
+      setError(
+        err?.message ||
+          "Gagal memuat Dashboard Peserta."
+      );
+
       setAccess("error");
     } finally {
       if (requestId === requestIdRef.current) {
@@ -1705,9 +2326,16 @@ export default function DashboardPeserta() {
   // ====================================================
 
   async function changePreviewParticipant(id) {
-    if (!isAdmin || loading || refreshing) return;
+    if (
+      !isAdmin ||
+      loading ||
+      refreshing
+    ) {
+      return;
+    }
 
-    const requestId = ++requestIdRef.current;
+    const requestId =
+      ++requestIdRef.current;
 
     selectedIdRef.current = id;
     setSelectedParticipantId(id);
@@ -1718,10 +2346,16 @@ export default function DashboardPeserta() {
     clearDashboard();
 
     try {
-      const { data: { user }, error: authError } =
-        await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
 
       if (authError || !user) {
         setAccount(null);
@@ -1730,20 +2364,35 @@ export default function DashboardPeserta() {
       }
 
       if (user.id !== account?.id) {
-        throw new Error("Akun login berubah. Silakan muat ulang halaman.");
+        throw new Error(
+          "Akun login berubah. Silakan muat ulang halaman."
+        );
       }
 
-      const { data: verifiedAccount, error: accountError } = await supabase
+      const {
+        data: verifiedAccount,
+        error: accountError,
+      } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", user.id)
         .maybeSingle();
 
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
+
       if (accountError) throw accountError;
 
-      if (normalize(verifiedAccount?.role) !== "admin") {
-        throw new Error("Hanya Admin yang dapat menggunakan tinjauan peserta.");
+      if (
+        normalize(verifiedAccount?.role) !==
+        "admin"
+      ) {
+        throw new Error(
+          "Hanya Admin yang dapat menggunakan tinjauan peserta."
+        );
       }
 
       if (!id) {
@@ -1751,29 +2400,64 @@ export default function DashboardPeserta() {
         return;
       }
 
-      const list = await fetchParticipantList();
-      if (requestId !== requestIdRef.current) return;
+      const list =
+        await fetchParticipantList();
+
+      if (
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
 
       setParticipants(list);
 
       const selected = list.find(
-        (item) => item.id === id && isParticipantRole(item.role)
+        (item) =>
+          item.id === id &&
+          isParticipantRole(item.role)
       );
 
-      if (!selected) throw new Error("Peserta tidak ditemukan.");
+      if (!selected) {
+        throw new Error(
+          "Peserta tidak ditemukan."
+        );
+      }
 
-      const next = await fetchParticipantDashboard(id, true, list);
-      if (requestId !== requestIdRef.current) return;
+      const next =
+        await fetchParticipantDashboard(
+          id,
+          true,
+          list
+        );
+
+      if (
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
 
       applyDashboard(next);
     } catch (err) {
-      if (requestId !== requestIdRef.current) return;
+      if (
+        requestId !== requestIdRef.current
+      ) {
+        return;
+      }
 
       clearDashboard();
-      setError(err?.message || "Gagal mengganti peserta tinjauan.");
+
+      setError(
+        err?.message ||
+          "Gagal mengganti peserta tinjauan."
+      );
+
       setAccess("error");
     } finally {
-      if (requestId === requestIdRef.current) setRefreshing(false);
+      if (
+        requestId === requestIdRef.current
+      ) {
+        setRefreshing(false);
+      }
     }
   }
 
@@ -1788,12 +2472,17 @@ export default function DashboardPeserta() {
     requestIdRef.current += 1;
 
     try {
-      const { error: logoutError } = await supabase.auth.signOut();
+      const {
+        error: logoutError,
+      } = await supabase.auth.signOut();
+
       if (logoutError) throw logoutError;
 
       try {
         if (account?.id) {
-          sessionStorage.removeItem(viewStorageKey(account.id));
+          sessionStorage.removeItem(
+            viewStorageKey(account.id)
+          );
         }
       } catch {}
 
@@ -1806,7 +2495,10 @@ export default function DashboardPeserta() {
       router.replace("/login");
       router.refresh();
     } catch {
-      setError("Gagal keluar. Silakan coba kembali.");
+      setError(
+        "Gagal keluar. Silakan coba kembali."
+      );
+
       setLoggingOut(false);
     }
   }
@@ -1815,7 +2507,9 @@ export default function DashboardPeserta() {
     if (!validPage(nextPage)) return;
 
     if (nextPage === "dashboard") {
-      const latest = getCurrentGlobalWeek();
+      const latest =
+        getCurrentGlobalWeek();
+
       currentWeekRef.current = latest;
       setCurrentWeek(latest);
     }
@@ -1823,9 +2517,10 @@ export default function DashboardPeserta() {
     setPage(nextPage);
     setMobileMenu(false);
 
-    // Hapus parameter navigasi awal agar tidak mengunci
-    // menu/minggu saat halaman dimuat ulang.
-    const url = new URL(window.location.href);
+    const url = new URL(
+      window.location.href
+    );
+
     url.searchParams.delete("page");
     url.searchParams.delete("week");
     url.searchParams.delete("participant");
@@ -1836,18 +2531,27 @@ export default function DashboardPeserta() {
       `${url.pathname}${url.search}${url.hash}`
     );
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
   function openFeature(path) {
-    if (!hasActiveProgram || !path) return;
+    if (
+      !hasActiveProgram ||
+      !path
+    ) {
+      return;
+    }
 
-    // Simpan sebelum berpindah ke fitur lain.
     try {
       sessionStorage.setItem(
         viewStorageKey(account.id),
         JSON.stringify({
-          participantId: isAdmin ? selectedParticipantId : "",
+          participantId: isAdmin
+            ? selectedParticipantId
+            : "",
           page,
           week: selectedWeek,
           resultTab,
@@ -1866,18 +2570,33 @@ export default function DashboardPeserta() {
   // ====================================================
 
   function getWeekRecords(weekNumber) {
-    const achievements = weeklyData.achievements.filter(
-      (item) => globalWeekOf(item.activity_date) === weekNumber
-    );
-    const postTests = weeklyData.postTests.filter(
-      (item) => globalWeekOf(item.test_date) === weekNumber
-    );
-    const practices = weeklyData.practices.filter(
-      (item) => globalWeekOf(item.practice_date) === weekNumber
-    );
-    const samapta = weeklyData.samapta.filter(
-      (item) => globalWeekOf(item.test_date) === weekNumber
-    );
+    const achievements =
+      weeklyData.achievements.filter(
+        (item) =>
+          globalWeekOf(item.activity_date) ===
+          weekNumber
+      );
+
+    const postTests =
+      weeklyData.postTests.filter(
+        (item) =>
+          globalWeekOf(item.test_date) ===
+          weekNumber
+      );
+
+    const practices =
+      weeklyData.practices.filter(
+        (item) =>
+          globalWeekOf(item.practice_date) ===
+          weekNumber
+      );
+
+    const samapta =
+      weeklyData.samapta.filter(
+        (item) =>
+          globalWeekOf(item.test_date) ===
+          weekNumber
+      );
 
     return {
       achievements,
@@ -1889,41 +2608,75 @@ export default function DashboardPeserta() {
         postTests.length +
         practices.length +
         samapta.length,
-      verifiedAchievements: achievements.filter(
-        (item) => normalize(item.status) === "verified"
-      ).length,
-      pendingAchievements: achievements.filter(
-        (item) => normalize(item.status) === "pending"
-      ).length,
-      average: averageScores([...postTests, ...practices]),
+      verifiedAchievements:
+        achievements.filter(
+          (item) =>
+            normalize(item.status) ===
+            "verified"
+        ).length,
+      pendingAchievements:
+        achievements.filter(
+          (item) =>
+            normalize(item.status) ===
+            "pending"
+        ).length,
+      average: averageScores([
+        ...postTests,
+        ...practices,
+      ]),
     };
   }
 
-  const dashboardWeekInfo = getGlobalWeek(currentWeek);
-  const selectedWeekInfo = getGlobalWeek(selectedWeek);
+  const dashboardWeekInfo =
+    getGlobalWeek(currentWeek);
 
-  const dashboardSchedule = WEEKLY_SCHEDULE.filter(
-    (item) => item.week === currentWeek
-  );
-  const selectedSchedule = WEEKLY_SCHEDULE.filter(
-    (item) => item.week === selectedWeek
-  );
+  const selectedWeekInfo =
+    getGlobalWeek(selectedWeek);
 
-  const dashboardWeekly = getWeekRecords(currentWeek);
-  const selectedWeekly = getWeekRecords(selectedWeek);
+  const dashboardSchedule =
+    WEEKLY_SCHEDULE.filter(
+      (item) =>
+        item.week === currentWeek
+    );
+
+  const selectedSchedule =
+    WEEKLY_SCHEDULE.filter(
+      (item) =>
+        item.week === selectedWeek
+    );
+
+  const dashboardWeekly =
+    getWeekRecords(currentWeek);
+
+  const selectedWeekly =
+    getWeekRecords(selectedWeek);
 
   const weeksWithData = new Set();
 
   if (hasActiveProgram) {
     const mark = (date) => {
       const number = globalWeekOf(date);
-      if (number !== null) weeksWithData.add(number);
+
+      if (number !== null) {
+        weeksWithData.add(number);
+      }
     };
 
-    weeklyData.achievements.forEach((item) => mark(item.activity_date));
-    weeklyData.postTests.forEach((item) => mark(item.test_date));
-    weeklyData.practices.forEach((item) => mark(item.practice_date));
-    weeklyData.samapta.forEach((item) => mark(item.test_date));
+    weeklyData.achievements.forEach(
+      (item) => mark(item.activity_date)
+    );
+
+    weeklyData.postTests.forEach(
+      (item) => mark(item.test_date)
+    );
+
+    weeklyData.practices.forEach(
+      (item) => mark(item.practice_date)
+    );
+
+    weeklyData.samapta.forEach(
+      (item) => mark(item.test_date)
+    );
   }
 
   const categories = progress.categories.length
@@ -1935,47 +2688,71 @@ export default function DashboardPeserta() {
         completed: false,
       }));
 
-  // Menggunakan rumus Achievement yang sama pada data
-  // minggu global terpilih.
-  const weeklyAchievement = calculateAchievements(
-    selectedWeekly.achievements,
-    weeklyData.types,
-    program?.start_date
-  );
-
-  const weeklyCategories = weeklyAchievement.categories.map((item) => {
-    const type = weeklyData.types.find(
-      (entry) => normalizeType(entry.name) === normalizeType(item.name)
+  const weeklyAchievement =
+    calculateAchievements(
+      selectedWeekly.achievements,
+      weeklyData.types,
+      program?.start_date
     );
 
-    const matching = type
-      ? selectedWeekly.achievements.filter(
-          (record) =>
-            normalizeType(record.type_code) === normalizeType(type.code)
-        )
-      : [];
+  const weeklyCategories =
+    weeklyAchievement.categories.map(
+      (item) => {
+        const type = weeklyData.types.find(
+          (entry) =>
+            normalizeType(entry.name) ===
+            normalizeType(item.name)
+        );
 
-    return {
-      ...item,
-      total: matching.length,
-      verified: matching.filter(
-        (record) => normalize(record.status) === "verified"
-      ).length,
-      pending: matching.filter(
-        (record) => normalize(record.status) === "pending"
-      ).length,
-    };
-  });
+        const matching = type
+          ? selectedWeekly.achievements.filter(
+              (record) =>
+                normalizeType(
+                  record.type_code
+                ) ===
+                normalizeType(type.code)
+            )
+          : [];
 
-  const allScores = [...weeklyData.postTests, ...weeklyData.practices];
-  const overallScore = averageScores(allScores);
+        return {
+          ...item,
+          total: matching.length,
+          verified: matching.filter(
+            (record) =>
+              normalize(record.status) ===
+              "verified"
+          ).length,
+          pending: matching.filter(
+            (record) =>
+              normalize(record.status) ===
+              "pending"
+          ).length,
+        };
+      }
+    );
+
+  const allScores = [
+    ...weeklyData.postTests,
+    ...weeklyData.practices,
+  ];
+
+  const overallScore =
+    averageScores(allScores);
 
   const participantName =
     profile?.full_name ||
-    (isAdmin ? "Pilih peserta" : account?.full_name) ||
+    (
+      isAdmin
+        ? "Pilih peserta"
+        : account?.full_name
+    ) ||
     "Peserta OJT";
 
-  const showContent = !loading && !refreshing && !error && hasActiveProgram;
+  const showContent =
+    !loading &&
+    !refreshing &&
+    !error &&
+    hasActiveProgram;
 
   // ====================================================
   // MONITORING DALAM DASHBOARD
@@ -1995,7 +2772,10 @@ export default function DashboardPeserta() {
         </div>
 
         <div className="dp-week-info">
-          <strong>{weekLabel(selectedWeek)}</strong>
+          <strong>
+            {weekLabel(selectedWeek)}
+          </strong>
+
           <span>
             {formatDate(selectedWeekInfo?.start)}
             {" – "}
@@ -2004,40 +2784,99 @@ export default function DashboardPeserta() {
         </div>
 
         <div className="dp-stat-grid four">
-          <Stat label="Achievement" value={selectedWeekly.achievements.length} />
+          <Stat
+            label="Achievement"
+            value={
+              selectedWeekly.achievements.length
+            }
+          />
+
           <Stat
             label="Post-Test · Rata-rata"
-            value={scoreText(averageScores(selectedWeekly.postTests))}
+            value={scoreText(
+              averageScores(
+                selectedWeekly.postTests
+              )
+            )}
           />
+
           <Stat
             label="Praktik · Rata-rata"
-            value={scoreText(averageScores(selectedWeekly.practices))}
+            value={scoreText(
+              averageScores(
+                selectedWeekly.practices
+              )
+            )}
           />
-          <Stat label="Catatan Samapta" value={selectedWeekly.samapta.length} />
+
+          <Stat
+            label="Catatan Samapta"
+            value={
+              selectedWeekly.samapta.length
+            }
+          />
         </div>
 
-        <Table columns={["Kategori", "Realisasi / Target", "Verified", "Pending", "Progres"]}>
+        <Table
+          columns={[
+            "Kategori",
+            "Realisasi / Target",
+            "Verified",
+            "Pending",
+            "Progres",
+          ]}
+        >
           {weeklyCategories.map((item) => (
             <tr key={item.name}>
-              <td><strong>{item.name}</strong></td>
               <td>
-                {amountText(item.amount)} / {item.target}
-                {item.name === "Fisik" ? " km" : " kegiatan"}
+                <strong>
+                  {item.name}
+                </strong>
               </td>
+
+              <td>
+                {amountText(item.amount)} /{" "}
+                {item.target}
+                {item.name === "Fisik"
+                  ? " km"
+                  : " kegiatan"}
+              </td>
+
               <td>{item.verified}</td>
               <td>{item.pending}</td>
+
               <td className="dp-progress-cell">
                 {Math.round(item.progress)}%
-                <ProgressBar value={item.progress} />
+
+                <ProgressBar
+                  value={item.progress}
+                />
               </td>
             </tr>
           ))}
         </Table>
 
         <div className="dp-inline-summary">
-          <span>Total: <strong>{selectedWeekly.achievements.length}</strong></span>
-          <span>Verified: <strong>{selectedWeekly.verifiedAchievements}</strong></span>
-          <span>Pending: <strong>{selectedWeekly.pendingAchievements}</strong></span>
+          <span>
+            Total:{" "}
+            <strong>
+              {selectedWeekly.achievements.length}
+            </strong>
+          </span>
+
+          <span>
+            Verified:{" "}
+            <strong>
+              {selectedWeekly.verifiedAchievements}
+            </strong>
+          </span>
+
+          <span>
+            Pending:{" "}
+            <strong>
+              {selectedWeekly.pendingAchievements}
+            </strong>
+          </span>
         </div>
 
         <div className="dp-buttons dp-no-print">
@@ -2045,15 +2884,23 @@ export default function DashboardPeserta() {
             type="button"
             className="dp-button"
             aria-expanded={monitorDetail}
-            onClick={() => setMonitorDetail((old) => !old)}
+            onClick={() =>
+              setMonitorDetail(
+                (old) => !old
+              )
+            }
           >
-            {monitorDetail ? "Tutup Detail" : "Lihat Detail Data"}
+            {monitorDetail
+              ? "Tutup Detail"
+              : "Lihat Detail Data"}
           </button>
 
           <button
             type="button"
             className="dp-button secondary"
-            onClick={() => window.print()}
+            onClick={() =>
+              window.print()
+            }
           >
             Cetak / Simpan PDF
           </button>
@@ -2062,38 +2909,93 @@ export default function DashboardPeserta() {
         {monitorDetail && (
           <div className="dp-detail-stack">
             <section>
-              <h3>Riwayat Achievement</h3>
+              <h3>
+                Riwayat Achievement
+              </h3>
+
               <AchievementHistory
                 key={`weekly-${program.id}-${selectedWeek}`}
-                records={selectedWeekly.achievements}
-                types={weeklyData.types}
+                records={
+                  selectedWeekly.achievements
+                }
+                types={
+                  weeklyData.types
+                }
               />
             </section>
 
             <section>
               <h3>Post-Test</h3>
-              <ScoreTable records={selectedWeekly.postTests} />
+
+              <ScoreTable
+                records={
+                  selectedWeekly.postTests
+                }
+              />
             </section>
 
             <section>
               <h3>Praktik</h3>
-              <ScoreTable records={selectedWeekly.practices} practice />
+
+              <ScoreTable
+                records={
+                  selectedWeekly.practices
+                }
+                practice
+              />
             </section>
 
             <section>
               <h3>Samapta</h3>
-              <Table columns={["Tanggal", "Periode", "Jenis Tes", "Hasil", "Nilai"]}>
+
+              <Table
+                columns={[
+                  "Tanggal",
+                  "Periode",
+                  "Jenis Tes",
+                  "Hasil",
+                  "Nilai",
+                ]}
+              >
                 {selectedWeekly.samapta.length
-                  ? selectedWeekly.samapta.map((item) => (
-                      <tr key={item.id}>
-                        <td className="dp-nowrap">{formatDate(item.test_date)}</td>
-                        <td>{item.test_type || "—"}</td>
-                        <td>{item.outcome || "—"}</td>
-                        <td>{scoreText(item.result_value)}</td>
-                        <td>{scoreText(item.score)}</td>
-                      </tr>
-                    ))
-                  : <tr><td colSpan={5}>Belum ada hasil Samapta.</td></tr>}
+                  ? selectedWeekly.samapta.map(
+                      (item) => (
+                        <tr key={item.id}>
+                          <td className="dp-nowrap">
+                            {formatDate(
+                              item.test_date
+                            )}
+                          </td>
+
+                          <td>
+                            {item.test_type || "—"}
+                          </td>
+
+                          <td>
+                            {item.outcome || "—"}
+                          </td>
+
+                          <td>
+                            {scoreText(
+                              item.result_value
+                            )}
+                          </td>
+
+                          <td>
+                            {scoreText(
+                              item.score
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )
+                  : (
+                    <tr>
+                      <td colSpan={5}>
+                        Belum ada hasil Samapta.
+                      </td>
+                    </tr>
+                  )}
               </Table>
             </section>
           </div>
@@ -2114,19 +3016,37 @@ export default function DashboardPeserta() {
         <button
           type="button"
           className="dp-mobile-trigger"
-          onClick={() => setMobileMenu((old) => !old)}
-          aria-label={mobileMenu ? "Tutup menu" : "Buka menu"}
+          onClick={() =>
+            setMobileMenu(
+              (old) => !old
+            )
+          }
+          aria-label={
+            mobileMenu
+              ? "Tutup menu"
+              : "Buka menu"
+          }
           aria-expanded={mobileMenu}
         >
-          <Icon name={mobileMenu ? "close" : "menu"} size={23} />
+          <Icon
+            name={
+              mobileMenu
+                ? "close"
+                : "menu"
+            }
+            size={23}
+          />
         </button>
 
         <button
           type="button"
           className="dp-brand"
-          onClick={() => navigatePage("dashboard")}
+          onClick={() =>
+            navigatePage("dashboard")
+          }
         >
-          OJT <span>MineTrack</span> <small>v2.0</small>
+          OJT <span>MineTrack</span>{" "}
+          <small>v2.0</small>
         </button>
 
         <span className="dp-top-description">
@@ -2134,35 +3054,76 @@ export default function DashboardPeserta() {
         </span>
 
         <div className="dp-user">
-          <span className="dp-avatar">{initials(account?.full_name)}</span>
+          <span className="dp-avatar">
+            {initials(
+              account?.full_name
+            )}
+          </span>
+
           <div>
-            <strong>{account?.full_name || "Pengguna"}</strong>
-            <small>{isAdmin ? "Administrator" : "Peserta OJT"}</small>
+            <strong>
+              {account?.full_name ||
+                "Pengguna"}
+            </strong>
+
+            <small>
+              {isAdmin
+                ? "Administrator"
+                : "Peserta OJT"}
+            </small>
           </div>
         </div>
       </header>
 
       <div className="dp-layout">
-        <aside className={`dp-sidebar ${mobileMenu ? "open" : ""}`}>
+        <aside
+          className={`dp-sidebar ${
+            mobileMenu ? "open" : ""
+          }`}
+        >
           <div className="dp-sidebar-brand">
             <div>⛰</div>
-            <strong>OJT <span>MineTrack</span> <small>v2.0</small></strong>
-            <p>Emergency Response Group<br />PT Berau Coal</p>
+
+            <strong>
+              OJT <span>MineTrack</span>{" "}
+              <small>v2.0</small>
+            </strong>
+
+            <p>
+              Emergency Response Group
+              <br />
+              PT Berau Coal
+            </p>
           </div>
 
-          <small className="dp-menu-label">MENU PESERTA</small>
+          <small className="dp-menu-label">
+            MENU PESERTA
+          </small>
 
           <nav>
             {MENUS.map((item) => (
               <button
                 type="button"
                 key={item.id}
-                className={`dp-menu ${page === item.id ? "active" : ""}`}
-                onClick={() => navigatePage(item.id)}
-                aria-current={page === item.id ? "page" : undefined}
+                className={`dp-menu ${
+                  page === item.id
+                    ? "active"
+                    : ""
+                }`}
+                onClick={() =>
+                  navigatePage(item.id)
+                }
+                aria-current={
+                  page === item.id
+                    ? "page"
+                    : undefined
+                }
               >
                 <Icon name={item.icon} />
-                <span>{item.label}</span>
+
+                <span>
+                  {item.label}
+                </span>
               </button>
             ))}
           </nav>
@@ -2170,11 +3131,19 @@ export default function DashboardPeserta() {
           <div className="dp-sidebar-bottom">
             <button
               type="button"
-              className={`dp-menu ${page === "profil" ? "active" : ""}`}
-              onClick={() => navigatePage("profil")}
+              className={`dp-menu ${
+                page === "profil"
+                  ? "active"
+                  : ""
+              }`}
+              onClick={() =>
+                navigatePage("profil")
+              }
             >
-              <Icon name="user" /> Profil Akun
+              <Icon name="user" />
+              Profil Akun
             </button>
+
             <button
               type="button"
               className="dp-menu"
@@ -2182,7 +3151,10 @@ export default function DashboardPeserta() {
               onClick={logout}
             >
               <Icon name="logout" />
-              {loggingOut ? "Sedang keluar..." : "Keluar Akun"}
+
+              {loggingOut
+                ? "Sedang keluar..."
+                : "Keluar Akun"}
             </button>
           </div>
         </aside>
@@ -2191,7 +3163,9 @@ export default function DashboardPeserta() {
           <button
             type="button"
             className="dp-overlay"
-            onClick={() => setMobileMenu(false)}
+            onClick={() =>
+              setMobileMenu(false)
+            }
             aria-label="Tutup menu"
           />
         )}
@@ -2199,10 +3173,18 @@ export default function DashboardPeserta() {
         <main className="dp-main">
           <div className="dp-page-heading dp-no-print">
             <div>
-              <h1>{PAGE_TITLES[page]}</h1>
-              {profile && page !== "dashboard" && (
-                <p>{profile.full_name} · {program?.site || "—"}</p>
-              )}
+              <h1>
+                {PAGE_TITLES[page]}
+              </h1>
+
+              {profile &&
+                page !== "dashboard" && (
+                  <p>
+                    {profile.full_name}
+                    {" · "}
+                    {program?.site || "—"}
+                  </p>
+                )}
             </div>
 
             <div className="dp-buttons">
@@ -2210,9 +3192,16 @@ export default function DashboardPeserta() {
                 <button
                   type="button"
                   className="dp-small-button"
-                  onClick={() => navigatePage("dashboard")}
+                  onClick={() =>
+                    navigatePage(
+                      "dashboard"
+                    )
+                  }
                 >
-                  <Icon name="left" size={16} />
+                  <Icon
+                    name="left"
+                    size={16}
+                  />
                   <span>Dashboard</span>
                 </button>
               )}
@@ -2222,111 +3211,222 @@ export default function DashboardPeserta() {
                   type="button"
                   className="dp-small-button"
                   onClick={toggleTheme}
-                  aria-label={theme === "dark" ? "Aktifkan mode terang" : "Aktifkan mode gelap"}
+                  aria-label={
+                    theme === "dark"
+                      ? "Aktifkan mode terang"
+                      : "Aktifkan mode gelap"
+                  }
                 >
-                  <Icon name={theme === "dark" ? "sun" : "moon"} size={18} />
-                  <span>{theme === "dark" ? "Mode Terang" : "Mode Gelap"}</span>
+                  <Icon
+                    name={
+                      theme === "dark"
+                        ? "sun"
+                        : "moon"
+                    }
+                    size={18}
+                  />
+
+                  <span>
+                    {theme === "dark"
+                      ? "Mode Terang"
+                      : "Mode Gelap"}
+                  </span>
                 </button>
               )}
 
               <button
                 type="button"
                 className="dp-small-button"
-                disabled={loading || refreshing}
-                onClick={() => loadDashboard(true)}
+                disabled={
+                  loading ||
+                  refreshing
+                }
+                onClick={() =>
+                  loadDashboard(true)
+                }
               >
-                <Icon name="refresh" size={17} />
+                <Icon
+                  name="refresh"
+                  size={17}
+                />
                 <span>Refresh</span>
               </button>
             </div>
           </div>
 
-          {loading && <div className="dp-alert" role="status">Memuat Dashboard Peserta...</div>}
-          {refreshing && <div className="dp-alert" role="status">Memperbarui data...</div>}
-          {error && <div className="dp-alert error" role="alert">{error}</div>}
+          {loading && (
+            <div
+              className="dp-alert"
+              role="status"
+            >
+              Memuat Dashboard Peserta...
+            </div>
+          )}
+
+          {refreshing && (
+            <div
+              className="dp-alert"
+              role="status"
+            >
+              Memperbarui data...
+            </div>
+          )}
+
+          {error && (
+            <div
+              className="dp-alert error"
+              role="alert"
+            >
+              {error}
+            </div>
+          )}
 
           {isAdmin && (
             <section className="dp-admin-preview dp-no-print">
               <label htmlFor="dp-preview">
-                <Icon name="shield" size={18} />
+                <Icon
+                  name="shield"
+                  size={18}
+                />
                 Tinjauan Peserta
               </label>
 
               <select
                 id="dp-preview"
-                value={selectedParticipantId}
-                disabled={loading || refreshing}
-                onChange={(event) => changePreviewParticipant(event.target.value)}
+                value={
+                  selectedParticipantId
+                }
+                disabled={
+                  loading ||
+                  refreshing
+                }
+                onChange={(event) =>
+                  changePreviewParticipant(
+                    event.target.value
+                  )
+                }
               >
-                <option value="">Pilih peserta</option>
-                {participants.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.full_name}{item.site ? ` — ${item.site}` : ""}
-                  </option>
-                ))}
+                <option value="">
+                  Pilih peserta
+                </option>
+
+                {participants.map(
+                  (item) => (
+                    <option
+                      key={item.id}
+                      value={item.id}
+                    >
+                      {item.full_name}
+                      {item.site
+                        ? ` — ${item.site}`
+                        : ""}
+                    </option>
+                  )
+                )}
               </select>
 
               <button
                 type="button"
                 className="dp-small-button"
-                onClick={() => router.push("/")}
+                onClick={() =>
+                  router.push("/")
+                }
               >
                 Dashboard Admin
               </button>
             </section>
           )}
 
-          {!loading && !refreshing && !error && !hasActiveProgram && (
-            <section className="dp-panel">
-              {isAdmin && !profile ? (
-                <EmptyState>
-                  {participants.length
-                    ? "Pilih peserta untuk melihat data OJT."
-                    : "Belum ada peserta dengan program aktif."}
-                </EmptyState>
-              ) : (
-                <>
-                  <h2>{getStatusInfo(access)}</h2>
-
-                  {access === "pending" && (
-                    <p className="dp-muted">
-                      {registration?.site || "—"}
-                      {" · "}
-                      {formatDate(registration?.start_date)}
-                      {" – "}
-                      {formatDate(registration?.end_date)}
-                    </p>
-                  )}
-
-                  {access === "rejected" && (
-                    <>
-                      <p>{registration?.rejection_reason || "Alasan belum tersedia."}</p>
-                      {!isAdmin && (
-                        <button
-                          type="button"
-                          className="dp-button"
-                          onClick={() => router.push("/pengajuan-peserta")}
-                        >
-                          Perbaiki Pengajuan
-                        </button>
+          {!loading &&
+            !refreshing &&
+            !error &&
+            !hasActiveProgram && (
+              <section className="dp-panel">
+                {isAdmin &&
+                !profile ? (
+                  <EmptyState>
+                    {participants.length
+                      ? "Pilih peserta untuk melihat data OJT."
+                      : "Belum ada peserta dengan program aktif."}
+                  </EmptyState>
+                ) : (
+                  <>
+                    <h2>
+                      {getStatusInfo(
+                        access
                       )}
-                    </>
-                  )}
+                    </h2>
 
-                  {access === "no_program" && (
-                    <p className="dp-muted">Belum ada program OJT aktif.</p>
-                  )}
-                </>
-              )}
-            </section>
-          )}
+                    {access ===
+                      "pending" && (
+                      <p className="dp-muted">
+                        {registration?.site ||
+                          "—"}
+                        {" · "}
+                        {formatDate(
+                          registration?.start_date
+                        )}
+                        {" – "}
+                        {formatDate(
+                          registration?.end_date
+                        )}
+                      </p>
+                    )}
+
+                    {access ===
+                      "rejected" && (
+                      <>
+                        <p>
+                          {registration
+                            ?.rejection_reason ||
+                            "Alasan belum tersedia."}
+                        </p>
+
+                        {!isAdmin && (
+                          <button
+                            type="button"
+                            className="dp-button"
+                            onClick={() =>
+                              router.push(
+                                "/pengajuan-peserta"
+                              )
+                            }
+                          >
+                            Perbaiki Pengajuan
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {access ===
+                      "no_program" && (
+                      <p className="dp-muted">
+                        Belum ada program OJT aktif.
+                      </p>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
 
           {showContent && (
             <>
               <div className="dp-print-heading">
-                <h1>OJT MineTrack · {PAGE_TITLES[page]}</h1>
-                <p>{participantName} · {program.site || "—"}</p>
+                <h1>
+                  OJT MineTrack ·{" "}
+                  {PAGE_TITLES[page]}
+                </h1>
+
+                <p>
+                  {participantName}
+                  {" · "}
+                  {program.site || "—"}
+                </p>
               </div>
+
+              {/* ======================================
+                  DASHBOARD
+                  ====================================== */}
 
               {page === "dashboard" && (
                 <>
@@ -2336,25 +3436,58 @@ export default function DashboardPeserta() {
                       backgroundImage: `linear-gradient(100deg,rgba(0,55,42,.97),rgba(0,87,57,.87),rgba(0,70,56,.45)),url("${BACKGROUND_IMAGE}")`,
                     }}
                   >
-                    <small>EMERGENCY RESPONSE GROUP · PT BERAU COAL</small>
-                    <h2>{participantName}</h2>
-                    <p>{profile.department || "—"} · {program.site || "—"}</p>
+                    <small>
+                      EMERGENCY RESPONSE GROUP ·
+                      PT BERAU COAL
+                    </small>
+
+                    <h2>
+                      {participantName}
+                    </h2>
+
+                    <p>
+                      {profile.department ||
+                        "—"}
+                      {" · "}
+                      {program.site ||
+                        "—"}
+                    </p>
+
                     <span>
-                      {weekLabel(currentWeek)} · {formatDate(dashboardWeekInfo?.start)}
+                      {weekLabel(
+                        currentWeek
+                      )}
+                      {" · "}
+                      {formatDate(
+                        dashboardWeekInfo?.start
+                      )}
                       {" – "}
-                      {formatDate(dashboardWeekInfo?.end)}
+                      {formatDate(
+                        dashboardWeekInfo?.end
+                      )}
                     </span>
                   </section>
 
                   <div className="dp-stat-grid">
-                    <Stat label="Minggu Program" value={`${weekLabel(currentWeek)} / 25`} />
-                    <Stat label="Progres OJT" value={`${progress.activityPercent}%`} />
+                    <Stat
+                      label="Minggu Program"
+                      value={`${weekLabel(
+                        currentWeek
+                      )} / 25`}
+                    />
+
+                    <Stat
+                      label="Progres OJT"
+                      value={`${progress.activityPercent}%`}
+                    />
+
                     <Stat
                       label="Status SIMPER"
                       value={
                         progress.simperIssued
                           ? "Sudah Terbit"
-                          : progress.simperCompleted === 3
+                          : progress.simperCompleted ===
+                            3
                           ? "Persyaratan Terpenuhi"
                           : "Belum Dipenuhi"
                       }
@@ -2364,118 +3497,248 @@ export default function DashboardPeserta() {
                   <div className="dp-columns">
                     <section className="dp-panel">
                       <div className="dp-section-head">
-                        <h2>Jadwal Minggu Ini</h2>
-                        <span className="dp-muted">{weekLabel(currentWeek)}</span>
+                        <h2>
+                          Jadwal Minggu Ini
+                        </h2>
+
+                        <span className="dp-muted">
+                          {weekLabel(
+                            currentWeek
+                          )}
+                        </span>
                       </div>
 
-                      {dashboardSchedule.length
-                        ? dashboardSchedule.map((item) => (
-                            <ActivityItem key={item.id} activity={item} />
-                          ))
-                        : <EmptyState>Belum ada jadwal.</EmptyState>}
+                      {dashboardSchedule.length ? (
+                        dashboardSchedule.map(
+                          (item) => (
+                            <ActivityItem
+                              key={item.id}
+                              activity={item}
+                            />
+                          )
+                        )
+                      ) : (
+                        <EmptyState>
+                          Belum ada jadwal.
+                        </EmptyState>
+                      )}
 
                       <button
                         type="button"
                         className="dp-button secondary full"
-                        onClick={() => navigatePage("jadwal")}
+                        onClick={() =>
+                          navigatePage(
+                            "jadwal"
+                          )
+                        }
                       >
-                        Semua Jadwal <Icon name="arrow" size={16} />
+                        Semua Jadwal
+
+                        <Icon
+                          name="arrow"
+                          size={16}
+                        />
                       </button>
                     </section>
 
                     <section className="dp-panel">
                       <div className="dp-section-head">
-                        <h2>Ringkasan Mingguan</h2>
-                        <span className="dp-muted">{weekLabel(currentWeek)}</span>
+                        <h2>
+                          Ringkasan Mingguan
+                        </h2>
+
+                        <span className="dp-muted">
+                          {weekLabel(
+                            currentWeek
+                          )}
+                        </span>
                       </div>
 
                       <div className="dp-stat-grid two">
-                        <Stat label="Rata-rata Nilai" value={scoreText(dashboardWeekly.average)} />
-                        <Stat label="Catatan Minggu Ini" value={dashboardWeekly.total} />
+                        <Stat
+                          label="Rata-rata Nilai"
+                          value={scoreText(
+                            dashboardWeekly.average
+                          )}
+                        />
+
+                        <Stat
+                          label="Catatan Minggu Ini"
+                          value={
+                            dashboardWeekly.total
+                          }
+                        />
                       </div>
 
                       <button
                         type="button"
                         className="dp-button secondary full"
                         onClick={() => {
-                          setSelectedWeek(currentWeek);
-                          navigatePage("monitoring");
+                          setSelectedWeek(
+                            currentWeek
+                          );
+
+                          navigatePage(
+                            "monitoring"
+                          );
                         }}
                       >
-                        Monitoring Mingguan <Icon name="arrow" size={16} />
+                        Monitoring Mingguan
+
+                        <Icon
+                          name="arrow"
+                          size={16}
+                        />
                       </button>
 
                       <div className="dp-subheading">
-                        <h3>Achievement Program</h3>
+                        <h3>
+                          Achievement Program
+                        </h3>
+
                         <button
                           type="button"
                           className="dp-text-button"
-                          onClick={() => navigatePage("achievement")}
+                          onClick={() =>
+                            navigatePage(
+                              "achievement"
+                            )
+                          }
                         >
                           Detail
                         </button>
                       </div>
 
-                      <CategoryCards categories={categories} />
+                      <CategoryCards
+                        categories={
+                          categories
+                        }
+                      />
                     </section>
                   </div>
                 </>
               )}
 
+              {/* ======================================
+                  JADWAL KEGIATAN
+                  ====================================== */}
+
               {page === "jadwal" && (
                 <section className="dp-panel">
                   <div className="dp-section-head">
-                    <h2>Jadwal Kegiatan</h2>
+                    <h2>
+                      Jadwal Kegiatan
+                    </h2>
+
                     <WeekSelector
-                      week={selectedWeek}
-                      onChange={setSelectedWeek}
-                      weeksWithData={weeksWithData}
+                      week={
+                        selectedWeek
+                      }
+                      onChange={
+                        setSelectedWeek
+                      }
+                      weeksWithData={
+                        weeksWithData
+                      }
                     />
                   </div>
 
                   <div className="dp-week-info">
-                    <strong>{weekLabel(selectedWeek)}</strong>
+                    <strong>
+                      {weekLabel(
+                        selectedWeek
+                      )}
+                    </strong>
+
                     <span>
-                      {formatDate(selectedWeekInfo?.start)}
+                      {formatDate(
+                        selectedWeekInfo?.start
+                      )}
                       {" – "}
-                      {formatDate(selectedWeekInfo?.end)}
+                      {formatDate(
+                        selectedWeekInfo?.end
+                      )}
                     </span>
                   </div>
 
-                  {selectedSchedule.length
-                    ? selectedSchedule.map((item) => (
-                        <ActivityItem key={item.id} activity={item} />
-                      ))
-                    : <EmptyState>Belum ada jadwal untuk minggu ini.</EmptyState>}
+                  {selectedSchedule.length ? (
+                    selectedSchedule.map(
+                      (item) => (
+                        <ActivityItem
+                          key={item.id}
+                          activity={item}
+                        />
+                      )
+                    )
+                  ) : (
+                    <EmptyState>
+                      Belum ada jadwal untuk minggu ini.
+                    </EmptyState>
+                  )}
                 </section>
               )}
 
-              {page === "monitoring" && renderWeeklyReport()}
+              {/* ======================================
+                  MONITORING
+                  ====================================== */}
+
+              {page === "monitoring" &&
+                renderWeeklyReport()}
+
+              {/* ======================================
+                  ACHIEVEMENT OJT
+                  ====================================== */}
 
               {page === "achievement" && (
                 <section className="dp-panel">
                   <div className="dp-section-head">
-                    <h2>Achievement Program</h2>
-                    <strong className="dp-total">{progress.achievement}%</strong>
+                    <h2>
+                      Achievement Program
+                    </h2>
+
+                    <strong className="dp-total">
+                      {progress.achievement}%
+                    </strong>
                   </div>
 
-                  <ProgressBar value={progress.achievement} />
-                  <CategoryCards categories={categories} />
+                  <ProgressBar
+                    value={
+                      progress.achievement
+                    }
+                  />
+
+                  <CategoryCards
+                    categories={
+                      categories
+                    }
+                  />
 
                   <div className="dp-buttons dp-no-print">
                     <button
                       type="button"
                       className="dp-button"
-                      onClick={() => setAchievementHistory((old) => !old)}
-                      aria-expanded={achievementHistory}
+                      onClick={() =>
+                        setAchievementHistory(
+                          (old) => !old
+                        )
+                      }
+                      aria-expanded={
+                        achievementHistory
+                      }
                     >
-                      {achievementHistory ? "Tutup Riwayat" : "Lihat Riwayat"}
+                      {achievementHistory
+                        ? "Tutup Riwayat"
+                        : "Lihat Riwayat"}
                     </button>
 
                     <button
                       type="button"
                       className="dp-button secondary"
-                      onClick={() => navigatePage("monitoring")}
+                      onClick={() =>
+                        navigatePage(
+                          "monitoring"
+                        )
+                      }
                     >
                       Rekap Mingguan
                     </button>
@@ -2485,30 +3748,58 @@ export default function DashboardPeserta() {
                     <div className="dp-detail-stack">
                       <AchievementHistory
                         key={`all-${program.id}`}
-                        records={weeklyData.achievements}
-                        types={weeklyData.types}
+                        records={
+                          weeklyData.achievements
+                        }
+                        types={
+                          weeklyData.types
+                        }
                       />
                     </div>
                   )}
                 </section>
               )}
 
+              {/* ======================================
+                  HASIL POST-TEST & PRAKTIK
+                  ====================================== */}
+
               {page === "hasil" && (
                 <section className="dp-panel">
                   <div className="dp-section-head">
-                    <h2>Hasil Penilaian</h2>
+                    <h2>
+                      Hasil Penilaian
+                    </h2>
+
                     <div className="dp-tabs">
                       <button
                         type="button"
-                        className={resultTab === "posttest" ? "selected" : ""}
-                        onClick={() => setResultTab("posttest")}
+                        className={
+                          resultTab === "posttest"
+                            ? "selected"
+                            : ""
+                        }
+                        onClick={() =>
+                          setResultTab(
+                            "posttest"
+                          )
+                        }
                       >
                         Post-Test
                       </button>
+
                       <button
                         type="button"
-                        className={resultTab === "praktik" ? "selected" : ""}
-                        onClick={() => setResultTab("praktik")}
+                        className={
+                          resultTab === "praktik"
+                            ? "selected"
+                            : ""
+                        }
+                        onClick={() =>
+                          setResultTab(
+                            "praktik"
+                          )
+                        }
                       >
                         Praktik
                       </button>
@@ -2516,86 +3807,192 @@ export default function DashboardPeserta() {
                   </div>
 
                   <div className="dp-stat-grid two">
-                    <Stat label="Rata-rata Seluruh Nilai" value={scoreText(overallScore)} />
-                    <Stat label="Penilaian Tercatat" value={allScores.length} />
+                    <Stat
+                      label="Rata-rata Seluruh Nilai"
+                      value={scoreText(
+                        overallScore
+                      )}
+                    />
+
+                    <Stat
+                      label="Penilaian Tercatat"
+                      value={
+                        allScores.length
+                      }
+                    />
                   </div>
 
                   <ScoreTable
                     records={
-                      resultTab === "posttest"
+                      resultTab ===
+                      "posttest"
                         ? weeklyData.postTests
                         : weeklyData.practices
                     }
-                    practice={resultTab === "praktik"}
+                    practice={
+                      resultTab ===
+                      "praktik"
+                    }
                   />
                 </section>
               )}
 
+              {/* ======================================
+                  SIMPER
+                  ====================================== */}
+
               {page === "simper" && (
                 <section className="dp-panel">
                   <div className="dp-section-head">
-                    <h2>Status SIMPER</h2>
-                    <strong className="dp-total">{progress.simper}%</strong>
+                    <h2>
+                      Status SIMPER
+                    </h2>
+
+                    <strong className="dp-total">
+                      {progress.simper}%
+                    </strong>
                   </div>
-                  <ProgressBar value={progress.simper} />
+
+                  <ProgressBar
+                    value={
+                      progress.simper
+                    }
+                  />
 
                   <div className="dp-profile-rows">
                     <div>
-                      <span>Persyaratan Terpenuhi</span>
-                      <strong>{progress.simperCompleted}/3</strong>
+                      <span>
+                        Persyaratan Terpenuhi
+                      </span>
+
+                      <strong>
+                        {progress.simperCompleted}
+                        /3
+                      </strong>
                     </div>
+
                     <div>
-                      <span>Penerbitan</span>
-                      <strong>{progress.simperIssued ? "Sudah Terbit" : "Belum Terbit"}</strong>
+                      <span>
+                        Penerbitan
+                      </span>
+
+                      <strong>
+                        {progress.simperIssued
+                          ? "Sudah Terbit"
+                          : "Belum Terbit"}
+                      </strong>
                     </div>
                   </div>
 
                   <button
                     type="button"
                     className="dp-button full"
-                    onClick={() => openFeature(`/simper/${program.id}`)}
+                    onClick={() =>
+                      openFeature(
+                        `/simper/${program.id}`
+                      )
+                    }
                   >
-                    Detail SIMPER <Icon name="arrow" size={16} />
+                    Detail SIMPER
+
+                    <Icon
+                      name="arrow"
+                      size={16}
+                    />
                   </button>
                 </section>
               )}
+
+              {/* ======================================
+                  RAPOR & EVALUASI
+                  ====================================== */}
 
               {page === "rapor" && (
                 <>
                   <div className="dp-tabs dp-report-tabs dp-no-print">
                     <button
                       type="button"
-                      className={reportTab === "evaluasi" ? "selected" : ""}
-                      onClick={() => setReportTab("evaluasi")}
+                      className={
+                        reportTab ===
+                        "evaluasi"
+                          ? "selected"
+                          : ""
+                      }
+                      onClick={() =>
+                        setReportTab(
+                          "evaluasi"
+                        )
+                      }
                     >
                       Evaluasi Mingguan
                     </button>
+
                     <button
                       type="button"
-                      className={reportTab === "rapor" ? "selected" : ""}
-                      onClick={() => setReportTab("rapor")}
+                      className={
+                        reportTab ===
+                        "rapor"
+                          ? "selected"
+                          : ""
+                      }
+                      onClick={() =>
+                        setReportTab(
+                          "rapor"
+                        )
+                      }
                     >
                       Rapor OJT
                     </button>
                   </div>
 
-                  {reportTab === "evaluasi" ? renderWeeklyReport() : (
+                  {reportTab ===
+                  "evaluasi" ? (
+                    renderWeeklyReport()
+                  ) : (
                     <section className="dp-panel">
-                      <h2>Rapor OJT</h2>
+                      <h2>
+                        Rapor OJT
+                      </h2>
 
                       <div className="dp-stat-grid four">
-                        <Stat label="Achievement" value={`${progress.achievement}%`} />
-                        <Stat label="Minggu Beraktivitas" value={`${progress.activityWeeks}/25`} />
-                        <Stat label="SIMPER" value={`${progress.simper}%`} />
-                        <Stat label="Rata-rata Nilai" value={scoreText(overallScore)} />
+                        <Stat
+                          label="Achievement"
+                          value={`${progress.achievement}%`}
+                        />
+
+                        <Stat
+                          label="Minggu Beraktivitas"
+                          value={`${progress.activityWeeks}/25`}
+                        />
+
+                        <Stat
+                          label="SIMPER"
+                          value={`${progress.simper}%`}
+                        />
+
+                        <Stat
+                          label="Rata-rata Nilai"
+                          value={scoreText(
+                            overallScore
+                          )}
+                        />
                       </div>
 
                       <button
                         type="button"
                         className="dp-button full"
-                        onClick={() => openFeature(`/laporan/${program.id}`)}
+                        onClick={() =>
+                          openFeature(
+                            `/laporan/${program.id}`
+                          )
+                        }
                       >
-                        Buka Rapor OJT <Icon name="arrow" size={16} />
+                        Buka Rapor OJT
+
+                        <Icon
+                          name="arrow"
+                          size={16}
+                        />
                       </button>
                     </section>
                   )}
@@ -2604,14 +4001,23 @@ export default function DashboardPeserta() {
                     <button
                       type="button"
                       className="dp-button secondary"
-                      onClick={() => openFeature(`/analisis/${program.id}`)}
+                      onClick={() =>
+                        openFeature(
+                          `/analisis/${program.id}`
+                        )
+                      }
                     >
                       Grafik Perkembangan
                     </button>
+
                     <button
                       type="button"
                       className="dp-button secondary"
-                      onClick={() => openFeature(`/evaluasi/${program.id}`)}
+                      onClick={() =>
+                        openFeature(
+                          `/evaluasi/${program.id}`
+                        )
+                      }
                     >
                       Evaluasi Kesiapan
                     </button>
@@ -2619,29 +4025,75 @@ export default function DashboardPeserta() {
                 </>
               )}
 
+              {/* ======================================
+                  PROFIL
+                  ====================================== */}
+
               {page === "profil" && (
                 <section className="dp-panel">
                   <div className="dp-profile-heading">
-                    <span className="dp-avatar large">{initials(participantName)}</span>
+                    <span className="dp-avatar large">
+                      {initials(
+                        participantName
+                      )}
+                    </span>
+
                     <div>
-                      <h2>{participantName}</h2>
-                      <p className="dp-muted">{isAdmin ? "Tinjauan Peserta" : "Peserta OJT"}</p>
+                      <h2>
+                        {participantName}
+                      </h2>
+
+                      <p className="dp-muted">
+                        {isAdmin
+                          ? "Tinjauan Peserta"
+                          : "Peserta OJT"}
+                      </p>
                     </div>
                   </div>
 
                   <div className="dp-profile-rows">
                     {[
-                      ["Departemen", profile.department || "—"],
-                      ["Site Penempatan", program.site || "—"],
-                      ["Periode OJT", `${formatDate(program.start_date)} – ${formatDate(program.end_date)}`],
-                      ["Status Program", getStatusInfo(access)],
-                      ["Email Akun Login", isAdmin ? "Tidak ditampilkan dalam preview" : account?.email || "—"],
-                    ].map(([label, value]) => (
-                      <div key={label}>
-                        <span>{label}</span>
-                        <strong>{value}</strong>
-                      </div>
-                    ))}
+                      [
+                        "Departemen",
+                        profile.department || "—",
+                      ],
+                      [
+                        "Site Penempatan",
+                        program.site || "—",
+                      ],
+                      [
+                        "Periode OJT",
+                        `${formatDate(
+                          program.start_date
+                        )} – ${formatDate(
+                          program.end_date
+                        )}`,
+                      ],
+                      [
+                        "Status Program",
+                        getStatusInfo(
+                          access
+                        ),
+                      ],
+                      [
+                        "Email Akun Login",
+                        isAdmin
+                          ? "Tidak ditampilkan dalam preview"
+                          : account?.email || "—",
+                      ],
+                    ].map(
+                      ([label, value]) => (
+                        <div key={label}>
+                          <span>
+                            {label}
+                          </span>
+
+                          <strong>
+                            {value}
+                          </strong>
+                        </div>
+                      )
+                    )}
                   </div>
                 </section>
               )}
@@ -2780,8 +4232,14 @@ const dashboardCSS = `
     white-space: nowrap;
   }
 
-  .dp-brand span { color: #59dfa0; }
-  .dp-brand small { font-size: 10px; color: #d7eee3; }
+  .dp-brand span {
+    color: #59dfa0;
+  }
+
+  .dp-brand small {
+    font-size: 10px;
+    color: #d7eee3;
+  }
 
   .dp-top-description {
     border-left: 1px solid #ffffff44;
@@ -2808,8 +4266,15 @@ const dashboardCSS = `
     display: block;
   }
 
-  .dp-user strong { font-size: 12px; }
-  .dp-user small { font-size: 10px; color: #cce9d9; margin-top: 3px; }
+  .dp-user strong {
+    font-size: 12px;
+  }
+
+  .dp-user small {
+    font-size: 10px;
+    color: #cce9d9;
+    margin-top: 3px;
+  }
 
   .dp-avatar {
     width: 37px;
@@ -2829,7 +4294,9 @@ const dashboardCSS = `
     font-size: 22px;
   }
 
-  .dp-mobile-trigger { display: none; }
+  .dp-mobile-trigger {
+    display: none;
+  }
 
   .dp-layout {
     display: flex;
@@ -2844,14 +4311,24 @@ const dashboardCSS = `
     height: calc(100vh - 64px);
     flex-shrink: 0;
     overflow-y: auto;
-    background: linear-gradient(165deg,#004d3f,#00352f 55%,#002a27);
+    background: linear-gradient(
+      165deg,
+      #004d3f,
+      #00352f 55%,
+      #002a27
+    );
     color: #ffffff;
     padding: 24px 14px;
     z-index: 50;
   }
 
   html[data-theme="dark"] .dp-sidebar {
-    background: linear-gradient(165deg,#092c28,#081f1d 55%,#061614);
+    background: linear-gradient(
+      165deg,
+      #092c28,
+      #081f1d 55%,
+      #061614
+    );
   }
 
   .dp-sidebar-brand {
@@ -2860,11 +4337,27 @@ const dashboardCSS = `
     border-bottom: 1px solid #ffffff29;
   }
 
-  .dp-sidebar-brand > div { font-size: 42px; }
-  .dp-sidebar-brand > strong { font-size: 21px; white-space: nowrap; }
-  .dp-sidebar-brand > strong span { color: #f4d45e; }
-  .dp-sidebar-brand > strong small { font-size: 9px; }
-  .dp-sidebar-brand p { font-size: 11px; color: #c9e9dd; }
+  .dp-sidebar-brand > div {
+    font-size: 42px;
+  }
+
+  .dp-sidebar-brand > strong {
+    font-size: 21px;
+    white-space: nowrap;
+  }
+
+  .dp-sidebar-brand > strong span {
+    color: #f4d45e;
+  }
+
+  .dp-sidebar-brand > strong small {
+    font-size: 9px;
+  }
+
+  .dp-sidebar-brand p {
+    font-size: 11px;
+    color: #c9e9dd;
+  }
 
   .dp-menu-label {
     display: block;
@@ -2875,7 +4368,10 @@ const dashboardCSS = `
     font-weight: 800;
   }
 
-  .dp-sidebar nav { display: grid; gap: 6px; }
+  .dp-sidebar nav {
+    display: grid;
+    gap: 6px;
+  }
 
   .dp-menu {
     display: flex;
@@ -2893,10 +4389,23 @@ const dashboardCSS = `
     font-weight: 700;
   }
 
-  .dp-menu svg { flex-shrink: 0; }
-  .dp-menu.active { background: #078b59; }
-  .dp-sidebar-bottom { border-top: 1px solid #ffffff2d; margin-top: 25px; padding-top: 16px; }
-  .dp-overlay { display: none; }
+  .dp-menu svg {
+    flex-shrink: 0;
+  }
+
+  .dp-menu.active {
+    background: #078b59;
+  }
+
+  .dp-sidebar-bottom {
+    border-top: 1px solid #ffffff2d;
+    margin-top: 25px;
+    padding-top: 16px;
+  }
+
+  .dp-overlay {
+    display: none;
+  }
 
   .dp-main {
     min-width: 0;
@@ -2915,7 +4424,9 @@ const dashboardCSS = `
     margin-bottom: 18px;
   }
 
-  .dp-page-heading > div:first-child { min-width: 0; }
+  .dp-page-heading > div:first-child {
+    min-width: 0;
+  }
 
   .dp-page-heading h1 {
     margin: 0;
@@ -2954,7 +4465,9 @@ const dashboardCSS = `
     font-weight: 800;
   }
 
-  .dp-small-button { font-size: 11px; }
+  .dp-small-button {
+    font-size: 11px;
+  }
 
   .dp-button {
     background: #078653;
@@ -2968,7 +4481,10 @@ const dashboardCSS = `
     border-color: var(--dp-border);
   }
 
-  .dp-button.full { width: 100%; margin-top: 16px; }
+  .dp-button.full {
+    width: 100%;
+    margin-top: 16px;
+  }
 
   .dp-admin-preview {
     display: flex;
@@ -3024,7 +4540,10 @@ const dashboardCSS = `
     box-shadow: var(--dp-shadow);
   }
 
-  .dp-panel > h2 { margin: 0 0 15px; font-size: 20px; }
+  .dp-panel > h2 {
+    margin: 0 0 15px;
+    font-size: 20px;
+  }
 
   .dp-section-head {
     display: flex;
@@ -3035,7 +4554,10 @@ const dashboardCSS = `
     margin-bottom: 16px;
   }
 
-  .dp-section-head h2 { margin: 0; font-size: 19px; }
+  .dp-section-head h2 {
+    margin: 0;
+    font-size: 19px;
+  }
 
   .dp-hero {
     padding: 26px;
@@ -3046,20 +4568,47 @@ const dashboardCSS = `
     color: #ffffff;
   }
 
-  .dp-hero > small { color: #f1cf77; font-size: 10px; font-weight: 800; }
-  .dp-hero h2 { color: #ffffff; font-size: 27px; margin: 12px 0 6px; overflow-wrap: anywhere; }
-  .dp-hero p { color: #d6ece1; font-size: 13px; margin: 0 0 14px; }
-  .dp-hero > span { color: #e0f4e8; font-size: 12px; }
+  .dp-hero > small {
+    color: #f1cf77;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .dp-hero h2 {
+    color: #ffffff;
+    font-size: 27px;
+    margin: 12px 0 6px;
+    overflow-wrap: anywhere;
+  }
+
+  .dp-hero p {
+    color: #d6ece1;
+    font-size: 13px;
+    margin: 0 0 14px;
+  }
+
+  .dp-hero > span {
+    color: #e0f4e8;
+    font-size: 12px;
+  }
 
   .dp-stat-grid {
     display: grid;
-    grid-template-columns: repeat(3,minmax(0,1fr));
+    grid-template-columns:
+      repeat(3,minmax(0,1fr));
     gap: 12px;
     margin: 0 0 17px;
   }
 
-  .dp-stat-grid.two { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .dp-stat-grid.four { grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .dp-stat-grid.two {
+    grid-template-columns:
+      repeat(2,minmax(0,1fr));
+  }
+
+  .dp-stat-grid.four {
+    grid-template-columns:
+      repeat(4,minmax(0,1fr));
+  }
 
   .dp-stat {
     min-width: 0;
@@ -3069,154 +4618,713 @@ const dashboardCSS = `
     border-radius: 11px;
   }
 
-  .dp-stat small { display: block; color: var(--dp-muted); font-size: 11px; }
-  .dp-stat strong { display: block; margin-top: 8px; color: var(--dp-green); font-size: 23px; line-height: 1.3; overflow-wrap: anywhere; }
+  .dp-stat small {
+    display: block;
+    color: var(--dp-muted);
+    font-size: 11px;
+  }
 
-  .dp-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 17px; }
+  .dp-stat strong {
+    display: block;
+    margin-top: 8px;
+    color: var(--dp-green);
+    font-size: 23px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
 
-  .dp-week-nav { display: flex; align-items: center; gap: 6px; }
-  .dp-week-nav button { min-width: 36px; height: 40px; display: grid; place-items: center; border: 1px solid var(--dp-border); border-radius: 8px; background: var(--dp-surface); color: var(--dp-accent); }
-  .dp-week-nav select { max-width: 210px; font-weight: 700; }
+  .dp-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 17px;
+  }
 
-  .dp-week-info { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px; margin-bottom: 15px; border-radius: 10px; background: var(--dp-tint); }
-  .dp-week-info strong { color: var(--dp-green); font-size: 18px; }
-  .dp-week-info span { color: var(--dp-muted); font-size: 12px; }
+  .dp-week-nav {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
 
-  .dp-progress { width: 100%; height: 8px; margin-top: 8px; overflow: hidden; border-radius: 20px; background: var(--dp-border); }
-  .dp-progress > span { display: block; height: 100%; border-radius: inherit; background: #0b9c64; }
-  html[data-theme="dark"] .dp-progress > span { background: #43d499; }
-  .dp-progress-cell { min-width: 110px; }
+  .dp-week-nav button {
+    min-width: 36px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--dp-border);
+    border-radius: 8px;
+    background: var(--dp-surface);
+    color: var(--dp-accent);
+  }
 
-  .dp-category-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin: 16px 0; }
-  .dp-category { min-width: 0; padding: 14px; border: 1px solid var(--dp-border); border-radius: 11px; }
-  .dp-category-title { display: flex; align-items: center; gap: 7px; color: var(--dp-accent); }
-  .dp-category-title svg { flex-shrink: 0; }
-  .dp-category-title strong { font-size: 11px; color: var(--dp-text); }
-  .dp-category h3 { color: var(--dp-green); font-size: 25px; margin: 10px 0; }
-  .dp-category > small { display: block; color: var(--dp-muted); margin-top: 9px; font-size: 10px; }
-  .dp-total { color: var(--dp-green); font-size: 29px; }
+  .dp-week-nav select {
+    max-width: 210px;
+    font-weight: 700;
+  }
 
-  .dp-subheading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 20px; }
-  .dp-subheading h3 { font-size: 14px; margin: 0; }
-  .dp-text-button { padding: 6px; border: 0; background: transparent; color: var(--dp-accent); font-size: 12px; font-weight: 800; }
+  .dp-week-info {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+    margin-bottom: 15px;
+    border-radius: 10px;
+    background: var(--dp-tint);
+  }
 
-  .dp-activity { display: flex; align-items: flex-start; gap: 12px; border-bottom: 1px solid var(--dp-border); padding: 15px 0; }
-  .dp-activity:last-of-type { border-bottom: 0; }
-  .dp-activity-icon { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; background: var(--dp-tint); color: var(--dp-accent); border-radius: 10px; }
-  .dp-activity > div { min-width: 0; }
-  .dp-activity strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
-  .dp-activity small { display: block; color: var(--dp-muted); font-size: 11px; margin-top: 5px; }
-  .dp-schedule-detail { margin-top: 6px; font-size: 11px; color: var(--dp-muted); }
-  .dp-schedule-detail summary { width: fit-content; cursor: pointer; color: var(--dp-accent); }
-  .dp-schedule-detail p { margin: 7px 0 0; line-height: 1.7; }
+  .dp-week-info strong {
+    color: var(--dp-green);
+    font-size: 18px;
+  }
 
-  .dp-table-wrap { width: 100%; overflow-x: auto; }
-  .dp-table { width: 100%; min-width: 540px; border-collapse: collapse; font-size: 12px; }
+  .dp-week-info span {
+    color: var(--dp-muted);
+    font-size: 12px;
+  }
+
+  .dp-progress {
+    width: 100%;
+    height: 8px;
+    margin-top: 8px;
+    overflow: hidden;
+    border-radius: 20px;
+    background: var(--dp-border);
+  }
+
+  .dp-progress > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #0b9c64;
+  }
+
+  html[data-theme="dark"] .dp-progress > span {
+    background: #43d499;
+  }
+
+  .dp-progress-cell {
+    min-width: 110px;
+  }
+
+  .dp-category-grid {
+    display: grid;
+    grid-template-columns:
+      repeat(3,minmax(0,1fr));
+    gap: 10px;
+    margin: 16px 0;
+  }
+
+  .dp-category {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid var(--dp-border);
+    border-radius: 11px;
+  }
+
+  .dp-category-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--dp-accent);
+  }
+
+  .dp-category-title svg {
+    flex-shrink: 0;
+  }
+
+  .dp-category-title strong {
+    font-size: 11px;
+    color: var(--dp-text);
+  }
+
+  .dp-category h3 {
+    color: var(--dp-green);
+    font-size: 25px;
+    margin: 10px 0;
+  }
+
+  .dp-category > small {
+    display: block;
+    color: var(--dp-muted);
+    margin-top: 9px;
+    font-size: 10px;
+  }
+
+  .dp-total {
+    color: var(--dp-green);
+    font-size: 29px;
+  }
+
+  .dp-subheading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .dp-subheading h3 {
+    font-size: 14px;
+    margin: 0;
+  }
+
+  .dp-text-button {
+    padding: 6px;
+    border: 0;
+    background: transparent;
+    color: var(--dp-accent);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .dp-activity {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    border-bottom: 1px solid var(--dp-border);
+    padding: 15px 0;
+  }
+
+  .dp-activity:last-of-type {
+    border-bottom: 0;
+  }
+
+  .dp-activity-icon {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    background: var(--dp-tint);
+    color: var(--dp-accent);
+    border-radius: 10px;
+  }
+
+  .dp-activity > div {
+    min-width: 0;
+  }
+
+  .dp-activity strong {
+    display: block;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+
+  .dp-activity small {
+    display: block;
+    color: var(--dp-muted);
+    font-size: 11px;
+    margin-top: 5px;
+  }
+
+  .dp-schedule-detail {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--dp-muted);
+  }
+
+  .dp-schedule-detail summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--dp-accent);
+  }
+
+  .dp-schedule-detail p {
+    margin: 7px 0 0;
+    line-height: 1.7;
+  }
+
+  .dp-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .dp-table {
+    width: 100%;
+    min-width: 540px;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
   .dp-table th,
-  .dp-table td { padding: 12px 10px; border-bottom: 1px solid var(--dp-border); text-align: left; vertical-align: middle; color: var(--dp-text); }
-  .dp-table th { background: var(--dp-soft); color: var(--dp-muted); font-size: 11px; }
-  .dp-table .dp-description { min-width: 160px; max-width: 380px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .dp-nowrap { white-space: nowrap; }
+  .dp-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--dp-border);
+    text-align: left;
+    vertical-align: middle;
+    color: var(--dp-text);
+  }
 
-  .dp-inline-summary { display: flex; flex-wrap: wrap; gap: 16px; padding: 15px 0; color: var(--dp-muted); font-size: 12px; }
-  .dp-inline-summary strong { color: var(--dp-text); }
+  .dp-table th {
+    background: var(--dp-soft);
+    color: var(--dp-muted);
+    font-size: 11px;
+  }
 
-  .dp-detail-stack { display: grid; gap: 25px; border-top: 1px solid var(--dp-border); margin-top: 20px; padding-top: 20px; }
-  .dp-detail-stack h3 { font-size: 15px; margin: 0 0 12px; }
-  .dp-filter-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-  .dp-filter-row select { min-width: 140px; }
+  .dp-table .dp-description {
+    min-width: 160px;
+    max-width: 380px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 
-  .dp-badge { display: inline-block; padding: 5px 8px; border-radius: 7px; font-size: 10px; font-weight: 800; }
-  .dp-badge.verified { background: var(--dp-tint); color: var(--dp-green); }
-  .dp-badge.pending { background: var(--dp-orange-bg); color: var(--dp-orange-text); }
+  .dp-nowrap {
+    white-space: nowrap;
+  }
 
-  .dp-tabs { display: flex; flex-wrap: wrap; gap: 4px; background: var(--dp-soft); border-radius: 9px; padding: 4px; }
-  .dp-tabs button { border: 0; border-radius: 7px; padding: 10px 12px; background: transparent; color: var(--dp-muted); font-size: 11px; font-weight: 800; }
-  .dp-tabs button.selected { background: #078653; color: #ffffff; }
-  .dp-report-tabs { width: fit-content; margin-bottom: 16px; }
+  /* ====================================================
+     PERBAIKAN DOKUMENTASI ACHIEVEMENT
+     Mengikuti warna Light / Dark Mode global.
+     ==================================================== */
 
-  .dp-profile-heading { display: flex; align-items: center; gap: 15px; padding-bottom: 15px; }
-  .dp-profile-heading h2 { margin: 0; font-size: 21px; overflow-wrap: anywhere; }
-  .dp-profile-heading p { margin: 5px 0 0; }
-  .dp-profile-rows > div { display: flex; justify-content: space-between; gap: 16px; padding: 15px 0; border-bottom: 1px solid var(--dp-border); font-size: 12px; }
-  .dp-profile-rows span { color: var(--dp-muted); }
-  .dp-profile-rows strong { text-align: right; overflow-wrap: anywhere; }
+  .dp-achievement-description {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.65;
+  }
 
-  .dp-empty { text-align: center; padding: 28px 12px; color: var(--dp-muted); font-size: 12px; }
-  .dp-muted { color: var(--dp-muted); font-size: 12px; }
-  .dp-footer { padding: 22px 0; margin-top: 22px; border-top: 1px solid var(--dp-border); text-align: center; color: var(--dp-muted); font-size: 10px; }
-  .dp-print-heading { display: none; }
+  .dp-evidence {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid var(--dp-border);
+    border-radius: 9px;
+    background: var(--dp-soft);
+    white-space: normal;
+  }
+
+  .dp-evidence-name {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    width: 100%;
+    color: var(--dp-muted);
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .dp-evidence-name span:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .dp-evidence-button {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 32px;
+    padding: 7px 11px;
+    border: 1px solid var(--dp-border);
+    border-radius: 7px;
+    background: var(--dp-tint);
+    color: var(--dp-accent);
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .dp-evidence-button:hover:not(:disabled) {
+    border-color: var(--dp-accent);
+  }
+
+  .dp-evidence-button:disabled {
+    opacity: .55;
+  }
+
+  /* ====================================================
+     LANJUTAN CSS ASLI
+     ==================================================== */
+
+  .dp-inline-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 15px 0;
+    color: var(--dp-muted);
+    font-size: 12px;
+  }
+
+  .dp-inline-summary strong {
+    color: var(--dp-text);
+  }
+
+  .dp-detail-stack {
+    display: grid;
+    gap: 25px;
+    border-top: 1px solid var(--dp-border);
+    margin-top: 20px;
+    padding-top: 20px;
+  }
+
+  .dp-detail-stack h3 {
+    font-size: 15px;
+    margin: 0 0 12px;
+  }
+
+  .dp-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .dp-filter-row select {
+    min-width: 140px;
+  }
+
+  .dp-badge {
+    display: inline-block;
+    padding: 5px 8px;
+    border-radius: 7px;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .dp-badge.verified {
+    background: var(--dp-tint);
+    color: var(--dp-green);
+  }
+
+  .dp-badge.pending {
+    background: var(--dp-orange-bg);
+    color: var(--dp-orange-text);
+  }
+
+  .dp-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    background: var(--dp-soft);
+    border-radius: 9px;
+    padding: 4px;
+  }
+
+  .dp-tabs button {
+    border: 0;
+    border-radius: 7px;
+    padding: 10px 12px;
+    background: transparent;
+    color: var(--dp-muted);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .dp-tabs button.selected {
+    background: #078653;
+    color: #ffffff;
+  }
+
+  .dp-report-tabs {
+    width: fit-content;
+    margin-bottom: 16px;
+  }
+
+  .dp-profile-heading {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding-bottom: 15px;
+  }
+
+  .dp-profile-heading h2 {
+    margin: 0;
+    font-size: 21px;
+    overflow-wrap: anywhere;
+  }
+
+  .dp-profile-heading p {
+    margin: 5px 0 0;
+  }
+
+  .dp-profile-rows > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--dp-border);
+    font-size: 12px;
+  }
+
+  .dp-profile-rows span {
+    color: var(--dp-muted);
+  }
+
+  .dp-profile-rows strong {
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .dp-empty {
+    text-align: center;
+    padding: 28px 12px;
+    color: var(--dp-muted);
+    font-size: 12px;
+  }
+
+  .dp-muted {
+    color: var(--dp-muted);
+    font-size: 12px;
+  }
+
+  .dp-footer {
+    padding: 22px 0;
+    margin-top: 22px;
+    border-top: 1px solid var(--dp-border);
+    text-align: center;
+    color: var(--dp-muted);
+    font-size: 10px;
+  }
+
+  .dp-print-heading {
+    display: none;
+  }
 
   @media (hover:hover) {
-    .dp-menu:hover:not(.active) { background: #ffffff15; }
-    .dp-small-button:hover { background: var(--dp-tint); }
-    .dp-button:hover { filter: brightness(.95); }
+    .dp-menu:hover:not(.active) {
+      background: #ffffff15;
+    }
+
+    .dp-small-button:hover {
+      background: var(--dp-tint);
+    }
+
+    .dp-button:hover {
+      filter: brightness(.95);
+    }
   }
 
   @media (max-width:1200px) {
-    .dp-sidebar { width: 230px; }
-    .dp-main { padding: 17px; }
-    .dp-columns { grid-template-columns: 1fr; }
+    .dp-sidebar {
+      width: 230px;
+    }
+
+    .dp-main {
+      padding: 17px;
+    }
+
+    .dp-columns {
+      grid-template-columns: 1fr;
+    }
   }
 
   @media (max-width:850px) {
-    .dp-top-description { display: none; }
-    .dp-category-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-    .dp-stat-grid.four { grid-template-columns: repeat(2,minmax(0,1fr)); }
-    .dp-admin-preview select { flex-basis: 100%; }
-    .dp-page-heading { flex-wrap: wrap; }
+    .dp-top-description {
+      display: none;
+    }
+
+    .dp-category-grid {
+      grid-template-columns:
+        repeat(2,minmax(0,1fr));
+    }
+
+    .dp-stat-grid.four {
+      grid-template-columns:
+        repeat(2,minmax(0,1fr));
+    }
+
+    .dp-admin-preview select {
+      flex-basis: 100%;
+    }
+
+    .dp-page-heading {
+      flex-wrap: wrap;
+    }
   }
 
   @media (max-width:700px) {
-    .dp-topbar { min-height: 64px; gap: 8px; padding: 10px 12px; }
-    .dp-brand { font-size: 17px; }
-    .dp-mobile-trigger { display: grid; place-items: center; padding: 5px; border: 0; background: transparent; color: #ffffff; }
-    .dp-user { gap: 7px; max-width: 45%; }
-    .dp-user strong { font-size: 10px; }
-    .dp-user small { font-size: 9px; }
-    .dp-avatar { width: 30px; height: 30px; font-size: 11px; }
-    .dp-sidebar { position: fixed; top: 64px; bottom: 0; left: 0; height: calc(100vh - 64px); width: 270px; transform: translateX(-105%); transition: transform .2s ease; z-index: 55; }
-    .dp-sidebar.open { transform: translateX(0); }
-    .dp-overlay { display: block; position: fixed; inset: 64px 0 0; width: 100%; z-index: 54; border: 0; background: #001b1780; }
-    .dp-main { padding: 12px; }
-    .dp-page-heading h1 { font-size: 21px; }
-    .dp-page-heading > .dp-buttons { margin-left: auto; }
-    .dp-small-button { padding: 9px; }
-    .dp-panel { padding: 15px; border-radius: 12px; }
-    .dp-section-head h2 { font-size: 17px; }
-    .dp-section-head { align-items: stretch; }
-    .dp-week-nav { width: 100%; }
-    .dp-week-nav select { max-width: none; flex: 1; min-width: 0; }
-    .dp-stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
-    .dp-stat { padding: 12px; }
-    .dp-stat strong { font-size: 20px; }
-    .dp-hero { padding: 20px; }
-    .dp-hero h2 { font-size: 23px; }
-    .dp-category { padding: 12px; }
-    .dp-admin-preview { gap: 10px; }
-    .dp-admin-preview select { min-width: 0; width: 100%; }
-    .dp-profile-rows > div { flex-wrap: wrap; }
-    .dp-profile-rows strong { text-align: left; }
+    .dp-topbar {
+      min-height: 64px;
+      gap: 8px;
+      padding: 10px 12px;
+    }
+
+    .dp-brand {
+      font-size: 17px;
+    }
+
+    .dp-mobile-trigger {
+      display: grid;
+      place-items: center;
+      padding: 5px;
+      border: 0;
+      background: transparent;
+      color: #ffffff;
+    }
+
+    .dp-user {
+      gap: 7px;
+      max-width: 45%;
+    }
+
+    .dp-user strong {
+      font-size: 10px;
+    }
+
+    .dp-user small {
+      font-size: 9px;
+    }
+
+    .dp-avatar {
+      width: 30px;
+      height: 30px;
+      font-size: 11px;
+    }
+
+    .dp-sidebar {
+      position: fixed;
+      top: 64px;
+      bottom: 0;
+      left: 0;
+      height: calc(100vh - 64px);
+      width: 270px;
+      transform: translateX(-105%);
+      transition: transform .2s ease;
+      z-index: 55;
+    }
+
+    .dp-sidebar.open {
+      transform: translateX(0);
+    }
+
+    .dp-overlay {
+      display: block;
+      position: fixed;
+      inset: 64px 0 0;
+      width: 100%;
+      z-index: 54;
+      border: 0;
+      background: #001b1780;
+    }
+
+    .dp-main {
+      padding: 12px;
+    }
+
+    .dp-page-heading h1 {
+      font-size: 21px;
+    }
+
+    .dp-page-heading > .dp-buttons {
+      margin-left: auto;
+    }
+
+    .dp-small-button {
+      padding: 9px;
+    }
+
+    .dp-panel {
+      padding: 15px;
+      border-radius: 12px;
+    }
+
+    .dp-section-head h2 {
+      font-size: 17px;
+    }
+
+    .dp-section-head {
+      align-items: stretch;
+    }
+
+    .dp-week-nav {
+      width: 100%;
+    }
+
+    .dp-week-nav select {
+      max-width: none;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .dp-stat-grid {
+      grid-template-columns:
+        repeat(2,minmax(0,1fr));
+      gap: 8px;
+    }
+
+    .dp-stat {
+      padding: 12px;
+    }
+
+    .dp-stat strong {
+      font-size: 20px;
+    }
+
+    .dp-hero {
+      padding: 20px;
+    }
+
+    .dp-hero h2 {
+      font-size: 23px;
+    }
+
+    .dp-category {
+      padding: 12px;
+    }
+
+    .dp-admin-preview {
+      gap: 10px;
+    }
+
+    .dp-admin-preview select {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .dp-profile-rows > div {
+      flex-wrap: wrap;
+    }
+
+    .dp-profile-rows strong {
+      text-align: left;
+    }
   }
 
   @media (max-width:390px) {
-    .dp-user { max-width: 42%; }
-    .dp-user .dp-avatar { display: none; }
-    .dp-brand small { display: none; }
-    .dp-category-title { align-items: flex-start; }
-    .dp-category-title strong { font-size: 10px; }
-    .dp-small-button span { display: none; }
+    .dp-user {
+      max-width: 42%;
+    }
+
+    .dp-user .dp-avatar {
+      display: none;
+    }
+
+    .dp-brand small {
+      display: none;
+    }
+
+    .dp-category-title {
+      align-items: flex-start;
+    }
+
+    .dp-category-title strong {
+      font-size: 10px;
+    }
+
+    .dp-small-button span {
+      display: none;
+    }
   }
 
   @media (prefers-reduced-motion:reduce) {
-    .dp-sidebar { transition: none; }
+    .dp-sidebar {
+      transition: none;
+    }
   }
 
   @media print {
-    @page { size: A4 landscape; margin: 10mm; }
+    @page {
+      size: A4 landscape;
+      margin: 10mm;
+    }
 
     html,
-    body { background: #ffffff !important; }
+    body {
+      background: #ffffff !important;
+    }
 
     .dp-app,
     html[data-theme="dark"] .dp-app {
@@ -3243,26 +5351,99 @@ const dashboardCSS = `
     .dp-footer,
     .dp-week-nav,
     .dp-button,
-    .dp-text-button { display: none !important; }
+    .dp-text-button {
+      display: none !important;
+    }
 
-    .dp-layout { display: block; min-height: 0; }
-    .dp-main { padding: 0; max-width: none; }
-    .dp-print-heading { display: block; margin-bottom: 15px; }
-    .dp-print-heading h1 { font-size: 20px; margin: 0 0 6px; }
-    .dp-print-heading p { font-size: 12px; margin: 0; }
-    .dp-panel { box-shadow: none; }
-    .dp-table-wrap { overflow: visible; }
-    .dp-table { min-width: 0; }
+    .dp-layout {
+      display: block;
+      min-height: 0;
+    }
+
+    .dp-main {
+      padding: 0;
+      max-width: none;
+    }
+
+    .dp-print-heading {
+      display: block;
+      margin-bottom: 15px;
+    }
+
+    .dp-print-heading h1 {
+      font-size: 20px;
+      margin: 0 0 6px;
+    }
+
+    .dp-print-heading p {
+      font-size: 12px;
+      margin: 0;
+    }
+
+    .dp-panel {
+      box-shadow: none;
+    }
+
+    .dp-table-wrap {
+      overflow: visible;
+    }
+
+    .dp-table {
+      min-width: 0;
+    }
+
     .dp-table th,
-    .dp-table td { padding: 8px; font-size: 10px; }
-    .dp-table thead { display: table-header-group; }
-    .dp-table tr { break-inside: avoid; }
-    .dp-stat-grid.four { grid-template-columns: repeat(4,minmax(0,1fr)); }
-    .dp-category-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    .dp-table td {
+      padding: 8px;
+      font-size: 10px;
+    }
+
+    .dp-table thead {
+      display: table-header-group;
+    }
+
+    .dp-table tr {
+      break-inside: avoid;
+    }
+
+    .dp-stat-grid.four {
+      grid-template-columns:
+        repeat(4,minmax(0,1fr));
+    }
+
+    .dp-category-grid {
+      grid-template-columns:
+        repeat(3,minmax(0,1fr));
+    }
+
     .dp-stat,
-    .dp-category { break-inside: avoid; }
+    .dp-category {
+      break-inside: avoid;
+    }
+
     .dp-progress,
     .dp-badge,
-    .dp-week-info { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    .dp-week-info {
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+    }
+
+    /* Dokumentasi ditampilkan sebagai nama file
+       tanpa tombol pada hasil cetak PDF. */
+
+    .dp-evidence {
+      background: #f3f6f4;
+      border-color: #ccd8d1;
+      break-inside: avoid;
+    }
+
+    .dp-evidence-name {
+      color: #52685d;
+      font-size: 9px;
+    }
+
+    .dp-evidence-button {
+      display: none !important;
+    }
   }
 `;
