@@ -8,17 +8,16 @@ import { supabase } from "../lib/supabase";
 // OJT MINETRACK V2.0
 // DASHBOARD UTAMA ADMIN / MENTOR
 //
-// TEMPLATE BARU — MONITORING & EVALUASI
+// TEMPLATE DASHBOARD MENTOR — ACUAN GAMBAR 2
 //
-// PERUBAHAN VISUAL:
-// - Layout dashboard lebih ringkas
-// - Sidebar pengelolaan OJT
-// - Header ERG
+// SUSUNAN TAMPILAN:
+// - Header ERG dan identitas akun
 // - Empat KPI utama
-// - Program OJT Mingguan (Week 01–25)
-// - Ringkasan Monitoring Mingguan
-// - Enam kategori Achievement
-// - Daftar Peserta OJT
+// - Jadwal Kegiatan Minggu Ini di sisi kiri
+// - Ringkasan Monitoring Mingguan di sisi kanan
+// - Enam kategori target mingguan
+// - Daftar peserta beserta target mingguan setiap peserta
+// - Sidebar ringkas tanpa grup Pengelolaan OJT
 //
 // DIPERTAHANKAN:
 // - Supabase dan struktur database
@@ -63,13 +62,63 @@ const TARGETS = [
   { name: "Hazard", short: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
 ];
 
+// Jadwal Week 08 mengikuti isi pada gambar referensi kedua.
+// Jadwal untuk minggu lain ditampilkan sebagai belum tersedia sampai
+// data jadwal resminya dimasukkan ke sumber jadwal aplikasi.
+const WEEKLY_SCHEDULE = [
+  {
+    week: 8,
+    date: "2026-11-02",
+    day: "Sen",
+    title: "Training K3 Dasar",
+    time: "08.00 – 12.00 WITA",
+    location: "Ruang Training",
+    category: "Training",
+    icon: "clipboard",
+    tone: "training",
+  },
+  {
+    week: 8,
+    date: "2026-11-04",
+    day: "Rab",
+    title: "Praktik Lapangan (Site)",
+    time: "08.00 – 15.00 WITA",
+    location: "Area Tambang",
+    category: "Praktik",
+    icon: "shield",
+    tone: "practice",
+  },
+  {
+    week: 8,
+    date: "2026-11-05",
+    day: "Kam",
+    title: "Coaching Peserta",
+    time: "13.00 – 15.00 WITA",
+    location: "Ruang Meeting",
+    category: "Coaching",
+    icon: "users",
+    tone: "coaching",
+  },
+  {
+    week: 8,
+    date: "2026-11-06",
+    day: "Jum",
+    title: "Evaluasi Mingguan",
+    time: "08.00 – 11.00 WITA",
+    location: "Ruang Training",
+    category: "Evaluasi",
+    icon: "check",
+    tone: "evaluation",
+  },
+];
+
 const INPUT_TOOLS = [
   { key: "achievement", label: "Input Achievement", icon: "activity" },
   { key: "posttest", label: "Input Post-Test", icon: "clipboard" },
   { key: "practice", label: "Input Praktik", icon: "check" },
   { key: "samapta", label: "Input Samapta", icon: "activity" },
   { key: "simper", label: "Input SIMPER", icon: "shield" },
-  { key: "calendar", label: "Jadwal & Kalender", icon: "calendar" },
+  { key: "calendar", label: "Kalender Kegiatan Mingguan", icon: "calendar" },
 ];
 
 const META_START = "[[SIMPER_V2]]";
@@ -358,6 +407,61 @@ function calculateAchievements(records, types, startDate) {
   };
 }
 
+// Perhitungan khusus target mingguan untuk setiap peserta.
+// Hanya aktivitas VERIFIED pada Week Global yang dipilih yang dihitung.
+function calculateWeeklyAchievements(records, types, startDate, selectedWeek) {
+  const codes = new Map(
+    types.map((type) => [
+      normalizeType(type.name),
+      normalizeType(type.code),
+    ])
+  );
+
+  const weekRecords = records.filter(
+    (record) =>
+      weekOf(record.activity_date, startDate) !== null &&
+      globalWeekOf(record.activity_date) === selectedWeek
+  );
+
+  const categories = TARGETS.map((item) => {
+    const code = codes.get(normalizeType(item.name));
+    const matching = code
+      ? weekRecords.filter(
+          (record) => normalizeType(record.type_code) === code
+        )
+      : [];
+
+    const verified = matching.filter(
+      (record) => normalize(record.status) === "verified"
+    );
+    const pending = matching.filter(
+      (record) => normalize(record.status) === "pending"
+    );
+    const amount = activityAmount(verified, item.name);
+
+    return {
+      ...item,
+      amount,
+      progress: clamp((amount / item.target) * 100),
+      pendingCount: pending.length,
+      completed: amount >= item.target,
+    };
+  });
+
+  const total = categories.reduce(
+    (sum, category) => sum + category.progress,
+    0
+  );
+  const done = categories.filter((category) => category.completed).length;
+
+  return {
+    categories,
+    done,
+    progress: Math.round(total / TARGETS.length),
+    completed: done === TARGETS.length,
+  };
+}
+
 // =====================================================
 // SIMPER V2
 // =====================================================
@@ -585,7 +689,7 @@ function Icon({ name, size = 20 }) {
     sun: (
       <>
         <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" />
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l-1.42 1.42" />
       </>
     ),
     moon: (
@@ -608,6 +712,9 @@ function Icon({ name, size = 20 }) {
       </>
     ),
     close: <path d="m18 6-12 12M6 6l12 12" />,
+    menu: <path d="M4 6h16M4 12h16M4 18h16" />,
+    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    pin: <><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
   };
 
   return (
@@ -1391,7 +1498,7 @@ export default function MentorDashboard() {
       active: filtered.length,
 
       progress: filtered.length
-        ? Math.round(totalProgress / filtered.length)
+        ? Number((totalProgress / filtered.length).toFixed(1))
         : 0,
 
       practiceAverage: average(relevantPractices),
@@ -1513,7 +1620,9 @@ export default function MentorDashboard() {
       completed: summary.completed,
       verified: verified.length,
       pending: pending.length,
-      samapta: weeklySamapta.length,
+      samapta: new Set(
+        weeklySamapta.map((record) => record.program_id)
+      ).size,
       total: weeklyRecords.length,
     };
   }, [
@@ -1524,180 +1633,112 @@ export default function MentorDashboard() {
     filtered,
     summary.completed,
   ]);
+  
+    weeklyRecords,
+    weeklyPostTests,
+    weeklyPractices,
+    weeklySamapta,
+    filtered,
+    summary.completed,
+  ]);
 
-  // ===================================================
-  // WEEKLY CATEGORY PROGRESS
-  // ===================================================
+  // =====================================================
+  // JADWAL KEGIATAN MINGGUAN
+  // Menggunakan data WEEKLY_SCHEDULE dari Bagian 1.
+  // =====================================================
 
-  const weeklyCategories = useMemo(() => {
-    const codes = new Map(
-      achievementTypes.map((type) => [
-        normalizeType(type.name),
-        normalizeType(type.code),
-      ])
+  const currentWeek = GLOBAL_WEEKS[selectedWeek - 1];
+
+  const scheduleThisWeek = useMemo(() => {
+    return WEEKLY_SCHEDULE.filter(
+      (item) => Number(item.week) === selectedWeek
+    ).sort((a, b) =>
+      String(a.date || "").localeCompare(String(b.date || ""))
     );
+  }, [selectedWeek]);
 
-    return TARGETS.map((category) => {
-      const code = codes.get(
-        normalizeType(category.name)
+  // =====================================================
+  // TARGET MINGGUAN SEMUA PESERTA
+  // Hanya Achievement Verified yang dihitung.
+  // Target masing-masing kategori tidak diubah.
+  // =====================================================
+
+  const participantWeeklyTargets = useMemo(() => {
+    return filtered.map((program) => {
+      const records = achievements.filter(
+        (record) =>
+          record.program_id === program.id &&
+          globalWeekOf(record.activity_date) === selectedWeek
       );
 
-      let weeklyAmount = 0;
-      let cumulativeAmount = 0;
-      let totalProgress = 0;
-      let pendingCount = 0;
+      const result = calculateAchievements(
+        records,
+        achievementTypes,
+        program.start_date
+      );
 
-      filtered.forEach((program) => {
-        const records = achievements.filter(
-          (record) =>
-            record.program_id === program.id &&
-            code &&
-            normalizeType(record.type_code) === code &&
-            weekOf(
-              record.activity_date,
-              program.start_date
-            ) !== null
-        );
+      const verified = records.filter(
+        (record) => normalize(record.status) === "verified"
+      ).length;
 
-        const thisWeek = records.filter(
-          (record) =>
-            globalWeekOf(record.activity_date) ===
-            selectedWeek
-        );
-
-        const verifiedThisWeek = thisWeek.filter(
-          (record) =>
-            normalize(record.status) === "verified"
-        );
-
-        const pendingThisWeek = thisWeek.filter(
-          (record) =>
-            normalize(record.status) === "pending"
-        );
-
-        const cumulative = records.filter((record) => {
-          const week = globalWeekOf(record.activity_date);
-
-          return (
-            week !== null &&
-            week <= selectedWeek &&
-            normalize(record.status) === "verified"
-          );
-        });
-
-        const weekValue = activityAmount(
-          verifiedThisWeek,
-          category.name
-        );
-
-        const cumulativeValue = activityAmount(
-          cumulative,
-          category.name
-        );
-
-        weeklyAmount += weekValue;
-        cumulativeAmount += cumulativeValue;
-        pendingCount += pendingThisWeek.length;
-
-        totalProgress += clamp(
-          (cumulativeValue / category.target) * 100
-        );
-      });
+      const pending = records.filter(
+        (record) => normalize(record.status) === "pending"
+      ).length;
 
       return {
-        ...category,
-        weeklyAmount,
-        cumulativeAmount,
-        pendingCount,
-        progress: filtered.length
-          ? Math.round(totalProgress / filtered.length)
-          : 0,
+        program,
+        categories: result.categories,
+        progress: result.progress,
+        completed: result.done,
+        verified,
+        pending,
       };
     });
   }, [
-    achievementTypes,
-    achievements,
     filtered,
+    achievements,
+    achievementTypes,
     selectedWeek,
   ]);
 
-  // ===================================================
-  // GLOBAL WEEKLY CHART
-  // ===================================================
+  const weeklyTargetSummary = useMemo(() => {
+    return TARGETS.map((target) => {
+      const values = participantWeeklyTargets.map((participant) =>
+        participant.categories.find(
+          (category) => category.name === target.name
+        )
+      );
 
-  const weeklyChart = useMemo(
-    () =>
-      GLOBAL_WEEKS.map((week) => {
-        const verifiedRecords = achievements.filter(
-          (record) =>
-            filteredIds.has(record.program_id) &&
-            normalize(record.status) === "verified" &&
-            globalWeekOf(record.activity_date) === week.week
-        );
+      const totalProgress = values.reduce(
+        (sum, item) => sum + (item?.progress || 0),
+        0
+      );
 
-        return {
-          ...week,
-          count: verifiedRecords.length,
-        };
-      }),
-    [achievements, filteredIds]
-  );
+      const totalAmount = values.reduce(
+        (sum, item) => sum + (item?.amount || 0),
+        0
+      );
 
-  const maxChart = Math.max(
-    1,
-    ...weeklyChart.map((item) => item.count)
-  );
+      const completed = values.filter(
+        (item) => item?.completed
+      ).length;
 
-  // ===================================================
-  // ACTIVITY WEEKS
-  // ===================================================
+      return {
+        ...target,
+        amount: totalAmount,
+        progress: participantWeeklyTargets.length
+          ? Math.round(totalProgress / participantWeeklyTargets.length)
+          : 0,
+        completed,
+      };
+    });
+  }, [participantWeeklyTargets]);
 
-  const activityWeeks = useMemo(() => {
-    const weeks = new Set();
-
-    const add = (date, id) => {
-      if (!filteredIds.has(id)) return;
-
-      const week = globalWeekOf(date);
-
-      if (week !== null) weeks.add(week);
-    };
-
-    achievements.forEach((row) =>
-      add(row.activity_date, row.program_id)
-    );
-
-    postTests.forEach((row) =>
-      add(row.test_date, row.program_id)
-    );
-
-    practices.forEach((row) =>
-      add(row.practice_date, row.program_id)
-    );
-
-    samapta.forEach((row) =>
-      add(row.test_date, row.program_id)
-    );
-
-    return weeks;
-  }, [
-    achievements,
-    postTests,
-    practices,
-    samapta,
-    filteredIds,
-  ]);
-
-  // ===================================================
-  // ACCOUNT AND DISPLAY
-  // =====================================================
-
-  const accountRole = isAdmin
-    ? "Administrator"
-    : "Mentor OJT";
-   const accountName =
+  const accountName =
     account?.full_name ||
-    (isAdmin ? "Admin" : "Mentor OJT");
+    (isAdmin ? "Administrator" : "Mentor OJT");
+
+  const accountRole = isAdmin ? "Administrator" : "Mentor OJT";
 
   const updatedText = lastUpdated
     ? lastUpdated.toLocaleString("id-ID", {
@@ -1710,13 +1751,28 @@ export default function MentorDashboard() {
       })
     : "Belum diperbarui";
 
-  const activeInputTool = INPUT_TOOLS.find(
-    (item) => item.key === inputTool
-  );
+  // =====================================================
+  // NAVIGASI SIDEBAR
+  // Tidak menggunakan modal pemilihan peserta.
+  // =====================================================
 
-  // ===================================================
-  // ACCESS SCREEN: MAINTENANCE
-  // ===================================================
+  function scrollToSection(id) {
+    setMenuOpen(false);
+
+    document.getElementById(id)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  function openParticipantDetail(programId) {
+    if (!programId) return;
+    navigate(`/peserta/${programId}`);
+  }
+
+  // =====================================================
+  // AKSES MAINTENANCE
+  // =====================================================
 
   if (accessStatus === "maintenance") {
     return (
@@ -1729,7 +1785,7 @@ export default function MentorDashboard() {
           <h1>OJT MineTrack Sedang Maintenance</h1>
 
           <p>
-            Sistem sedang dalam proses pemeliharaan.
+            Sistem sedang dalam pemeliharaan.
             Akses Mentor dan Peserta sementara tidak tersedia.
           </p>
 
@@ -1746,16 +1802,16 @@ export default function MentorDashboard() {
             onClick={logout}
             disabled={loggingOut}
           >
-            {loggingOut ? "Sedang Keluar..." : "Keluar Akun"}
+            Keluar Akun
           </button>
         </div>
       </main>
     );
   }
 
-  // ===================================================
-  // ACCESS SCREEN: CHECKING
-  // ===================================================
+  // =====================================================
+  // PEMERIKSAAN AKSES
+  // =====================================================
 
   if (
     accessStatus === "checking" ||
@@ -1774,10 +1830,6 @@ export default function MentorDashboard() {
     );
   }
 
-  // ===================================================
-  // ACCESS SCREEN: ERROR
-  // ===================================================
-
   if (accessStatus === "error") {
     return (
       <main className="mt-access">
@@ -1795,22 +1847,14 @@ export default function MentorDashboard() {
           >
             Coba Lagi
           </button>
-
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => router.replace("/login")}
-          >
-            Buka Login
-          </button>
         </div>
       </main>
     );
   }
 
-  // ===================================================
-  // MAIN DASHBOARD UI
-  // ===================================================
+  // =====================================================
+  // DASHBOARD UTAMA ADMIN / MENTOR
+  // =====================================================
 
   return (
     <div
@@ -1821,29 +1865,21 @@ export default function MentorDashboard() {
     >
       <style>{dashboardCSS}</style>
 
-      {/* MOBILE OVERLAY */}
-
       {menuOpen && (
         <button
           type="button"
           className="mt-overlay"
+          aria-label="Tutup navigasi"
           onClick={() => setMenuOpen(false)}
-          aria-label="Tutup menu navigasi"
         />
       )}
 
       {/* =================================================
-          SIDEBAR
+          SIDEBAR — MENU FINAL
       ================================================= */}
 
-      <aside
-        className={`mt-sidebar ${
-          menuOpen ? "open" : ""
-        }`}
-      >
+      <aside className={`mt-sidebar ${menuOpen ? "open" : ""}`}>
         <div className="mt-sidebar-top">
-          {/* BRAND */}
-
           <div className="mt-brand">
             <div className="mt-brand-name">
               OJT <span>MineTrack</span>
@@ -1857,11 +1893,7 @@ export default function MentorDashboard() {
             </p>
           </div>
 
-          {/* MAIN MENU */}
-
-          <div className="mt-menu-label">
-            MENU MENTOR
-          </div>
+          <div className="mt-menu-label">MENU MENTOR</div>
 
           <nav className="mt-nav-group">
             <button
@@ -1871,26 +1903,30 @@ export default function MentorDashboard() {
             >
               <Icon name="home" size={18} />
               <span>Dashboard Mentor</span>
-              <i className="mt-nav-indicator" />
             </button>
 
             <button
               type="button"
               className="mt-nav"
-              onClick={() =>
-                navigate("/mentor/monitoring-peserta")
-              }
+              onClick={() => navigate("/mentor/monitoring-peserta")}
             >
-              <Icon name="users" size={18} />
+              <Icon name="chart" size={18} />
               <span>Monitoring Peserta</span>
             </button>
 
             <button
               type="button"
               className="mt-nav"
-              onClick={() =>
-                navigate("/mentor/daftar-peserta")
-              }
+              onClick={() => scrollToSection("mt-peserta")}
+            >
+              <Icon name="users" size={18} />
+              <span>Peserta OJT</span>
+            </button>
+
+            <button
+              type="button"
+              className="mt-nav"
+              onClick={() => navigate("/mentor/daftar-peserta")}
             >
               <Icon name="file" size={18} />
               <span>Pendaftaran Peserta</span>
@@ -1899,95 +1935,22 @@ export default function MentorDashboard() {
             <button
               type="button"
               className="mt-nav"
-              onClick={() =>
-                navigate("/mentor/persetujuan-peserta")
-              }
+              onClick={() => navigate("/mentor/persetujuan-peserta")}
             >
               <Icon name="check" size={18} />
               <span>Persetujuan Peserta</span>
             </button>
+
+            <button
+              type="button"
+              className="mt-nav"
+              onClick={() => scrollToSection("mt-jadwal")}
+            >
+              <Icon name="calendar" size={18} />
+              <span>Kalender Kegiatan Mingguan</span>
+            </button>
           </nav>
-
-          {/* OJT MANAGEMENT */}
-
-          <div className="mt-menu-label">
-            PENGELOLAAN OJT
-          </div>
-
-          <nav className="mt-nav-group">
-            {INPUT_TOOLS.map((item) => (
-              <button
-                type="button"
-                className="mt-nav"
-                key={item.key}
-                onClick={() => openInputTool(item.key)}
-              >
-                <Icon name={item.icon} size={18} />
-                <span>{item.label}</span>
-                <Icon name="arrow" size={13} />
-              </button>
-            ))}
-          </nav>
-
-          {/* ADMIN MENU */}
-
-          {isAdmin && (
-            <>
-              <div className="mt-menu-label admin">
-                ADMINISTRATOR
-              </div>
-
-              <nav className="mt-nav-group">
-                <button
-                  type="button"
-                  className="mt-nav"
-                  onClick={() =>
-                    navigate("/mingguan/admin-review")
-                  }
-                >
-                  <Icon name="calendar" size={18} />
-                  <span>Evaluasi Mingguan</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="mt-nav"
-                  onClick={() =>
-                    navigate("/dashboard-peserta")
-                  }
-                >
-                  <Icon name="users" size={18} />
-                  <span>Preview Dashboard Peserta</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="mt-nav"
-                  onClick={() =>
-                    navigate("/admin/maintenance")
-                  }
-                >
-                  <Icon name="gear" size={18} />
-                  <span>Maintenance Mode</span>
-
-                  <strong
-                    className={`mt-maintenance-label ${
-                      maintenanceMode === true ? "on" : ""
-                    }`}
-                  >
-                    {maintenanceMode === true
-                      ? "ON"
-                      : maintenanceMode === false
-                      ? "OFF"
-                      : "—"}
-                  </strong>
-                </button>
-              </nav>
-            </>
-          )}
         </div>
-
-        {/* SIDEBAR BOTTOM */}
 
         <div className="mt-sidebar-bottom">
           <div className="mt-side-user">
@@ -2008,11 +1971,8 @@ export default function MentorDashboard() {
             disabled={refreshing || loading}
           >
             <Icon name="refresh" size={17} />
-
             <span>
-              {refreshing
-                ? "Memperbarui Data..."
-                : "Refresh Data"}
+              {refreshing ? "Memperbarui..." : "Refresh Data"}
             </span>
           </button>
 
@@ -2023,45 +1983,33 @@ export default function MentorDashboard() {
             disabled={loggingOut}
           >
             <Icon name="logout" size={17} />
-
             <span>
-              {loggingOut
-                ? "Sedang Keluar..."
-                : "Keluar Akun"}
+              {loggingOut ? "Sedang Keluar..." : "Keluar Akun"}
             </span>
           </button>
-
-          <div className="mt-side-footer">
-            <strong>OJT MineTrack v2.0</strong>
-            <small>© 2026 · PT Berau Coal</small>
-          </div>
         </div>
       </aside>
 
       {/* =================================================
-          MAIN CONTENT
+          KONTEN UTAMA
       ================================================= */}
 
       <main className="mt-main">
-        {/* MOBILE HEADER */}
-
         <div className="mt-mobile-header">
-          <div className="mt-mobile-brand">
+          <strong>
             OJT <span>MineTrack</span>
-          </div>
+          </strong>
 
           <button
             type="button"
             onClick={() => setMenuOpen(true)}
-            aria-label="Buka menu navigasi"
+            aria-label="Buka menu"
           >
-            <Icon name="menu" size={25} />
+            ☰
           </button>
         </div>
 
-        {/* =================================================
-            HERO HEADER
-        ================================================= */}
+        {/* HEADER SESUAI TEMPLATE */}
 
         <header className="mt-hero">
           <div className="mt-hero-background" />
@@ -2074,27 +2022,27 @@ export default function MentorDashboard() {
                 </div>
 
                 <h1>
-                  Dashboard Mentor OJT{" "}
-                  <span>MineTrack</span>
+                  Dashboard Mentor OJT <span>MineTrack</span>
                 </h1>
 
                 <p>
-                  Monitoring dan Evaluasi Pelaksanaan On Job Training
+                  Monitoring dan Evaluasi Pelaksanaan
+                  On Job Training
                 </p>
 
                 <div className="mt-values">
                   <span>
-                    <Icon name="shield" size={14} />
+                    <Icon name="shield" size={15} />
                     Safe People
                   </span>
 
                   <span>
-                    <Icon name="gear" size={14} />
+                    <Icon name="gear" size={15} />
                     Safe Operation
                   </span>
 
                   <span>
-                    <Icon name="leaf" size={14} />
+                    <Icon name="leaf" size={15} />
                     Sustainable Mining
                   </span>
                 </div>
@@ -2111,73 +2059,28 @@ export default function MentorDashboard() {
                 </div>
               </div>
             </div>
-
-            <div className="mt-hero-info">
-              <div className="mt-hero-info-item">
-                <span className="mt-hero-info-icon">
-                  <Icon name="calendar" size={18} />
-                </span>
-
-                <div>
-                  <small>Periode Program 25 Week</small>
-                  <strong>12 Sep 2026 – 06 Mar 2027</strong>
-                </div>
-              </div>
-
-              <div className="mt-hero-info-item">
-                <span className="mt-hero-info-icon">
-                  <Icon name="map" size={18} />
-                </span>
-
-                <div>
-                  <small>Site yang Dipilih</small>
-                  <strong>
-                    {siteFilter === "ALL"
-                      ? "Semua Site"
-                      : siteFilter}
-                  </strong>
-                </div>
-              </div>
-
-              <div className="mt-hero-info-item">
-                <span className="mt-hero-info-icon">
-                  <Icon name="refresh" size={18} />
-                </span>
-
-                <div>
-                  <small>Terakhir Diperbarui</small>
-                  <strong>{updatedText}</strong>
-                </div>
-              </div>
-            </div>
           </div>
         </header>
 
-        {/* =================================================
-            DASHBOARD CONTENT
-        ================================================= */}
+        {/* TOOLBAR */}
 
         <div className="mt-content">
-          {/* TOOLBAR */}
-
           <section className="mt-toolbar">
             <div className="mt-toolbar-heading">
               <span className="mt-section-kicker">
-                DASHBOARD OVERVIEW
+                PROGRAM OJT 2026–2027
               </span>
 
               <h2>Monitoring Program OJT</h2>
 
               <p>
-                Ringkasan perkembangan peserta dan pencapaian
-                program 2026–2027.
+                Jadwal mingguan, detail peserta, dan target
+                pencapaian seluruh peserta OJT.
               </p>
             </div>
 
             <div className="mt-toolbar-actions">
-              {/* WEEK */}
-
-              <div className="mt-control mt-week-control">
+              <div className="mt-control">
                 <Icon name="calendar" size={17} />
 
                 <select
@@ -2185,64 +2088,41 @@ export default function MentorDashboard() {
                   onChange={(event) =>
                     changeWeek(event.target.value)
                   }
-                  aria-label="Pilih minggu OJT"
+                  aria-label="Pilih minggu program"
                 >
                   {GLOBAL_WEEKS.map((week) => (
-                    <option
-                      key={week.week}
-                      value={week.week}
-                    >
+                    <option key={week.week} value={week.week}>
                       {weekLabel(week.week)}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* THEME */}
-
               <button
                 type="button"
                 className="mt-theme-toggle"
                 onClick={toggleTheme}
-                aria-label={
-                  theme === "dark"
-                    ? "Aktifkan Mode Terang"
-                    : "Aktifkan Mode Gelap"
-                }
-                title={
-                  theme === "dark"
-                    ? "Ubah ke Mode Terang"
-                    : "Ubah ke Mode Gelap"
-                }
               >
-                <span className="mt-theme-icon">
-                  <Icon
-                    name={theme === "dark" ? "sun" : "moon"}
-                    size={17}
-                  />
-                </span>
-
-                <span>
-                  {theme === "dark"
-                    ? "Mode Gelap"
-                    : "Mode Terang"}
-                </span>
+                <Icon
+                  name={theme === "dark" ? "sun" : "moon"}
+                  size={18}
+                />
+                {theme === "dark"
+                  ? "Mode Terang"
+                  : "Mode Gelap"}
               </button>
 
-              {/* SITE FILTER */}
-
-              <div className="mt-control mt-site-control">
-                <Icon name="map" size={16} />
+              <div className="mt-control">
+                <Icon name="map" size={17} />
 
                 <select
                   value={siteFilter}
                   onChange={(event) =>
                     setSiteFilter(event.target.value)
                   }
-                  aria-label="Pilih Site"
+                  aria-label="Pilih site"
                 >
                   <option value="ALL">Semua Site</option>
-
                   {SITES.map((site) => (
                     <option key={site} value={site}>
                       {site}
@@ -2251,76 +2131,14 @@ export default function MentorDashboard() {
                 </select>
               </div>
 
-              {/* REFRESH */}
-
               <button
                 type="button"
                 className="mt-button-outline"
                 onClick={refresh}
-                disabled={refreshing}
+                disabled={loading || refreshing}
               >
-                <Icon name="refresh" size={16} />
-                {refreshing ? "Memuat..." : "Refresh"}
-              </button>
-
-              {/* PRESENTATION */}
-
-              <button
-                type="button"
-                className="mt-button-primary"
-                onClick={() =>
-                  setPresentationMode((value) => !value)
-                }
-              >
-                <Icon name="presentation" size={16} />
-
-                {presentationMode
-                  ? "Tampilan Normal"
-                  : "Presentasi"}
-              </button>
-            </div>
-          </section>
-
-          {/* CURRENT WEEK */}
-
-          <section className="mt-current-week">
-            <div className="mt-current-week-left">
-              <span className="mt-current-week-icon">
-                <Icon name="calendar" size={17} />
-              </span>
-
-              <div>
-                <strong>{weekLabel(selectedWeek)}</strong>
-                <small>
-                  {formatPeriod(
-                    currentWeek.start,
-                    currentWeek.end
-                  )}
-                </small>
-              </div>
-            </div>
-
-            <div className="mt-current-week-actions">
-              <button
-                type="button"
-                disabled={selectedWeek <= 1}
-                onClick={() =>
-                  changeWeek(selectedWeek - 1)
-                }
-                aria-label="Minggu sebelumnya"
-              >
-                <Icon name="left" size={16} />
-              </button>
-
-              <button
-                type="button"
-                disabled={selectedWeek >= TOTAL_WEEKS}
-                onClick={() =>
-                  changeWeek(selectedWeek + 1)
-                }
-                aria-label="Minggu berikutnya"
-              >
-                <Icon name="arrow" size={16} />
+                <Icon name="refresh" size={17} />
+                Refresh
               </button>
             </div>
           </section>
@@ -2335,410 +2153,161 @@ export default function MentorDashboard() {
             <div className="mt-loading-card">
               <div className="mt-loading-spinner" />
               <strong>Memuat Dashboard OJT...</strong>
-              <small>Mohon tunggu sebentar.</small>
             </div>
           ) : (
             <>
-              {/* =================================================
-                  KPI
-              ================================================= */}
+              {/* ==========================================
+                  1. JADWAL KEGIATAN MINGGUAN
+              ========================================== */}
 
-              <section className="mt-kpi-grid">
-                <Metric
-                  title="Peserta OJT Aktif"
-                  value={summary.active}
-                  sub="Berdasarkan filter saat ini"
-                  icon="users"
-                  tone="green"
-                  onClick={() =>
-                    navigate("/mentor/monitoring-peserta")
-                  }
-                />
-
-                <Metric
-                  title="Rata-rata Progres"
-                  value={`${summary.progress}%`}
-                  sub="Rata-rata enam kategori"
-                  icon="chart"
-                  tone="blue"
-                />
-
-                <Metric
-                  title="Perlu Perhatian"
-                  value={summary.attention}
-                  sub="Progres OJT di bawah 50%"
-                  icon="alert"
-                  tone="gold"
-                />
-
-                <Metric
-                  title="Target Lengkap"
-                  value={summary.completed}
-                  sub="Peserta memenuhi enam target"
-                  icon="check"
-                  tone="green"
-                />
-              </section>
-
-              {/* =================================================
-                  MAIN MONITORING GRID
-              ================================================= */}
-
-              <section className="mt-monitoring-grid">
-                {/* PROGRAM OJT MINGGUAN */}
-
-                <div className="mt-panel mt-program-panel">
-                  <div className="mt-panel-heading">
-                    <div>
-                      <div className="mt-panel-title">
-                        <span className="mt-panel-icon">
-                          <Icon name="chart" size={18} />
-                        </span>
-
-                        <h3>Program OJT Mingguan</h3>
-                      </div>
-
-                      <p>
-                        Jumlah Achievement Verified pada setiap
-                        minggu program.
-                      </p>
-                    </div>
-
-                    <span className="mt-panel-badge">
-                      25 Weeks
+              <section
+                id="mt-jadwal"
+                className="mt-panel mt-schedule-panel"
+              >
+                <div className="mt-panel-heading">
+                  <div className="mt-panel-title">
+                    <span className="mt-panel-icon">
+                      <Icon name="calendar" size={20} />
                     </span>
-                  </div>
 
-                  <div className="mt-program-summary">
                     <div>
-                      <small>Minggu Terpilih</small>
-                      <strong>{weekLabel(selectedWeek)}</strong>
-                      <span>
+                      <h3>Jadwal Kegiatan Minggu Ini</h3>
+                      <p>
                         {formatPeriod(
                           currentWeek.start,
                           currentWeek.end
                         )}
-                      </span>
-                    </div>
-
-                    <div>
-                      <small>Achievement Verified</small>
-                      <strong>
-                        {weeklyChart[selectedWeek - 1]?.count || 0}
-                      </strong>
-                      <span>Kegiatan pada minggu terpilih</span>
-                    </div>
-
-                    <div>
-                      <small>Minggu Beraktivitas</small>
-                      <strong>{activityWeeks.size}/25</strong>
-                      <span>Minggu dengan catatan aktivitas</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-week-chart-scroll">
-                    <div className="mt-week-chart">
-                      {weeklyChart.map((item) => {
-                        const active =
-                          item.week === selectedWeek;
-
-                        const hasActivity =
-                          activityWeeks.has(item.week);
-
-                        const height = item.count
-                          ? Math.max(
-                              7,
-                              (item.count / maxChart) * 100
-                            )
-                          : 3;
-
-                        return (
-                          <button
-                            type="button"
-                            key={item.week}
-                            className={[
-                              "mt-week-chart-item",
-                              active ? "selected" : "",
-                              hasActivity ? "has-activity" : "",
-                            ].join(" ")}
-                            onClick={() =>
-                              changeWeek(item.week)
-                            }
-                            title={`${weekLabel(item.week)} · ${formatPeriod(
-                              item.start,
-                              item.end
-                            )} · ${item.count} Verified`}
-                          >
-                            <strong>{item.count}</strong>
-
-                            <div className="mt-week-chart-bar">
-                              <span
-                                style={{
-                                  height: `${height}%`,
-                                }}
-                              />
-                            </div>
-
-                            <small>
-                              {shortWeekLabel(item.week)}
-                            </small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="mt-program-legend">
-                    <span>
-                      <i className="legend-verified" />
-                      Achievement Verified
-                    </span>
-
-                    <span>
-                      <i className="legend-selected" />
-                      Minggu terpilih
-                    </span>
-                  </div>
-
-                  <div className="mt-week-calendar">
-                    <div className="mt-week-calendar-heading">
-                      <strong>Jadwal Kalender OJT</strong>
-                      <small>
-                        Pilih Week 01–25 untuk melihat periode
-                        pelaksanaan.
-                      </small>
-                    </div>
-
-                    <div className="mt-week-calendar-grid">
-                      {GLOBAL_WEEKS.map((item) => (
-                        <button
-                          type="button"
-                          key={item.week}
-                          className={[
-                            "mt-week-calendar-item",
-                            activityWeeks.has(item.week)
-                              ? "has-activity"
-                              : "",
-                            item.week === selectedWeek
-                              ? "selected"
-                              : "",
-                          ].join(" ")}
-                          onClick={() =>
-                            changeWeek(item.week)
-                          }
-                          title={`${weekLabel(item.week)}: ${formatPeriod(
-                            item.start,
-                            item.end
-                          )}`}
-                        >
-                          {shortWeekLabel(item.week)}
-                          {activityWeeks.has(item.week) && (
-                            <i />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mt-panel-footnote">
-                    Kalender mengikuti jadwal global program
-                    OJT, bukan tanggal mulai masing-masing peserta.
-                  </div>
-                </div>
-
-                {/* RINGKASAN MONITORING */}
-
-                <div className="mt-panel mt-weekly-panel">
-                  <div className="mt-panel-heading">
-                    <div>
-                      <div className="mt-panel-title">
-                        <span className="mt-panel-icon">
-                          <Icon name="calendar" size={18} />
-                        </span>
-
-                        <h3>Ringkasan Monitoring Mingguan</h3>
-                      </div>
-
-                      <p>
-                        Rekap pencapaian peserta pada{" "}
-                        {weekLabel(selectedWeek)}.
                       </p>
                     </div>
                   </div>
 
-                  <div className="mt-week-stats">
-                    <div className="mt-week-stat green">
-                      <span className="mt-stat-icon">
-                        <Icon name="users" size={19} />
-                      </span>
+                  <span className="mt-panel-badge">
+                    {weekLabel(selectedWeek)}
+                  </span>
+                </div>
 
-                      <strong>{weeklySummary.active}</strong>
-                      <small>Peserta Aktif</small>
-                    </div>
-
-                    <div className="mt-week-stat blue">
-                      <span className="mt-stat-icon">
-                        <Icon name="clipboard" size={19} />
-                      </span>
-
-                      <strong>{weeklySummary.postTest}</strong>
-                      <small>Post-Test</small>
-                    </div>
-
-                    <div className="mt-week-stat gold">
-                      <span className="mt-stat-icon">
-                        <Icon name="check" size={19} />
-                      </span>
-
-                      <strong>{weeklySummary.practice}</strong>
-                      <small>Praktik</small>
-                    </div>
-
-                    <div className="mt-week-stat purple">
-                      <span className="mt-stat-icon">
-                        <Icon name="activity" size={19} />
-                      </span>
-
-                      <strong>{weeklySummary.samapta}</strong>
-                      <small>Samapta</small>
-                    </div>
-                  </div>
-
-                  {/* VERIFICATION */}
-
-                  <div className="mt-verification">
-                    <div className="mt-verification-item verified">
-                      <i />
-                      <div>
-                        <strong>{weeklySummary.verified}</strong>
-                        <small>Verified</small>
-                      </div>
-                    </div>
-
-                    <div className="mt-verification-item pending">
-                      <i />
-                      <div>
-                        <strong>{weeklySummary.pending}</strong>
-                        <small>Pending</small>
-                      </div>
-                    </div>
-
-                    <div className="mt-verification-item total">
-                      <i />
-                      <div>
-                        <strong>{weeklySummary.total}</strong>
-                        <small>Total Aktivitas</small>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* SIX CATEGORIES */}
-
-                  <div className="mt-category-heading">
-                    <strong>
-                      Capaian Achievement (6 Kategori)
-                    </strong>
-
-                    <span>
-                      Rata-rata: {summary.progress}%
-                    </span>
-                  </div>
-
-                  <div className="mt-week-category-grid">
-                    {weeklyCategories.map((item) => (
-                      <div
-                        className="mt-week-category"
-                        key={item.name}
+                <div className="mt-schedule-list">
+                  {scheduleThisWeek.length ? (
+                    scheduleThisWeek.map((activity, index) => (
+                      <article
+                        className="mt-schedule-item"
+                        key={activity.id || `${selectedWeek}-${index}`}
                       >
-                        <div className="mt-week-category-top">
-                          <span>{item.icon}</span>
-                          <strong>{item.name}</strong>
-                          <b>{item.progress}%</b>
-                        </div>
-
-                        <Progress value={item.progress} />
-
-                        <div className="mt-category-amount">
-                          <span>
-                            {amountText(
-                              item.cumulativeAmount,
-                              item.unit
-                            )}
-                          </span>
-
-                          <span>
-                            / {amountText(
-                              item.target,
-                              item.unit
-                            )}
-                          </span>
-                        </div>
-
-                        {item.pendingCount > 0 && (
-                          <small className="mt-pending-note">
-                            {item.pendingCount} aktivitas pending
+                        <div className="mt-schedule-date">
+                          <small>
+                            {activity.day || "Jadwal"}
                           </small>
-                        )}
-                      </div>
-                    ))}
-                  </div>
 
-                  <div className="mt-panel-footnote">
-                    Progres kategori dihitung dari aktivitas
-                    Verified. Akumulasi mengikuti minggu yang dipilih.
+                          <strong>
+                            {formatDate(activity.date)}
+                          </strong>
+                        </div>
+
+                        <span className="mt-schedule-icon">
+                          <Icon
+                            name={activity.icon || "calendar"}
+                            size={24}
+                          />
+                        </span>
+
+                        <div className="mt-schedule-description">
+                          <strong>{activity.title}</strong>
+
+                          <small>
+                            {activity.time
+                              ? `${activity.time} WITA`
+                              : formatDate(activity.date)}
+                            {activity.location
+                              ? ` · ${activity.location}`
+                              : ""}
+                          </small>
+
+                          {activity.description && (
+                            <details>
+                              <summary>Lihat Materi</summary>
+                              <p>{activity.description}</p>
+                            </details>
+                          )}
+                        </div>
+
+                        <span className="mt-schedule-type">
+                          {activity.category || "Kegiatan"}
+                        </span>
+                      </article>
+                    ))
+                  ) : (
+                    <div className="mt-empty">
+                      Belum ada jadwal kegiatan yang ditetapkan
+                      untuk {weekLabel(selectedWeek)}.
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-schedule-footer">
+                  <span>
+                    Kalender Global Week 01–25
+                  </span>
+
+                  <div className="mt-week-stepper">
+                    <button
+                      type="button"
+                      disabled={selectedWeek <= 1}
+                      onClick={() => changeWeek(selectedWeek - 1)}
+                      aria-label="Minggu sebelumnya"
+                    >
+                      <Icon name="left" size={17} />
+                    </button>
+
+                    <strong>{weekLabel(selectedWeek)}</strong>
+
+                    <button
+                      type="button"
+                      disabled={selectedWeek >= TOTAL_WEEKS}
+                      onClick={() => changeWeek(selectedWeek + 1)}
+                      aria-label="Minggu berikutnya"
+                    >
+                      <Icon name="arrow" size={17} />
+                    </button>
                   </div>
                 </div>
               </section>
 
-              {/* =================================================
-                  PARTICIPANT MONITORING
-              ================================================= */}
+              {/* ==========================================
+                  2. DETAIL PESERTA
+              ========================================== */}
 
-              <section className="mt-panel mt-participant-panel">
+              <section
+                id="mt-peserta"
+                className="mt-panel mt-participant-panel"
+              >
                 <div className="mt-participant-heading">
-                  <div>
-                    <div className="mt-panel-title">
-                      <span className="mt-panel-icon">
-                        <Icon name="users" size={18} />
-                      </span>
+                  <div className="mt-panel-title">
+                    <span className="mt-panel-icon">
+                      <Icon name="users" size={20} />
+                    </span>
 
-                      <h3>Daftar Peserta OJT Aktif</h3>
+                    <div>
+                      <h3>Detail Peserta OJT</h3>
+                      <p>
+                        Pilih peserta untuk melihat detail,
+                        melakukan input, dan monitoring OJT.
+                      </p>
                     </div>
-
-                    <p>
-                      Monitoring progres, enam kategori Achievement,
-                      SIMPER, dan aktivitas peserta.
-                    </p>
                   </div>
 
-                  <div className="mt-participant-actions">
-                    <label className="mt-search">
-                      <Icon name="search" size={17} />
+                  <label className="mt-search">
+                    <Icon name="search" size={17} />
 
-                      <input
-                        type="search"
-                        placeholder="Cari nama / departemen..."
-                        value={search}
-                        onChange={(event) =>
-                          setSearch(event.target.value)
-                        }
-                      />
-                    </label>
-
-                    <button
-                      type="button"
-                      className="mt-button-primary"
-                      onClick={() =>
-                        navigate("/mentor/monitoring-peserta")
+                    <input
+                      type="search"
+                      value={search}
+                      onChange={(event) =>
+                        setSearch(event.target.value)
                       }
-                    >
-                      Lihat Semua
-                      <Icon name="arrow" size={15} />
-                    </button>
-                  </div>
+                      placeholder="Cari nama / departemen..."
+                    />
+                  </label>
                 </div>
-
-                {/* DESKTOP TABLE */}
 
                 <div className="mt-table-wrap">
                   <table className="mt-participant-table">
@@ -2750,9 +2319,7 @@ export default function MentorDashboard() {
                         <th>Site</th>
                         <th>Periode OJT</th>
                         <th>Progres</th>
-                        <th>6 Kategori</th>
                         <th>SIMPER</th>
-                        <th>Aktivitas</th>
                         <th>Status</th>
                         <th>Aksi</th>
                       </tr>
@@ -2782,9 +2349,10 @@ export default function MentorDashboard() {
                             </td>
 
                             <td className="mt-period-cell">
-                              {formatDate(program.start_date)}
-                              <span>–</span>
-                              {formatDate(program.end_date)}
+                              {formatPeriod(
+                                program.start_date,
+                                program.end_date
+                              )}
                             </td>
 
                             <td>
@@ -2801,42 +2369,7 @@ export default function MentorDashboard() {
                             </td>
 
                             <td>
-                              <div className="mt-category-mini">
-                                {TARGETS.map((category) => {
-                                  const item =
-                                    info?.categoryProgress?.find(
-                                      (row) =>
-                                        row.name === category.name
-                                    );
-
-                                  return (
-                                    <span
-                                      key={category.name}
-                                      title={`${category.name}: ${
-                                        item?.progress || 0
-                                      }%`}
-                                    >
-                                      <small>
-                                        {category.short}
-                                      </small>
-
-                                      <strong>
-                                        {item?.progress || 0}%
-                                      </strong>
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            </td>
-
-                            <td>
-                              <strong className="mt-table-value">
-                                {info?.simperProgress || 0}%
-                              </strong>
-                            </td>
-
-                            <td>
-                              {info?.activityWeeks || 0}/25
+                              {info?.simperProgress || 0}%
                             </td>
 
                             <td>
@@ -2846,48 +2379,16 @@ export default function MentorDashboard() {
                             </td>
 
                             <td>
-                              <div className="mt-row-actions">
-                                <button
-                                  type="button"
-                                  className="mt-action-button input"
-                                  onClick={() =>
-                                    navigate(
-                                      `/achievement/${program.id}`
-                                    )
-                                  }
-                                  title="Input Achievement"
-                                >
-                                  <Icon name="plus" size={13} />
-                                  Input
-                                </button>
-
-                                <button
-                                  type="button"
-                                  className="mt-action-button monitoring"
-                                  onClick={() =>
-                                    navigate(
-                                      `/achievement/${program.id}/monitoring`
-                                    )
-                                  }
-                                  title="Monitoring Achievement"
-                                >
-                                  <Icon name="activity" size={13} />
-                                  Monitoring
-                                </button>
-
-                                <button
-                                  type="button"
-                                  className="mt-action-button detail"
-                                  onClick={() =>
-                                    navigate(
-                                      `/peserta/${program.id}`
-                                    )
-                                  }
-                                  title="Detail Peserta"
-                                >
-                                  Detail
-                                </button>
-                              </div>
+                              <button
+                                type="button"
+                                className="mt-button-primary"
+                                onClick={() =>
+                                  openParticipantDetail(program.id)
+                                }
+                              >
+                                Detail / Input
+                                <Icon name="arrow" size={14} />
+                              </button>
                             </td>
                           </tr>
                         );
@@ -2895,12 +2396,8 @@ export default function MentorDashboard() {
 
                       {!filtered.length && (
                         <tr>
-                          <td
-                            colSpan={11}
-                            className="mt-empty-cell"
-                          >
-                            Belum ada Peserta OJT aktif yang
-                            sesuai dengan filter.
+                          <td colSpan={9} className="mt-empty-cell">
+                            Tidak ada peserta aktif sesuai filter.
                           </td>
                         </tr>
                       )}
@@ -2908,28 +2405,27 @@ export default function MentorDashboard() {
                   </table>
                 </div>
 
-                {/* MOBILE PARTICIPANT CARDS */}
-
                 <div className="mt-mobile-participants">
                   {filtered.map((program) => {
                     const info = dataByProgram[program.id];
 
-                    const name =
-                      program.peserta?.full_name ||
-                      "Peserta OJT";
-
                     return (
                       <article
-                        className="mt-mobile-person"
                         key={program.id}
+                        className="mt-mobile-person"
                       >
                         <div className="mt-person-top">
                           <div className="mt-person-avatar">
-                            {initials(name)}
+                            {initials(
+                              program.peserta?.full_name
+                            )}
                           </div>
 
                           <div className="mt-person-info">
-                            <strong>{name}</strong>
+                            <strong>
+                              {program.peserta?.full_name ||
+                                "Peserta OJT"}
+                            </strong>
 
                             <small>
                               {program.peserta?.department || "—"}
@@ -2937,14 +2433,9 @@ export default function MentorDashboard() {
                               {program.site || "—"}
                             </small>
                           </div>
-
-                          <span className="mt-status-active">
-                            Aktif
-                          </span>
                         </div>
 
                         <div className="mt-person-period">
-                          <Icon name="calendar" size={14} />
                           {formatPeriod(
                             program.start_date,
                             program.end_date
@@ -2953,113 +2444,184 @@ export default function MentorDashboard() {
 
                         <div className="mt-person-progress-heading">
                           <span>Progres OJT</span>
-                          <strong>
-                            {info?.progress || 0}%
-                          </strong>
+                          <strong>{info?.progress || 0}%</strong>
                         </div>
 
-                        <Progress
-                          value={info?.progress || 0}
-                        />
+                        <Progress value={info?.progress || 0} />
 
-                        <div className="mt-person-categories">
-                          {TARGETS.map((category) => {
-                            const item =
-                              info?.categoryProgress?.find(
-                                (row) =>
-                                  row.name === category.name
-                              );
-
-                            return (
-                              <div
-                                className="mt-person-category"
-                                key={category.name}
-                              >
-                                <span>
-                                  {category.icon} {category.short}
-                                </span>
-
-                                <strong>
-                                  {item?.progress || 0}%
-                                </strong>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-person-meta">
-                          <span>
-                            SIMPER: {info?.simperProgress || 0}%
-                          </span>
-
-                          <span>
-                            Aktivitas: {info?.activityWeeks || 0}/25
-                          </span>
-                        </div>
-
-                        <div className="mt-mobile-action-grid">
-                          <button
-                            type="button"
-                            className="mt-action-button input"
-                            onClick={() =>
-                              navigate(
-                                `/achievement/${program.id}`
-                              )
-                            }
-                          >
-                            <Icon name="plus" size={14} />
-                            Input
-                          </button>
-
-                          <button
-                            type="button"
-                            className="mt-action-button monitoring"
-                            onClick={() =>
-                              navigate(
-                                `/achievement/${program.id}/monitoring`
-                              )
-                            }
-                          >
-                            <Icon name="activity" size={14} />
-                            Monitoring
-                          </button>
-
-                          <button
-                            type="button"
-                            className="mt-action-button detail"
-                            onClick={() =>
-                              navigate(`/peserta/${program.id}`)
-                            }
-                          >
-                            Detail Peserta
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          className="mt-button-primary mt-detail-full"
+                          onClick={() =>
+                            openParticipantDetail(program.id)
+                          }
+                        >
+                          Detail Peserta / Input
+                          <Icon name="arrow" size={15} />
+                        </button>
                       </article>
                     );
                   })}
-
-                  {!filtered.length && (
-                    <div className="mt-empty-cell">
-                      Belum ada Peserta OJT aktif.
-                    </div>
-                  )}
                 </div>
 
                 <div className="mt-list-footer">
                   <span>
-                    Menampilkan {filtered.length} dari{" "}
-                    {programs.length} peserta aktif.
+                    {filtered.length} peserta aktif ditampilkan.
                   </span>
+                </div>
+              </section>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigate("/mentor/monitoring-peserta")
-                    }
-                  >
-                    Buka Monitoring Peserta
-                    <Icon name="arrow" size={14} />
-                  </button>
+              {/* ==========================================
+                  3. TARGET MINGGUAN SEMUA PESERTA
+              ========================================== */}
+
+              <section
+                id="mt-target"
+                className="mt-panel mt-target-panel"
+              >
+                <div className="mt-panel-heading">
+                  <div className="mt-panel-title">
+                    <span className="mt-panel-icon">
+                      <Icon name="chart" size={20} />
+                    </span>
+
+                    <div>
+                      <h3>Target Mingguan Seluruh Peserta</h3>
+                      <p>
+                        Pencapaian enam kategori pada{" "}
+                        {weekLabel(selectedWeek)}.
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="mt-panel-badge">
+                    {participantWeeklyTargets.length} Peserta
+                  </span>
+                </div>
+
+                <div className="mt-target-grid">
+                  {weeklyTargetSummary.map((item) => (
+                    <div
+                      key={item.name}
+                      className="mt-target-card"
+                    >
+                      <div className="mt-target-top">
+                        <span className="mt-target-icon">
+                          {item.icon}
+                        </span>
+
+                        <strong>{item.name}</strong>
+
+                        <b>{item.progress}%</b>
+                      </div>
+
+                      <Progress value={item.progress} />
+
+                      <div className="mt-target-meta">
+                        <span>
+                          {item.completed} dari{" "}
+                          {participantWeeklyTargets.length} peserta
+                          mencapai target
+                        </span>
+
+                        <span>
+                          Target: {amountText(
+                            item.target,
+                            item.unit
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-target-table-wrap">
+                  <table className="mt-target-table">
+                    <thead>
+                      <tr>
+                        <th>Nama Peserta</th>
+                        <th>Site</th>
+
+                        {TARGETS.map((item) => (
+                          <th key={item.name}>
+                            {item.name}
+                          </th>
+                        ))}
+
+                        <th>Rata-rata</th>
+                        <th>Tercapai</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {participantWeeklyTargets.map((item) => (
+                        <tr key={item.program.id}>
+                          <td className="mt-name-cell">
+                            {item.program.peserta?.full_name ||
+                              "Peserta OJT"}
+                          </td>
+
+                          <td>
+                            {item.program.site || "—"}
+                          </td>
+
+                          {TARGETS.map((target) => {
+                            const category =
+                              item.categories.find(
+                                (entry) =>
+                                  entry.name === target.name
+                              );
+
+                            return (
+                              <td key={target.name}>
+                                <div className="mt-target-cell">
+                                  <strong>
+                                    {Math.round(
+                                      category?.progress || 0
+                                    )}%
+                                  </strong>
+
+                                  <small>
+                                    {amountText(
+                                      category?.amount || 0,
+                                      target.unit
+                                    )}
+                                  </small>
+                                </div>
+                              </td>
+                            );
+                          })}
+
+                          <td>
+                            <strong>
+                              {item.progress}%
+                            </strong>
+                          </td>
+
+                          <td>
+                            {item.completed}/6
+                          </td>
+                        </tr>
+                      ))}
+
+                      {!participantWeeklyTargets.length && (
+                        <tr>
+                          <td
+                            colSpan={10}
+                            className="mt-empty-cell"
+                          >
+                            Belum ada data peserta sesuai filter.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-panel-footnote">
+                  Target dihitung dari Achievement berstatus
+                  Verified pada minggu yang dipilih. Data Pending
+                  tidak dihitung sebagai pencapaian.
                 </div>
               </section>
             </>
@@ -3067,125 +2629,24 @@ export default function MentorDashboard() {
 
           <footer className="mt-footer">
             OJT MineTrack v2.0 · Emergency Response Group ·
-            PT Berau Coal · Program 2026–2027
+            PT Berau Coal
           </footer>
         </div>
       </main>
-
-      {/* =================================================
-          INPUT TOOL — PARTICIPANT SELECTOR
-      ================================================= */}
-
-      {inputTool && (
-        <div
-          className="mt-modal-overlay"
-          onClick={() => setInputTool(null)}
-        >
-          <div
-            className="mt-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mt-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mt-modal-heading">
-              <div>
-                <span className="mt-modal-icon">
-                  <Icon
-                    name={activeInputTool?.icon || "file"}
-                    size={21}
-                  />
-                </span>
-
-                <div>
-                  <h3 id="mt-modal-title">
-                    {activeInputTool?.label || "Pengelolaan OJT"}
-                  </h3>
-
-                  <p>
-                    Pilih peserta untuk melanjutkan ke halaman
-                    pengelolaan OJT.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                className="mt-modal-close"
-                onClick={() => setInputTool(null)}
-                aria-label="Tutup"
-              >
-                <Icon name="close" size={19} />
-              </button>
-            </div>
-
-            <div className="mt-modal-list">
-              {filtered.map((program) => (
-                <button
-                  type="button"
-                  key={program.id}
-                  className="mt-modal-person"
-                  onClick={() =>
-                    chooseInputProgram(program.id)
-                  }
-                >
-                  <span className="mt-modal-avatar">
-                    {initials(program.peserta?.full_name)}
-                  </span>
-
-                  <span className="mt-modal-person-info">
-                    <strong>
-                      {program.peserta?.full_name ||
-                        "Peserta OJT"}
-                    </strong>
-
-                    <small>
-                      {program.peserta?.department || "—"}
-                      {" · "}
-                      {program.site || "—"}
-                    </small>
-                  </span>
-
-                  <Icon name="arrow" size={17} />
-                </button>
-              ))}
-
-              {!filtered.length && (
-                <div className="mt-modal-empty">
-                  Tidak ada peserta yang sesuai dengan filter.
-                  Silakan ubah filter Site atau pencarian.
-                </div>
-              )}
-            </div>
-
-            <div className="mt-modal-footer">
-              <span>
-                {filtered.length} peserta tersedia
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setInputTool(null)}
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-// =====================================================
-// COMPLETE DASHBOARD CSS
-// TEMPLATE MONITORING OJT — LIGHT / DARK MODE
-// =====================================================
-
 const dashboardCSS = `
 
 /* =====================================================
-   GLOBAL
+   OJT MINETRACK V2.0
+   DASHBOARD MENTOR / ADMIN
+   TEMPLATE FINAL - LIGHT & DARK MODE
+===================================================== */
+
+/* =====================================================
+   01. GLOBAL & COLOR SYSTEM
 ===================================================== */
 
 .mt-shell,
@@ -3194,30 +2655,30 @@ const dashboardCSS = `
 }
 
 .mt-shell {
-  --mt-bg: rgba(239,247,243,.88);
-  --mt-surface: rgba(255,255,255,.94);
-  --mt-surface-alt: rgba(238,247,242,.94);
-  --mt-text: #17352f;
-  --mt-heading: #102c28;
-  --mt-muted: #718a80;
-  --mt-border: rgba(175,205,190,.70);
-  --mt-border-soft: rgba(180,210,194,.43);
-  --mt-input: rgba(255,255,255,.95);
-  --mt-green: #07875d;
-  --mt-green-light: #16a878;
-  --mt-green-soft: #e0f5e9;
-  --mt-progress-bg: #dcebe3;
-  --mt-shadow: rgba(9,48,35,.08);
+  --mt-bg: #edf4f0;
+  --mt-surface: #ffffff;
+  --mt-surface-alt: #f3f8f5;
+  --mt-text: #233b34;
+  --mt-heading: #13362c;
+  --mt-muted: #70877c;
+  --mt-border: #dce9e1;
+  --mt-border-soft: #e9f0eb;
+  --mt-green: #087d56;
+  --mt-green-light: #13ad77;
+  --mt-green-soft: #e7f7ed;
+  --mt-input: #ffffff;
+  --mt-progress-bg: #e4eee8;
+  --mt-shadow: rgba(18, 58, 43, 0.065);
 
-  min-height: 100vh;
   position: relative;
   isolation: isolate;
+  min-height: 100vh;
 
   background:
     linear-gradient(
       135deg,
-      rgba(237,248,241,.88),
-      rgba(229,244,236,.86)
+      rgba(243, 249, 245, 0.97),
+      rgba(232, 244, 236, 0.95)
     ),
     url("/background-erg.png.PNG");
 
@@ -3227,35 +2688,33 @@ const dashboardCSS = `
 
   color: var(--mt-text);
   font-family: Arial, Helvetica, sans-serif;
-
-  transition:
-    background-color .25s ease,
-    color .25s ease;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
-/* DARK MODE */
+html[data-theme="dark"] .mt-shell {
+  color-scheme: dark;
 
-:root[data-theme="dark"] .mt-shell {
-  --mt-bg: rgba(7,24,23,.87);
-  --mt-surface: rgba(12,37,33,.94);
-  --mt-surface-alt: rgba(22,49,43,.94);
-  --mt-text: #e6f4ec;
+  --mt-bg: #0c1a18;
+  --mt-surface: #162b26;
+  --mt-surface-alt: #1d3730;
+  --mt-text: #e5f1ea;
   --mt-heading: #f1fbf5;
-  --mt-muted: #a0b9ae;
-  --mt-border: rgba(65,105,88,.62);
-  --mt-border-soft: rgba(65,105,88,.38);
-  --mt-input: rgba(17,45,39,.96);
-  --mt-green: #75e5ae;
-  --mt-green-light: #42d69a;
-  --mt-green-soft: #193e32;
-  --mt-progress-bg: #294a40;
-  --mt-shadow: rgba(0,0,0,.23);
+  --mt-muted: #a3b9ae;
+  --mt-border: #345047;
+  --mt-border-soft: #294239;
+  --mt-green: #7ee4b1;
+  --mt-green-light: #43d39b;
+  --mt-green-soft: #214738;
+  --mt-input: #1b342c;
+  --mt-progress-bg: #365347;
+  --mt-shadow: rgba(0, 0, 0, 0.18);
 
   background:
     linear-gradient(
       135deg,
-      rgba(3,17,18,.93),
-      rgba(4,27,24,.89)
+      rgba(6, 22, 20, 0.97),
+      rgba(9, 34, 28, 0.94)
     ),
     url("/background-erg.png.PNG");
 
@@ -3265,54 +2724,75 @@ const dashboardCSS = `
 }
 
 .mt-shell button,
-.mt-shell select,
-.mt-shell input {
+.mt-shell input,
+.mt-shell select {
   font: inherit;
 }
 
 .mt-shell button {
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .mt-shell button:disabled {
-  opacity: .45;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .mt-shell button:focus-visible,
 .mt-shell input:focus-visible,
-.mt-shell select:focus-visible {
-  outline: 3px solid #42d49a;
-  outline-offset: 2px;
+.mt-shell select:focus-visible,
+.mt-shell summary:focus-visible {
+  outline: 3px solid #3fc996;
+  outline-offset: 3px;
+}
+
+.mt-shell h1,
+.mt-shell h2,
+.mt-shell h3,
+.mt-shell p {
+  overflow-wrap: break-word;
 }
 
 /* =====================================================
-   SIDEBAR
+   02. SIDEBAR
 ===================================================== */
 
 .mt-sidebar {
   position: fixed;
-  inset: 0 auto 0 0;
-  width: 255px;
+  top: 0;
+  bottom: 0;
+  left: 0;
   z-index: 50;
 
   display: flex;
   flex-direction: column;
   justify-content: space-between;
 
-  padding: 19px 13px 13px;
+  width: 254px;
+  padding: 21px 13px 15px;
+
   overflow-y: auto;
 
-  color: #fff;
-
   background: linear-gradient(
-    180deg,
-    #041d1b 0%,
-    #06332c 55%,
-    #064437 100%
+    175deg,
+    #07251f 0%,
+    #074032 55%,
+    #053127 100%
   );
 
-  box-shadow: 5px 0 25px rgba(0,0,0,.13);
+  color: #ffffff;
+
+  box-shadow: 5px 0 24px rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme="dark"] .mt-sidebar {
+  background: linear-gradient(
+    175deg,
+    #061815,
+    #0b2c24 60%,
+    #081f1a
+  );
 }
 
 .mt-sidebar-top {
@@ -3320,164 +2800,128 @@ const dashboardCSS = `
 }
 
 .mt-brand {
-  padding: 8px 10px 19px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid #ffffff20;
+  padding: 8px 11px 22px;
+  margin-bottom: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.17);
 }
 
 .mt-brand-name {
-  color: #fff;
   font-size: 23px;
   font-weight: 900;
-  letter-spacing: -.8px;
+  letter-spacing: -0.7px;
+  color: #ffffff;
   white-space: nowrap;
 }
 
 .mt-brand-name span {
-  color: #35d49d;
+  color: #4adea4;
 }
 
 .mt-brand-name small {
-  display: inline-block;
   margin-left: 5px;
-  color: #b8d2c8;
-  font-size: 9px;
+  color: #b1cfc0;
+  font-size: 10px;
   letter-spacing: 0;
 }
 
 .mt-brand p {
   margin: 9px 0 0;
-  color: #b6cec5;
-  font-size: 10px;
-  line-height: 1.65;
+  color: #bad6ca;
+  font-size: 11px;
+  line-height: 1.7;
 }
 
 .mt-menu-label {
-  padding: 14px 11px 8px;
-  color: #8bc6b2;
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 1.15px;
-}
+  margin: 7px 0 9px;
+  padding: 9px 11px;
 
-.mt-menu-label.admin {
-  margin-top: 11px;
-  padding-top: 17px;
-  border-top: 1px solid #ffffff20;
+  color: #9bd4bb;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1.1px;
 }
 
 .mt-nav-group {
   display: grid;
-  gap: 3px;
+  gap: 5px;
 }
 
 .mt-nav {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 12px;
+
   width: 100%;
-  min-height: 40px;
+  min-height: 44px;
+  padding: 11px 12px;
 
   border: 1px solid transparent;
   border-radius: 9px;
-  padding: 9px 10px;
 
   background: transparent;
-  color: #d9eae3;
+  color: #e0f0e7;
 
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-align: left;
 
-  transition: background .18s ease, color .18s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
-.mt-nav:hover {
-  color: #fff;
-  background: #ffffff13;
-}
-
-.mt-nav.active {
-  color: #fff;
-  background: linear-gradient(90deg,#07996d,#087451);
-  border-color: #ffffff18;
-  box-shadow: 0 4px 12px #00000015;
-}
-
-.mt-nav > svg:first-child {
+.mt-nav > svg {
   flex-shrink: 0;
-  color: #b9d9cd;
-}
-
-.mt-nav.active > svg:first-child {
-  color: #fff;
 }
 
 .mt-nav > span {
   flex: 1;
   min-width: 0;
-  line-height: 1.4;
 }
 
-.mt-nav > svg:last-child:not(:first-child) {
-  color: #8cb7a7;
-  flex-shrink: 0;
+.mt-nav:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
-.mt-nav-indicator {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  background: #baf4d8;
-  border-radius: 50%;
+.mt-nav.active {
+  background: #0c9065;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
 }
-
-.mt-maintenance-label {
-  flex-shrink: 0;
-  padding: 4px 7px;
-  border-radius: 6px;
-  background: #ffffff1b;
-  color: #c8e9da;
-  font-size: 9px;
-}
-
-.mt-maintenance-label.on {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-/* SIDEBAR BOTTOM */
 
 .mt-sidebar-bottom {
-  margin-top: 20px;
+  margin-top: 30px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 .mt-side-user {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 10px;
-  margin-bottom: 10px;
+  gap: 11px;
 
-  border: 1px solid #ffffff1d;
-  background: #ffffff0c;
+  padding: 12px;
+  margin-bottom: 11px;
+
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
+  background: rgba(255, 255, 255, 0.075);
 }
 
 .mt-side-avatar {
-  width: 35px;
-  height: 35px;
-  flex-shrink: 0;
-
   display: grid;
   place-items: center;
+  flex-shrink: 0;
 
+  width: 37px;
+  height: 37px;
   border-radius: 50%;
-  background: #d2f0e2;
-  color: #0b4938;
 
-  font-size: 11px;
+  background: #d8f4e5;
+  color: #07593b;
+
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -3492,116 +2936,105 @@ const dashboardCSS = `
 }
 
 .mt-side-user-info strong {
-  color: #fff;
-  font-size: 10px;
+  color: #ffffff;
+  font-size: 11px;
 }
 
 .mt-side-user-info small {
   margin-top: 4px;
-  color: #9ec9ba;
-  font-size: 9px;
+  color: #b9d9cb;
+  font-size: 10px;
 }
 
 .mt-side-action {
   display: flex;
   align-items: center;
   gap: 11px;
+
   width: 100%;
-  min-height: 38px;
+  min-height: 42px;
   margin-bottom: 5px;
-  padding: 9px 11px;
+  padding: 10px 12px;
 
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 9px;
 
-  background: #ffffff0e;
-  color: #dff7ed;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e1f6e9;
 
   text-align: left;
-  font-size: 10px;
-  font-weight: 750;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .mt-side-action:hover {
-  background: #ffffff1b;
-  border-color: #ffffff20;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .mt-side-action.logout {
   background: transparent;
-  color: #ffd4cd;
+  color: #ffd2c9;
 }
 
 .mt-side-action.logout:hover {
-  background: #dc26261c;
-}
-
-.mt-side-footer {
-  display: grid;
-  gap: 4px;
-  padding: 12px 10px 2px;
-  margin-top: 8px;
-  border-top: 1px solid #ffffff18;
-}
-
-.mt-side-footer strong {
-  color: #afcec4;
-  font-size: 9px;
-}
-
-.mt-side-footer small {
-  color: #7aa89c;
-  font-size: 9px;
+  background: rgba(220, 38, 38, 0.14);
 }
 
 /* =====================================================
-   MAIN / MOBILE HEADER
+   03. MAIN LAYOUT
 ===================================================== */
 
 .mt-main {
-  margin-left: 255px;
+  margin-left: 254px;
   min-width: 0;
-  background: transparent;
+  min-height: 100vh;
 }
 
 .mt-mobile-header {
   display: none;
 }
 
+.mt-content {
+  width: 100%;
+  max-width: 1660px;
+  margin: 0 auto;
+  padding: 24px 25px 35px;
+}
+
+.mt-overlay {
+  display: none;
+}
+
 /* =====================================================
-   HERO
+   04. HERO HEADER
 ===================================================== */
 
 .mt-hero {
   position: relative;
-  min-height: 205px;
+  min-height: 190px;
+  padding: 29px 30px;
   overflow: hidden;
 
-  padding: 23px 27px 18px;
-
-  color: #fff;
-  background: #052a28;
-
-  border-bottom: 1px solid #ffffff18;
+  background: #06352b;
+  color: #ffffff;
 }
 
 .mt-hero-background {
   position: absolute;
   inset: 0;
+  z-index: 0;
 
   background:
     linear-gradient(
-      90deg,
-      rgba(2,22,25,.96) 0%,
-      rgba(3,35,34,.85) 52%,
-      rgba(3,25,27,.60) 100%
+      95deg,
+      rgba(2, 28, 27, 0.98),
+      rgba(3, 56, 45, 0.88) 58%,
+      rgba(6, 51, 43, 0.6)
     ),
     url("/background-erg.png.PNG");
 
   background-position: center;
   background-size: cover;
-
-  z-index: 0;
 }
 
 .mt-hero-content {
@@ -3611,192 +3044,145 @@ const dashboardCSS = `
 
 .mt-hero-top {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 20px;
 }
 
 .mt-kicker {
-  color: #efca77;
-  font-size: 9px;
+  color: #efd18c;
+  font-size: 10px;
   font-weight: 900;
   letter-spacing: 1.5px;
 }
 
 .mt-hero h1 {
-  margin: 11px 0 5px;
-  font-size: clamp(25px,2.5vw,37px);
-  line-height: 1.17;
-  letter-spacing: -.8px;
+  margin: 12px 0 8px;
+
+  color: #ffffff;
+  font-size: clamp(25px, 2.7vw, 35px);
+  font-weight: 900;
+  line-height: 1.2;
+  letter-spacing: -0.6px;
 }
 
 .mt-hero h1 span {
-  color: #31d39b;
+  color: #52e0a6;
 }
 
 .mt-hero-title > p {
   margin: 0;
-  color: #e1eeeb;
+  color: #d8efe2;
   font-size: 12px;
 }
 
 .mt-values {
   display: flex;
   flex-wrap: wrap;
-  gap: 17px;
-  margin-top: 15px;
+  gap: 18px;
+  margin-top: 20px;
 }
 
 .mt-values span {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: #e6f1e9;
+  gap: 7px;
+
+  color: #e4f2eb;
   font-size: 10px;
+  font-weight: 700;
 }
 
 .mt-values svg {
-  color: #f2c765;
+  color: #f0ce79;
 }
 
 .mt-account {
   display: flex;
   align-items: center;
-  gap: 9px;
-  max-width: 280px;
-  padding: 8px 11px;
+  gap: 10px;
 
-  border: 1px solid #ffffff36;
+  max-width: 280px;
+  padding: 11px 13px;
+
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 11px;
-  background: #06232bdc;
+
+  background: rgba(3, 35, 31, 0.75);
 }
 
 .mt-account-avatar {
-  width: 35px;
-  height: 35px;
-  flex-shrink: 0;
-
   display: grid;
   place-items: center;
+  flex-shrink: 0;
 
+  width: 39px;
+  height: 39px;
   border-radius: 50%;
-  background: #d2f0e2;
-  color: #0b4938;
 
-  font-size: 11px;
+  background: #ddf5e7;
+  color: #07593b;
+
+  font-size: 12px;
   font-weight: 900;
+}
+
+.mt-account-info {
+  min-width: 0;
 }
 
 .mt-account-info strong,
 .mt-account-info small {
   display: block;
-}
-
-.mt-account-info strong {
-  font-size: 11px;
- }
-
-.mt-account-info small {
-  margin-top: 4px;
-  color: #b8dcd0;
-  font-size: 10px;
   overflow-wrap: anywhere;
 }
 
-/* HERO INFO */
-
-.mt-hero-info {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 18px;
+.mt-account-info strong {
+  font-size: 12px;
 }
 
-.mt-hero-info-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 175px;
-  padding: 9px 11px;
-
-  border: 1px solid #ffffff21;
-  border-radius: 9px;
-
-  background: rgba(6,42,38,.84);
-  color: #fff;
-  backdrop-filter: blur(10px);
-}
-
-.mt-hero-info-icon {
-  display: grid;
-  place-items: center;
-  width: 29px;
-  height: 29px;
-  flex-shrink: 0;
-  border-radius: 8px;
-  color: #6ee7b7;
-  background: #ffffff12;
-}
-
-.mt-hero-info-item small,
-.mt-hero-info-item strong {
-  display: block;
-}
-
-.mt-hero-info-item small {
-  margin-bottom: 4px;
-  color: #a9c9bd;
-  font-size: 9px;
-}
-
-.mt-hero-info-item strong {
-  color: #f1faf5;
+.mt-account-info small {
+  margin-top: 4px;
+  color: #c6e1d1;
   font-size: 10px;
 }
 
 /* =====================================================
-   CONTENT / TOOLBAR
+   05. TOOLBAR
 ===================================================== */
-
-.mt-content {
-  max-width: 1850px;
-  margin: auto;
-  padding: 17px 19px 25px;
-}
 
 .mt-toolbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 13px;
-  margin-bottom: 12px;
+  gap: 16px;
+
+  margin-bottom: 22px;
 }
 
 .mt-toolbar-heading {
-  min-width: 200px;
+  min-width: 210px;
 }
 
 .mt-section-kicker {
   color: var(--mt-green);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 900;
-  letter-spacing: 1.15px;
+  letter-spacing: 1.2px;
 }
 
 .mt-toolbar-heading h2 {
-  margin: 5px 0 4px;
+  margin: 6px 0 5px;
   color: var(--mt-heading);
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 900;
 }
 
 .mt-toolbar-heading p {
   margin: 0;
   color: var(--mt-muted);
-  font-size: 10px;
-  line-height: 1.5;
+  font-size: 12px;
 }
 
 .mt-toolbar-actions {
@@ -3804,108 +3190,71 @@ const dashboardCSS = `
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 8px;
 }
 
 .mt-control {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 0 10px;
+  gap: 9px;
+
+  min-height: 42px;
+  padding: 0 12px;
 
   border: 1px solid var(--mt-border);
   border-radius: 9px;
 
   background: var(--mt-surface);
   color: var(--mt-green);
-
-  backdrop-filter: blur(10px);
 }
 
 .mt-control select {
-  max-width: 125px;
+  min-width: 95px;
+  max-width: 150px;
+  padding: 9px 3px;
+
   border: 0;
   outline: 0;
-  padding: 8px 2px;
+
   background: transparent;
   color: var(--mt-text);
-  font-size: 10px;
-  font-weight: 800;
+
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .mt-control select option {
-  background: #fff;
-  color: #16362c;
-}
-
-:root[data-theme="dark"] .mt-control select option {
-  background: #18342e;
-  color: #eaf8ef;
-}
-
-/* THEME */
-
-.mt-theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 6px 10px;
-
-  border: 1px solid #13a778;
-  border-radius: 30px;
-
   background: var(--mt-surface);
-  color: var(--mt-green);
-
-  font-size: 10px;
-  font-weight: 850;
-  white-space: nowrap;
-
-  transition: .2s ease;
+  color: var(--mt-text);
 }
 
-.mt-theme-toggle:hover {
-  background: var(--mt-green-soft);
-  transform: translateY(-1px);
-}
-
-.mt-theme-icon {
-  width: 25px;
-  height: 25px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--mt-green-soft);
-}
-
-/* BUTTONS */
-
-.mt-button-primary,
-.mt-button-outline {
+.mt-theme-toggle,
+.mt-button-outline,
+.mt-button-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 8px;
 
-  min-height: 38px;
-  padding: 9px 12px;
+  min-height: 42px;
+  padding: 10px 14px;
 
   border-radius: 9px;
-  font-size: 10px;
-  font-weight: 850;
+
+  font-size: 11px;
+  font-weight: 800;
   white-space: nowrap;
+
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
 }
 
-.mt-button-primary {
-  border: 1px solid #09855f;
-  background: #09855f;
-  color: #fff;
-}
-
-.mt-button-primary:hover {
-  background: #08744f;
+.mt-theme-toggle {
+  border: 1px solid var(--mt-border);
+  background: var(--mt-surface);
+  color: var(--mt-green);
 }
 
 .mt-button-outline {
@@ -3914,1119 +3263,545 @@ const dashboardCSS = `
   color: var(--mt-green);
 }
 
+.mt-button-primary {
+  border: 1px solid #087f57;
+  background: #087f57;
+  color: #ffffff;
+}
+
+.mt-button-primary:hover {
+  background: #076c4b;
+}
+
+.mt-theme-toggle:hover,
 .mt-button-outline:hover {
   background: var(--mt-green-soft);
 }
 
-/* CURRENT WEEK */
-
-.mt-current-week {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-
-  padding: 9px 13px;
-  margin-bottom: 12px;
-
-  border: 1px solid var(--mt-border);
-  border-radius: 10px;
-
-  background: var(--mt-surface);
-  box-shadow: 0 3px 12px var(--mt-shadow);
-  backdrop-filter: blur(10px);
-}
-
-.mt-current-week-left {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.mt-current-week-icon {
-  display: grid;
-  place-items: center;
-  width: 31px;
-  height: 31px;
-  border-radius: 8px;
-  background: var(--mt-green-soft);
-  color: var(--mt-green);
-}
-
-.mt-current-week-left strong,
-.mt-current-week-left small {
-  display: block;
-}
-
-.mt-current-week-left strong {
-  color: var(--mt-heading);
-  font-size: 11px;
-}
-
-.mt-current-week-left small {
-  margin-top: 3px;
-  color: var(--mt-muted);
-  font-size: 9px;
-}
-
-.mt-current-week-actions {
-  display: flex;
-  gap: 5px;
-}
-
-.mt-current-week-actions button {
-  display: grid;
-  place-items: center;
-  width: 29px;
-  height: 29px;
-
-  border: 1px solid var(--mt-border);
-  border-radius: 7px;
-
-  background: var(--mt-surface-alt);
-  color: var(--mt-green);
-}
-
-/* ERROR / LOADING */
-
-.mt-error {
-  padding: 12px 14px;
-  margin-bottom: 12px;
-
-  border: 1px solid #fecaca;
-  border-radius: 9px;
-
-  background: #fff1f1;
-  color: #b91c1c;
-
-  font-size: 11px;
-}
-
-:root[data-theme="dark"] .mt-error {
-  background: #44252b;
-  color: #ffbec4;
-  border-color: #704047;
-}
-
-.mt-loading-card {
-  display: grid;
-  justify-items: center;
-  gap: 9px;
-
-  padding: 60px 20px;
-
-  border: 1px solid var(--mt-border);
-  border-radius: 13px;
-
-  background: var(--mt-surface);
-  color: var(--mt-heading);
-}
-
-.mt-loading-card strong {
-  font-size: 13px;
-}
-
-.mt-loading-card small {
-  color: var(--mt-muted);
-  font-size: 10px;
-}
-
-.mt-loading-spinner {
-  width: 33px;
-  height: 33px;
-  border: 3px solid var(--mt-progress-bg);
-  border-top-color: var(--mt-green);
-  border-radius: 50%;
-  animation: mt-spin .8s linear infinite;
-}
-
-@keyframes mt-spin {
-  to { transform: rotate(360deg); }
-}
-
 /* =====================================================
-   KPI
+   06. MAIN PANELS
 ===================================================== */
-
-.mt-kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(4,minmax(0,1fr));
-  gap: 11px;
-  margin-bottom: 12px;
-}
-
-.mt-metric {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  min-height: 102px;
-  min-width: 0;
-
-  padding: 15px 13px;
-  overflow: hidden;
-
-  border: 1px solid var(--mt-border);
-  border-radius: 12px;
-
-  background: var(--mt-surface);
-  box-shadow: 0 4px 14px var(--mt-shadow);
-  backdrop-filter: blur(10px);
-}
-
-.mt-metric.clickable {
-  cursor: pointer;
-}
-
-.mt-metric.clickable:hover {
-  border-color: #20b981;
-  transform: translateY(-1px);
-}
-
-.mt-metric-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  flex-shrink: 0;
-
-  border-radius: 10px;
-  color: #fff;
-}
-
-.mt-metric.green .mt-metric-icon {
-  background: #09966c;
-}
-
-.mt-metric.blue .mt-metric-icon {
-  background: #2874db;
-}
-
-.mt-metric.gold .mt-metric-icon {
-  background: #d69b1b;
-}
-
-.mt-metric-content {
-  position: relative;
-  z-index: 1;
-  min-width: 0;
-}
-
-.mt-metric-title {
-  display: block;
-  color: var(--mt-text);
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.mt-metric-value {
-  display: block;
-  margin-top: 5px;
-  color: var(--mt-heading);
-  font-size: 27px;
-  line-height: 1.1;
-  font-weight: 900;
-}
-
-.mt-metric-sub {
-  display: block;
-  margin-top: 5px;
-  color: var(--mt-muted);
-  font-size: 9px;
-  line-height: 1.4;
-}
-
-.mt-metric-decoration {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 27px;
-  opacity: .38;
-}
-
-.mt-metric-decoration i {
-  display: block;
-  width: 5px;
-  border-radius: 3px 3px 0 0;
-  background: #079b68;
-}
-
-.mt-metric-decoration i:nth-child(1) { height: 8px; }
-.mt-metric-decoration i:nth-child(2) { height: 14px; }
-.mt-metric-decoration i:nth-child(3) { height: 20px; }
-.mt-metric-decoration i:nth-child(4) { height: 27px; }
-
-.mt-metric.blue .mt-metric-decoration i {
-  background: #2874db;
-}
-
-.mt-metric.gold .mt-metric-decoration i {
-  background: #d69b1b;
-}
-
-/* =====================================================
-   MAIN MONITORING PANELS
-===================================================== */
-
-.mt-monitoring-grid {
-  display: grid;
-  grid-template-columns: minmax(0,1.02fr) minmax(0,1.18fr);
-  gap: 12px;
-  align-items: stretch;
-}
 
 .mt-panel {
   min-width: 0;
-  padding: 16px;
+  margin-bottom: 22px;
+  padding: 23px;
 
   border: 1px solid var(--mt-border);
-  border-radius: 13px;
+  border-radius: 15px;
 
   background: var(--mt-surface);
-  box-shadow: 0 4px 16px var(--mt-shadow);
-  backdrop-filter: blur(12px);
+  box-shadow: 0 5px 20px var(--mt-shadow);
 }
 
 .mt-panel-heading {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 13px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+
+  margin-bottom: 19px;
 }
 
 .mt-panel-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mt-panel-title > div {
+  min-width: 0;
 }
 
 .mt-panel-title h3 {
   margin: 0;
+
   color: var(--mt-heading);
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 900;
-  line-height: 1.4;
+}
+
+.mt-panel-title p {
+  margin: 5px 0 0;
+  color: var(--mt-muted);
+  font-size: 11px;
 }
 
 .mt-panel-icon {
   display: grid;
   place-items: center;
-  width: 29px;
-  height: 29px;
   flex-shrink: 0;
 
-  border-radius: 8px;
-  background: #07966b;
-  color: #fff;
-}
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
 
-.mt-panel-heading p {
-  margin: 5px 0 0 37px;
-  color: var(--mt-muted);
-  font-size: 9px;
-  line-height: 1.5;
+  background: #09845e;
+  color: #ffffff;
 }
 
 .mt-panel-badge {
-  flex-shrink: 0;
-  padding: 6px 9px;
-  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 7px 13px;
+  border-radius: 30px;
+
   background: var(--mt-green-soft);
   color: var(--mt-green);
-  font-size: 9px;
+
+  font-size: 11px;
   font-weight: 900;
-}
-
-/* =====================================================
-   PROGRAM WEEKLY
-===================================================== */
-
-.mt-program-summary {
-  display: grid;
-  grid-template-columns: repeat(3,minmax(0,1fr));
-  gap: 7px;
-  margin-bottom: 12px;
-}
-
-.mt-program-summary > div {
-  min-width: 0;
-  padding: 10px;
-  border-radius: 9px;
-  background: var(--mt-surface-alt);
-}
-
-.mt-program-summary small,
-.mt-program-summary strong,
-.mt-program-summary span {
-  display: block;
-}
-
-.mt-program-summary small {
-  color: var(--mt-muted);
-  font-size: 8px;
-  line-height: 1.4;
-}
-
-.mt-program-summary strong {
-  margin-top: 5px;
-  color: var(--mt-heading);
-  font-size: 19px;
-  font-weight: 900;
-}
-
-.mt-program-summary span {
-  margin-top: 4px;
-  color: var(--mt-muted);
-  font-size: 8px;
-  line-height: 1.4;
-}
-
-/* WEEKLY CHART */
-
-.mt-week-chart-scroll {
-  width: 100%;
-  overflow-x: auto;
-  padding: 2px 0 8px;
-}
-
-.mt-week-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 5px;
-  min-width: 640px;
-  height: 145px;
-  padding: 5px 3px 0;
-
-  border-bottom: 1px solid var(--mt-border);
-}
-
-.mt-week-chart-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
-
-  width: 22px;
-  min-width: 22px;
-  height: 100%;
-  padding: 0;
-
-  border: 0;
-  border-radius: 5px 5px 0 0;
-  background: transparent;
-  color: var(--mt-muted);
-}
-
-.mt-week-chart-item > strong {
-  font-size: 8px;
-  font-weight: 800;
-}
-
-.mt-week-chart-bar {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  width: 15px;
-  height: 91px;
-}
-
-.mt-week-chart-bar span {
-  display: block;
-  width: 100%;
-  min-height: 2px;
-  border-radius: 4px 4px 0 0;
-  background: #44c59a;
-  transition: height .2s ease;
-}
-
-.mt-week-chart-item small {
-  font-size: 8px;
-  font-weight: 800;
-}
-
-.mt-week-chart-item.has-activity .mt-week-chart-bar span {
-  background: #16a878;
-}
-
-.mt-week-chart-item.selected {
-  color: #168dea;
-}
-
-.mt-week-chart-item.selected .mt-week-chart-bar span {
-  background: #168dea;
-}
-
-.mt-week-chart-item.selected small {
-  font-weight: 900;
-}
-
-.mt-program-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 13px;
-  padding: 8px 2px 10px;
-
-  color: var(--mt-muted);
-  font-size: 8px;
-}
-
-.mt-program-legend span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.mt-program-legend i {
-  width: 8px;
-  height: 8px;
-  border-radius: 3px;
-}
-
-.legend-verified {
-  background: #16a878;
-}
-
-.legend-selected {
-  background: #168dea;
-}
-
-/* WEEK CALENDAR */
-
-.mt-week-calendar {
-  padding: 11px;
-  border: 1px solid var(--mt-border-soft);
-  border-radius: 10px;
-  background: var(--mt-surface-alt);
-}
-
-.mt-week-calendar-heading {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 9px;
-}
-
-.mt-week-calendar-heading strong {
-  color: var(--mt-heading);
-  font-size: 10px;
-}
-
-.mt-week-calendar-heading small {
-  color: var(--mt-muted);
-  font-size: 8px;
-}
-
-.mt-week-calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(5,minmax(0,1fr));
-  gap: 5px;
-}
-
-.mt-week-calendar-item {
-  position: relative;
-  min-height: 29px;
-
-  border: 1px solid var(--mt-border);
-  border-radius: 6px;
-
-  background: var(--mt-surface);
-  color: var(--mt-text);
-
-  font-size: 8px;
-  font-weight: 850;
-}
-
-.mt-week-calendar-item.has-activity {
-  border-color: #a4dfc5;
-  background: #dff6e9;
-  color: #087b58;
-}
-
-:root[data-theme="dark"] .mt-week-calendar-item.has-activity {
-  border-color: #326b53;
-  background: #214b3c;
-  color: #a2efc3;
-}
-
-.mt-week-calendar-item.selected {
-  border-color: #078e67;
-  background: #078e67;
-  color: #fff;
-}
-
-.mt-week-calendar-item i {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #0ca56f;
-}
-
-.mt-week-calendar-item.selected i {
-  background: #fff;
 }
 
 .mt-panel-footnote {
-  margin-top: 10px;
+  margin-top: 18px;
   color: var(--mt-muted);
-  font-size: 8px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.7;
 }
 
-/* =====================================================
-   WEEKLY SUMMARY
-===================================================== */
+.mt-empty {
+  padding: 32px 15px;
+  border: 1px dashed var(--mt-border);
+  border-radius: 10px;
 
-.mt-week-stats {
-  display: grid;
-  grid-template-columns: repeat(4,minmax(0,1fr));
-  gap: 6px;
-  margin-bottom: 10px;
-}
+  background: var(--mt-surface-alt);
+  color: var(--mt-muted);
 
-.mt-week-stat {
-  min-width: 0;
-  padding: 10px 5px;
-  border-radius: 9px;
+  font-size: 12px;
   text-align: center;
 }
 
-.mt-week-stat .mt-stat-icon {
+/* =====================================================
+   07. JADWAL KEGIATAN MINGGUAN
+===================================================== */
+
+.mt-schedule-panel {
+  scroll-margin-top: 20px;
+}
+
+.mt-schedule-list {
+  display: grid;
+}
+
+.mt-schedule-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+
+  min-width: 0;
+  padding: 19px 5px;
+
+  border-bottom: 1px solid var(--mt-border-soft);
+}
+
+.mt-schedule-item:first-child {
+  padding-top: 6px;
+}
+
+.mt-schedule-item:last-child {
+  border-bottom: none;
+}
+
+.mt-schedule-date {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+
+  width: 108px;
+  min-height: 59px;
+  padding: 8px;
+
+  border: 1px solid var(--mt-border);
+  border-radius: 10px;
+
+  background: var(--mt-surface-alt);
+  text-align: center;
+}
+
+.mt-schedule-date small {
+  color: var(--mt-muted);
+  font-size: 10px;
+}
+
+.mt-schedule-date strong {
+  color: var(--mt-heading);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.mt-schedule-icon {
   display: grid;
   place-items: center;
-  margin: 0 auto 5px;
-}
-
-.mt-week-stat strong {
-  display: block;
-  font-size: 20px;
-  line-height: 1.15;
-  font-weight: 900;
-}
-
-.mt-week-stat small {
-  display: block;
-  margin-top: 5px;
-  font-size: 8px;
-  line-height: 1.35;
-}
-
-.mt-week-stat.green {
-  background: #e2f8ee;
-  color: #09855f;
-}
-
-.mt-week-stat.blue {
-  background: #e7f0ff;
-  color: #2874db;
-}
-
-.mt-week-stat.gold {
-  background: #fff5d9;
-  color: #bb8114;
-}
-
-.mt-week-stat.purple {
-  background: #eee5ff;
-  color: #7947c7;
-}
-
-:root[data-theme="dark"] .mt-week-stat.green {
-  background: #173e34;
-  color: #83e8b3;
-}
-
-:root[data-theme="dark"] .mt-week-stat.blue {
-  background: #1d3449;
-  color: #8fc2ff;
-}
-
-:root[data-theme="dark"] .mt-week-stat.gold {
-  background: #44371d;
-  color: #f4cf83;
-}
-
-:root[data-theme="dark"] .mt-week-stat.purple {
-  background: #332b46;
-  color: #c6a8ff;
-}
-
-/* VERIFICATION */
-
-.mt-verification {
-  display: grid;
-  grid-template-columns: repeat(3,minmax(0,1fr));
-  gap: 6px;
-  margin: 10px 0;
-}
-
-.mt-verification-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 9px 8px;
-  border-radius: 8px;
-  background: var(--mt-surface-alt);
-}
-
-.mt-verification-item > i {
-  width: 8px;
-  height: 8px;
   flex-shrink: 0;
-  border-radius: 50%;
-}
 
-.mt-verification-item strong,
-.mt-verification-item small {
-  display: block;
-}
+  width: 47px;
+  height: 47px;
 
-.mt-verification-item strong {
-  color: var(--mt-heading);
-  font-size: 16px;
-  line-height: 1.15;
-}
-
-.mt-verification-item small {
-  margin-top: 3px;
-  color: var(--mt-muted);
-  font-size: 8px;
-}
-
-.mt-verification-item.verified > i {
-  background: #079b68;
-}
-
-.mt-verification-item.pending > i {
-  background: #eab647;
-}
-
-.mt-verification-item.total > i {
-  background: #368ce5;
-}
-
-/* SIX CATEGORIES */
-
-.mt-category-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 7px;
-  margin: 15px 0 10px;
-}
-
-.mt-category-heading strong {
-  color: var(--mt-heading);
-  font-size: 10px;
-}
-
-.mt-category-heading span {
+  border-radius: 11px;
+  background: var(--mt-green-soft);
   color: var(--mt-green);
-  font-size: 10px;
-  font-weight: 900;
-  white-space: nowrap;
 }
 
-.mt-week-category-grid {
-  display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 7px;
-}
-
-.mt-week-category {
-  min-width: 0;
-  padding: 10px;
-
-  border: 1px solid var(--mt-border-soft);
-  border-radius: 9px;
-
-  background: var(--mt-surface-alt);
-}
-
-.mt-week-category-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.mt-week-category-top > span {
-  font-size: 14px;
-}
-
-.mt-week-category-top strong {
+.mt-schedule-description {
   flex: 1;
   min-width: 0;
-  color: var(--mt-heading);
-  font-size: 9px;
+  padding-top: 3px;
 }
 
-.mt-week-category-top b {
-  color: var(--mt-green);
-  font-size: 10px;
-}
-
-.mt-progress {
-  width: 100%;
-  height: 7px;
-  overflow: hidden;
-  border-radius: 20px;
-  background: var(--mt-progress-bg);
-}
-
-.mt-progress span {
+.mt-schedule-description > strong {
   display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg,#20bd89,#07956e);
-  transition: width .2s ease;
+  color: var(--mt-heading);
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.5;
 }
 
-:root[data-theme="dark"] .mt-progress span {
-  background: linear-gradient(90deg,#1ab984,#56e0a5);
-}
-
-.mt-progress.compact {
-  height: 6px;
-}
-
-.mt-category-amount {
-  display: flex;
-  justify-content: space-between;
-  gap: 4px;
-  margin-top: 6px;
-  color: var(--mt-muted);
-  font-size: 8px;
-}
-
-.mt-pending-note {
+.mt-schedule-description > small {
   display: block;
   margin-top: 5px;
-  color: #d69b1b;
-  font-size: 8px;
+
+  color: var(--mt-muted);
+  font-size: 11px;
+}
+
+.mt-schedule-description details {
+  margin-top: 9px;
+}
+
+.mt-schedule-description summary {
+  width: fit-content;
+
+  color: var(--mt-green);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mt-schedule-description details p {
+  max-width: 750px;
+  margin: 9px 0 0;
+  padding: 12px 14px;
+
+  border-radius: 9px;
+  background: var(--mt-surface-alt);
+
+  color: var(--mt-text);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.mt-schedule-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  min-width: 85px;
+  padding: 7px 10px;
+  border-radius: 30px;
+
+  background: var(--mt-green-soft);
+  color: var(--mt-green);
+
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.mt-schedule-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+
+  margin-top: 15px;
+  padding-top: 18px;
+  border-top: 1px solid var(--mt-border);
+}
+
+.mt-schedule-footer > span {
+  color: var(--mt-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mt-week-stepper {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.mt-week-stepper strong {
+  min-width: 70px;
+  color: var(--mt-heading);
+  font-size: 12px;
+  text-align: center;
+}
+
+.mt-week-stepper button {
+  display: grid;
+  place-items: center;
+
+  width: 35px;
+  height: 35px;
+
+  border: 1px solid var(--mt-border);
+  border-radius: 8px;
+
+  background: var(--mt-surface-alt);
+  color: var(--mt-green);
 }
 
 /* =====================================================
-   PARTICIPANT PANEL
+   08. DETAIL PESERTA
 ===================================================== */
 
 .mt-participant-panel {
-  margin-top: 12px;
+  scroll-margin-top: 20px;
 }
 
 .mt-participant-heading {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 13px;
-}
-
-.mt-participant-heading > div:first-child > p {
-  margin: 5px 0 0 37px;
-  color: var(--mt-muted);
-  font-size: 9px;
-  line-height: 1.5;
-}
-
-.mt-participant-actions {
-  display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+
+  margin-bottom: 20px;
 }
 
 .mt-search {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-height: 36px;
-  padding: 0 10px;
+  gap: 9px;
+
+  min-height: 42px;
+  padding: 0 12px;
 
   border: 1px solid var(--mt-border);
-  border-radius: 8px;
+  border-radius: 9px;
 
   background: var(--mt-input);
   color: var(--mt-muted);
 }
 
 .mt-search input {
-  width: 180px;
-  padding: 8px 0;
+  width: 210px;
+  min-width: 0;
+  padding: 11px 0;
 
   border: 0;
   outline: 0;
-  background: transparent;
 
+  background: transparent;
   color: var(--mt-text);
-  font-size: 10px;
+
+  font-size: 12px;
 }
 
 .mt-search input::placeholder {
   color: var(--mt-muted);
-  opacity: 1;
 }
-
-/* TABLE */
 
 .mt-table-wrap {
   width: 100%;
   overflow-x: auto;
+  border: 1px solid var(--mt-border);
+  border-radius: 10px;
 }
 
 .mt-participant-table {
   width: 100%;
-  min-width: 1280px;
-  border-collapse: collapse;
+  min-width: 910px;
 
+  border-collapse: collapse;
   color: var(--mt-text);
+
+  font-size: 11px;
   text-align: left;
-  font-size: 9px;
 }
 
 .mt-participant-table th {
-  padding: 11px 8px;
+  padding: 14px 12px;
   border-bottom: 1px solid var(--mt-border);
 
   background: var(--mt-surface-alt);
   color: var(--mt-muted);
 
-  font-size: 8px;
-  font-weight: 850;
+  font-size: 10px;
+  font-weight: 900;
   white-space: nowrap;
 }
 
 .mt-participant-table td {
-  padding: 11px 8px;
+  padding: 15px 12px;
   border-bottom: 1px solid var(--mt-border-soft);
   vertical-align: middle;
 }
 
+.mt-participant-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .mt-participant-table tbody tr:hover {
-  background: var(--mt-green-soft);
+  background: var(--mt-surface-alt);
 }
 
 .mt-name-cell {
   color: var(--mt-heading);
   font-weight: 850;
-  min-width: 125px;
 }
 
 .mt-site-badge {
-  display: inline-block;
-  padding: 5px 8px;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+
+  padding: 6px 9px;
+  border-radius: 7px;
+
   background: var(--mt-green-soft);
   color: var(--mt-green);
+
+  font-size: 10px;
   font-weight: 850;
   white-space: nowrap;
 }
 
 .mt-period-cell {
-  white-space: nowrap;
   color: var(--mt-muted);
-}
-
-.mt-period-cell span {
-  margin: 0 4px;
+  white-space: nowrap;
 }
 
 .mt-progress-cell {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-width: 90px;
+  gap: 9px;
+  min-width: 100px;
 }
 
 .mt-progress-cell .mt-progress {
-  width: 65px;
+  flex: 1;
+  min-width: 50px;
 }
 
 .mt-progress-cell strong {
-  min-width: 30px;
   color: var(--mt-green);
-  font-size: 9px;
+  font-size: 11px;
 }
 
-.mt-category-mini {
-  display: grid;
-  grid-template-columns: repeat(6,minmax(31px,1fr));
-  gap: 3px;
-  min-width: 210px;
+.mt-progress {
+  width: 100%;
+  height: 9px;
+  overflow: hidden;
+
+  border-radius: 20px;
+  background: var(--mt-progress-bg);
 }
 
-.mt-category-mini span {
-  display: grid;
-  justify-items: center;
-  gap: 3px;
-  padding: 4px 2px;
-  border-radius: 5px;
-  background: var(--mt-surface-alt);
+.mt-progress.compact {
+  height: 7px;
 }
 
-.mt-category-mini small {
-  color: var(--mt-muted);
-  font-size: 7px;
+.mt-progress > span {
+  display: block;
+  height: 100%;
+
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    #19b883,
+    #07885e
+  );
+
+  transition: width 0.2s ease;
 }
 
-.mt-category-mini strong {
-  color: var(--mt-green);
-  font-size: 8px;
-}
-
-.mt-table-value {
-  color: var(--mt-green);
+html[data-theme="dark"] .mt-progress > span {
+  background: linear-gradient(
+    90deg,
+    #2dc88e,
+    #6be8b0
+  );
 }
 
 .mt-status-active {
-  display: inline-block;
-  padding: 5px 9px;
-  border-radius: 20px;
-  background: #d8f7e7;
-  color: #078153;
-  font-size: 8px;
-  font-weight: 850;
-  white-space: nowrap;
-}
-
-:root[data-theme="dark"] .mt-status-active {
-  background: #234c3d;
-  color: #a2ebbf;
-}
-
-/* TABLE ACTIONS */
-
-.mt-row-actions {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 4px;
-  min-width: 205px;
-}
-
-.mt-action-button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
 
-  min-height: 27px;
-  padding: 5px 7px;
+  padding: 6px 11px;
+  border-radius: 30px;
 
-  border: 1px solid var(--mt-border);
-  border-radius: 6px;
-
-  background: var(--mt-surface);
+  background: var(--mt-green-soft);
   color: var(--mt-green);
 
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 850;
-  white-space: nowrap;
 }
-
-.mt-action-button:hover {
-  background: var(--mt-green-soft);
-}
-
-.mt-action-button.input {
-  border-color: #07875d;
-  background: #07875d;
-  color: #fff;
-}
-
-.mt-action-button.monitoring {
-  border-color: #368ce5;
-  color: #368ce5;
-}
-
-.mt-action-button.detail {
-  color: var(--mt-text);
-}
-
-/* EMPTY */
 
 .mt-empty-cell {
-  padding: 28px 15px !important;
-  text-align: center;
+  padding: 30px 15px !important;
   color: var(--mt-muted);
-  font-size: 10px;
+  text-align: center;
 }
-
-/* LIST FOOTER */
 
 .mt-list-footer {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
-  padding-top: 12px;
+
+  margin-top: 14px;
   color: var(--mt-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
-.mt-list-footer button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-
-  border: 0;
-  background: transparent;
-  color: var(--mt-green);
-
-  font-size: 9px;
-  font-weight: 850;
-}
-
-/* MOBILE PARTICIPANTS */
+/* =====================================================
+   09. MOBILE PARTICIPANT CARDS
+===================================================== */
 
 .mt-mobile-participants {
   display: none;
 }
 
 .mt-mobile-person {
-  padding: 13px;
-  margin-bottom: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
 
   border: 1px solid var(--mt-border);
-  border-radius: 11px;
+  border-radius: 12px;
 
-  background: var(--mt-surface);
+  background: var(--mt-surface-alt);
 }
 
 .mt-person-top {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin-bottom: 11px;
+  gap: 11px;
 }
 
 .mt-person-avatar {
-  width: 39px;
-  height: 39px;
-  flex-shrink: 0;
-
   display: grid;
   place-items: center;
+  flex-shrink: 0;
+
+  width: 43px;
+  height: 43px;
 
   border-radius: 50%;
-  background: #daf4e8;
-  color: #067a58;
 
-  font-size: 12px;
+  background: var(--mt-green-soft);
+  color: var(--mt-green);
+
+  font-size: 13px;
   font-weight: 900;
-}
-
-:root[data-theme="dark"] .mt-person-avatar {
-  background: #285241;
-  color: #aaf2cc;
 }
 
 .mt-person-info {
@@ -5037,386 +3812,334 @@ const dashboardCSS = `
 .mt-person-info strong {
   display: block;
   color: var(--mt-heading);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .mt-person-info small {
   display: block;
   margin-top: 4px;
+
   color: var(--mt-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .mt-person-period {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 10px 0;
-
+  margin: 13px 0;
   color: var(--mt-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .mt-person-progress-heading {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 6px;
+  gap: 10px;
 
+  margin-bottom: 7px;
   color: var(--mt-text);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .mt-person-progress-heading strong {
   color: var(--mt-green);
 }
 
-.mt-person-categories {
-  display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 5px;
-  margin-top: 12px;
-}
-
-.mt-person-category {
-  display: flex;
-  justify-content: space-between;
-  gap: 5px;
-  padding: 7px;
-
-  border-radius: 6px;
-  background: var(--mt-surface-alt);
-
-  font-size: 8px;
-}
-
-.mt-person-category span {
-  color: var(--mt-muted);
-}
-
-.mt-person-category strong {
-  color: var(--mt-green);
-}
-
-.mt-person-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 11px 0;
-
-  color: var(--mt-muted);
-  font-size: 9px;
-}
-
-.mt-mobile-action-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.mt-mobile-action-grid .mt-action-button {
-  min-height: 34px;
-  font-size: 9px;
-}
-
-.mt-mobile-action-grid .mt-action-button:last-child {
-  grid-column: 1 / -1;
+.mt-detail-full {
+  width: 100%;
+  margin-top: 16px;
 }
 
 /* =====================================================
-   INPUT PARTICIPANT MODAL
+   10. TARGET MINGGUAN SELURUH PESERTA
 ===================================================== */
 
-.mt-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  padding: 18px;
-  background: rgba(0,18,16,.67);
-  backdrop-filter: blur(5px);
+.mt-target-panel {
+  scroll-margin-top: 20px;
 }
 
-.mt-modal {
-  width: 100%;
-  max-width: 490px;
-  max-height: min(80vh,680px);
-  overflow: hidden;
+.mt-target-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
 
-  display: flex;
-  flex-direction: column;
-
-  border: 1px solid var(--mt-border);
-  border-radius: 15px;
-
-  background: var(--mt-surface);
-  color: var(--mt-text);
-
-  box-shadow: 0 20px 70px rgba(0,0,0,.3);
+  margin-bottom: 22px;
 }
 
-.mt-modal-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-
+.mt-target-card {
+  min-width: 0;
   padding: 17px;
-  border-bottom: 1px solid var(--mt-border-soft);
-}
-
-.mt-modal-heading > div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.mt-modal-icon {
-  display: grid;
-  place-items: center;
-  width: 39px;
-  height: 39px;
-  flex-shrink: 0;
-
-  border-radius: 10px;
-  background: var(--mt-green-soft);
-  color: var(--mt-green);
-}
-
-.mt-modal-heading h3 {
-  margin: 0;
-  color: var(--mt-heading);
-  font-size: 13px;
-}
-
-.mt-modal-heading p {
-  margin: 5px 0 0;
-  color: var(--mt-muted);
-  font-size: 9px;
-  line-height: 1.5;
-}
-
-.mt-modal-close {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
 
   border: 1px solid var(--mt-border);
-  border-radius: 7px;
+  border-radius: 12px;
 
   background: var(--mt-surface-alt);
-  color: var(--mt-text);
 }
 
-.mt-modal-list {
-  overflow-y: auto;
-  padding: 8px 12px;
-}
-
-.mt-modal-person {
+.mt-target-top {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
-  padding: 10px 7px;
 
-  border: 0;
-  border-bottom: 1px solid var(--mt-border-soft);
-  background: transparent;
-  color: var(--mt-text);
-  text-align: left;
+  margin-bottom: 14px;
 }
 
-.mt-modal-person:hover {
-  background: var(--mt-green-soft);
-}
-
-.mt-modal-avatar {
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-
+.mt-target-icon {
   display: grid;
   place-items: center;
+  flex-shrink: 0;
 
-  border-radius: 50%;
+  width: 37px;
+  height: 37px;
+  border-radius: 9px;
+
   background: var(--mt-green-soft);
-  color: var(--mt-green);
+  font-size: 18px;
+}
 
-  font-size: 10px;
+.mt-target-top strong {
+  flex: 1;
+  min-width: 0;
+
+  color: var(--mt-heading);
+  font-size: 12px;
   font-weight: 900;
 }
 
-.mt-modal-person-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.mt-modal-person-info strong,
-.mt-modal-person-info small {
-  display: block;
-}
-
-.mt-modal-person-info strong {
-  color: var(--mt-heading);
-  font-size: 10px;
-}
-
-.mt-modal-person-info small {
-  margin-top: 4px;
-  color: var(--mt-muted);
-  font-size: 9px;
-}
-
-.mt-modal-person > svg {
+.mt-target-top b {
   color: var(--mt-green);
+  font-size: 17px;
 }
 
-.mt-modal-empty {
-  padding: 28px 12px;
+.mt-target-meta {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+
+  margin-top: 12px;
   color: var(--mt-muted);
-  text-align: center;
   font-size: 10px;
   line-height: 1.6;
 }
 
-.mt-modal-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
+.mt-target-table-wrap {
+  width: 100%;
+  overflow-x: auto;
 
-  padding: 12px 16px;
-  border-top: 1px solid var(--mt-border-soft);
-
-  color: var(--mt-muted);
-  font-size: 9px;
+  border: 1px solid var(--mt-border);
+  border-radius: 10px;
 }
 
-.mt-modal-footer button {
-  padding: 7px 13px;
-  border: 1px solid var(--mt-border);
-  border-radius: 7px;
+.mt-target-table {
+  width: 100%;
+  min-width: 1050px;
+
+  border-collapse: collapse;
+  color: var(--mt-text);
+
+  font-size: 11px;
+  text-align: left;
+}
+
+.mt-target-table th {
+  padding: 14px 12px;
+
+  border-bottom: 1px solid var(--mt-border);
+
   background: var(--mt-surface-alt);
+  color: var(--mt-muted);
+
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.mt-target-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--mt-border-soft);
+  vertical-align: middle;
+}
+
+.mt-target-table tbody tr:hover {
+  background: var(--mt-surface-alt);
+}
+
+.mt-target-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.mt-target-cell {
+  display: grid;
+  gap: 5px;
+}
+
+.mt-target-cell strong {
   color: var(--mt-green);
-  font-size: 9px;
-  font-weight: 850;
+  font-size: 12px;
+}
+
+.mt-target-cell small {
+  color: var(--mt-muted);
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 /* =====================================================
-   FOOTER
+   11. ERROR & LOADING
 ===================================================== */
 
-.mt-footer {
-  padding: 22px 8px 8px;
-  text-align: center;
-  color: var(--mt-muted);
-  font-size: 9px;
+.mt-error {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+
+  border: 1px solid #edb8b8;
+  border-radius: 10px;
+
+  background: #fff0f0;
+  color: #a32432;
+
+  font-size: 12px;
+}
+
+html[data-theme="dark"] .mt-error {
+  background: #482a2b;
+  border-color: #734547;
+  color: #ffcccc;
+}
+
+.mt-loading-card {
+  display: grid;
+  justify-items: center;
+  gap: 15px;
+
+  padding: 70px 20px;
+
+  border: 1px solid var(--mt-border);
+  border-radius: 13px;
+
+  background: var(--mt-surface);
+  color: var(--mt-heading);
+}
+
+.mt-loading-spinner {
+  width: 38px;
+  height: 38px;
+
+  border: 4px solid var(--mt-progress-bg);
+  border-top-color: var(--mt-green);
+  border-radius: 50%;
+
+  animation: mt-spin 0.8s linear infinite;
+}
+
+@keyframes mt-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* =====================================================
-   ACCESS SCREEN
+   12. ACCESS & MAINTENANCE SCREEN
 ===================================================== */
 
 .mt-access {
   display: flex;
   align-items: center;
   justify-content: center;
+
   min-height: 100vh;
-  padding: 25px;
+  padding: 20px;
 
-  background:
-    linear-gradient(135deg,#041d1b,#07513e);
+  background: linear-gradient(
+    135deg,
+    #031d19,
+    #07563f
+  );
 
-  color: #fff;
-  font-family: Arial,Helvetica,sans-serif;
+  color: #ffffff;
+  font-family: Arial, Helvetica, sans-serif;
   text-align: center;
 }
 
 .mt-access-card {
   width: 100%;
-  max-width: 480px;
+  max-width: 470px;
   padding: 35px 25px;
 
-  border: 1px solid #ffffff20;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 17px;
 
-  background: #ffffff0d;
-  box-shadow: 0 15px 45px #00000025;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 15px 45px rgba(0, 0, 0, 0.2);
 }
 
-.mt-access-icon {
-  display: grid;
-  place-items: center;
-  width: 65px;
-  height: 65px;
-  margin: 0 auto 18px;
-
-  border-radius: 17px;
-  background: #ffffff15;
-  color: #8ce8bd;
-
-  font-size: 35px;
-  font-weight: 900;
-}
-
+.mt-access-icon,
 .mt-loading-mark {
   display: grid;
   place-items: center;
-  width: 58px;
-  height: 58px;
-  margin: 0 auto 18px;
+
+  width: 66px;
+  height: 66px;
+  margin: 0 auto 20px;
 
   border-radius: 16px;
-  background: #0b9569;
-  color: #fff;
+  background: #0a8e63;
 
-  font-size: 20px;
+  color: #ffffff;
+  font-size: 27px;
   font-weight: 900;
 }
 
 .mt-access h1,
 .mt-access h2 {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
+  color: #ffffff;
   font-size: 22px;
 }
 
 .mt-access p {
-  color: #c0d8cf;
+  margin-bottom: 20px;
+  color: #d0e5d8;
   font-size: 12px;
   line-height: 1.8;
 }
 
 .mt-access button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  min-height: 41px;
+  margin: 5px;
+  padding: 10px 16px;
 
-  margin: 7px 4px 0;
-  padding: 11px 16px;
-
-  border: 1px solid #b6d8c4;
+  border: 1px solid #c9ecd8;
   border-radius: 9px;
 
-  background: #d8f3e5;
-  color: #082f26;
+  background: #ddf6e7;
+  color: #094631;
 
-  font-size: 11px;
-  font-weight: 850;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .mt-access button.secondary {
   background: transparent;
-  color: #fff;
+  color: #ffffff;
 }
 
 /* =====================================================
-   PRESENTATION MODE
+   13. FOOTER
+===================================================== */
+
+.mt-footer {
+  padding: 17px 10px 5px;
+  margin-top: 12px;
+
+  border-top: 1px solid var(--mt-border);
+
+  color: var(--mt-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* =====================================================
+   14. PRESENTATION MODE
 ===================================================== */
 
 .mt-presentation .mt-sidebar {
@@ -5428,34 +4151,14 @@ const dashboardCSS = `
 }
 
 .mt-presentation .mt-content {
-  max-width: 1900px;
-  padding: 20px 25px;
-}
-
-.mt-presentation .mt-hero {
-  min-height: 180px;
+  max-width: 1800px;
 }
 
 /* =====================================================
-   RESPONSIVE
+   15. TABLET
 ===================================================== */
 
-@media (max-width:1450px) {
-  .mt-monitoring-grid {
-    grid-template-columns: minmax(0,1fr) minmax(0,1.1fr);
-  }
-
-  .mt-content {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
-  .mt-category-mini {
-    min-width: 190px;
-  }
-}
-
-@media (max-width:1120px) {
+@media (max-width: 1200px) {
   .mt-sidebar {
     width: 225px;
   }
@@ -5464,28 +4167,36 @@ const dashboardCSS = `
     margin-left: 225px;
   }
 
-  .mt-kpi-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr));
+  .mt-content {
+    padding: 20px 17px 30px;
   }
 
-  .mt-monitoring-grid {
-    grid-template-columns: 1fr;
+  .mt-hero {
+    padding: 25px 20px;
   }
 
-  .mt-week-chart {
-    min-width: 680px;
+  .mt-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mt-toolbar {
     align-items: flex-start;
   }
+
+  .mt-toolbar-actions {
+    justify-content: flex-start;
+  }
 }
 
-@media (max-width:760px) {
+/* =====================================================
+   16. MOBILE
+===================================================== */
+
+@media (max-width: 760px) {
   .mt-sidebar {
-    width: 265px;
+    width: 270px;
     transform: translateX(-105%);
-    transition: transform .22s ease;
+    transition: transform 0.25s ease;
   }
 
   .mt-sidebar.open {
@@ -5502,7 +4213,7 @@ const dashboardCSS = `
     height: 100%;
 
     border: 0;
-    background: #001e1999;
+    background: rgba(0, 24, 19, 0.7);
   }
 
   .mt-main {
@@ -5514,91 +4225,70 @@ const dashboardCSS = `
     align-items: center;
     justify-content: space-between;
 
-    height: 55px;
-    padding: 0 14px;
+    min-height: 58px;
+    padding: 10px 15px;
 
-    background: #061f20;
-    color: #fff;
+    background: #062920;
+    color: #ffffff;
   }
 
-  .mt-mobile-brand {
+  .mt-mobile-header strong {
     font-size: 19px;
     font-weight: 900;
   }
 
-  .mt-mobile-brand span {
-    color: #35d49d;
+  .mt-mobile-header strong span {
+    color: #4adea4;
   }
 
   .mt-mobile-header button {
     display: grid;
     place-items: center;
-    width: 35px;
-    height: 35px;
+
+    width: 38px;
+    height: 38px;
 
     border: 0;
-    background: transparent;
-    color: #fff;
+    border-radius: 7px;
+
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+
+    font-size: 24px;
   }
 
   .mt-hero {
     min-height: auto;
-    padding: 17px 13px 15px;
+    padding: 23px 15px;
   }
 
   .mt-hero-top {
-    flex-wrap: wrap;
-    gap: 12px;
+    flex-direction: column;
+    gap: 15px;
   }
 
   .mt-hero h1 {
-    font-size: 25px;
-  }
-
-  .mt-hero-title > p {
-    font-size: 11px;
-  }
-
-  .mt-kicker {
-    font-size: 8px;
-  }
-
-  .mt-values {
-    gap: 10px;
-    margin-top: 12px;
-  }
-
-  .mt-values span {
-    font-size: 8px;
+    font-size: 26px;
   }
 
   .mt-account {
     max-width: 100%;
-    padding: 7px 9px;
   }
 
-  .mt-hero-info {
-    justify-content: flex-start;
-    gap: 6px;
-    margin-top: 14px;
-  }
-
-  .mt-hero-info-item {
-    flex: 1 1 140px;
-    min-width: 0;
-    padding: 8px;
-  }
-
-  .mt-hero-info-item strong {
+  .mt-kicker {
     font-size: 9px;
   }
 
-  .mt-hero-info-item small {
-    font-size: 8px;
+  .mt-values {
+    gap: 11px;
+  }
+
+  .mt-values span {
+    font-size: 9px;
   }
 
   .mt-content {
-    padding: 12px 10px 20px;
+    padding: 17px 12px 25px;
   }
 
   .mt-toolbar {
@@ -5606,195 +4296,80 @@ const dashboardCSS = `
   }
 
   .mt-toolbar-heading {
-    margin-bottom: 12px;
+    margin-bottom: 16px;
   }
 
   .mt-toolbar-heading h2 {
-    font-size: 16px;
+    font-size: 20px;
   }
 
   .mt-toolbar-actions {
     justify-content: flex-start;
-    gap: 6px;
+    gap: 7px;
   }
 
-  .mt-week-control {
-    flex: 1 1 110px;
+  .mt-control {
+    flex: 1 1 125px;
+    min-width: 0;
   }
 
-  .mt-week-control select {
+  .mt-control select {
     width: 100%;
-    max-width: none;
+    min-width: 0;
   }
 
   .mt-theme-toggle {
     flex: 1 1 auto;
-    justify-content: center;
-  }
-
-  .mt-site-control {
-    flex: 1 1 100px;
-  }
-
-  .mt-site-control select {
-    width: 100%;
-    max-width: none;
-  }
-
-  .mt-button-outline,
-  .mt-button-primary {
-    flex: 1 1 auto;
-  }
-
-  .mt-current-week {
-    padding: 8px 10px;
-  }
-
-  .mt-kpi-grid {
-    gap: 8px;
-  }
-
-  .mt-metric {
-    min-height: 112px;
-    padding: 11px 9px;
-    gap: 8px;
-  }
-
-  .mt-metric-icon {
-    width: 34px;
-    height: 34px;
-  }
-
-  .mt-metric-icon svg {
-    width: 19px;
-    height: 19px;
-  }
-
-  .mt-metric-title {
-    font-size: 9px;
-  }
-
-  .mt-metric-value {
-    font-size: 23px;
-  }
-
-  .mt-metric-sub {
-    font-size: 8px;
   }
 
   .mt-panel {
-    padding: 12px 10px;
+    padding: 17px 14px;
+    margin-bottom: 15px;
+    border-radius: 12px;
+  }
+
+  .mt-panel-title {
+    gap: 10px;
   }
 
   .mt-panel-title h3 {
+    font-size: 15px;
+  }
+
+  .mt-panel-title p {
+    font-size: 10px;
+  }
+
+  .mt-panel-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .mt-schedule-item {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .mt-schedule-date {
+    width: 90px;
+    min-height: 50px;
+  }
+
+  .mt-schedule-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .mt-schedule-description {
+    flex: 1 1 calc(100% - 155px);
+  }
+
+  .mt-schedule-description > strong {
     font-size: 12px;
   }
 
-  .mt-panel-heading p {
-    font-size: 8px;
-  }
-
-  .mt-program-summary {
-    gap: 5px;
-  }
-
-  .mt-program-summary > div {
-    padding: 8px 6px;
-  }
-
-  .mt-program-summary small {
-    font-size: 7px;
-  }
-
-  .mt-program-summary strong {
-    font-size: 17px;
-  }
-
-  .mt-program-summary span {
-    font-size: 7px;
-  }
-
-  .mt-week-chart {
-    min-width: 650px;
-  }
-
-  .mt-week-calendar {
-    padding: 9px;
-  }
-
-  .mt-week-calendar-heading {
-    display: block;
-  }
-
-  .mt-week-calendar-heading small {
-    display: block;
-    margin-top: 4px;
-  }
-
-  .mt-week-stats {
-    gap: 5px;
-  }
-
-  .mt-week-stat {
-    padding: 9px 3px;
-  }
-
-  .mt-week-stat strong {
-    font-size: 18px;
-  }
-
-  .mt-week-stat small {
-    font-size: 7px;
-  }
-
-  .mt-verification {
-    gap: 5px;
-  }
-
-  .mt-verification-item {
-    gap: 5px;
-    padding: 8px 5px;
-  }
-
-  .mt-verification-item strong {
-    font-size: 14px;
-  }
-
-  .mt-verification-item small {
-    font-size: 7px;
-  }
-
-  .mt-week-category-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr));
-  }
-
-  .mt-week-category {
-    padding: 8px;
-  }
-
-  .mt-week-category-top strong {
-    font-size: 8px;
-  }
-
-  .mt-category-amount {
-    font-size: 7px;
-  }
-
-  .mt-participant-heading {
-    display: block;
-  }
-
-  .mt-participant-actions {
-    margin-top: 12px;
-  }
-
-  .mt-search {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .mt-search input {
-    width: 100%;
+  .mt-schedule-type {
+    margin-left: auto;
     min-width: 0;
   }
 
@@ -5806,142 +4381,180 @@ const dashboardCSS = `
     display: block;
   }
 
-  .mt-list-footer {
-    align-items: flex-start;
-    flex-direction: column;
+  .mt-participant-heading {
+    align-items: stretch;
+  }
+
+  .mt-search {
+    width: 100%;
+  }
+
+  .mt-search input {
+    width: 100%;
+    flex: 1;
+  }
+
+  .mt-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .mt-target-card {
+    padding: 12px;
+  }
+
+  .mt-target-top {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .mt-target-top strong {
+    font-size: 11px;
+  }
+
+  .mt-target-top b {
+    font-size: 15px;
+  }
+
+  .mt-target-meta {
+    font-size: 9px;
+  }
+
+  .mt-target-table {
+    min-width: 1000px;
   }
 
   .mt-presentation .mt-mobile-header {
     display: flex;
   }
-
-  .mt-presentation .mt-content {
-    padding: 12px 10px 20px;
-  }
 }
 
-@media (max-width:420px) {
+/* =====================================================
+   17. SMALL MOBILE
+===================================================== */
+
+@media (max-width: 420px) {
   .mt-hero h1 {
-    font-size: 22px;
+    font-size: 23px;
   }
 
-  .mt-hero-info-item {
-    flex-basis: 100%;
+  .mt-hero-title > p {
+    font-size: 11px;
   }
 
-  .mt-kpi-grid {
-    grid-template-columns: repeat(2,minmax(0,1fr));
-  }
-
-  .mt-metric {
-    display: block;
-    min-height: 124px;
-  }
-
-  .mt-metric-icon {
-    margin-bottom: 7px;
-  }
-
-  .mt-metric-decoration {
-    opacity: .2;
-  }
-
-  .mt-week-category-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .mt-category-heading {
-    align-items: flex-start;
-  }
-
-  .mt-category-heading strong {
-    font-size: 9px;
-  }
-
-  .mt-category-heading span {
-    font-size: 9px;
-  }
-
-  .mt-participant-actions {
-    flex-wrap: wrap;
-  }
-
-  .mt-search {
-    flex: 1 1 100%;
-  }
-
-  .mt-participant-actions .mt-button-primary {
-    flex: 1 1 100%;
-  }
-
-  .mt-week-calendar-grid {
-    gap: 4px;
-  }
-
-  .mt-week-calendar-item {
-    min-height: 27px;
-    font-size: 7px;
-  }
-
-  .mt-mobile-action-grid {
+  .mt-toolbar-actions {
+    display: grid;
     grid-template-columns: 1fr 1fr;
   }
 
-  .mt-modal-overlay {
-    padding: 10px;
+  .mt-control,
+  .mt-theme-toggle,
+  .mt-button-outline {
+    width: 100%;
+    min-width: 0;
   }
 
-  .mt-modal {
-    max-height: 85vh;
+  .mt-schedule-date {
+    width: 78px;
+  }
+
+  .mt-schedule-date strong {
+    font-size: 10px;
+  }
+
+  .mt-schedule-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .mt-schedule-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .mt-schedule-description {
+    flex-basis: calc(100% - 132px);
+  }
+
+  .mt-target-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mt-target-top strong {
+    font-size: 13px;
+  }
+
+  .mt-target-card {
+    padding: 14px;
+  }
+
+  .mt-schedule-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mt-week-stepper {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .mt-panel-badge {
+    font-size: 10px;
   }
 }
 
 /* =====================================================
-   PRESENTATION RESPONSIVE
+   18. REDUCED MOTION
 ===================================================== */
 
-@media (min-width:761px) {
-  .mt-presentation .mt-monitoring-grid {
-    grid-template-columns: minmax(0,1fr) minmax(0,1.1fr);
+@media (prefers-reduced-motion: reduce) {
+  .mt-sidebar,
+  .mt-progress > span,
+  .mt-nav,
+  .mt-button-primary,
+  .mt-theme-toggle {
+    transition: none;
   }
 
-  .mt-presentation .mt-week-chart {
-    min-width: 650px;
+  .mt-loading-spinner {
+    animation-duration: 2s;
   }
 }
 
 /* =====================================================
-   PRINT
+   19. PRINT
 ===================================================== */
 
 @media print {
   @page {
     size: A4 landscape;
-    margin: 9mm;
+    margin: 10mm;
   }
 
   .mt-shell,
-  :root[data-theme="dark"] .mt-shell {
-    --mt-surface: #fff;
-    --mt-surface-alt: #f1f6f7;
-    --mt-text: #122d2a;
-    --mt-heading: #142632;
-    --mt-muted: #657b82;
-    --mt-border: #d9e4e7;
-    --mt-border-soft: #e7edef;
-    --mt-progress-bg: #e5edef;
+  html[data-theme="dark"] .mt-shell {
+    --mt-surface: #ffffff;
+    --mt-surface-alt: #f1f6f3;
+    --mt-text: #17332a;
+    --mt-heading: #0d2b20;
+    --mt-muted: #52665c;
+    --mt-border: #d3dfd6;
+    --mt-border-soft: #e5ede7;
+    --mt-green: #087d56;
+    --mt-green-soft: #e8f6ec;
+    --mt-progress-bg: #e0eae2;
 
-    background: #fff !important;
-    color: #122d2a !important;
+    background: #ffffff !important;
+    color: #17332a !important;
   }
 
   .mt-sidebar,
   .mt-mobile-header,
-  .mt-toolbar-actions,
-  .mt-participant-actions,
   .mt-overlay,
-  .mt-modal-overlay,
-  .mt-current-week-actions {
+  .mt-toolbar-actions,
+  .mt-search,
+  .mt-week-stepper,
+  .mt-detail-full {
     display: none !important;
   }
 
@@ -5949,29 +4562,30 @@ const dashboardCSS = `
     margin-left: 0 !important;
   }
 
+  .mt-content {
+    max-width: none;
+    padding: 10px 0;
+  }
+
   .mt-hero {
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
+    min-height: 130px;
+    padding: 15px;
   }
 
-  .mt-panel,
-  .mt-metric {
+  .mt-panel {
+    box-shadow: none;
+    break-inside: auto;
+  }
+
+  .mt-target-card,
+  .mt-schedule-item,
+  .mt-mobile-person {
     break-inside: avoid;
-    box-shadow: none !important;
-    background: #fff !important;
-    color: #122d2a !important;
-  }
-
-  .mt-week-stat,
-  .mt-progress,
-  .mt-week-chart-bar span,
-  .mt-week-calendar-item {
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
   }
 
   .mt-table-wrap {
     display: block !important;
+    overflow: visible;
   }
 
   .mt-mobile-participants {
@@ -5979,8 +4593,39 @@ const dashboardCSS = `
   }
 
   .mt-participant-table {
-    color: #122d2a !important;
+    min-width: 0;
+    font-size: 9px;
+  }
+
+  .mt-participant-table th,
+  .mt-participant-table td {
+    padding: 8px 6px;
+  }
+
+  .mt-target-table-wrap {
+    overflow: visible;
+  }
+
+  .mt-target-table {
+    min-width: 0;
+    font-size: 9px;
+  }
+
+  .mt-target-table th,
+  .mt-target-table td {
+    padding: 8px 6px;
+  }
+
+  .mt-progress,
+  .mt-progress > span,
+  .mt-panel-icon,
+  .mt-schedule-type,
+  .mt-target-icon {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }
 
 `;
+
+
