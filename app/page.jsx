@@ -1642,9 +1642,6 @@ const weeklySummary = useMemo(() => {
   // JADWAL KEGIATAN MINGGUAN
   // Menggunakan data WEEKLY_SCHEDULE dari Bagian 1.
   // =====================================================
-
-  const currentWeek = GLOBAL_WEEKS[selectedWeek - 1];
-
   const scheduleThisWeek = useMemo(() => {
     return WEEKLY_SCHEDULE.filter(
       (item) => Number(item.week) === selectedWeek
