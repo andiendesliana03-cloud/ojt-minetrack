@@ -1594,53 +1594,49 @@ export default function MentorDashboard() {
     [samapta, filteredIds, selectedWeek]
   );
 
-  const weeklySummary = useMemo(() => {
-    const verified = weeklyRecords.filter(
-      (record) =>
-        normalize(record.status) === "verified"
-    );
-
-    const pending = weeklyRecords.filter(
-      (record) =>
-        normalize(record.status) === "pending"
-    );
-
-    const participantsWithPostTest = new Set(
-      weeklyPostTests.map((record) => record.program_id)
-    );
-
-    const participantsWithPractice = new Set(
-      weeklyPractices.map((record) => record.program_id)
-    );
-
-    return {
-      active: filtered.length,
-      postTest: participantsWithPostTest.size,
-      practice: participantsWithPractice.size,
-      completed: summary.completed,
-      verified: verified.length,
-      pending: pending.length,
-      samapta: new Set(
-        weeklySamapta.map((record) => record.program_id)
-      ).size,
-      total: weeklyRecords.length,
-    };
-  }, [
-    weeklyRecords,
-    weeklyPostTests,
-    weeklyPractices,
-    weeklySamapta,
-    filtered,
-    summary.completed,
-  ]);
   
-    weeklyRecords,
-    weeklyPostTests,
-    weeklyPractices,
-    weeklySamapta,
-    filtered,
-    summary.completed,
-  ]);
+const weeklySummary = useMemo(() => {
+  const verified = weeklyRecords.filter(
+    (record) =>
+      normalize(record.status) === "verified"
+  );
+
+  const pending = weeklyRecords.filter(
+    (record) =>
+      normalize(record.status) === "pending"
+  );
+
+  const participantsWithPostTest = new Set(
+    weeklyPostTests.map((record) => record.program_id)
+  );
+
+  const participantsWithPractice = new Set(
+    weeklyPractices.map((record) => record.program_id)
+  );
+
+  const participantsWithSamapta = new Set(
+    weeklySamapta.map((record) => record.program_id)
+  );
+
+  return {
+    active: filtered.length,
+    postTest: participantsWithPostTest.size,
+    practice: participantsWithPractice.size,
+    completed: summary.completed,
+    verified: verified.length,
+    pending: pending.length,
+    samapta: participantsWithSamapta.size,
+    total: weeklyRecords.length,
+  };
+}, [
+  weeklyRecords,
+  weeklyPostTests,
+  weeklyPractices,
+  weeklySamapta,
+  filtered,
+  summary.completed,
+]);
+
 
   // =====================================================
   // JADWAL KEGIATAN MINGGUAN
