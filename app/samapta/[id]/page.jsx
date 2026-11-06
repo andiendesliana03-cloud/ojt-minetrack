@@ -26,11 +26,15 @@ import { supabase } from "../../../lib/supabase";
 // L,M,N,O = Sit-Up
 // P,Q,R,S = Pull-Up
 //
-// Semua data konversi berasal dari tabel utama Excel.
-// Baris contoh perhitungan di bawah tabel utama
-// tidak dicampurkan ke dalam tabel konversi.
-//
+// Konversi dan rumus asli dipertahankan.
 // Tidak mengubah struktur database Supabase.
+//
+// REVISI:
+// - Modal konfirmasi hapus React
+// - Validasi akses sebelum penghapusan
+// - Validasi ID catatan dan tanggal
+// - Penanganan error penghapusan
+// - Refresh riwayat setelah penghapusan
 // =========================================================
 
 const TESTS = [
@@ -72,15 +76,6 @@ function numbers(text) {
 
 // =========================================================
 // SAMAPTA A — LARI 12 MENIT
-//
-// Setiap ambang minimum berpasangan dengan skor
-// 100, 99, 98, ... 12 menurut posisi array.
-//
-// Contoh untuk usia 21–30:
-// 1.857–1.876 m = 24
-// 1.836–1.856 m = 23
-// 1.816–1.835 m = 22
-// 1.795–1.815 m = 21
 // =========================================================
 
 const RUN_21 = numbers(`
@@ -133,19 +128,11 @@ function runScore(distance, age) {
     }
   }
 
-  // Tidak mengarang skor di bawah ambang
-  // minimum tabel utama.
   return null;
 }
 
 // =========================================================
 // SAMAPTA B — PULL-UP
-//
-// Excel mencantumkan:
-// Usia 21–30: 0 s.d. 52 repetisi.
-// Usia 31–40: 2 s.d. 14 repetisi.
-//
-// Nilai di atas batas skor 100 tetap 100.
 // =========================================================
 
 const PULL_21 = numbers(`
@@ -159,14 +146,6 @@ const PULL_31 = numbers(`
 
 // =========================================================
 // SAMAPTA B — PUSH-UP
-//
-// Usia 21–30:
-// Excel mencantumkan 0 untuk 2–12 repetisi,
-// kemudian 13 = 1 sampai 38 = 100.
-// 39–100 juga mempunyai nilai 100.
-//
-// Usia 31–40:
-// 12 = 1 sampai 37 = 100.
 // =========================================================
 
 const PUSH_21 = numbers(`
@@ -182,13 +161,6 @@ const PUSH_31 = numbers(`
 
 // =========================================================
 // SAMAPTA B — SIT-UP
-//
-// Usia 21–30:
-// Excel mencantumkan 0 untuk 2–11 repetisi,
-// kemudian 12 = 1 sampai 45 = 100.
-//
-// Usia 31–40:
-// 10 = 1 sampai 42 = 100.
 // =========================================================
 
 const SIT_21 = numbers(`
@@ -257,16 +229,6 @@ function repetitionScore(type, count, age) {
 
 // =========================================================
 // SAMAPTA B — SHUTTLE RUN
-//
-// Setiap posisi array adalah hasil pada interval
-// tepat 0,1 detik.
-//
-// Usia 21–30:
-// 13,0–21,4 detik.
-//
-// Usia 31–40:
-// 16,4–20,9 detik.
-// Terdapat juga entri 30,0 detik = skor 1.
 // =========================================================
 
 const SHUTTLE_21 = numbers(`
@@ -677,7 +639,6 @@ export default function MonitoringSamapta() {
   const [records, setRecords] = useState([]);
 
   const [form, setForm] = useState(blankForm);
-
   const [editDate, setEditDate] = useState(null);
 
   const [loading, setLoading] = useState(true);
@@ -686,6 +647,12 @@ export default function MonitoringSamapta() {
 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  // =====================================================
+  // STATE KONFIRMASI HAPUS
+  // =====================================================
+
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const calc = useMemo(
     () => calculate(form),
@@ -766,6 +733,7 @@ export default function MonitoringSamapta() {
       setRecords([]);
       setForm(blankForm());
       setEditDate(null);
+      setDeleteTarget(null);
 
       try {
         const {
@@ -1184,68 +1152,271 @@ export default function MonitoringSamapta() {
   }
 
   // =====================================================
-  // HAPUS PENILAIAN
+  // HAPUS PENILAIAN — REVISI
+  //
+  // Menggunakan modal React, bukan window.confirm().
   // =====================================================
 
-  async function remove(group) {
+  function openDeleteDialog(group) {
+    if (saving || busy) return;
+
+    setError("");
+    setNotice("");
+
     if (
-      saving ||
-      busy ||
       !mentor ||
       !program ||
-      program.id !== programId
+      String(program.id) !== String(programId)
     ) {
+      setError(
+        "Identitas Mentor atau program tidak valid. " +
+        "Muat ulang halaman sebelum menghapus."
+      );
       return;
     }
 
-    const confirmed = window.confirm(
-      `Hapus seluruh hasil Samapta tanggal ` +
-      `${dateText(group.date)} untuk ${name}?`
-    );
+    if (
+      !group ||
+      !group.date ||
+      !Array.isArray(group.items) ||
+      group.items.length === 0
+    ) {
+      setError(
+        "Catatan Samapta yang akan dihapus tidak ditemukan."
+      );
+      return;
+    }
 
-    if (!confirmed) return;
+    const ids = group.items
+      .map((item) => item.id)
+      .filter((id) => id !== null && id !== undefined);
+
+    const uniqueIds = [...new Set(ids)];
+
+    if (
+      ids.length !== group.items.length ||
+      uniqueIds.length !== group.items.length
+    ) {
+      setError(
+        "ID catatan Samapta tidak lengkap atau duplikat. " +
+        "Penghapusan dibatalkan."
+      );
+      return;
+    }
+
+    // Simpan identitas catatan yang dipilih.
+    // Belum ada operasi DELETE pada tahap ini.
+    setDeleteTarget({
+      date: group.date,
+      ids: uniqueIds,
+      count: uniqueIds.length,
+    });
+  }
+
+  function closeDeleteDialog() {
+    if (busy) return;
+
+    setDeleteTarget(null);
+  }
+
+  async function confirmDelete() {
+    if (busy || saving || !deleteTarget) return;
+
+    const target = deleteTarget;
+
+    if (
+      !mentor ||
+      !program ||
+      String(program.id) !== String(programId)
+    ) {
+      setDeleteTarget(null);
+      setError(
+        "Akses Mentor atau identitas program tidak valid."
+      );
+      return;
+    }
 
     setBusy(true);
     setError("");
     setNotice("");
 
     try {
-      const ids = group.items.map(
-        (item) => item.id
-      );
+      // -------------------------------------------------
+      // 1. Validasi ulang sesi dan identitas Mentor
+      // -------------------------------------------------
 
       const {
-        data,
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        throw new Error(
+          "Sesi login tidak tersedia. Silakan login kembali."
+        );
+      }
+
+      if (user.id !== mentor.id) {
+        throw new Error(
+          "Akun yang aktif tidak sesuai dengan Mentor."
+        );
+      }
+
+      // -------------------------------------------------
+      // 2. Validasi program aktif dan binaan Mentor
+      // -------------------------------------------------
+
+      const {
+        data: activeProgram,
+        error: activeError,
+      } = await supabase
+        .from("ojt_programs")
+        .select("id,status,mentor_id")
+        .eq("id", programId)
+        .eq("mentor_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (activeError) throw activeError;
+
+      if (!activeProgram) {
+        throw new Error(
+          "Program tidak aktif atau bukan binaan Mentor."
+        );
+      }
+
+      // -------------------------------------------------
+      // 3. Periksa seluruh ID sebelum penghapusan
+      // -------------------------------------------------
+
+      if (!target.ids.length) {
+        throw new Error(
+          "Tidak ada ID penilaian yang dapat dihapus."
+        );
+      }
+
+      const {
+        data: selectedRecords,
+        error: selectError,
+      } = await supabase
+        .from("samapta_records")
+        .select("id,test_date")
+        .eq("program_id", programId)
+        .in("id", target.ids);
+
+      if (selectError) throw selectError;
+
+      if (
+        !selectedRecords ||
+        selectedRecords.length !== target.ids.length
+      ) {
+        throw new Error(
+          "Sebagian catatan tidak ditemukan. " +
+          "Muat ulang riwayat sebelum menghapus."
+        );
+      }
+
+      // Pastikan semua ID benar-benar berasal
+      // dari tanggal penilaian yang dipilih.
+
+      const validDate = selectedRecords.every(
+        (record) =>
+          String(record.test_date || "").slice(0, 10) ===
+          target.date
+      );
+
+      if (!validDate) {
+        throw new Error(
+          "Tanggal salah satu catatan tidak sesuai. " +
+          "Penghapusan dibatalkan untuk melindungi data."
+        );
+      }
+
+      // -------------------------------------------------
+      // 4. DELETE — hanya ID pada tanggal terpilih
+      // -------------------------------------------------
+
+      const {
+        data: deletedRecords,
         error: deleteError,
       } = await supabase
         .from("samapta_records")
         .delete()
         .eq("program_id", programId)
-        .in("id", ids)
+        .in("id", target.ids)
         .select("id");
 
-      if (deleteError) throw deleteError;
-
-      if (data?.length !== ids.length) {
+      if (deleteError) {
         throw new Error(
-          "Sebagian data tidak berhasil dihapus."
+          `Supabase: ${deleteError.message}`
         );
       }
 
-      await reload();
+      const deletedIds = new Set(
+        (deletedRecords || []).map((item) => item.id)
+      );
 
-      if (editDate === group.date) {
+      const allDeleted =
+        deletedIds.size === target.ids.length &&
+        target.ids.every((id) => deletedIds.has(id));
+
+      if (!allDeleted) {
+        throw new Error(
+          "Jumlah data yang terhapus tidak sesuai. " +
+          "Periksa izin DELETE Supabase dan muat ulang riwayat."
+        );
+      }
+
+      // -------------------------------------------------
+      // 5. Update tampilan setelah DELETE berhasil
+      // -------------------------------------------------
+
+      setRecords((previous) =>
+        previous.filter(
+          (item) => !deletedIds.has(item.id)
+        )
+      );
+
+      setDeleteTarget(null);
+
+      if (editDate === target.date) {
         reset();
       }
 
       setNotice(
-        "Seluruh penilaian tanggal tersebut berhasil dihapus."
+        `Penilaian Samapta tanggal ${dateText(
+          target.date
+        )} berhasil dihapus (${target.count} komponen).`
       );
+
+      // -------------------------------------------------
+      // 6. Sinkronkan ulang dengan database
+      // -------------------------------------------------
+
+      try {
+        await reload();
+      } catch (refreshError) {
+        setNotice(
+          "Penghapusan berhasil, tetapi riwayat terbaru " +
+          "belum dapat dimuat. Silakan refresh halaman."
+        );
+      }
     } catch (err) {
       setError(
         err?.message ||
-          "Gagal menghapus penilaian."
+          "Gagal menghapus penilaian Samapta."
       );
+
+      // Refresh untuk mengantisipasi perubahan parsial.
+      try {
+        await reload();
+      } catch {
+        // Pesan kegagalan utama tetap ditampilkan.
+      }
+
+      // Tutup modal agar pengguna dapat
+      // melihat riwayat terbaru dan pesan error.
+      setDeleteTarget(null);
     } finally {
       setBusy(false);
     }
@@ -1833,13 +2004,20 @@ export default function MonitoringSamapta() {
                       Edit
                     </button>
 
+                    {/* TOMBOL HAPUS — REVISI */}
+
                     <button
                       type="button"
                       className="sa-btn red"
                       disabled={saving || busy}
-                      onClick={() => remove(group)}
+                      onClick={() =>
+                        openDeleteDialog(group)
+                      }
                     >
-                      {busy ? "Memproses..." : "Hapus"}
+                      {busy &&
+                      deleteTarget?.date === group.date
+                        ? "Memproses..."
+                        : "Hapus"}
                     </button>
                   </div>
                 </article>
@@ -1853,6 +2031,95 @@ export default function MonitoringSamapta() {
           {" · "}PT Berau Coal
         </footer>
       </div>
+
+      {/* =================================================
+          MODAL KONFIRMASI PENGHAPUSAN
+          Ditampilkan di luar form penilaian.
+          ================================================= */}
+
+      {deleteTarget && (
+        <div
+          className="sa-modal-overlay"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeDeleteDialog();
+            }
+          }}
+        >
+          <div
+            className="sa-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sa-delete-title"
+            aria-describedby="sa-delete-description"
+          >
+            <div className="sa-modal-icon">
+              🗑️
+            </div>
+
+            <h2 id="sa-delete-title">
+              Hapus Penilaian Samapta?
+            </h2>
+
+            <p id="sa-delete-description">
+              Anda akan menghapus hasil penilaian
+              Samapta untuk peserta:
+            </p>
+
+            <div className="sa-modal-detail">
+              <div>
+                <span>Nama Peserta</span>
+                <strong>{name}</strong>
+              </div>
+
+              <div>
+                <span>Tanggal Penilaian</span>
+                <strong>
+                  {dateText(deleteTarget.date)}
+                </strong>
+              </div>
+
+              <div>
+                <span>Jumlah Komponen</span>
+                <strong>
+                  {deleteTarget.count} catatan
+                </strong>
+              </div>
+            </div>
+
+            <div className="sa-modal-warning">
+              Seluruh komponen Samapta A dan B yang
+              tercatat pada tanggal tersebut akan
+              dihapus permanen.
+              <br />
+              Data pada tanggal lain tidak akan dihapus.
+            </div>
+
+            <div className="sa-modal-actions">
+              <button
+                type="button"
+                className="sa-btn gray"
+                disabled={busy}
+                onClick={closeDeleteDialog}
+              >
+                Batal
+              </button>
+
+              <button
+                type="button"
+                className="sa-btn red"
+                disabled={busy}
+                onClick={confirmDelete}
+              >
+                {busy
+                  ? "Menghapus..."
+                  : "Ya, Hapus Penilaian"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -2348,6 +2615,115 @@ const styles = `
   padding: 20px;
 }
 
+/* =====================================================
+   MODAL KONFIRMASI HAPUS
+   ===================================================== */
+
+.sa-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(5, 25, 23, .65);
+}
+
+.sa-modal {
+  width: 100%;
+  max-width: 440px;
+  max-height: 90dvh;
+  overflow-y: auto;
+  background: #ffffff;
+  color: #19352d;
+  border-radius: 18px;
+  padding: 25px;
+  box-shadow: 0 22px 70px rgba(0,0,0,.25);
+}
+
+.sa-modal-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 15px;
+  border-radius: 15px;
+  background: #fee8e9;
+  font-size: 25px;
+}
+
+.sa-modal h2 {
+  margin: 0 0 10px;
+  font-size: 21px;
+  font-weight: 900;
+  color: #19352d;
+}
+
+.sa-modal p {
+  margin: 0 0 16px;
+  color: #64776d;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.sa-modal-detail {
+  border: 1px solid #e4ebe7;
+  border-radius: 12px;
+  padding: 4px 14px;
+  background: #f8faf9;
+}
+
+.sa-modal-detail > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e7eeea;
+}
+
+.sa-modal-detail > div:last-child {
+  border-bottom: 0;
+}
+
+.sa-modal-detail span {
+  color: #788e82;
+  font-size: 11px;
+}
+
+.sa-modal-detail strong {
+  color: #193d30;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.sa-modal-warning {
+  margin-top: 16px;
+  padding: 13px;
+  border: 1px solid #f4dfb7;
+  background: #fff8e9;
+  color: #98620d;
+  border-radius: 11px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.sa-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.sa-modal-actions .sa-btn {
+  flex: 1;
+  min-height: 46px;
+  text-align: center;
+}
+
+/* =====================================================
+   RESPONSIVE MOBILE
+   ===================================================== */
+
 @media (max-width: 760px) {
   .sa-topbar {
     padding: 13px 16px;
@@ -2419,6 +2795,14 @@ const styles = `
   .sa-summary-box span {
     font-size: 10px;
   }
+
+  .sa-modal {
+    padding: 20px;
+  }
+
+  .sa-modal h2 {
+    font-size: 19px;
+  }
 }
 
 @media (max-width: 370px) {
@@ -2432,6 +2816,14 @@ const styles = `
 
   .sa-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sa-modal-actions {
+    flex-direction: column;
+  }
+
+  .sa-modal-actions .sa-btn {
+    width: 100%;
   }
 }
 `;
