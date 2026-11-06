@@ -2698,16 +2698,6 @@ html[data-theme="dark"] .mt-sidebar {
    REFRESH DATA
    KELUAR AKUN
 
-   Tiga menu tambahan dari Bagian 2
-   disembunyikan pada sidebar.
-*/
-
-.mt-sidebar-nav > .mt-nav:nth-child(2),
-.mt-sidebar-nav > .mt-nav:nth-child(3),
-.mt-sidebar-nav > .mt-nav:nth-child(4) {
-  display: none;
-}
-
 /* SIDEBAR BOTTOM */
 
 .mt-sidebar-bottom {
