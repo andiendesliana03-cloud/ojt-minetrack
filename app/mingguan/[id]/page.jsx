@@ -2318,23 +2318,11 @@ export default function MingguanPage() {
 
   function navigateBack() {
     if (
-      profile?.normalizedRole ===
-      "participant"
+      profile?.normalizedRole === "participant"
     ) {
-      router.push(
-        "/dashboard-peserta"
-      );
-    } else if (
-      profile?.normalizedRole ===
-      "admin"
-    ) {
-      router.push(
-        "/dashboard-admin"
-      );
+      router.push("/dashboard-peserta");
     } else {
-      router.push(
-        "/dashboard-mentor"
-      );
+      router.push("/");
     }
   }
 
