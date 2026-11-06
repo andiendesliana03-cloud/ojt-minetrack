@@ -26,15 +26,19 @@ import { supabase } from "../../../lib/supabase";
 // L,M,N,O = Sit-Up
 // P,Q,R,S = Pull-Up
 //
-// Konversi dan rumus asli dipertahankan.
-// Tidak mengubah struktur database Supabase.
-//
 // REVISI:
-// - Modal konfirmasi hapus React
-// - Validasi akses sebelum penghapusan
-// - Validasi ID catatan dan tanggal
-// - Penanganan error penghapusan
-// - Refresh riwayat setelah penghapusan
+// 1. Perbaikan validasi status program.
+// 2. Mendukung status Active / ACTIVE / active.
+// 3. Mempertahankan validasi Mentor dan program aktif.
+// 4. Perbaikan tombol Hapus menggunakan modal.
+// 5. Hapus berdasarkan ID dan tanggal penilaian.
+// 6. Refresh riwayat setelah penghapusan.
+// 7. Pesan error Supabase lebih jelas.
+//
+// Tidak mengubah database.
+// Tidak mengubah rumus dan tabel konversi.
+// Tidak mengubah kalender global.
+// Tidak mengubah fitur lain.
 // =========================================================
 
 const TESTS = [
@@ -66,8 +70,14 @@ const TESTS = [
 ];
 
 const AGES = [
-  { value: "21-30", label: "21–30 Tahun" },
-  { value: "31-40", label: "31–40 Tahun" },
+  {
+    value: "21-30",
+    label: "21–30 Tahun",
+  },
+  {
+    value: "31-40",
+    label: "31–40 Tahun",
+  },
 ];
 
 function numbers(text) {
@@ -122,7 +132,11 @@ function runScore(distance, age) {
 
   if (!table) return null;
 
-  for (let index = 0; index < table.length; index++) {
+  for (
+    let index = 0;
+    index < table.length;
+    index++
+  ) {
     if (distance >= table[index]) {
       return 100 - index;
     }
@@ -188,18 +202,21 @@ function repetitionScore(type, count, age) {
   if (age === "21-30") {
     if (type === "pull") {
       if (count >= 17) return 100;
+
       return PULL_21[count] ?? null;
     }
 
     if (type === "push") {
       if (count >= 38) return 100;
       if (count < 2) return null;
+
       return PUSH_21[count - 2] ?? null;
     }
 
     if (type === "sit") {
       if (count >= 45) return 100;
       if (count < 2) return null;
+
       return SIT_21[count - 2] ?? null;
     }
   }
@@ -208,18 +225,21 @@ function repetitionScore(type, count, age) {
     if (type === "pull") {
       if (count >= 14) return 100;
       if (count < 2) return null;
+
       return PULL_31[count - 2] ?? null;
     }
 
     if (type === "push") {
       if (count >= 37) return 100;
       if (count < 12) return null;
+
       return PUSH_31[count - 12] ?? null;
     }
 
     if (type === "sit") {
       if (count >= 42) return 100;
       if (count < 10) return null;
+
       return SIT_31[count - 10] ?? null;
     }
   }
@@ -270,12 +290,14 @@ function shuttleScore(seconds, age) {
 
   if (age === "21-30") {
     if (tenths < 130) return 100;
+
     return SHUTTLE_21[tenths - 130] ?? null;
   }
 
   if (age === "31-40") {
     if (tenths < 164) return 100;
     if (tenths === 300) return 1;
+
     return SHUTTLE_31[tenths - 164] ?? null;
   }
 
@@ -331,9 +353,15 @@ function todayWITA() {
   }).formatToParts(new Date());
 
   const get = (type) =>
-    parts.find((part) => part.type === type)?.value || "";
+    parts.find(
+      (part) => part.type === type
+    )?.value || "";
 
-  return `${get("year")}-${get("month")}-${get("day")}`;
+  return (
+    `${get("year")}-` +
+    `${get("month")}-` +
+    `${get("day")}`
+  );
 }
 
 function blankForm() {
@@ -351,11 +379,19 @@ function blankForm() {
 }
 
 function num(value) {
-  if (value === "" || value == null) return null;
+  if (
+    value === "" ||
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
 
   const number = Number(value);
 
-  return Number.isFinite(number) ? number : null;
+  return Number.isFinite(number)
+    ? number
+    : null;
 }
 
 function fmt(value) {
@@ -376,7 +412,9 @@ function fmt(value) {
 function dateText(value) {
   if (!value) return "—";
 
-  const parts = String(value).slice(0, 10).split("-");
+  const parts = String(value)
+    .slice(0, 10)
+    .split("-");
 
   return parts.length === 3
     ? `${parts[2]}/${parts[1]}/${parts[0]}`
@@ -384,12 +422,16 @@ function dateText(value) {
 }
 
 function rating(value) {
-  if (value == null) return "Belum tersedia";
+  if (value == null) {
+    return "Belum tersedia";
+  }
+
   if (value >= 81) return "Baik Sekali";
   if (value >= 61) return "Baik";
   if (value >= 50) return "Cukup";
   if (value >= 21) return "Kurang";
   if (value >= 1) return "Kurang Sekali";
+
   return "Nilai 0";
 }
 
@@ -421,11 +463,33 @@ function calculate(form) {
   };
 
   const scores = {
-    lari: runScore(raw.lari, form.age),
-    pull: repetitionScore("pull", raw.pull, form.age),
-    push: repetitionScore("push", raw.push, form.age),
-    sit: repetitionScore("sit", raw.sit, form.age),
-    shuttle: shuttleScore(raw.shuttle, form.age),
+    lari: runScore(
+      raw.lari,
+      form.age
+    ),
+
+    pull: repetitionScore(
+      "pull",
+      raw.pull,
+      form.age
+    ),
+
+    push: repetitionScore(
+      "push",
+      raw.push,
+      form.age
+    ),
+
+    sit: repetitionScore(
+      "sit",
+      raw.sit,
+      form.age
+    ),
+
+    shuttle: shuttleScore(
+      raw.shuttle,
+      form.age
+    ),
   };
 
   const bParts = [
@@ -435,12 +499,18 @@ function calculate(form) {
     scores.shuttle,
   ];
 
-  const b = bParts.every((value) => value !== null)
-    ? bParts.reduce((sum, value) => sum + value, 0) / 4
+  const b = bParts.every(
+    (value) => value !== null
+  )
+    ? bParts.reduce(
+        (sum, value) => sum + value,
+        0
+      ) / 4
     : null;
 
   const final =
-    scores.lari !== null && b !== null
+    scores.lari !== null &&
+    b !== null
       ? (scores.lari + b) / 2
       : null;
 
@@ -449,6 +519,7 @@ function calculate(form) {
     scores,
     b,
     final,
+
     outcome:
       distance === null
         ? "pending"
@@ -459,7 +530,23 @@ function calculate(form) {
 }
 
 // =========================================================
-// KOMPONEN
+// NORMALISASI STATUS PROGRAM
+//
+// Revisi:
+// Active, ACTIVE, active, atau " active "
+// diperlakukan sebagai status yang sama.
+//
+// Program dengan status selain active tetap ditolak.
+// =========================================================
+
+function normalizeStatus(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+// =========================================================
+// KOMPONEN FORM
 // =========================================================
 
 function Field({
@@ -472,7 +559,9 @@ function Field({
 }) {
   return (
     <label className="sa-field-wrap">
-      <span className="sa-label">{label}</span>
+      <span className="sa-label">
+        {label}
+      </span>
 
       <input
         className="sa-field"
@@ -509,7 +598,9 @@ function ScoreRow({ label, value }) {
 function HistoryItem({ test, record }) {
   return (
     <div className="sa-history-item">
-      <span>{test.name}</span>
+      <span>
+        {test.name}
+      </span>
 
       <strong>
         {record?.result_value == null
@@ -517,7 +608,9 @@ function HistoryItem({ test, record }) {
           : `${record.result_value} ${
               record.result_unit || test.unit
             } · Skor ${
-              record.score == null ? "—" : record.score
+              record.score == null
+                ? "—"
+                : record.score
             }`}
       </strong>
     </div>
@@ -546,17 +639,23 @@ function groupHistory(records) {
   });
 
   return [...dates.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
+    .sort(
+      (a, b) => b[0].localeCompare(a[0])
+    )
     .map(([date, items]) => {
       const byType = new Map();
 
       items.forEach((record) => {
         if (!byType.has(record.test_type)) {
-          byType.set(record.test_type, record);
+          byType.set(
+            record.test_type,
+            record
+          );
         }
       });
 
-      const get = (name) => byType.get(name);
+      const get = (name) =>
+        byType.get(name);
 
       const run = get("Lari 12 Menit");
 
@@ -565,17 +664,22 @@ function groupHistory(records) {
           ? null
           : Number(run.score);
 
-      const bValues = TESTS.slice(1).map((test) => {
-        const value = get(test.name)?.score;
+      const bValues = TESTS.slice(1).map(
+        (test) => {
+          const value = get(
+            test.name
+          )?.score;
 
-        return value == null
-          ? null
-          : Number(value);
-      });
+          return value == null
+            ? null
+            : Number(value);
+        }
+      );
 
       const b = bValues.every(
         (value) =>
-          value !== null && Number.isFinite(value)
+          value !== null &&
+          Number.isFinite(value)
       )
         ? bValues.reduce(
             (sum, value) => sum + value,
@@ -603,6 +707,7 @@ function groupHistory(records) {
         b,
         final,
         distance,
+
         complete:
           TESTS.every((test) =>
             byType.has(test.name)
@@ -610,6 +715,7 @@ function groupHistory(records) {
           Number.isFinite(a) &&
           b !== null &&
           items.length === TESTS.length,
+
         outcome:
           distance === null
             ? "pending"
@@ -639,6 +745,7 @@ export default function MonitoringSamapta() {
   const [records, setRecords] = useState([]);
 
   const [form, setForm] = useState(blankForm);
+
   const [editDate, setEditDate] = useState(null);
 
   const [loading, setLoading] = useState(true);
@@ -648,11 +755,9 @@ export default function MonitoringSamapta() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  // =====================================================
-  // STATE KONFIRMASI HAPUS
-  // =====================================================
-
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  // Modal konfirmasi penghapusan.
+  const [deleteTarget, setDeleteTarget] =
+    useState(null);
 
   const calc = useMemo(
     () => calculate(form),
@@ -667,7 +772,8 @@ export default function MonitoringSamapta() {
   const participant = participantOf(program);
 
   const name =
-    participant?.full_name || "Peserta OJT";
+    participant?.full_name ||
+    "Peserta OJT";
 
   const initials = name
     .split(/\s+/)
@@ -682,12 +788,20 @@ export default function MonitoringSamapta() {
     [records]
   );
 
+  // =====================================================
+  // UBAH FORM
+  // =====================================================
+
   function change(key, value) {
     setForm((previous) => ({
       ...previous,
       [key]: value,
     }));
   }
+
+  // =====================================================
+  // AMBIL DATA SAMAPTA
+  // =====================================================
 
   async function fetchRecords(id) {
     const {
@@ -703,18 +817,118 @@ export default function MonitoringSamapta() {
         ascending: false,
       });
 
-    if (fetchError) throw fetchError;
+    if (fetchError) {
+      throw fetchError;
+    }
 
     return data || [];
   }
 
   async function reload() {
     const latest = await fetchRecords(programId);
+
     setRecords(latest);
+
+    return latest;
   }
 
   // =====================================================
-  // VERIFIKASI MENTOR
+  // VERIFIKASI PROGRAM SEBELUM SIMPAN / HAPUS
+  //
+  // PERBAIKAN UTAMA:
+  // Tidak lagi memakai filter
+  // .eq("status", "active")
+  //
+  // Status divalidasi setelah data dibaca.
+  // =====================================================
+
+  async function verifyActiveProgram() {
+    if (
+      !mentor ||
+      !program ||
+      !programId
+    ) {
+      throw new Error(
+        "Identitas Mentor atau program belum tersedia."
+      );
+    }
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      throw new Error(
+        "Sesi login tidak tersedia. Silakan login kembali."
+      );
+    }
+
+    if (user.id !== mentor.id) {
+      throw new Error(
+        "Akun aktif tidak sesuai dengan Mentor yang terdaftar."
+      );
+    }
+
+    const {
+      data: profile,
+      error: profileError,
+    } = await supabase
+      .from("profiles")
+      .select("id,role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    if (
+      normalizeStatus(profile?.role) !==
+      "mentor"
+    ) {
+      throw new Error(
+        "Akun tidak memiliki hak akses sebagai Mentor."
+      );
+    }
+
+    const {
+      data: activeProgram,
+      error: activeError,
+    } = await supabase
+      .from("ojt_programs")
+      .select("id,status,mentor_id")
+      .eq("id", programId)
+      .eq("mentor_id", user.id)
+      .maybeSingle();
+
+    if (activeError) {
+      throw activeError;
+    }
+
+    if (!activeProgram) {
+      throw new Error(
+        "Program tidak ditemukan, tidak dapat diakses, " +
+        "atau bukan binaan Mentor."
+      );
+    }
+
+    if (
+      normalizeStatus(
+        activeProgram.status
+      ) !== "active"
+    ) {
+      throw new Error(
+        "Program OJT tidak aktif. Status saat ini: " +
+        (activeProgram.status || "Tidak diketahui")
+      );
+    }
+
+    return activeProgram;
+  }
+
+  // =====================================================
+  // VERIFIKASI MENTOR SAAT HALAMAN DIBUKA
   // =====================================================
 
   useEffect(() => {
@@ -722,15 +936,18 @@ export default function MonitoringSamapta() {
 
     let active = true;
 
-    const requestNumber = ++requestRef.current;
+    const requestNumber =
+      ++requestRef.current;
 
     async function initialize() {
       setLoading(true);
       setError("");
       setNotice("");
+
       setMentor(null);
       setProgram(null);
       setRecords([]);
+
       setForm(blankForm());
       setEditDate(null);
       setDeleteTarget(null);
@@ -755,13 +972,18 @@ export default function MonitoringSamapta() {
           .eq("id", user.id)
           .maybeSingle();
 
-        if (profileError) throw profileError;
+        if (profileError) {
+          throw profileError;
+        }
 
         if (
-          String(profile?.role || "").toLowerCase() !==
-          "mentor"
+          normalizeStatus(
+            profile?.role
+          ) !== "mentor"
         ) {
-          router.replace("/dashboard-peserta");
+          router.replace(
+            "/dashboard-peserta"
+          );
           return;
         }
 
@@ -787,7 +1009,9 @@ export default function MonitoringSamapta() {
           .eq("mentor_id", user.id)
           .maybeSingle();
 
-        if (programError) throw programError;
+        if (programError) {
+          throw programError;
+        }
 
         if (!programData) {
           throw new Error(
@@ -796,15 +1020,18 @@ export default function MonitoringSamapta() {
         }
 
         if (
-          String(programData.status).toLowerCase() !==
-          "active"
+          normalizeStatus(
+            programData.status
+          ) !== "active"
         ) {
           throw new Error(
-            "Program OJT tidak aktif."
+            "Program OJT tidak aktif. Status: " +
+            (programData.status || "Tidak diketahui")
           );
         }
 
-        const history = await fetchRecords(programId);
+        const history =
+          await fetchRecords(programId);
 
         if (
           !active ||
@@ -822,7 +1049,8 @@ export default function MonitoringSamapta() {
           requestNumber === requestRef.current
         ) {
           setError(
-            err?.message || "Gagal memuat data Samapta."
+            err?.message ||
+              "Gagal memuat data Samapta."
           );
         }
       } finally {
@@ -842,6 +1070,10 @@ export default function MonitoringSamapta() {
       requestRef.current += 1;
     };
   }, [programId, router]);
+
+  // =====================================================
+  // RESET FORM
+  // =====================================================
 
   function reset() {
     setForm(blankForm());
@@ -916,19 +1148,25 @@ export default function MonitoringSamapta() {
     }
 
     const missing = TESTS.filter(
-      (test) => scores[test.key] === null
+      (test) =>
+        scores[test.key] === null
     );
 
     if (missing.length) {
       setError(
         "Konversi belum tercantum pada tabel Excel untuk: " +
-        missing.map((test) => test.name).join(", ") +
+        missing
+          .map((test) => test.name)
+          .join(", ") +
         ". Data belum disimpan agar skor tidak ditebak."
       );
       return;
     }
 
-    if (editDate && editDate !== form.date) {
+    if (
+      editDate &&
+      editDate !== form.date
+    ) {
       setError(
         "Tanggal penilaian tidak boleh diubah saat mengedit."
       );
@@ -937,11 +1175,14 @@ export default function MonitoringSamapta() {
 
     const existing = records.filter(
       (record) =>
-        String(record.test_date).slice(0, 10) ===
-        form.date
+        String(record.test_date)
+          .slice(0, 10) === form.date
     );
 
-    if (!editDate && existing.length) {
+    if (
+      !editDate &&
+      existing.length
+    ) {
       setError(
         "Tanggal tersebut sudah memiliki penilaian. " +
         "Gunakan Edit pada riwayat."
@@ -949,20 +1190,27 @@ export default function MonitoringSamapta() {
       return;
     }
 
-    const invalidExisting = existing.some(
-      (record) =>
-        !TESTS.some(
-          (test) =>
-            test.name === record.test_type
-        )
-    );
+    const invalidExisting =
+      existing.some(
+        (record) =>
+          !TESTS.some(
+            (test) =>
+              test.name ===
+              record.test_type
+          )
+      );
 
     const duplicateExisting =
       new Set(
-        existing.map((record) => record.test_type)
+        existing.map(
+          (record) => record.test_type
+        )
       ).size !== existing.length;
 
-    if (invalidExisting || duplicateExisting) {
+    if (
+      invalidExisting ||
+      duplicateExisting
+    ) {
       setError(
         "Terdapat jenis tes tidak dikenal atau duplikat. " +
         "Periksa riwayat sebelum menyimpan."
@@ -977,46 +1225,39 @@ export default function MonitoringSamapta() {
       ])
     );
 
-    const payloads = TESTS.map((test) => ({
-      test_date: form.date,
-      test_type: test.name,
-      result_value: raw[test.key],
-      result_unit: test.unit,
-      score: scores[test.key],
-      outcome:
-        test.key === "lari"
-          ? outcome
-          : "pending",
-      notes:
-        test.key === "lari"
-          ? `USIA=${form.age}; PUTARAN=${form.laps}; TAMBAHAN=${form.extra}; ${form.notes.trim()}`
-          : form.notes.trim() || null,
-    }));
+    const payloads = TESTS.map(
+      (test) => ({
+        test_date: form.date,
+        test_type: test.name,
+        result_value: raw[test.key],
+        result_unit: test.unit,
+        score: scores[test.key],
+
+        outcome:
+          test.key === "lari"
+            ? outcome
+            : "pending",
+
+        notes:
+          test.key === "lari"
+            ? `USIA=${form.age}; PUTARAN=${form.laps}; TAMBAHAN=${form.extra}; ${form.notes.trim()}`
+            : form.notes.trim() || null,
+      })
+    );
 
     setSaving(true);
 
     try {
-      const {
-        data: activeProgram,
-        error: activeError,
-      } = await supabase
-        .from("ojt_programs")
-        .select("id,status,mentor_id")
-        .eq("id", programId)
-        .eq("mentor_id", mentor.id)
-        .eq("status", "active")
-        .maybeSingle();
+      // Periksa ulang program dan Mentor.
+      // Status diperiksa tanpa membedakan kapital.
 
-      if (activeError) throw activeError;
+      await verifyActiveProgram();
 
-      if (!activeProgram) {
-        throw new Error(
-          "Program sudah tidak aktif atau akses Mentor berubah."
-        );
-      }
-
+      // Simpan dengan logika asli.
       for (const payload of payloads) {
-        const old = oldByType.get(payload.test_type);
+        const old = oldByType.get(
+          payload.test_type
+        );
 
         const result = old
           ? await supabase
@@ -1047,6 +1288,7 @@ export default function MonitoringSamapta() {
       }
 
       await reload();
+
       reset();
 
       setNotice(
@@ -1074,19 +1316,29 @@ export default function MonitoringSamapta() {
   // =====================================================
 
   function edit(group) {
-    if (saving || busy || !program) return;
+    if (
+      saving ||
+      busy ||
+      !program
+    ) {
+      return;
+    }
 
     const get = (type) =>
       group.byType.get(type);
 
-    const run = get("Lari 12 Menit");
+    const run = get(
+      "Lari 12 Menit"
+    );
 
     const distance =
       run?.result_value == null
         ? null
         : Number(run.result_value);
 
-    const saved = String(run?.notes || "");
+    const saved = String(
+      run?.notes || ""
+    );
 
     const age =
       saved.match(
@@ -1111,7 +1363,9 @@ export default function MonitoringSamapta() {
         laps ??
         (distance == null
           ? ""
-          : String(Math.floor(distance / 400))),
+          : String(
+              Math.floor(distance / 400)
+            )),
 
       extra:
         extra ??
@@ -1120,23 +1374,28 @@ export default function MonitoringSamapta() {
           : String(distance % 400)),
 
       pull:
-        get("Pull-Up")?.result_value?.toString() ??
-        "",
+        get("Pull-Up")
+          ?.result_value
+          ?.toString() ?? "",
 
       push:
-        get("Push-Up")?.result_value?.toString() ??
-        "",
+        get("Push-Up")
+          ?.result_value
+          ?.toString() ?? "",
 
       sit:
-        get("Sit-Up")?.result_value?.toString() ??
-        "",
+        get("Sit-Up")
+          ?.result_value
+          ?.toString() ?? "",
 
       shuttle:
-        get("Shuttle Run")?.result_value?.toString() ??
-        "",
+        get("Shuttle Run")
+          ?.result_value
+          ?.toString() ?? "",
 
       notes:
-        get("Push-Up")?.notes || "",
+        get("Push-Up")
+          ?.notes || "",
     });
 
     setEditDate(group.date);
@@ -1144,7 +1403,9 @@ export default function MonitoringSamapta() {
     setNotice("");
 
     document
-      .getElementById("samapta-form")
+      .getElementById(
+        "samapta-form"
+      )
       ?.scrollIntoView({
         behavior: "smooth",
         block: "start",
@@ -1152,13 +1413,13 @@ export default function MonitoringSamapta() {
   }
 
   // =====================================================
-  // HAPUS PENILAIAN — REVISI
-  //
-  // Menggunakan modal React, bukan window.confirm().
+  // MODAL KONFIRMASI HAPUS
   // =====================================================
 
   function openDeleteDialog(group) {
-    if (saving || busy) return;
+    if (saving || busy) {
+      return;
+    }
 
     setError("");
     setNotice("");
@@ -1166,7 +1427,8 @@ export default function MonitoringSamapta() {
     if (
       !mentor ||
       !program ||
-      String(program.id) !== String(programId)
+      String(program.id) !==
+        String(programId)
     ) {
       setError(
         "Identitas Mentor atau program tidak valid. " +
@@ -1189,9 +1451,15 @@ export default function MonitoringSamapta() {
 
     const ids = group.items
       .map((item) => item.id)
-      .filter((id) => id !== null && id !== undefined);
+      .filter(
+        (id) =>
+          id !== null &&
+          id !== undefined
+      );
 
-    const uniqueIds = [...new Set(ids)];
+    const uniqueIds = [
+      ...new Set(ids),
+    ];
 
     if (
       ids.length !== group.items.length ||
@@ -1204,8 +1472,6 @@ export default function MonitoringSamapta() {
       return;
     }
 
-    // Simpan identitas catatan yang dipilih.
-    // Belum ada operasi DELETE pada tahap ini.
     setDeleteTarget({
       date: group.date,
       ids: uniqueIds,
@@ -1219,20 +1485,33 @@ export default function MonitoringSamapta() {
     setDeleteTarget(null);
   }
 
+  // =====================================================
+  // HAPUS PENILAIAN
+  // =====================================================
+
   async function confirmDelete() {
-    if (busy || saving || !deleteTarget) return;
+    if (
+      busy ||
+      saving ||
+      !deleteTarget
+    ) {
+      return;
+    }
 
     const target = deleteTarget;
 
     if (
       !mentor ||
       !program ||
-      String(program.id) !== String(programId)
+      String(program.id) !==
+        String(programId)
     ) {
       setDeleteTarget(null);
+
       setError(
         "Akses Mentor atau identitas program tidak valid."
       );
+
       return;
     }
 
@@ -1241,53 +1520,15 @@ export default function MonitoringSamapta() {
     setNotice("");
 
     try {
-      // -------------------------------------------------
-      // 1. Validasi ulang sesi dan identitas Mentor
-      // -------------------------------------------------
+      // ================================================
+      // 1. Validasi program aktif dan akses Mentor
+      // ================================================
 
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
+      await verifyActiveProgram();
 
-      if (authError || !user) {
-        throw new Error(
-          "Sesi login tidak tersedia. Silakan login kembali."
-        );
-      }
-
-      if (user.id !== mentor.id) {
-        throw new Error(
-          "Akun yang aktif tidak sesuai dengan Mentor."
-        );
-      }
-
-      // -------------------------------------------------
-      // 2. Validasi program aktif dan binaan Mentor
-      // -------------------------------------------------
-
-      const {
-        data: activeProgram,
-        error: activeError,
-      } = await supabase
-        .from("ojt_programs")
-        .select("id,status,mentor_id")
-        .eq("id", programId)
-        .eq("mentor_id", user.id)
-        .eq("status", "active")
-        .maybeSingle();
-
-      if (activeError) throw activeError;
-
-      if (!activeProgram) {
-        throw new Error(
-          "Program tidak aktif atau bukan binaan Mentor."
-        );
-      }
-
-      // -------------------------------------------------
-      // 3. Periksa seluruh ID sebelum penghapusan
-      // -------------------------------------------------
+      // ================================================
+      // 2. Validasi ID catatan
+      // ================================================
 
       if (!target.ids.length) {
         throw new Error(
@@ -1304,11 +1545,14 @@ export default function MonitoringSamapta() {
         .eq("program_id", programId)
         .in("id", target.ids);
 
-      if (selectError) throw selectError;
+      if (selectError) {
+        throw selectError;
+      }
 
       if (
         !selectedRecords ||
-        selectedRecords.length !== target.ids.length
+        selectedRecords.length !==
+          target.ids.length
       ) {
         throw new Error(
           "Sebagian catatan tidak ditemukan. " +
@@ -1316,14 +1560,18 @@ export default function MonitoringSamapta() {
         );
       }
 
-      // Pastikan semua ID benar-benar berasal
-      // dari tanggal penilaian yang dipilih.
+      // ================================================
+      // 3. Validasi tanggal penilaian
+      // ================================================
 
-      const validDate = selectedRecords.every(
-        (record) =>
-          String(record.test_date || "").slice(0, 10) ===
-          target.date
-      );
+      const validDate =
+        selectedRecords.every(
+          (record) =>
+            String(
+              record.test_date || ""
+            ).slice(0, 10) ===
+            target.date
+        );
 
       if (!validDate) {
         throw new Error(
@@ -1332,9 +1580,9 @@ export default function MonitoringSamapta() {
         );
       }
 
-      // -------------------------------------------------
-      // 4. DELETE — hanya ID pada tanggal terpilih
-      // -------------------------------------------------
+      // ================================================
+      // 4. Hapus hanya catatan terpilih
+      // ================================================
 
       const {
         data: deletedRecords,
@@ -1353,12 +1601,17 @@ export default function MonitoringSamapta() {
       }
 
       const deletedIds = new Set(
-        (deletedRecords || []).map((item) => item.id)
+        (deletedRecords || []).map(
+          (item) => item.id
+        )
       );
 
       const allDeleted =
-        deletedIds.size === target.ids.length &&
-        target.ids.every((id) => deletedIds.has(id));
+        deletedIds.size ===
+          target.ids.length &&
+        target.ids.every(
+          (id) => deletedIds.has(id)
+        );
 
       if (!allDeleted) {
         throw new Error(
@@ -1367,13 +1620,14 @@ export default function MonitoringSamapta() {
         );
       }
 
-      // -------------------------------------------------
-      // 5. Update tampilan setelah DELETE berhasil
-      // -------------------------------------------------
+      // ================================================
+      // 5. Perbarui riwayat lokal
+      // ================================================
 
       setRecords((previous) =>
         previous.filter(
-          (item) => !deletedIds.has(item.id)
+          (item) =>
+            !deletedIds.has(item.id)
         )
       );
 
@@ -1389,13 +1643,13 @@ export default function MonitoringSamapta() {
         )} berhasil dihapus (${target.count} komponen).`
       );
 
-      // -------------------------------------------------
-      // 6. Sinkronkan ulang dengan database
-      // -------------------------------------------------
+      // ================================================
+      // 6. Sinkronisasi ulang dengan Supabase
+      // ================================================
 
       try {
         await reload();
-      } catch (refreshError) {
+      } catch {
         setNotice(
           "Penghapusan berhasil, tetapi riwayat terbaru " +
           "belum dapat dimuat. Silakan refresh halaman."
@@ -1407,15 +1661,12 @@ export default function MonitoringSamapta() {
           "Gagal menghapus penilaian Samapta."
       );
 
-      // Refresh untuk mengantisipasi perubahan parsial.
       try {
         await reload();
       } catch {
-        // Pesan kegagalan utama tetap ditampilkan.
+        // Pertahankan error utama.
       }
 
-      // Tutup modal agar pengguna dapat
-      // melihat riwayat terbaru dan pesan error.
       setDeleteTarget(null);
     } finally {
       setBusy(false);
@@ -1429,6 +1680,8 @@ export default function MonitoringSamapta() {
   return (
     <main className="sa-root">
       <style>{styles}</style>
+
+      {/* HEADER */}
 
       <header className="sa-topbar">
         <strong className="sa-brand">
@@ -1451,12 +1704,16 @@ export default function MonitoringSamapta() {
       </header>
 
       <div className="sa-container">
+        {/* HERO */}
+
         <section className="sa-hero">
           <small>
             EMERGENCY RESPONSE GROUP · PT BERAU COAL
           </small>
 
-          <h1>Monitoring Samapta</h1>
+          <h1>
+            Monitoring Samapta
+          </h1>
 
           <p>
             Penilaian Tes Fisik dan Kesiapan Personel OJT
@@ -1469,10 +1726,13 @@ export default function MonitoringSamapta() {
           </section>
         ) : !mentor || !program ? (
           <section className="sa-card">
-            <h2>Data Tidak Dapat Ditampilkan</h2>
+            <h2>
+              Data Tidak Dapat Ditampilkan
+            </h2>
 
             <p className="sa-error">
-              {error || "Program tidak ditemukan."}
+              {error ||
+                "Program tidak ditemukan."}
             </p>
           </section>
         ) : (
@@ -1486,18 +1746,25 @@ export default function MonitoringSamapta() {
                 </div>
 
                 <div className="sa-person">
-                  <strong>{name}</strong>
+                  <strong>
+                    {name}
+                  </strong>
 
                   <small>
-                    {participant?.department || "—"}
+                    {participant?.department ||
+                      "—"}
                     {" · "}
                     {program.site || "—"}
                   </small>
 
                   <small>
-                    {dateText(program.start_date)}
+                    {dateText(
+                      program.start_date
+                    )}
                     {" – "}
-                    {dateText(program.end_date)}
+                    {dateText(
+                      program.end_date
+                    )}
                   </small>
                 </div>
 
@@ -1511,6 +1778,8 @@ export default function MonitoringSamapta() {
                 untuk peserta OJT binaannya.
               </div>
             </section>
+
+            {/* NOTIFIKASI */}
 
             {!referenceValid && (
               <div className="sa-error">
@@ -1543,6 +1812,8 @@ export default function MonitoringSamapta() {
               id="samapta-form"
               onSubmit={save}
             >
+              {/* DATA PENILAIAN */}
+
               <section className="sa-card">
                 <div className="sa-title">
                   <span className="sa-title-icon">
@@ -1567,7 +1838,8 @@ export default function MonitoringSamapta() {
                       type="date"
                       value={form.date}
                       disabled={
-                        !!editDate || saving
+                        !!editDate ||
+                        saving
                       }
                       onChange={(event) =>
                         change(
@@ -1608,6 +1880,8 @@ export default function MonitoringSamapta() {
                 </div>
               </section>
 
+              {/* SAMAPTA A DAN B */}
+
               <div className="sa-grid">
                 {/* SAMAPTA A */}
 
@@ -1634,7 +1908,10 @@ export default function MonitoringSamapta() {
                       value={form.laps}
                       disabled={saving}
                       onChange={(value) =>
-                        change("laps", value)
+                        change(
+                          "laps",
+                          value
+                        )
                       }
                     />
 
@@ -1644,13 +1921,18 @@ export default function MonitoringSamapta() {
                       max="399"
                       disabled={saving}
                       onChange={(value) =>
-                        change("extra", value)
+                        change(
+                          "extra",
+                          value
+                        )
                       }
                     />
                   </div>
 
                   <div className="sa-result">
-                    <small>Total Jarak</small>
+                    <small>
+                      Total Jarak
+                    </small>
 
                     <strong>
                       {calc.raw.lari === null
@@ -1663,7 +1945,9 @@ export default function MonitoringSamapta() {
 
                   <ScoreRow
                     label="Skor Lari / Nilai A"
-                    value={calc.scores.lari}
+                    value={
+                      calc.scores.lari
+                    }
                   />
 
                   <p className="sa-muted">
@@ -1691,16 +1975,32 @@ export default function MonitoringSamapta() {
                   </p>
 
                   {[
-                    ["pull", "Pull-Up", "1"],
-                    ["push", "Push-Up", "1"],
-                    ["sit", "Sit-Up", "1"],
+                    [
+                      "pull",
+                      "Pull-Up",
+                      "1",
+                    ],
+                    [
+                      "push",
+                      "Push-Up",
+                      "1",
+                    ],
+                    [
+                      "sit",
+                      "Sit-Up",
+                      "1",
+                    ],
                     [
                       "shuttle",
                       "Shuttle Run (detik)",
                       "0.1",
                     ],
                   ].map(
-                    ([key, label, step]) => (
+                    ([
+                      key,
+                      label,
+                      step,
+                    ]) => (
                       <div
                         className="sa-test-row"
                         key={key}
@@ -1711,24 +2011,42 @@ export default function MonitoringSamapta() {
 
                         <Field
                           label="Hasil"
-                          value={form[key]}
+                          value={
+                            form[key]
+                          }
                           step={step}
-                          disabled={saving}
-                          onChange={(value) =>
-                            change(key, value)
+                          disabled={
+                            saving
+                          }
+                          onChange={(
+                            value
+                          ) =>
+                            change(
+                              key,
+                              value
+                            )
                           }
                         />
 
                         <span
                           className={
-                            calc.scores[key] === null
+                            calc.scores[
+                              key
+                            ] === null
                               ? "sa-test-score missing"
                               : "sa-test-score"
                           }
                         >
-                          {calc.scores[key] === null
+                          {calc.scores[
+                            key
+                          ] === null
                             ? "—"
-                            : `Skor ${calc.scores[key]}`}
+                            : `Skor ${
+                                calc
+                                  .scores[
+                                  key
+                                ]
+                              }`}
                         </span>
                       </div>
                     )
@@ -1757,15 +2075,21 @@ export default function MonitoringSamapta() {
 
                 <div className="sa-summary">
                   <div className="sa-summary-box">
-                    <span>Nilai A</span>
+                    <span>
+                      Nilai A
+                    </span>
 
                     <strong>
-                      {fmt(calc.scores.lari)}
+                      {fmt(
+                        calc.scores.lari
+                      )}
                     </strong>
                   </div>
 
                   <div className="sa-summary-box">
-                    <span>Nilai B</span>
+                    <span>
+                      Nilai B
+                    </span>
 
                     <strong>
                       {fmt(calc.b)}
@@ -1773,10 +2097,14 @@ export default function MonitoringSamapta() {
                   </div>
 
                   <div className="sa-summary-box">
-                    <span>Nilai Akhir</span>
+                    <span>
+                      Nilai Akhir
+                    </span>
 
                     <strong>
-                      {fmt(calc.final)}
+                      {fmt(
+                        calc.final
+                      )}
                     </strong>
                   </div>
                 </div>
@@ -1786,7 +2114,9 @@ export default function MonitoringSamapta() {
                     Kategori CCR
 
                     <strong>
-                      {rating(calc.final)}
+                      {rating(
+                        calc.final
+                      )}
                     </strong>
                   </div>
 
@@ -1795,16 +2125,20 @@ export default function MonitoringSamapta() {
 
                     <strong
                       className={
-                        calc.outcome === "pass"
+                        calc.outcome ===
+                        "pass"
                           ? "pass-text"
-                          : calc.outcome === "fail"
+                          : calc.outcome ===
+                            "fail"
                           ? "fail-text"
                           : ""
                       }
                     >
-                      {calc.outcome === "pass"
+                      {calc.outcome ===
+                      "pass"
                         ? "LULUS"
-                        : calc.outcome === "fail"
+                        : calc.outcome ===
+                          "fail"
                         ? "TIDAK LULUS"
                         : "BELUM DINILAI"}
                     </strong>
@@ -1829,10 +2163,16 @@ export default function MonitoringSamapta() {
                   <textarea
                     className="sa-field"
                     rows={4}
-                    value={form.notes}
-                    disabled={saving}
+                    value={
+                      form.notes
+                    }
+                    disabled={
+                      saving
+                    }
                     placeholder="Catatan hasil tes fisik..."
-                    onChange={(event) =>
+                    onChange={(
+                      event
+                    ) =>
                       change(
                         "notes",
                         event.target.value
@@ -1849,7 +2189,9 @@ export default function MonitoringSamapta() {
                     busy ||
                     !referenceValid
                   }
-                  style={{ width: "100%" }}
+                  style={{
+                    width: "100%",
+                  }}
                 >
                   {saving
                     ? "Menyimpan..."
@@ -1862,8 +2204,12 @@ export default function MonitoringSamapta() {
                   <button
                     type="button"
                     className="sa-btn gray"
-                    disabled={saving}
-                    onClick={reset}
+                    disabled={
+                      saving
+                    }
+                    onClick={
+                      reset
+                    }
                     style={{
                       width: "100%",
                       marginTop: 10,
@@ -1881,7 +2227,7 @@ export default function MonitoringSamapta() {
               </section>
             </form>
 
-            {/* RIWAYAT */}
+            {/* RIWAYAT SAMAPTA */}
 
             <section className="sa-card">
               <div className="sa-title">
@@ -1905,123 +2251,174 @@ export default function MonitoringSamapta() {
                 </div>
               )}
 
-              {groups.map((group) => (
-                <article
-                  className="sa-history"
-                  key={group.date}
-                >
-                  <div className="sa-history-head">
-                    <strong>
-                      {dateText(group.date)}
-                    </strong>
+              {groups.map(
+                (group) => (
+                  <article
+                    className="sa-history"
+                    key={
+                      group.date
+                    }
+                  >
+                    <div className="sa-history-head">
+                      <strong>
+                        {dateText(
+                          group.date
+                        )}
+                      </strong>
 
-                    <span
-                      className={
-                        "sa-badge " +
-                        (group.outcome === "pass"
-                          ? "pass"
-                          : group.outcome === "fail"
-                          ? "fail"
-                          : "")
-                      }
-                    >
-                      {group.outcome === "pass"
-                        ? "Lulus Lari"
-                        : group.outcome === "fail"
-                        ? "Belum Lulus Lari"
-                        : "Belum Dinilai"}
-                    </span>
-                  </div>
+                      <span
+                        className={
+                          "sa-badge " +
+                          (group.outcome ===
+                          "pass"
+                            ? "pass"
+                            : group.outcome ===
+                              "fail"
+                            ? "fail"
+                            : "")
+                        }
+                      >
+                        {group.outcome ===
+                        "pass"
+                          ? "Lulus Lari"
+                          : group.outcome ===
+                            "fail"
+                          ? "Belum Lulus Lari"
+                          : "Belum Dinilai"}
+                      </span>
+                    </div>
 
-                  <h3>Samapta A</h3>
+                    <h3>
+                      Samapta A
+                    </h3>
 
-                  <HistoryItem
-                    test={TESTS[0]}
-                    record={group.byType.get(
-                      "Lari 12 Menit"
-                    )}
-                  />
-
-                  <h3>Samapta B</h3>
-
-                  {TESTS.slice(1).map((test) => (
                     <HistoryItem
-                      key={test.key}
-                      test={test}
-                      record={group.byType.get(
-                        test.name
-                      )}
-                    />
-                  ))}
-
-                  <div className="sa-summary">
-                    <div className="sa-summary-box">
-                      <span>Nilai A</span>
-
-                      <strong>
-                        {fmt(group.a)}
-                      </strong>
-                    </div>
-
-                    <div className="sa-summary-box">
-                      <span>Nilai B</span>
-
-                      <strong>
-                        {fmt(group.b)}
-                      </strong>
-                    </div>
-
-                    <div className="sa-summary-box">
-                      <span>Nilai Akhir</span>
-
-                      <strong>
-                        {fmt(group.final)}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {!group.complete && (
-                    <p className="sa-warning">
-                      Sebagian komponen penilaian
-                      belum lengkap.
-                    </p>
-                  )}
-
-                  <p className="sa-muted">
-                    Kategori CCR:{" "}
-                    <strong>
-                      {rating(group.final)}
-                    </strong>
-                  </p>
-
-                  <div className="sa-actions">
-                    <button
-                      type="button"
-                      className="sa-btn blue"
-                      disabled={saving || busy}
-                      onClick={() => edit(group)}
-                    >
-                      Edit
-                    </button>
-
-                    {/* TOMBOL HAPUS — REVISI */}
-
-                    <button
-                      type="button"
-                      className="sa-btn red"
-                      disabled={saving || busy}
-                      onClick={() =>
-                        openDeleteDialog(group)
+                      test={
+                        TESTS[0]
                       }
-                    >
-                      {busy &&
-                      deleteTarget?.date === group.date
-                        ? "Memproses..."
-                        : "Hapus"}
-                    </button>
-                  </div>
-                </article>
-              ))}
+                      record={
+                        group.byType.get(
+                          "Lari 12 Menit"
+                        )
+                      }
+                    />
+
+                    <h3>
+                      Samapta B
+                    </h3>
+
+                    {TESTS.slice(
+                      1
+                    ).map(
+                      (test) => (
+                        <HistoryItem
+                          key={
+                            test.key
+                          }
+                          test={
+                            test
+                          }
+                          record={
+                            group.byType.get(
+                              test.name
+                            )
+                          }
+                        />
+                      )
+                    )}
+
+                    <div className="sa-summary">
+                      <div className="sa-summary-box">
+                        <span>
+                          Nilai A
+                        </span>
+
+                        <strong>
+                          {fmt(
+                            group.a
+                          )}
+                        </strong>
+                      </div>
+
+                      <div className="sa-summary-box">
+                        <span>
+                          Nilai B
+                        </span>
+
+                        <strong>
+                          {fmt(
+                            group.b
+                          )}
+                        </strong>
+                      </div>
+
+                      <div className="sa-summary-box">
+                        <span>
+                          Nilai Akhir
+                        </span>
+
+                        <strong>
+                          {fmt(
+                            group.final
+                          )}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {!group.complete && (
+                      <p className="sa-warning">
+                        Sebagian komponen penilaian
+                        belum lengkap.
+                      </p>
+                    )}
+
+                    <p className="sa-muted">
+                      Kategori CCR:{" "}
+                      <strong>
+                        {rating(
+                          group.final
+                        )}
+                      </strong>
+                    </p>
+
+                    <div className="sa-actions">
+                      <button
+                        type="button"
+                        className="sa-btn blue"
+                        disabled={
+                          saving ||
+                          busy
+                        }
+                        onClick={() =>
+                          edit(group)
+                        }
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        type="button"
+                        className="sa-btn red"
+                        disabled={
+                          saving ||
+                          busy
+                        }
+                        onClick={() =>
+                          openDeleteDialog(
+                            group
+                          )
+                        }
+                      >
+                        {busy &&
+                        deleteTarget?.date ===
+                          group.date
+                          ? "Memproses..."
+                          : "Hapus"}
+                      </button>
+                    </div>
+                  </article>
+                )
+              )}
             </section>
           </>
         )}
@@ -2032,17 +2429,21 @@ export default function MonitoringSamapta() {
         </footer>
       </div>
 
-      {/* =================================================
-          MODAL KONFIRMASI PENGHAPUSAN
-          Ditampilkan di luar form penilaian.
-          ================================================= */}
+      {/* ==============================================
+          MODAL KONFIRMASI HAPUS
+          ============================================== */}
 
       {deleteTarget && (
         <div
           className="sa-modal-overlay"
           role="presentation"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
+          onClick={(
+            event
+          ) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
               closeDeleteDialog();
             }
           }}
@@ -2069,19 +2470,32 @@ export default function MonitoringSamapta() {
 
             <div className="sa-modal-detail">
               <div>
-                <span>Nama Peserta</span>
-                <strong>{name}</strong>
-              </div>
+                <span>
+                  Nama Peserta
+                </span>
 
-              <div>
-                <span>Tanggal Penilaian</span>
                 <strong>
-                  {dateText(deleteTarget.date)}
+                  {name}
                 </strong>
               </div>
 
               <div>
-                <span>Jumlah Komponen</span>
+                <span>
+                  Tanggal Penilaian
+                </span>
+
+                <strong>
+                  {dateText(
+                    deleteTarget.date
+                  )}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Jumlah Komponen
+                </span>
+
                 <strong>
                   {deleteTarget.count} catatan
                 </strong>
@@ -2101,7 +2515,9 @@ export default function MonitoringSamapta() {
                 type="button"
                 className="sa-btn gray"
                 disabled={busy}
-                onClick={closeDeleteDialog}
+                onClick={
+                  closeDeleteDialog
+                }
               >
                 Batal
               </button>
@@ -2110,7 +2526,9 @@ export default function MonitoringSamapta() {
                 type="button"
                 className="sa-btn red"
                 disabled={busy}
-                onClick={confirmDelete}
+                onClick={
+                  confirmDelete
+                }
               >
                 {busy
                   ? "Menghapus..."
