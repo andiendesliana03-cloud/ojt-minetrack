@@ -3244,4 +3244,254 @@ const styles = `
     width: 100%;
   }
 }
+
+/* =====================================================
+   OJT MINETRACK V2.0
+   SAMAPTA — GLOBAL DARK MODE
+
+   Mengikuti html[data-theme] dari RootLayout.
+   Tidak menambah tombol tema.
+   Light Mode lama tetap dipertahankan.
+   ===================================================== */
+
+html[data-theme="dark"] .sa-root {
+  color-scheme: dark;
+  background: #0d171b;
+  color: #edf8f4;
+}
+
+/* Kartu utama dan modal */
+
+html[data-theme="dark"] .sa-card,
+html[data-theme="dark"] .sa-modal {
+  background: #17272b;
+  color: #edf8f4;
+  border-color: #30484b;
+  box-shadow: 0 5px 18px rgba(0,0,0,.18);
+}
+
+html[data-theme="dark"] .sa-card h2,
+html[data-theme="dark"] .sa-modal h2 {
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .sa-card h3 {
+  color: #83edb8;
+}
+
+/* Identitas peserta */
+
+html[data-theme="dark"] .sa-identity {
+  background: #203438;
+  border-color: #30484b;
+}
+
+html[data-theme="dark"] .sa-avatar {
+  background: #254e40;
+  color: #a4f4cd;
+}
+
+html[data-theme="dark"] .sa-person small,
+html[data-theme="dark"] .sa-muted {
+  color: #a5bbb8;
+}
+
+html[data-theme="dark"] .sa-active {
+  background: #214b39;
+  color: #a4f4cd;
+}
+
+html[data-theme="dark"] .sa-lock {
+  background: #1b3933;
+  border-color: #35614d;
+  color: #a4f4cd;
+}
+
+/* Form input Samapta A dan B */
+
+html[data-theme="dark"] .sa-label {
+  color: #d7ede3;
+}
+
+html[data-theme="dark"] .sa-field {
+  color-scheme: dark;
+  background: #1b3034;
+  color: #edf8f4;
+  border-color: #3b5555;
+}
+
+html[data-theme="dark"] .sa-field:disabled {
+  background: #243338;
+  color: #b7cbc3;
+  opacity: 1;
+}
+
+html[data-theme="dark"] .sa-field::placeholder {
+  color: #91aaa2;
+}
+
+html[data-theme="dark"] .sa-field:focus {
+  outline: 2px solid #43d499;
+  outline-offset: 1px;
+}
+
+/* Hasil lari */
+
+html[data-theme="dark"] .sa-result {
+  background: #1b3933;
+  border-color: #35614d;
+}
+
+html[data-theme="dark"] .sa-result small {
+  color: #a5bbb8;
+}
+
+html[data-theme="dark"] .sa-result strong,
+html[data-theme="dark"] .sa-score-row strong {
+  color: #83edb8;
+}
+
+/* Baris penilaian */
+
+html[data-theme="dark"] .sa-score-row,
+html[data-theme="dark"] .sa-test-row,
+html[data-theme="dark"] .sa-history-item {
+  border-color: #30484b;
+}
+
+html[data-theme="dark"] .sa-test-score {
+  background: #214b39;
+  color: #a4f4cd;
+}
+
+html[data-theme="dark"] .sa-test-score.missing {
+  background: #49371f;
+  color: #ffd6a2;
+}
+
+/* Ringkasan Nilai A, B, dan Nilai Akhir */
+
+html[data-theme="dark"] .sa-summary-box,
+html[data-theme="dark"] .sa-status {
+  background: #203438;
+  border-color: #30484b;
+}
+
+html[data-theme="dark"] .sa-summary-box span {
+  color: #a5bbb8;
+}
+
+html[data-theme="dark"] .sa-summary-box strong {
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .sa-status strong {
+  color: #83edb8;
+}
+
+html[data-theme="dark"] .sa-status strong.fail-text {
+  color: #ff9b9b;
+}
+
+/* Riwayat Penilaian Samapta */
+
+html[data-theme="dark"] .sa-history {
+  background: #192b2e;
+  border-color: #30484b;
+}
+
+html[data-theme="dark"] .sa-badge {
+  background: #304348;
+  color: #c4d7d0;
+}
+
+html[data-theme="dark"] .sa-badge.pass {
+  background: #214b39;
+  color: #a4f4cd;
+}
+
+html[data-theme="dark"] .sa-badge.fail {
+  background: #4d2930;
+  color: #ffb8c1;
+}
+
+html[data-theme="dark"] .sa-empty {
+  color: #a5bbb8;
+  border-color: #30484b;
+}
+
+/* Notifikasi */
+
+html[data-theme="dark"] .sa-error {
+  background: #42242c;
+  color: #ffc3cb;
+  border-color: #7a414c;
+}
+
+html[data-theme="dark"] .sa-success {
+  background: #1b4534;
+  color: #b2f2cc;
+  border-color: #35674f;
+}
+
+html[data-theme="dark"] .sa-warning {
+  background: #49371f;
+  color: #ffd6a2;
+  border-color: #765936;
+}
+
+/* Modal konfirmasi hapus */
+
+html[data-theme="dark"] .sa-modal p {
+  color: #b5cbc1;
+}
+
+html[data-theme="dark"] .sa-modal-detail {
+  background: #203438;
+  border-color: #30484b;
+}
+
+html[data-theme="dark"] .sa-modal-detail > div {
+  border-color: #30484b;
+}
+
+html[data-theme="dark"] .sa-modal-detail span {
+  color: #a5bbb8;
+}
+
+html[data-theme="dark"] .sa-modal-detail strong {
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .sa-modal-warning {
+  background: #49371f;
+  border-color: #765936;
+  color: #ffd6a2;
+}
+
+/* Footer */
+
+html[data-theme="dark"] .sa-footer {
+  color: #a5bbb8;
+}
+
+/* Cetak tetap menggunakan warna terang */
+
+@media print {
+  html[data-theme="dark"] .sa-root {
+    color-scheme: light;
+    background: #ffffff;
+    color: #19352d;
+  }
+
+  html[data-theme="dark"] .sa-card,
+  html[data-theme="dark"] .sa-modal,
+  html[data-theme="dark"] .sa-history {
+    background: #ffffff;
+    color: #19352d;
+    border-color: #dce7e1;
+    box-shadow: none;
+  }
+}
+
 `;
