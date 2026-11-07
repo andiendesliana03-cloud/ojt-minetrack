@@ -174,26 +174,6 @@ function weekOf(value, startValue) {
 
   if (!date || !start) return null;
 
-<button
-  type="button"
-  onClick={() => router.push("/daftar-mentor")}
-  disabled={loading}
-  style={{
-    width: "100%",
-    marginTop: 14,
-    padding: "15px 18px",
-    border: "2px solid #078b61",
-    borderRadius: 11,
-    backgroundColor: "#e7f7ef",
-    color: "#06734f",
-    fontSize: 16,
-    fontWeight: 700,
-    cursor: loading ? "not-allowed" : "pointer",
-  }}
->
-  Daftar sebagai Mentor OJT
-</button>
-
   const days = Math.round(
     (date.getTime() - start.getTime()) / 86400000
   );
