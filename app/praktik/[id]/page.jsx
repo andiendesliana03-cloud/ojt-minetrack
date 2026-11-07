@@ -1823,4 +1823,239 @@ const css = `
     font-size: 18px;
   }
 }
+
+/* =====================================================
+   OJT MINETRACK V2.0
+   PENILAIAN PRAKTIK MINGGUAN
+   GLOBAL LIGHT / DARK MODE
+
+   Tema mengikuti html[data-theme] dari RootLayout.
+   Tidak mengubah fitur, database, dan perhitungan.
+   ===================================================== */
+
+/* BACKGROUND HALAMAN */
+
+html[data-theme="dark"] .pm-root,
+html[data-theme="dark"] .pm-loading {
+  color-scheme: dark;
+  background: #0d171b;
+  color: #edf8f4;
+}
+
+/* HEADER DAN BANNER */
+
+html[data-theme="dark"] .pm-header {
+  background: #081f1d;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .pm-banner {
+  background: linear-gradient(
+    110deg,
+    #071c24,
+    #103c35
+  );
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .pm-banner h1 {
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .pm-banner p {
+  color: #d0e5d9;
+}
+
+/* KARTU UTAMA */
+
+html[data-theme="dark"] .pm-card {
+  background: #17272b;
+  color: #edf8f4;
+  border-color: #30484b;
+  box-shadow: 0 5px 18px rgba(0,0,0,.18);
+}
+
+html[data-theme="dark"] .pm-card h2,
+html[data-theme="dark"] .pm-card h3 {
+  color: #edf8f4;
+}
+
+/* IDENTITAS PESERTA */
+
+html[data-theme="dark"] .pm-participant {
+  background: #203438;
+  border: 1px solid #30484b;
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .pm-participant strong {
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .pm-muted {
+  color: #a5bbb8;
+}
+
+/* LABEL FORM */
+
+html[data-theme="dark"] .pm-label {
+  color: #d7ede3;
+}
+
+/* INPUT TANGGAL, NILAI, DROPDOWN, CATATAN */
+
+html[data-theme="dark"] .pm-input {
+  color-scheme: dark;
+  background: #1b3034;
+  color: #edf8f4;
+  border-color: #3b5555;
+}
+
+html[data-theme="dark"] .pm-input::placeholder {
+  color: #91aaa2;
+  opacity: 1;
+}
+
+html[data-theme="dark"] .pm-input:focus {
+  outline: 2px solid #43d499;
+  outline-offset: 1px;
+  border-color: #43d499;
+}
+
+html[data-theme="dark"] .pm-input:disabled {
+  background: #243338;
+  color: #b7cbc3;
+  opacity: 1;
+}
+
+html[data-theme="dark"] select.pm-input option {
+  background: #1b3034;
+  color: #edf8f4;
+}
+
+/* RINGKASAN NILAI */
+
+html[data-theme="dark"] .pm-stat {
+  background: #203438;
+  border-color: #30484b;
+}
+
+html[data-theme="dark"] .pm-stat small {
+  color: #a5bbb8;
+}
+
+html[data-theme="dark"] .pm-stat strong {
+  color: #83edb8;
+}
+
+/* MONITORING PENILAIAN PRAKTIK */
+
+html[data-theme="dark"] .pm-score {
+  color: #83edb8;
+}
+
+/* RIWAYAT PENILAIAN PRAKTIK */
+
+html[data-theme="dark"] .pm-record {
+  background: #192b2e;
+  border-color: #30484b;
+}
+
+html[data-theme="dark"] .pm-record h3 {
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .pm-record-notes {
+  color: #b6cbc2;
+}
+
+/* TOMBOL SIMPAN DAN AKSI */
+
+html[data-theme="dark"] .pm-btn {
+  background: #078b61;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .pm-btn.secondary {
+  background: #25483e;
+  color: #a4f4cd;
+  border: 1px solid #35614d;
+}
+
+html[data-theme="dark"] .pm-btn.blue {
+  background: #286ca9;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .pm-btn.red {
+  background: #c83e49;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .pm-btn:disabled {
+  opacity: .5;
+}
+
+/* NOTIFIKASI ERROR DAN SUKSES */
+
+html[data-theme="dark"] .pm-alert.error {
+  background: #42242c;
+  color: #ffc3cb;
+  border: 1px solid #7a414c;
+}
+
+html[data-theme="dark"] .pm-alert.success {
+  background: #1b4534;
+  color: #b2f2cc;
+  border: 1px solid #35674f;
+}
+
+/* FOOTER */
+
+html[data-theme="dark"] .pm-footer {
+  color: #a5bbb8;
+}
+
+/* CETAK — PAKSA TEMA TERANG */
+
+@media print {
+  html[data-theme="dark"] .pm-root {
+    color-scheme: light;
+    background: #ffffff;
+    color: #17352e;
+  }
+
+  html[data-theme="dark"] .pm-card,
+  html[data-theme="dark"] .pm-stat,
+  html[data-theme="dark"] .pm-record {
+    background: #ffffff;
+    color: #17352e;
+    border-color: #e2e8f0;
+    box-shadow: none;
+  }
+
+  html[data-theme="dark"] .pm-card h2,
+  html[data-theme="dark"] .pm-card h3,
+  html[data-theme="dark"] .pm-record h3 {
+    color: #17352e;
+  }
+
+  html[data-theme="dark"] .pm-input {
+    color-scheme: light;
+    background: #ffffff;
+    color: #0f172a;
+    border-color: #cbd5e1;
+  }
+
+  html[data-theme="dark"] .pm-muted,
+  html[data-theme="dark"] .pm-record-notes {
+    color: #72867d;
+  }
+
+  html[data-theme="dark"] .pm-stat strong,
+  html[data-theme="dark"] .pm-score {
+    color: #087f5b;
+  }
+}
+
 `;
