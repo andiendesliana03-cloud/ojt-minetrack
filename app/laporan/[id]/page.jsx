@@ -3454,6 +3454,216 @@ const css = `
   }
 }
 
+/* =====================================================
+   OJT MINETRACK V2.0
+   RAPOR OJT — GLOBAL LIGHT / DARK MODE
+
+   Tema mengikuti html[data-theme] dari RootLayout.
+   Template 3 dan kertas A4 tetap dipertahankan.
+   Tidak mengubah layout, fungsi, atau database.
+   ===================================================== */
+
+@media screen {
+
+  /* LIGHT MODE */
+
+  html[data-theme="light"] .r3-root {
+    color-scheme: light;
+    background: #edf1f1;
+    color: #2e4547;
+  }
+
+  /* DARK MODE — HALAMAN UTAMA */
+
+  html[data-theme="dark"] .r3-root {
+    color-scheme: dark;
+    background: #0d171b;
+    color: #edf8f4;
+  }
+
+  /* HEADER */
+
+  html[data-theme="dark"] .r3-topbar {
+    background: #081f1d;
+    color: #ffffff;
+  }
+
+  html[data-theme="dark"] .r3-back {
+    background: #ffffff12;
+    border-color: #ffffff30;
+    color: #ffffff;
+  }
+
+  /* PANEL PENGATURAN RAPOR */
+
+  html[data-theme="dark"] .r3-controls {
+    background: #17272b;
+    color: #edf8f4;
+    border-color: #30484b;
+    box-shadow: 0 5px 18px rgba(0,0,0,.18);
+  }
+
+  html[data-theme="dark"] .r3-controls h2 {
+    color: #edf8f4;
+  }
+
+  html[data-theme="dark"] .r3-controls p {
+    color: #a5bbb8;
+  }
+
+  html[data-theme="dark"] .r3-controls-heading small {
+    color: #e0b781;
+  }
+
+  /* LABEL TEMPLATE 3 */
+
+  html[data-theme="dark"] .r3-template-tag {
+    background: #3c3021;
+    border-color: #765936;
+    color: #f1cc91;
+  }
+
+  /* PILIHAN MODE LAPORAN */
+
+  html[data-theme="dark"] .r3-modes label {
+    background: #203438;
+    border-color: #30484b;
+    color: #d7ede3;
+  }
+
+  html[data-theme="dark"] .r3-modes label.chosen {
+    background: #493b2b;
+    border-color: #bc935e;
+    color: #f1cc91;
+  }
+
+  html[data-theme="dark"] .r3-modes input {
+    accent-color: #d0a16c;
+  }
+
+  /* PILIHAN MINGGU */
+
+  html[data-theme="dark"] .r3-selectors label {
+    color: #d7ede3;
+  }
+
+  html[data-theme="dark"] .r3-select {
+    color-scheme: dark;
+    background: #1b3034;
+    color: #edf8f4;
+    border-color: #3b5555;
+  }
+
+  html[data-theme="dark"] .r3-select option {
+    background: #1b3034;
+    color: #edf8f4;
+  }
+
+  html[data-theme="dark"] .r3-select:focus {
+    border-color: #55d6a7;
+    outline: 2px solid #55d6a740;
+    outline-offset: 1px;
+  }
+
+  /* MINGGU TERTENTU — WEEK 01–25 */
+
+  html[data-theme="dark"] .r3-week-picker button {
+    background: #203438;
+    color: #d7ede3;
+    border-color: #30484b;
+  }
+
+  html[data-theme="dark"] .r3-week-picker button.selected {
+    background: #a67b4b;
+    color: #ffffff;
+    border-color: #a67b4b;
+  }
+
+  /* PILIHAN CEPAT 2, 12, 25 MINGGU */
+
+  html[data-theme="dark"] .r3-quick span {
+    color: #a5bbb8;
+  }
+
+  html[data-theme="dark"] .r3-quick button {
+    background: #3c3021;
+    color: #f1cc91;
+    border-color: #765936;
+  }
+
+  html[data-theme="dark"] .r3-quick button:hover:not(:disabled) {
+    background: #56432b;
+  }
+
+  /* RINGKASAN MINGGU DIPILIH */
+
+  html[data-theme="dark"] .r3-selected {
+    background: #203438;
+    border-color: #3b5555;
+  }
+
+  html[data-theme="dark"] .r3-selected strong {
+    color: #e5bb83;
+  }
+
+  html[data-theme="dark"] .r3-selected span {
+    color: #d7ede3;
+  }
+
+  html[data-theme="dark"] .r3-selected small {
+    color: #a5bbb8;
+  }
+
+  /* TOMBOL AKSI */
+
+  html[data-theme="dark"] .r3-actions .secondary {
+    background: #25453f;
+    color: #a4f4cd;
+  }
+
+  html[data-theme="dark"] .r3-actions .primary {
+    background: #a67b4b;
+    color: #ffffff;
+  }
+
+  html[data-theme="dark"] .r3-actions .secondary:hover:not(:disabled) {
+    background: #31584d;
+  }
+
+  html[data-theme="dark"] .r3-actions .primary:hover:not(:disabled) {
+    background: #b88a54;
+  }
+
+  /* NOTIFIKASI ERROR */
+
+  html[data-theme="dark"] .r3-error {
+    background: #42242c;
+    color: #ffc3cb;
+    border: 1px solid #7a414c;
+  }
+
+  /* PRATINJAU RAPOR TETAP SEPERTI KERTAS A4 */
+
+  html[data-theme="dark"] .r3-paper,
+  html[data-theme="light"] .r3-paper {
+    color-scheme: light;
+    background: #fffdfa;
+    color: #30474a;
+  }
+
+  html[data-theme="dark"] .r3-paper {
+    box-shadow: 0 8px 28px rgba(0,0,0,.35);
+  }
+
+  /* HEADER DOKUMEN TIDAK DIUBAH */
+
+  html[data-theme="dark"] .r3-document-header {
+    background: #fffdfa;
+  }
+
+}
+
+
 /* ====================================================
    PRINT A4 PORTRAIT — COMPACT
    ==================================================== */
