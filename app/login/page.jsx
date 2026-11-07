@@ -700,6 +700,30 @@ export default function LoginPage() {
                   proses verifikasi dan persetujuan
                   Mentor atau Administrator.
                 </small>
+               
+{/* PENDAFTARAN MENTOR */}
+<button
+  type="button"
+  className="login-register-button"
+  disabled={loading}
+  onClick={() => router.push("/daftar-mentor")}
+  style={{
+    marginTop: 14,
+    background: "#e7f7ef",
+    borderColor: "#078b61",
+    color: "#06734f",
+  }}
+>
+  <Icon name="users" size={19} />
+  <span>Daftar sebagai Mentor OJT</span>
+  <Icon name="arrow" size={18} />
+</button>
+
+<small>
+  Pendaftaran Mentor memerlukan persetujuan
+  Administrator sebelum mendapatkan hak akses Mentor.
+</small>
+
               </div>
 
               {/* ROLE INFO */}
