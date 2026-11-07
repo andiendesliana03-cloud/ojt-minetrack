@@ -1558,6 +1558,19 @@ export default function MentorDashboard() {
               <Icon name="check" size={19} />
               <span>Persetujuan Peserta</span>
             </button>
+           
+{isAdmin && (
+  <button
+    type="button"
+    className="mt-nav"
+    onClick={() =>
+      navigate("/admin/persetujuan-mentor")
+    }
+  >
+    <Icon name="check" size={19} />
+    <span>Persetujuan Mentor</span>
+  </button>
+)}
 
             <button
               type="button"
