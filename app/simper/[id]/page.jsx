@@ -1181,6 +1181,259 @@ export default function InputSIMPER() {
             font-size: 14px;
           }
         }
+        
+/* =====================================================
+   OJT MINETRACK V2.0
+   MONITORING SIMPER — GLOBAL DARK MODE
+   Mengikuti html[data-theme] dari RootLayout.
+   Tidak mengubah logika, database atau fitur.
+   ===================================================== */
+
+/* BACKGROUND UTAMA */
+
+html[data-theme="dark"] .sp-root {
+  color-scheme: dark;
+  background: #0d171b;
+  color: #edf8f4;
+}
+
+/* HEADER */
+
+html[data-theme="dark"] .sp-top {
+  background: #081f1d;
+  color: #ffffff;
+}
+
+/* HERO */
+
+html[data-theme="dark"] .sp-hero {
+  background: linear-gradient(
+    120deg,
+    #071c24,
+    #103c35
+  );
+}
+
+/* KARTU UTAMA */
+
+html[data-theme="dark"] .sp-card {
+  background: #17272b;
+  color: #edf8f4;
+  border-color: #30484b;
+  box-shadow: 0 5px 18px rgba(0,0,0,.18);
+}
+
+html[data-theme="dark"] .sp-card h2 {
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .sp-card p {
+  color: #a5bbb8;
+}
+
+/* IDENTITAS PESERTA */
+
+html[data-theme="dark"] .sp-profile strong {
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .sp-muted {
+  color: #a5bbb8;
+}
+
+/* PROGRES SIMPER */
+
+html[data-theme="dark"] .sp-percent {
+  color: #83edb8;
+}
+
+html[data-theme="dark"] .sp-track {
+  background: #30484b;
+}
+
+html[data-theme="dark"] .sp-fill {
+  background: linear-gradient(
+    90deg,
+    #078b61,
+    #55d6a7
+  );
+}
+
+html[data-theme="dark"] .sp-mini-label {
+  color: #a5bbb8;
+}
+
+/* STATUS KELULUSAN DAN PENERBITAN */
+
+html[data-theme="dark"] .sp-status {
+  background: #49371f;
+  color: #ffd6a2;
+}
+
+html[data-theme="dark"] .sp-status.passed {
+  background: #214b39;
+  color: #a4f4cd;
+}
+
+/* TAHAP PENILAIAN */
+
+html[data-theme="dark"] .sp-number {
+  background: #254e40;
+  color: #a4f4cd;
+}
+
+html[data-theme="dark"] .sp-stage-text h2 {
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .sp-stage-text p {
+  color: #a5bbb8;
+}
+
+/* BADGE STATUS */
+
+html[data-theme="dark"] .sp-badge {
+  background: #304348;
+  color: #c4d7d0;
+}
+
+html[data-theme="dark"] .sp-badge.complete {
+  background: #214b39;
+  color: #a4f4cd;
+}
+
+/* INPUT, SELECT, TEXTAREA */
+
+html[data-theme="dark"] .sp-field span {
+  color: #d7ede3;
+}
+
+html[data-theme="dark"] .sp-field input,
+html[data-theme="dark"] .sp-field select,
+html[data-theme="dark"] .sp-field textarea {
+  color-scheme: dark;
+  background: #1b3034;
+  color: #edf8f4;
+  border-color: #3b5555;
+}
+
+html[data-theme="dark"] .sp-field select option {
+  background: #1b3034;
+  color: #edf8f4;
+}
+
+html[data-theme="dark"] .sp-field input::placeholder,
+html[data-theme="dark"] .sp-field textarea::placeholder {
+  color: #91aaa2;
+}
+
+html[data-theme="dark"] .sp-field input:disabled,
+html[data-theme="dark"] .sp-field select:disabled,
+html[data-theme="dark"] .sp-field textarea:disabled {
+  background: #243338;
+  color: #b7cbc3;
+  border-color: #34494a;
+  opacity: 1;
+}
+
+html[data-theme="dark"] .sp-field input:focus,
+html[data-theme="dark"] .sp-field select:focus,
+html[data-theme="dark"] .sp-field textarea:focus {
+  outline: 2px solid #43d499;
+  outline-offset: 1px;
+}
+
+/* RINGKASAN MONITORING */
+
+html[data-theme="dark"] .sp-info {
+  border-bottom-color: #30484b;
+  color: #dcece5;
+}
+
+html[data-theme="dark"] .sp-info strong {
+  color: #83edb8;
+}
+
+/* NOTIFIKASI */
+
+html[data-theme="dark"] .sp-alert.error {
+  background: #42242c;
+  color: #ffc3cb;
+  border: 1px solid #7a414c;
+}
+
+html[data-theme="dark"] .sp-alert.success {
+  background: #1b4534;
+  color: #b2f2cc;
+  border: 1px solid #35674f;
+}
+
+html[data-theme="dark"] .sp-alert.info {
+  background: #49371f;
+  color: #ffd6a2;
+  border: 1px solid #765936;
+}
+
+/* TOMBOL */
+
+html[data-theme="dark"] .sp-button {
+  background: #078b61;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .sp-button:hover:not(:disabled) {
+  background: #09996c;
+}
+
+html[data-theme="dark"] .sp-button.danger {
+  background: #c83e49;
+}
+
+html[data-theme="dark"] .sp-button.danger:hover:not(:disabled) {
+  background: #af303d;
+}
+
+/* FOOTER */
+
+html[data-theme="dark"] .sp-footer {
+  color: #a5bbb8;
+}
+
+/* CETAK MENGGUNAKAN TEMA TERANG */
+
+@media print {
+  html[data-theme="dark"] .sp-root {
+    color-scheme: light;
+    background: #ffffff;
+    color: #143b31;
+  }
+
+  html[data-theme="dark"] .sp-card {
+    background: #ffffff;
+    color: #143b31;
+    border-color: #dce9e2;
+    box-shadow: none;
+  }
+
+  html[data-theme="dark"] .sp-card h2 {
+    color: #143b31;
+  }
+
+  html[data-theme="dark"] .sp-card p,
+  html[data-theme="dark"] .sp-muted {
+    color: #70897c;
+  }
+
+  html[data-theme="dark"] .sp-field input,
+  html[data-theme="dark"] .sp-field select,
+  html[data-theme="dark"] .sp-field textarea {
+    color-scheme: light;
+    background: #ffffff;
+    color: #143b31;
+    border-color: #d5e5db;
+  }
+}
+
       `}</style>
 
       <header className="sp-top">
