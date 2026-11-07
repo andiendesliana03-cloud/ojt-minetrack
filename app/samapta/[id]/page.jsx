@@ -1241,7 +1241,7 @@ export default function MonitoringSamapta() {
         notes:
           test.key === "lari"
             ? `USIA=${form.age}; PUTARAN=${form.laps}; TAMBAHAN=${form.extra}; ${form.notes.trim()}`
-            : form.notes.trim() || null,
+            : form.notes.trim(),
       })
     );
 
