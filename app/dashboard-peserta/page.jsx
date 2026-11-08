@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -23,6 +22,7 @@ import { supabase } from "../../lib/supabase";
 // - Nama file dokumentasi ditampilkan
 // - Tombol Lihat Bukti menggunakan Supabase Storage
 // - Cetak PDF tidak menampilkan metadata mentah
+// - Foto besar dikompres otomatis saat unggah; PDF tetap maks. 5 MB
 // ======================================================
 
 const TOTAL_WEEKS = 25;
@@ -156,34 +156,156 @@ function parseAchievementDescription(raw) {
 }
 
 // ======================================================
+// KOMPRESI OTOMATIS LAMPIRAN ACHIEVEMENT
+// - JPG/JPEG, PNG, WEBP besar -> JPEG maksimal 5 MiB.
+// - HEIC/HEIF dicoba dikonversi pada browser yang mendukung.
+// - PDF tidak dikompresi, wajib maksimal 5 MiB.
+// - File asli di perangkat tidak diubah.
+// ======================================================
+
+const MAX_ACHIEVEMENT_FILE_SIZE = 5 * 1024 * 1024;
+
+function achievementFileKind(file) {
+  const mime = String(file?.type || "").toLowerCase();
+  const name = String(file?.name || "").toLowerCase();
+
+  // Beberapa browser iPhone mengirimkan MIME kosong / octet-stream.
+  // Untuk HEIC, ekstensi diprioritaskan agar berkas dikonversi ke JPEG.
+  if (/\.(heic|heif)$/.test(name) ||
+      ["image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"].includes(mime)) {
+    return "heic";
+  }
+  if (mime === "application/pdf" ||
+      ((mime === "" || mime === "application/octet-stream") && /\.pdf$/.test(name))) {
+    return "pdf";
+  }
+  if (["image/jpeg", "image/jpg"].includes(mime) ||
+      ((mime === "" || mime === "application/octet-stream") && /\.jpe?g$/.test(name))) {
+    return "jpeg";
+  }
+  if (mime === "image/png" ||
+      ((mime === "" || mime === "application/octet-stream") && /\.png$/.test(name))) {
+    return "png";
+  }
+  if (mime === "image/webp" ||
+      ((mime === "" || mime === "application/octet-stream") && /\.webp$/.test(name))) {
+    return "webp";
+  }
+  return null;
+}
+
+function fileSizeMB(bytes) {
+  return `${(Number(bytes || 0) / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+async function prepareAchievementFile(original) {
+  if (!original) return { file: null, compressed: false };
+  if (!original.size) throw new Error("File dokumentasi kosong atau tidak bisa dibaca.");
+
+  const kind = achievementFileKind(original);
+  if (!kind) {
+    throw new Error("Format dokumentasi tidak didukung. Pilih JPG, JPEG, PNG, WEBP, HEIC/HEIF (bila browser mendukung), atau PDF.");
+  }
+
+  // Dokumen PDF tidak diubah secara otomatis.
+  if (kind === "pdf") {
+    if (original.size > MAX_ACHIEVEMENT_FILE_SIZE) {
+      throw new Error(`PDF ${fileSizeMB(original.size)} melebihi batas 5 MB. Kompres PDF terlebih dahulu.`);
+    }
+    return {
+      file: original.type === "application/pdf" ? original :
+        new File([original], original.name, { type: "application/pdf", lastModified: original.lastModified }),
+      compressed: false,
+    };
+  }
+
+  const mimeByKind = { jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
+  if (kind !== "heic" && original.size <= MAX_ACHIEVEMENT_FILE_SIZE) {
+    const detectedMime = mimeByKind[kind];
+    // Foto kecil dipertahankan dengan kualitas asli.
+    return {
+      file: original.type === detectedMime ? original :
+        new File([original], original.name, { type: detectedMime, lastModified: original.lastModified }),
+      compressed: false,
+    };
+  }
+
+  // Dekode hanya di browser. Jika browser tidak mendukung HEIC, tampilkan pesan informatif.
+  const url = URL.createObjectURL(original);
+  let photo;
+  try {
+    photo = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error(
+        kind === "heic"
+          ? "Foto HEIC/HEIF tidak dapat dibuka browser ini. Simpan atau bagikan sebagai JPEG dari iPhone, kemudian unggah ulang."
+          : "Foto tidak dapat dibaca. Coba pilih ulang atau simpan ulang sebagai JPEG."
+      ));
+      image.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+
+  const naturalWidth = photo.naturalWidth;
+  const naturalHeight = photo.naturalHeight;
+  if (!naturalWidth || !naturalHeight) {
+    throw new Error("Dimensi foto tidak valid. Silakan gunakan foto lain.");
+  }
+
+  let compressedBlob = null;
+  // Pertahankan resolusi yang masih terbaca, baru turunkan bila perlu.
+  for (const limit of [2400, 2100, 1800, 1500, 1200, 1000]) {
+    const ratio = Math.min(1, limit / Math.max(naturalWidth, naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(naturalWidth * ratio));
+    canvas.height = Math.max(1, Math.round(naturalHeight * ratio));
+
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("Perangkat tidak mendukung pemrosesan foto ini.");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(photo, 0, 0, canvas.width, canvas.height);
+
+    for (const quality of [0.88, 0.78, 0.68, 0.58]) {
+      const blob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, "image/jpeg", quality);
+      });
+      if (!blob || blob.type !== "image/jpeg") {
+        throw new Error("Browser gagal mengonversi foto menjadi JPEG.");
+      }
+      compressedBlob = blob;
+      if (blob.size <= MAX_ACHIEVEMENT_FILE_SIZE) break;
+    }
+
+    // Bebaskan memori canvas setelah setiap percobaan.
+    canvas.width = 0;
+    canvas.height = 0;
+    if (compressedBlob?.size <= MAX_ACHIEVEMENT_FILE_SIZE) break;
+  }
+
+  if (!compressedBlob || compressedBlob.size > MAX_ACHIEVEMENT_FILE_SIZE) {
+    throw new Error("Foto masih melebihi 5 MB setelah kompresi. Pilih foto dengan resolusi lebih rendah.");
+  }
+
+  const baseName = original.name.replace(/\.(jpe?g|png|webp|heic|heif)$/i, "") || "foto-ojt";
+  const output = new File([compressedBlob], `${baseName}.jpg`, {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
+  return { file: output, compressed: true };
+}
+
+// ======================================================
 // JADWAL WEEK 08–15
 // Tanggal, kegiatan, dan materi dipertahankan.
 // Deskripsi panjang ditampilkan bila dibuka.
 // ======================================================
 
 const WEEKLY_SCHEDULE = [
-  // Jadwal Week 07 yang tercantum dalam Excel Link Andien.xlsx.
-  // Materi tidak disebutkan dalam Excel, sehingga judulnya mengikuti tanggal.
-  {
-    id: "w07-tue-posttest",
-    week: 7,
-    start: "2026-10-27",
-    end: "2026-10-27",
-    type: "Post-Test",
-    title: "Post-Test Selasa, 27 Oktober 2026",
-    description: "Akses sesuai jadwal pada tanggal yang ditetapkan.",
-    icon: "clipboard",
-  },
-  {
-    id: "w07-thu-posttest",
-    week: 7,
-    start: "2026-10-29",
-    end: "2026-10-29",
-    type: "Post-Test",
-    title: "Post-Test Kamis, 29 Oktober 2026",
-    description: "Akses sesuai jadwal pada tanggal yang ditetapkan.",
-    icon: "clipboard",
-  },
   {
     id: "w08-navigation",
     week: 8,
@@ -1134,148 +1256,7 @@ function Stat({ label, value }) {
   );
 }
 
-
-// ======================================================
-// AKSES POST-TEST BERJADWAL (WITA)
-// Link dan password tidak disimpan di kode browser.
-// Keduanya diberikan oleh Edge Function posttest-access
-// hanya pada tanggal ujian dan kepada Peserta aktif.
-// ======================================================
-const POST_TEST_DATES_FROM_EXCEL = ["2026-10-27", "2026-10-29", "2026-11-03", "2026-11-05", "2026-11-10", "2026-11-12", "2026-11-17", "2026-11-19", "2026-11-24", "2026-11-26", "2026-12-01", "2026-12-03"];
-
-function PostTestAccess({ activity, programId, canAccess }) {
-  const [dateNow, setDateNow] = useState(todayWITA());
-  const [credentials, setCredentials] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    const refreshDate = () => setDateNow(todayWITA());
-    refreshDate();
-    const timer = window.setInterval(refreshDate, 30000);
-    window.addEventListener("focus", refreshDate);
-    document.addEventListener("visibilitychange", refreshDate);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refreshDate);
-      document.removeEventListener("visibilitychange", refreshDate);
-    };
-  }, []);
-
-  // Sembunyikan kredensial jika halaman melewati tengah malam WITA
-  // atau pengguna memilih jadwal berbeda.
-  useEffect(() => {
-    setCredentials(null);
-    setMessage("");
-  }, [dateNow, activity.start, programId]);
-
-  if (normalizeType(activity.type) !== "posttest") return null;
-
-  const date = activity.start;
-  const known = activity.start === activity.end &&
-    POST_TEST_DATES_FROM_EXCEL.includes(date);
-
-  if (!known) {
-    return (
-      <p className="dp-posttest-note">
-        Link dan password Post-Test belum tercantum pada data Excel.
-      </p>
-    );
-  }
-
-  if (dateNow !== date) {
-    return (
-      <p className="dp-posttest-note" role="status">
-        {dateNow < date
-          ? `Link dan password tersedia pada ${formatDate(date)}, pukul 00.00–23.59 WITA.`
-          : "Masa akses link dan password Post-Test telah berakhir."}
-      </p>
-    );
-  }
-
-  if (!canAccess || !programId) {
-    return (
-      <p className="dp-posttest-note">
-        Hanya Peserta OJT aktif yang dapat membuka link dan password.
-        Admin Preview tidak membuka akses ujian.
-      </p>
-    );
-  }
-
-  async function showLink() {
-    if (busy || dateNow !== date || !canAccess) return;
-    setBusy(true);
-    setMessage("");
-    setCredentials(null);
-    try {
-      const { data, error } = await supabase.functions.invoke(
-        "posttest-access",
-        { body: { date, programId } }
-      );
-      if (error) {
-        let detail = error.message || "Fungsi Post-Test tidak dapat dihubungi.";
-        try {
-          const responseData = await error.context?.json?.();
-          if (responseData?.message) detail = responseData.message;
-        } catch {}
-        throw new Error(detail);
-      }
-      if (!data?.available) {
-        throw new Error(
-          data?.message || "Link belum tersedia pada tanggal ini."
-        );
-      }
-      if (!/^https:\/\//.test(data.url || "") || !data.password) {
-        throw new Error("Data link atau password Post-Test belum lengkap.");
-      }
-      setCredentials({
-        url: data.url,
-        password: String(data.password)
-      });
-    } catch (err) {
-      setMessage(err?.message || "Tidak dapat membuka link Post-Test.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="dp-posttest-box dp-no-print">
-      <strong>Post-Test tersedia hari ini (WITA)</strong>
-      <p className="dp-posttest-note">
-        Klik tombol berikut untuk memperoleh link dan password.
-      </p>
-      {!credentials ? (
-        <button
-          type="button"
-          className="dp-button"
-          onClick={showLink}
-          disabled={busy}
-        >
-          {busy ? "Memeriksa jadwal..." : "Tampilkan Link & Password"}
-        </button>
-      ) : (
-        <div className="dp-posttest-credentials">
-          <a
-            className="dp-button"
-            href={credentials.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Kerjakan Post-Test
-          </a>
-          <div className="dp-posttest-pass">
-            <span>Password ujian:</span>
-            <code>{credentials.password}</code>
-          </div>
-        </div>
-      )}
-      {message && <p className="dp-posttest-error" role="alert">{message}</p>}
-    </div>
-  );
-}
-
-function ActivityItem({ activity, programId, canAccessPostTest }) {
+function ActivityItem({ activity }) {
   return (
     <div className="dp-activity">
       <span className="dp-activity-icon">
@@ -1298,11 +1279,6 @@ function ActivityItem({ activity, programId, canAccessPostTest }) {
         <details className="dp-schedule-detail">
           <summary>Materi</summary>
           <p>{activity.description}</p>
-          <PostTestAccess
-            activity={activity}
-            programId={programId}
-            canAccess={canAccessPostTest}
-          />
         </details>
       </div>
     </div>
@@ -1695,6 +1671,7 @@ export default function DashboardPeserta() {
   const [ownDescription, setOwnDescription] = useState("");
   const [ownDistance, setOwnDistance] = useState("");
   const [ownFile, setOwnFile] = useState(null);
+  const [ownFileStep, setOwnFileStep] = useState("");
   const [ownSaving, setOwnSaving] = useState(false);
   const [ownMessage, setOwnMessage] = useState("");
   const ownFileInputRef = useRef(null);
@@ -2832,12 +2809,11 @@ export default function DashboardPeserta() {
       setInputError("Jarak Fisik harus lebih dari 0 sampai 100 km.");
       return;
     }
-    if (ownFile && (ownFile.size > 5 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(ownFile.type))) {
-      setInputError("Dokumentasi harus JPG, PNG, WEBP, atau PDF dan maksimal 5 MB.");
-      return;
-    }
+    // Validasi ukuran dilakukan setelah foto dikompres secara otomatis.
+    // PDF tetap harus berukuran paling besar 5 MB.
 
     setOwnSaving(true);
+    setOwnFileStep(ownFile ? "Menyiapkan dokumentasi..." : "Menyimpan kegiatan...");
     let uploadedPath = "";
     let createdRecord = false;
     try {
@@ -2857,17 +2833,23 @@ export default function DashboardPeserta() {
       if (!ownProgram?.id) throw new Error("Program aktif milik peserta tidak ditemukan.");
 
       let description = ownDescription.trim();
+      let compressionInfo = null;
       if (ownFile) {
-        const safeFileName = ownFile.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-90) || "dokumentasi";
+        setOwnFileStep("Memeriksa dan mengompresi foto bila diperlukan...");
+        compressionInfo = await prepareAchievementFile(ownFile);
+        const uploadFile = compressionInfo.file;
+        const safeFileName = uploadFile.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-90) || "dokumentasi";
         const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
         uploadedPath = `${program.id}/${authData.user.id}/${uniqueId}-${safeFileName}`;
+        setOwnFileStep("Mengunggah dokumentasi...");
         const { error: uploadError } = await supabase.storage
           .from(ACHIEVEMENT_BUCKET)
-          .upload(uploadedPath, ownFile, { upsert: false, contentType: ownFile.type });
+          .upload(uploadedPath, uploadFile, { upsert: false, contentType: uploadFile.type });
         if (uploadError) throw new Error(`Gagal upload dokumentasi: ${uploadError.message}`);
         description += `
-[[OJT_FILE_V1:${encodeURIComponent(JSON.stringify({ name: ownFile.name, path: uploadedPath }))}]]`;
+[[OJT_FILE_V1:${encodeURIComponent(JSON.stringify({ name: uploadFile.name, path: uploadedPath }))}]]`;
       }
+      setOwnFileStep("Menyimpan pencapaian...");
 
       const { data: saved, error: insertError } = await supabase
         .from("achievement_records")
@@ -2895,7 +2877,10 @@ export default function DashboardPeserta() {
       setOwnFile(null);
       if (ownFileInputRef.current) ownFileInputRef.current.value = "";
       setAchievementHistory(true);
-      setOwnMessage("Achievement berhasil dikirim dengan status Pending. Menunggu verifikasi Mentor.");
+      setOwnMessage(
+        "Achievement berhasil dikirim dengan status Pending. Menunggu verifikasi Mentor." +
+        (compressionInfo?.compressed ? ` Foto otomatis dikompres menjadi ${fileSizeMB(compressionInfo.file.size)} sebelum diunggah.` : "")
+      );
     } catch (err) {
       // Berusaha bersihkan file jika record belum berhasil dibuat.
       // Jika cleanup ditolak oleh policy, file tetap aman pada Storage.
@@ -2904,6 +2889,7 @@ export default function DashboardPeserta() {
       }
       setInputError(err?.message || "Gagal menyimpan Achievement.");
     } finally {
+      setOwnFileStep("");
       setOwnSaving(false);
     }
   }
@@ -3939,8 +3925,6 @@ export default function DashboardPeserta() {
                             <ActivityItem
                               key={item.id}
                               activity={item}
-                              programId={program?.id}
-                              canAccessPostTest={canInputOwnData}
                             />
                           )
                         )
@@ -4094,8 +4078,6 @@ export default function DashboardPeserta() {
                         <ActivityItem
                           key={item.id}
                           activity={item}
-                          programId={program?.id}
-                          canAccessPostTest={canInputOwnData}
                         />
                       )
                     )
@@ -4163,11 +4145,27 @@ export default function DashboardPeserta() {
                         <textarea required rows={3} value={ownDescription} onChange={(event) => setOwnDescription(event.target.value)} placeholder="Jelaskan kegiatan yang telah dilakukan..." />
                       </label>
                       <label>
-                        Foto / Dokumen Pendukung (maksimal 5 MB)
-                        <input ref={ownFileInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setOwnFile(event.target.files?.[0] || null)} />
+                        Foto / Dokumen Pendukung (maksimal 5 MB setelah kompresi)
+                        <input
+                          ref={ownFileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif,application/pdf,.pdf"
+                          disabled={ownSaving}
+                          onChange={(event) => {
+                            setOwnFile(event.target.files?.[0] || null);
+                            setInputError("");
+                            setOwnMessage("");
+                          }}
+                        />
+                        <small style={{ display: "block", marginTop: 6, opacity: 0.8, lineHeight: 1.5 }}>
+                          {ownFile
+                            ? `${ownFile.name} (${fileSizeMB(ownFile.size)}). ${achievementFileKind(ownFile) === "pdf" ? "PDF tidak dikompres dan harus maksimal 5 MB." : "Foto dikompres otomatis bila melebihi 5 MB; HEIC/HEIF dikonversi jika browser mendukung."}`
+                            : "JPG, PNG, WEBP, HEIC/HEIF (jika didukung), atau PDF. Foto besar dikompres otomatis sebelum dikirim."}
+                        </small>
                       </label>
+                      {ownFileStep && <div className="dp-hint" role="status">{ownFileStep}</div>}
                       <button type="submit" className="dp-button" disabled={ownSaving}>
-                        {ownSaving ? "Menyimpan..." : "Kirim Achievement Saya"}
+                        {ownSaving ? (ownFileStep || "Menyimpan...") : "Kirim Achievement Saya"}
                       </button>
                       {ownMessage && <div className="dp-alert" role="status">{ownMessage}</div>}
                     </form>
@@ -5340,47 +5338,6 @@ const dashboardCSS = `
     color: var(--dp-muted);
     font-size: 11px;
     margin-top: 5px;
-  }
-
-  .dp-posttest-box {
-    margin-top: 11px;
-    padding: 13px;
-    background: var(--dp-tint);
-    border: 1px solid var(--dp-border);
-    border-radius: 10px;
-  }
-  .dp-posttest-box > strong { font-size: 12px; }
-  .dp-posttest-note {
-    color: var(--dp-muted);
-    font-size: 11px;
-    line-height: 1.6;
-    margin: 8px 0;
-  }
-  .dp-posttest-credentials {
-    display: flex;
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  .dp-posttest-pass {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-    font-size: 12px;
-  }
-  .dp-posttest-pass code {
-    background: var(--dp-surface);
-    border: 1px solid var(--dp-border);
-    color: var(--dp-text);
-    border-radius: 7px;
-    padding: 10px;
-    user-select: text;
-    overflow-wrap: anywhere;
-  }
-  .dp-posttest-error {
-    font-size: 11px;
-    color: #c83e49;
   }
 
   .dp-schedule-detail {
