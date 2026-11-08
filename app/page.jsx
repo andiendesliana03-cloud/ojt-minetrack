@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -616,6 +615,7 @@ export default function MentorDashboard() {
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [sidebarHint, setSidebarHint] = useState("");
 
   const [access, setAccess] = useState("checking");
   const [maintenance, setMaintenance] = useState(null);
@@ -1081,6 +1081,7 @@ export default function MentorDashboard() {
 
   function navigate(path) {
     setMenuOpen(false);
+    setSidebarHint("");
     router.push(path);
   }
 
@@ -1095,6 +1096,23 @@ export default function MentorDashboard() {
           block: "start",
         });
     });
+  }
+
+  // Menu baru mengarahkan ke modul yang sudah tersedia,
+  // tanpa membuat route palsu atau mengubah hak akses.
+  function openParticipantModule(type) {
+    const instructions = {
+      verification:
+        "Untuk verifikasi kegiatan, pilih peserta lalu tekan Input. Pemeriksaan dan keputusan tetap mengikuti hak akses Mentor/Admin pada modul terkait.",
+      monitoring:
+        "Untuk Monitoring Achievement, pilih peserta lalu tekan Monitoring. Grafik dan riwayat tetap menggunakan data program peserta tersebut.",
+      report:
+        "Untuk membuka rapor atau rekap, pilih peserta lalu tekan Detail dan buka modul Rapor/Evaluasi yang tersedia.",
+    };
+
+    setSearch("");
+    setSidebarHint(instructions[type] || "");
+    scrollToSection("daftar-peserta");
   }
 
   function openCalendar() {
@@ -1499,108 +1517,110 @@ export default function MentorDashboard() {
             </p>
           </div>
 
-          <div className="mt-menu-label">
-            MENU {isAdmin ? "ADMIN" : "MENTOR"}
-          </div>
+          <nav className="mt-sidebar-nav" aria-label="Navigasi Mentor dan Admin">
+            <div className="mt-sidebar-group">
+              <div className="mt-menu-label">MENU UTAMA</div>
+              <button
+                type="button"
+                className="mt-nav active"
+                aria-current="page"
+                onClick={() => {
+                  setSidebarHint("");
+                  scrollToSection("dashboard-utama");
+                }}
+              >
+                <Icon name="home" size={19} />
+                <span>Dashboard {isAdmin ? "Admin" : "Mentor"}</span>
+              </button>
+              <button
+                type="button"
+                className="mt-nav"
+                onClick={() => navigate("/mentor/monitoring-peserta")}
+              >
+                <Icon name="chart" size={19} />
+                <span>Monitoring Peserta</span>
+              </button>
+              <button
+                type="button"
+                className="mt-nav"
+                onClick={() => openParticipantModule("verification")}
+              >
+                <Icon name="shield" size={19} />
+                <span>Verifikasi Kegiatan</span>
+              </button>
+              <button
+                type="button"
+                className="mt-nav"
+                onClick={() => {
+                  setSidebarHint("");
+                  openCalendar();
+                }}
+              >
+                <Icon name="calendar" size={19} />
+                <span>Jadwal Kegiatan Mingguan</span>
+              </button>
+            </div>
 
-          <nav className="mt-sidebar-nav">
-            <button
-              type="button"
-              className="mt-nav active"
-              onClick={() =>
-                scrollToSection("dashboard-utama")
-              }
-            >
-              <Icon name="home" size={19} />
-              <span>Dashboard Mentor</span>
-            </button>
+            <div className="mt-sidebar-group">
+              <div className="mt-menu-label">MANAJEMEN PESERTA</div>
+              <button
+                type="button"
+                className="mt-nav"
+                onClick={() => {
+                  setSidebarHint("");
+                  scrollToSection("daftar-peserta");
+                }}
+              >
+                <Icon name="users" size={19} />
+                <span>Peserta OJT</span>
+              </button>
+              <button
+                type="button"
+                className="mt-nav"
+                onClick={() => navigate("/mentor/daftar-peserta")}
+              >
+                <Icon name="file" size={19} />
+                <span>Pendaftaran Peserta</span>
+              </button>
+              <button
+                type="button"
+                className="mt-nav"
+                onClick={() => navigate("/mentor/persetujuan-peserta")}
+              >
+                <Icon name="check" size={19} />
+                <span>Persetujuan Peserta</span>
+              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="mt-nav"
+                  onClick={() => navigate("/admin/persetujuan-mentor")}
+                >
+                  <Icon name="check" size={19} />
+                  <span>Persetujuan Mentor</span>
+                </button>
+              )}
+            </div>
 
-            <button
-              type="button"
-              className="mt-nav"
-              onClick={() =>
-                navigate("/mentor/monitoring-peserta")
-              }
-            >
-              <Icon name="chart" size={19} />
-              <span>Monitoring Peserta</span>
-            </button>
-           
-<button
-  type="button"
-  className="mt-nav"
-  onClick={() =>
-    navigate("/mentor/verifikasi-kegiatan")
-  }
->
-  <Icon name="check" size={19} />
-  <span>Verifikasi & Monitoring</span>
-  {achievements.filter(
-    (item) => item.status === "pending"
-  ).length > 0 && (
-    <span className="mt-pending-count">
-      {achievements.filter(
-        (item) => item.status === "pending"
-      ).length}
-    </span>
-  )}
-</button>
-
-
-            <button
-              type="button"
-              className="mt-nav"
-              onClick={() =>
-                scrollToSection("daftar-peserta")
-              }
-            >
-              <Icon name="users" size={19} />
-              <span>Peserta OJT</span>
-            </button>
-
-            <button
-              type="button"
-              className="mt-nav"
-              onClick={() =>
-                navigate("/mentor/daftar-peserta")
-              }
-            >
-              <Icon name="file" size={19} />
-              <span>Pendaftaran Peserta</span>
-            </button>
-
-            <button
-              type="button"
-              className="mt-nav"
-              onClick={() =>
-                navigate("/mentor/persetujuan-peserta")
-              }
-            >
-              <Icon name="check" size={19} />
-              <span>Persetujuan Peserta</span>
-            </button>
-           
-{isAdmin && (
-  <button
-    type="button"
-    className="mt-nav"
-    onClick={() =>
-      navigate("/admin/persetujuan-mentor")
-    }
-  >
-    <Icon name="check" size={19} />
-    <span>Persetujuan Mentor</span>
-  </button>
-)}
-
-            <button
-              type="button"
-              className="mt-nav"
-              onClick={openCalendar}
-            >
-              <Icon name="calendar" size={19} />
-              <span>Kalender Kegiatan Mingguan</span>
-            </button>
+            <div className="mt-sidebar-group">
+              <div className="mt-menu-label">EVALUASI &amp; LAPORAN</div>
+              <button
+                type="button"
+                className="mt-nav"
+                onClick={() => openParticipantModule("monitoring")}
+              >
+                <Icon name="chart" size={19} />
+                <span>Monitoring Achievement</span>
+              </button>
+              <button
+                type="button"
+                className="mt-nav"
+                onClick={() => openParticipantModule("report")}
+              >
+                <Icon name="file" size={19} />
+                <span>Laporan Rekap</span>
+              </button>
+            </div>
           </nav>
         </div>
 
@@ -1612,7 +1632,7 @@ export default function MentorDashboard() {
 
             <div>
               <strong>{accountName}</strong>
-              <small>{accountRole}</small>
+              <small>{accountRole} · Profil Akun</small>
             </div>
           </div>
 
@@ -2211,6 +2231,20 @@ export default function MentorDashboard() {
               </div>
             </div>
 
+            {sidebarHint && (
+              <div className="mt-sidebar-hint" role="status">
+                <Icon name="shield" size={18} />
+                <span>{sidebarHint}</span>
+                <button
+                  type="button"
+                  aria-label="Tutup panduan menu"
+                  onClick={() => setSidebarHint("")}
+                >
+                  <Icon name="close" size={15} />
+                </button>
+              </div>
+            )}
+
             {/* TABEL PESERTA */}
 
             <div className="mt-table-wrap">
@@ -2641,7 +2675,7 @@ html[data-theme="dark"] .mt-sidebar {
 
 .mt-brand {
   padding: 12px 10px 22px;
-  margin-bottom: 20px;
+  margin-bottom: 9px;
   border-bottom: 1px solid #ffffff25;
 }
 
@@ -2678,11 +2712,28 @@ html[data-theme="dark"] .mt-sidebar {
   letter-spacing: 1.1px;
 }
 
-/* NAVIGATION */
+/* NAVIGATION — DIKELOMPOKKAN SESUAI SKETSA */
 
 .mt-sidebar-nav {
   display: grid;
-  gap: 7px;
+  gap: 15px;
+  align-content: start;
+}
+
+.mt-sidebar-group {
+  display: grid;
+  gap: 5px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid rgba(207, 247, 221, .16);
+}
+.mt-sidebar-group:last-child {
+  border-bottom: 0;
+}
+.mt-sidebar-group .mt-menu-label {
+  padding: 4px 9px 9px;
+  color: #8fe9bd;
+  font-size: 9.5px;
+  letter-spacing: 1.6px;
 }
 
 .mt-nav {
@@ -2691,8 +2742,8 @@ html[data-theme="dark"] .mt-sidebar {
   gap: 12px;
 
   width: 100%;
-  min-height: 45px;
-  padding: 12px 13px;
+  min-height: 42px;
+  padding: 10px 12px;
 
   border: 1px solid transparent;
   border-radius: 10px;
@@ -2724,13 +2775,6 @@ html[data-theme="dark"] .mt-sidebar {
   background: #07885c;
   border-color: #ffffff19;
 }
-
-/* HANYA MENU SESUAI KESEPAKATAN:
-   DASHBOARD
-   PERSETUJUAN PESERTA
-   KALENDER KEGIATAN MINGGUAN
-   REFRESH DATA
-   KELUAR AKUN
 
 /* SIDEBAR BOTTOM */
 
@@ -2782,6 +2826,32 @@ html[data-theme="dark"] .mt-sidebar {
 
 .mt-sidebar-bottom .mt-nav:last-child {
   color: #ffd6cd;
+}
+
+/* PANDUAN AKSI SIDEBAR — TIDAK MENGUBAH ROUTE MODUL */
+.mt-sidebar-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin: 0 0 15px;
+  padding: 13px 15px;
+  border: 1px solid var(--mt-border);
+  border-radius: 11px;
+  color: var(--mt-heading);
+  background: var(--mt-surface-alt);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.mt-sidebar-hint > svg { flex-shrink: 0; color: var(--mt-green-dark); }
+.mt-sidebar-hint > span { flex: 1; }
+.mt-sidebar-hint button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--mt-muted);
 }
 
 /* =====================================================
