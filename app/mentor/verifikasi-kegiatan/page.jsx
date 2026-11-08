@@ -5,9 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 
-// OJT MineTrack v2.0
-// Halaman Verifikasi & Monitoring Mentor/Admin
-// Tidak mengubah database atau perhitungan lama.
+// =====================================================
+// OJT MINETRACK V2.0
+// VERIFIKASI & MONITORING MENTOR / ADMIN
+// Database, status, target, kalender tetap.
+// =====================================================
+
+const BUCKET = "achievement-files";
+const THEME_KEY = "ojt-minetrack-theme";
 
 const TARGETS = [
   { name: "Fisik", target: 25, unit: "km", icon: "🏃" },
@@ -18,14 +23,28 @@ const TARGETS = [
   { name: "Hazard", target: 2, unit: "kegiatan", icon: "⚠️" },
 ];
 
-const pad = (n) => String(n).padStart(2, "0");
+const P2 = (n) => String(n).padStart(2, "0");
+
+const norm = (s) =>
+  String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 const dateKey = (d) => d.toISOString().slice(0, 10);
-const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
+
+const addDays = (d, n) =>
+  new Date(d.getTime() + n * 86400000);
+
+// =====================================================
+// KALENDER GLOBAL 25 MINGGU — TIDAK DIUBAH
+// =====================================================
 
 const WEEKS = Array.from({ length: 25 }, (_, i) => {
-  const start = i === 0
-    ? new Date(Date.UTC(2026, 8, 12))
-    : addDays(new Date(Date.UTC(2026, 8, 20)), (i - 1) * 7);
+  const start =
+    i === 0
+      ? new Date(Date.UTC(2026, 8, 12))
+      : addDays(
+          new Date(Date.UTC(2026, 8, 20)),
+          (i - 1) * 7
+        );
 
   return {
     number: i + 1,
@@ -34,60 +53,180 @@ const WEEKS = Array.from({ length: 25 }, (_, i) => {
   };
 });
 
-const norm = (v) =>
-  String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function weekOf(value) {
+  const d = String(value ?? "").slice(0, 10);
 
-const weekOf = (value) => {
-  const date = String(value || "").slice(0, 10);
-  return WEEKS.find(
-    (w) => date >= w.start && date <= w.end
-  )?.number ?? null;
-};
+  return (
+    WEEKS.find(
+      (w) => d >= w.start && d <= w.end
+    )?.number ?? null
+  );
+}
 
-const todayWITA = () =>
-  new Intl.DateTimeFormat("en-CA", {
+function todayWITA() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Makassar",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+  }).formatToParts(new Date());
 
-const formatDate = (value) => {
-  const s = String(value || "").slice(0, 10);
-  if (!/^\d{4}-\d\d-\d\d$/.test(s)) return "—";
-  return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
-};
+  const get = (type) =>
+    parts.find((p) => p.type === type)?.value || "";
 
-const categoryOf = (record, typeMap) => {
-  const name = typeMap[record.type_code]
-    || record.type_code
-    || "Lainnya";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
 
-  return TARGETS.find(
-    (c) => norm(c.name) === norm(name)
-  )?.name || name;
-};
+function showDate(value) {
+  const d = String(value ?? "").slice(0, 10);
 
-const numberOf = (value) =>
-  Number.isFinite(Number(value)) ? Number(value) : 0;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "—";
 
-const evidenceUrl = (record) => {
-  const found = String(record.description || "")
-    .match(/https?:\/\/[^\s<>'"]+/i)?.[0];
+  return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
+}
 
-  return [
-    record.evidence_url,
-    record.documentation_url,
-    record.photo_url,
-    record.file_url,
-    record.proof_url,
-    found,
-  ].find(
-    (v) => typeof v === "string" && /^https?:\/\//i.test(v)
-  ) || null;
-};
+function displayNum(value, digits = 1) {
+  return Number(value || 0).toLocaleString("id-ID", {
+    maximumFractionDigits: digits,
+  });
+}
 
-export default function VerifikasiMonitoringKegiatan() {
+// =====================================================
+// PERBAIKAN DOKUMENTASI OJT_FILE_V1
+// =====================================================
+
+function parseActivity(raw) {
+  let file = null;
+
+  const cleaned = String(raw ?? "").replace(
+    /\[\[OJT_FILE_V1:([\s\S]*?)\]\]/g,
+    (_, encoded) => {
+      try {
+        const obj = JSON.parse(
+          decodeURIComponent(encoded)
+        );
+
+        if (
+          typeof obj?.path === "string" &&
+          obj.path.trim()
+        ) {
+          file = {
+            path: obj.path.trim(),
+            name: String(
+              obj.name || "Dokumentasi kegiatan"
+            ),
+          };
+        }
+      } catch {
+        // Metadata rusak tidak ditampilkan sebagai teks.
+      }
+
+      return "";
+    }
+  );
+
+  return {
+    description: cleaned
+      .split("[[OJT_FILE_V1:")[0]
+      .trim(),
+    file,
+  };
+}
+
+function isImage(file) {
+  return /\.(png|jpe?g|webp|gif|avif)$/i.test(
+    file?.name || file?.path || ""
+  );
+}
+
+function categoryName(row, types) {
+  const value =
+    types[row.type_code] ||
+    row.type_code ||
+    "Lainnya";
+
+  return (
+    TARGETS.find(
+      (t) => norm(t.name) === norm(value)
+    )?.name || value
+  );
+}
+
+function countAchievement(rows, category) {
+  if (category === "Fisik") {
+    return rows.reduce((total, r) => {
+      const km = Number(r.distance_km);
+
+      return (
+        total +
+        (Number.isFinite(km) && km > 0 ? km : 0)
+      );
+    }, 0);
+  }
+
+  return rows.length;
+}
+
+function computeProgress(
+  rows,
+  typeMap,
+  week,
+  programId
+) {
+  const verified = rows.filter(
+    (r) =>
+      r.program_id === programId &&
+      r.status === "verified" &&
+      weekOf(r.activity_date) === week
+  );
+
+  const categories = TARGETS.map((t) => {
+    const match = verified.filter(
+      (r) =>
+        categoryName(r, typeMap) === t.name
+    );
+
+    const amount = countAchievement(
+      match,
+      t.name
+    );
+
+    return {
+      ...t,
+      amount,
+      percent: Math.min(
+        100,
+        (amount / t.target) * 100
+      ),
+    };
+  });
+
+  return {
+    categories,
+    percent: Math.round(
+      categories.reduce(
+        (s, c) => s + c.percent,
+        0
+      ) / 6
+    ),
+  };
+}
+
+function initials(name) {
+  return String(name || "OJT")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((t) => t[0])
+    .join("")
+    .toUpperCase();
+}
+
+// =====================================================
+// HALAMAN UTAMA
+// =====================================================
+
+export default function VerifikasiKegiatanPage() {
   const router = useRouter();
 
   const [account, setAccount] = useState(null);
@@ -96,103 +235,147 @@ export default function VerifikasiMonitoringKegiatan() {
   const [types, setTypes] = useState({});
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState("");
   const [dark, setDark] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState("pending");
+  const [status, setStatus] = useState("pending");
   const [weekFilter, setWeekFilter] = useState("all");
-  const [monitorWeek, setMonitorWeek] = useState(1);
-  const [categoryFilter, setCategoryFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
   const [programFilter, setProgramFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] =
+    useState("all");
   const [search, setSearch] = useState("");
 
-  const [expandedId, setExpandedId] = useState(null);
-  const [selected, setSelected] = useState([]);
-  const [page, setPage] = useState(1);
+  const [monitorWeek, setMonitorWeek] = useState(1);
+  const [monitorTab, setMonitorTab] =
+    useState("category");
 
-  // GLOBAL THEME DAN MINGGU
+  const [page, setPage] = useState(1);
+  const [picked, setPicked] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+  const [links, setLinks] = useState({});
+
+  const [revisionRow, setRevisionRow] =
+    useState(null);
+  const [revisionText, setRevisionText] =
+    useState("");
+
+  // ===================================================
+  // TEMA GLOBAL
+  // ===================================================
+
   useEffect(() => {
-    try {
-      const theme =
-        localStorage.getItem("ojt-minetrack-theme") ||
-        document.documentElement.getAttribute("data-theme") ||
+    setMonitorWeek(
+      weekOf(todayWITA()) || 1
+    );
+
+    const sync = () => {
+      const value =
+        document.documentElement.getAttribute(
+          "data-theme"
+        ) ||
+        localStorage.getItem(THEME_KEY) ||
         "light";
 
-      setDark(theme === "dark");
-    } catch {}
+      setDark(value === "dark");
+    };
 
-    setMonitorWeek(weekOf(todayWITA()) || 1);
+    sync();
+
+    const observer = new MutationObserver(sync);
+
+    observer.observe(
+      document.documentElement,
+      {
+        attributes: true,
+        attributeFilter: ["data-theme"],
+      }
+    );
+
+    return () => observer.disconnect();
   }, []);
 
   function toggleTheme() {
-    const next = !dark;
-    setDark(next);
+    const next = dark ? "light" : "dark";
 
     document.documentElement.setAttribute(
       "data-theme",
-      next ? "dark" : "light"
+      next
     );
+
     document.documentElement.style.colorScheme =
-      next ? "dark" : "light";
+      next;
 
     try {
       localStorage.setItem(
-        "ojt-minetrack-theme",
-        next ? "dark" : "light"
+        THEME_KEY,
+        next
       );
     } catch {}
+
+    setDark(next === "dark");
   }
 
-  // LOAD SUPABASE
-  useEffect(() => {
-    let mounted = true;
+  // ===================================================
+  // LOAD DATA SUPABASE
+  // ===================================================
 
-    async function loadData() {
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
       setLoading(true);
       setError("");
 
       try {
-        const auth = await supabase.auth.getUser();
-        const user = auth.data?.user;
+        const {
+          data: auth,
+          error: authError,
+        } = await supabase.auth.getUser();
 
-        if (auth.error || !user) {
+        if (authError || !auth?.user) {
           router.replace("/login");
           return;
         }
 
-        const profileRes = await supabase
+        const {
+          data: profile,
+          error: profileError,
+        } = await supabase
           .from("profiles")
           .select("id,full_name,role")
-          .eq("id", user.id)
+          .eq("id", auth.user.id)
           .maybeSingle();
 
-        if (profileRes.error) throw profileRes.error;
+        if (profileError) throw profileError;
 
-        const profile = profileRes.data;
-        const role = String(profile?.role || "")
-          .trim().toLowerCase();
+        const role = String(
+          profile?.role || ""
+        ).trim().toLowerCase();
 
         if (!["admin", "mentor"].includes(role)) {
           throw new Error(
-            "Halaman hanya dapat diakses Admin dan Mentor."
+            "Menu verifikasi hanya dapat diakses Mentor dan Admin."
           );
         }
 
-        // Pertahankan Maintenance Mode existing
-        const settingRes = await supabase
+        const {
+          data: settings,
+          error: settingsError,
+        } = await supabase
           .from("app_settings")
           .select("maintenance_mode")
           .eq("id", 1)
           .maybeSingle();
 
-        if (settingRes.error) throw settingRes.error;
+        if (settingsError) throw settingsError;
 
         if (
-          settingRes.data?.maintenance_mode &&
+          settings?.maintenance_mode &&
           role !== "admin"
         ) {
           throw new Error(
@@ -200,196 +383,455 @@ export default function VerifikasiMonitoringKegiatan() {
           );
         }
 
-        const [programRes, typeRes] = await Promise.all([
-          supabase
-            .from("ojt_programs")
-            .select(
-              "id,participant_id,start_date,end_date,status,site"
-            )
-            .eq("status", "active")
-            .order("start_date", { ascending: false }),
+        const [programRes, typeRes] =
+          await Promise.all([
+            supabase
+              .from("ojt_programs")
+              .select(
+                "id,participant_id,site,start_date,end_date,status"
+              )
+              .eq("status", "active")
+              .order("start_date", {
+                ascending: false,
+              }),
 
-          supabase
-            .from("achievement_types")
-            .select("code,name"),
-        ]);
+            supabase
+              .from("achievement_types")
+              .select("code,name"),
+          ]);
 
-        if (programRes.error) throw programRes.error;
-        if (typeRes.error) throw typeRes.error;
+        if (programRes.error) {
+          throw programRes.error;
+        }
 
-        const activePrograms = programRes.data || [];
+        if (typeRes.error) {
+          throw typeRes.error;
+        }
+
+        const rawPrograms =
+          programRes.data || [];
+
         const participantIds = [
           ...new Set(
-            activePrograms.map((p) => p.participant_id)
+            rawPrograms
+              .map((p) => p.participant_id)
               .filter(Boolean)
           ),
         ];
 
-        let participantProfiles = [];
+        let profiles = [];
 
         if (participantIds.length) {
-          const result = await supabase
+          const {
+            data,
+            error: e,
+          } = await supabase
             .from("profiles")
-            .select("id,full_name,department")
+            .select(
+              "id,full_name,department,role"
+            )
             .in("id", participantIds);
 
-          if (result.error) throw result.error;
-          participantProfiles = result.data || [];
+          if (e) throw e;
+
+          profiles = data || [];
         }
 
         const profileMap = new Map(
-          participantProfiles.map((p) => [p.id, p])
+          profiles.map((p) => [
+            p.id,
+            p,
+          ])
         );
 
-        const ids = activePrograms.map((p) => p.id);
+        const activePrograms = rawPrograms
+          .map((p) => ({
+            ...p,
+            peserta:
+              profileMap.get(p.participant_id) ||
+              null,
+          }))
+          .filter((p) =>
+            ["participant", "peserta"].includes(
+              String(
+                p.peserta?.role || ""
+              ).trim().toLowerCase()
+            )
+          );
+
+        const ids = activePrograms.map(
+          (p) => p.id
+        );
+
         const allRecords = [];
 
-        // Pagination agar tidak hanya membaca 1000 data
-        for (let start = 0; start < ids.length; start += 40) {
-          const chunk = ids.slice(start, start + 40);
-          let offset = 0;
+        // Pagination untuk data lebih dari 1000 baris.
+        for (
+          let i = 0;
+          i < ids.length;
+          i += 35
+        ) {
+          const chunk = ids.slice(i, i + 35);
 
-          while (true) {
-            const result = await supabase
+          for (
+            let offset = 0;
+            ;
+            offset += 500
+          ) {
+            const {
+              data,
+              error: e,
+            } = await supabase
               .from("achievement_records")
-              .select("*")
+              .select(
+                "id,program_id,type_code,activity_date,description,distance_km,status,verified_by,created_at"
+              )
               .in("program_id", chunk)
-              .order("created_at", { ascending: false })
-              .range(offset, offset + 999);
+              .order("created_at", {
+                ascending: false,
+              })
+              .range(
+                offset,
+                offset + 499
+              );
 
-            if (result.error) throw result.error;
+            if (e) throw e;
 
-            const batch = result.data || [];
-            allRecords.push(...batch);
+            const part = data || [];
 
-            if (batch.length < 1000) break;
-            offset += 1000;
+            allRecords.push(...part);
+
+            if (part.length < 500) break;
           }
         }
 
-        if (!mounted) return;
+        if (!active) return;
 
-        setAccount({ ...profile, role });
-        setPrograms(
-          activePrograms.map((p) => ({
-            ...p,
-            peserta: profileMap.get(p.participant_id) || null,
-          }))
-        );
+        setAccount({
+          ...profile,
+          role,
+        });
+
+        setPrograms(activePrograms);
+
         setTypes(
           Object.fromEntries(
-            (typeRes.data || []).map((t) => [t.code, t.name])
+            (typeRes.data || []).map(
+              (t) => [t.code, t.name]
+            )
           )
         );
+
         setRecords(allRecords);
-      } catch (err) {
-        if (mounted) {
-          setError(err.message || "Gagal mengambil data OJT.");
+        setPicked([]);
+      } catch (e) {
+        if (active) {
+          setError(
+            e.message ||
+              "Gagal memuat kegiatan OJT."
+          );
         }
       } finally {
-        if (mounted) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
-    loadData();
-    return () => { mounted = false; };
-  }, [reload, router]);
+    load();
 
-  // FILTER DATA
+    return () => {
+      active = false;
+    };
+  }, [refreshKey, router]);
+
+  // ===================================================
+  // DATA, FILTER, DAN PAGINATION
+  // ===================================================
+
+  const programMap = useMemo(
+    () =>
+      new Map(
+        programs.map((p) => [
+          p.id,
+          p,
+        ])
+      ),
+    [programs]
+  );
+
   const sites = useMemo(
     () => [
-      ...new Set(programs.map((p) => p.site).filter(Boolean)),
+      ...new Set(
+        programs
+          .map((p) => p.site)
+          .filter(Boolean)
+      ),
     ].sort(),
     [programs]
   );
 
-  const scopedPrograms = useMemo(
-    () => programs.filter(
-      (p) =>
-        (siteFilter === "all" || p.site === siteFilter) &&
-        (programFilter === "all" || p.id === programFilter)
-    ),
-    [programs, siteFilter, programFilter]
+  const selectedPrograms = useMemo(
+    () =>
+      programs.filter(
+        (p) =>
+          (siteFilter === "all" ||
+            p.site === siteFilter) &&
+          (programFilter === "all" ||
+            p.id === programFilter)
+      ),
+    [
+      programs,
+      siteFilter,
+      programFilter,
+    ]
   );
 
-  const programMap = useMemo(
-    () => new Map(programs.map((p) => [p.id, p])),
-    [programs]
+  const selectedIds = useMemo(
+    () =>
+      new Set(
+        selectedPrograms.map(
+          (p) => p.id
+        )
+      ),
+    [selectedPrograms]
   );
 
-  const scopedIds = useMemo(
-    () => new Set(scopedPrograms.map((p) => p.id)),
-    [scopedPrograms]
+  const scoped = useMemo(
+    () =>
+      records.filter(
+        (r) =>
+          selectedIds.has(r.program_id)
+      ),
+    [records, selectedIds]
   );
 
-  const scopedRecords = useMemo(
-    () => records.filter((r) => scopedIds.has(r.program_id)),
-    [records, scopedIds]
+  const enriched = useMemo(
+    () =>
+      scoped.map((r) => {
+        const details = parseActivity(
+          r.description
+        );
+
+        return {
+          ...r,
+          ...details,
+          category: categoryName(
+            r,
+            types
+          ),
+          week: weekOf(
+            r.activity_date
+          ),
+          program: programMap.get(
+            r.program_id
+          ),
+        };
+      }),
+    [
+      scoped,
+      types,
+      programMap,
+    ]
   );
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search
+      .trim()
+      .toLowerCase();
 
-    return scopedRecords
-      .filter((r) => {
-        const peserta =
-          programMap.get(r.program_id)?.peserta?.full_name || "";
-
-        const combined = [
-          peserta,
-          types[r.type_code],
-          r.description,
-        ].join(" ").toLowerCase();
-
-        return (
-          (statusFilter === "all" ||
-            r.status === statusFilter) &&
+    return enriched
+      .filter(
+        (r) =>
+          (status === "all" ||
+            r.status === status) &&
           (weekFilter === "all" ||
-            weekOf(r.activity_date) === Number(weekFilter)) &&
+            r.week ===
+              Number(weekFilter)) &&
           (categoryFilter === "all" ||
-            categoryOf(r, types) === categoryFilter) &&
-          (!q || combined.includes(q))
-        );
-      })
+            r.category ===
+              categoryFilter) &&
+          (!q ||
+            [
+              r.program?.peserta
+                ?.full_name,
+              r.description,
+              r.category,
+              r.program?.site,
+            ]
+              .join(" ")
+              .toLowerCase()
+              .includes(q))
+      )
       .sort((a, b) =>
-        String(b.activity_date || "").localeCompare(
-          String(a.activity_date || "")
+        String(
+          b.activity_date || ""
+        ).localeCompare(
+          String(
+            a.activity_date || ""
+          )
         )
       );
   }, [
-    scopedRecords,
-    programMap,
-    types,
-    search,
-    statusFilter,
+    enriched,
+    status,
     weekFilter,
     categoryFilter,
+    search,
   ]);
 
   useEffect(() => {
     setPage(1);
-    setSelected([]);
+    setPicked([]);
+    setExpanded(null);
   }, [
-    statusFilter,
+    status,
     weekFilter,
-    categoryFilter,
     siteFilter,
     programFilter,
+    categoryFilter,
     search,
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / 10));
-  const currentPage = Math.min(page, totalPages);
-  const visible = filtered.slice(
-    (currentPage - 1) * 10,
-    currentPage * 10
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filtered.length / 8)
   );
 
-  const pending = scopedRecords.filter(
+  const currentPage = Math.min(
+    page,
+    totalPages
+  );
+
+  const visible = useMemo(
+    () =>
+      filtered.slice(
+        (currentPage - 1) * 8,
+        currentPage * 8
+      ),
+    [filtered, currentPage]
+  );
+
+  const visibleWithFiles = useMemo(
+    () =>
+      visible.filter(
+        (r) => r.file?.path
+      ),
+    [visible]
+  );
+
+  // ===================================================
+  // FOTO / DOKUMENTASI SUPABASE STORAGE
+  // ===================================================
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function preview() {
+      const results = await Promise.all(
+        visibleWithFiles.map(async (r) => {
+          const {
+            data,
+            error: e,
+          } = await supabase.storage
+            .from(BUCKET)
+            .createSignedUrl(
+              r.file.path,
+              600
+            );
+
+          return [
+            r.id,
+            e
+              ? { error: e.message }
+              : {
+                  url:
+                    data?.signedUrl ||
+                    null,
+                },
+          ];
+        })
+      );
+
+      if (!cancelled) {
+        setLinks((before) => ({
+          ...before,
+          ...Object.fromEntries(
+            results
+          ),
+        }));
+      }
+    }
+
+    if (visibleWithFiles.length) {
+      preview();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    visibleWithFiles,
+    refreshKey,
+  ]);
+
+  async function openFile(r) {
+    if (!r.file?.path) return;
+
+    // Buka tab saat klik agar tidak diblokir
+    // browser mobile.
+    const tab = window.open(
+      "about:blank",
+      "_blank"
+    );
+
+    if (!tab) {
+      setError(
+        "Browser memblokir tab baru. Izinkan popup untuk membuka bukti."
+      );
+      return;
+    }
+
+    try {
+      const {
+        data,
+        error: e,
+      } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(
+          r.file.path,
+          600
+        );
+
+      if (e) throw e;
+
+      if (!data?.signedUrl) {
+        throw new Error(
+          "URL dokumentasi tidak tersedia."
+        );
+      }
+
+      tab.location.replace(
+        data.signedUrl
+      );
+    } catch (e) {
+      tab.close();
+
+      setError(
+        `Gagal membuka bukti: ${e.message}. Periksa akses Storage untuk Mentor/Admin.`
+      );
+    }
+  }
+
+  // ===================================================
+  // KPI
+  // ===================================================
+
+  const pendingTotal = enriched.filter(
     (r) => r.status === "pending"
   ).length;
 
-  const verified = scopedRecords.filter(
+  const verifiedTotal = enriched.filter(
     (r) => r.status === "verified"
   ).length;
 
@@ -397,301 +839,569 @@ export default function VerifikasiMonitoringKegiatan() {
     (r) => r.status === "pending"
   );
 
-  const selectedPending = visible.filter(
-    (r) => r.status === "pending" && selected.includes(r.id)
+  const selectedPending = filtered.filter(
+    (r) =>
+      r.status === "pending" &&
+      picked.includes(r.id)
   );
 
-  // MONITORING ENAM KATEGORI
-  const monitoring = useMemo(
-    () => TARGETS.map((category) => {
-      const relevant = scopedRecords.filter(
-        (r) =>
-          r.status === "verified" &&
-          weekOf(r.activity_date) === monitorWeek &&
-          categoryOf(r, types) === category.name
-      );
+  // ===================================================
+  // VERIFIKASI — LOGIKA EXISTING
+  // ===================================================
 
-      const done = category.name === "Fisik"
-        ? relevant.reduce(
-            (sum, r) => sum + numberOf(r.distance_km),
-            0
-          )
-        : relevant.length;
-
-      const target = category.target * scopedPrograms.length;
-
-      return {
-        ...category,
-        done,
-        target,
-        percent: target
-          ? Math.min(100, Math.round(done / target * 100))
-          : 0,
-      };
-    }),
-    [scopedRecords, scopedPrograms.length, monitorWeek, types]
-  );
-
-  const trend = useMemo(
-    () => WEEKS.map(
-      (w) => scopedRecords.filter(
-        (r) =>
-          r.status === "verified" &&
-          weekOf(r.activity_date) === w.number
-      ).length
-    ),
-    [scopedRecords]
-  );
-
-  const maxTrend = Math.max(1, ...trend);
-  const chartPoints = trend.map(
-    (n, i) => `${16 + i * 15.7},${118 - (n / maxTrend) * 95}`
-  ).join(" ");
-
-  // VERIFIKASI MENGGUNAKAN LOGIKA EXISTING
   async function verifyRows(items) {
-    if (saving || loading || !account || !items.length) return;
+    if (
+      busy ||
+      !account ||
+      !items.length
+    ) return;
 
-    if (!window.confirm(
-      `Verifikasi ${items.length} kegiatan yang dipilih?`
-    )) return;
+    if (
+      !window.confirm(
+        `Verifikasi ${items.length} kegiatan yang sudah diperiksa?`
+      )
+    ) return;
 
-    setSaving(true);
+    setBusy(true);
     setError("");
-    setMessage("");
+    setNotice("");
 
-    let success = 0;
-    const failures = [];
+    const accepted = [];
+    const failure = [];
 
-    try {
-      for (const record of items) {
-        if (
-          record.status !== "pending" ||
-          !scopedIds.has(record.program_id)
-        ) continue;
+    for (const r of items) {
+      if (
+        r.status !== "pending" ||
+        !selectedIds.has(
+          r.program_id
+        )
+      ) continue;
 
-        if (
-          categoryOf(record, types) === "Fisik" &&
-          numberOf(record.distance_km) <= 0
-        ) {
-          failures.push("Jarak kegiatan Fisik tidak valid.");
-          continue;
-        }
+      if (
+        r.category === "Fisik" &&
+        !(Number(r.distance_km) > 0)
+      ) {
+        failure.push(
+          `${r.program?.peserta?.full_name || "Peserta"}: jarak Fisik belum valid`
+        );
+        continue;
+      }
 
-        const result = await supabase
+      try {
+        const {
+          data,
+          error: e,
+        } = await supabase
           .from("achievement_records")
           .update({
             status: "verified",
             verified_by: account.id,
           })
-          .eq("id", record.id)
-          .eq("program_id", record.program_id)
-          .eq("status", "pending")
+          .eq("id", r.id)
+          .eq(
+            "program_id",
+            r.program_id
+          )
+          .eq(
+            "status",
+            "pending"
+          )
           .select("id");
 
-        if (result.error) {
-          failures.push(result.error.message);
-        } else if (!result.data?.length) {
-          failures.push(
-            "Data tidak berubah. Periksa izin RLS atau status terbaru."
+        if (e) throw e;
+
+        if (!data?.length) {
+          throw new Error(
+            "Tidak diizinkan atau status sudah berubah. Periksa RLS."
           );
-        } else {
-          success += 1;
         }
-      }
 
-      if (success > 0) {
-        setMessage(`${success} kegiatan berhasil diverifikasi.`);
-        setSelected([]);
-        setReload((n) => n + 1);
+        accepted.push(r.id);
+      } catch (e) {
+        failure.push(
+          `${r.program?.peserta?.full_name || "Peserta"}: ${e.message}`
+        );
       }
+    }
 
-      if (failures.length) {
-        setError(`${failures.length} gagal: ${failures[0]}`);
-      }
-    } catch (err) {
-      setError(err.message || "Verifikasi gagal.");
-    } finally {
-      setSaving(false);
+    if (accepted.length) {
+      const ok = new Set(
+        accepted
+      );
+
+      setRecords((prev) =>
+        prev.map((r) =>
+          ok.has(r.id)
+            ? {
+                ...r,
+                status: "verified",
+                verified_by:
+                  account.id,
+              }
+            : r
+        )
+      );
+
+      setPicked((prev) =>
+        prev.filter(
+          (id) => !ok.has(id)
+        )
+      );
+
+      setNotice(
+        `${accepted.length} kegiatan berhasil diverifikasi.`
+      );
+    }
+
+    if (failure.length) {
+      setError(
+        `${failure.length} kegiatan gagal: ${failure[0]}`
+      );
+    }
+
+    setBusy(false);
+  }
+
+  // ===================================================
+  // CATATAN REVISI TANPA STATUS DATABASE BARU
+  // ===================================================
+
+  function startRevision(r) {
+    setRevisionRow(r);
+
+    setRevisionText(
+      `Mohon perbaiki kegiatan ${r.category} tanggal ${showDate(r.activity_date)}: `
+    );
+  }
+
+  async function copyRevision() {
+    if (
+      !revisionRow ||
+      !revisionText.trim()
+    ) return;
+
+    try {
+      await navigator.clipboard.writeText(
+        `Untuk ${revisionRow.program?.peserta?.full_name || "Peserta OJT"}:\n${revisionText.trim()}`
+      );
+
+      setNotice(
+        "Catatan perbaikan disalin. Sampaikan ke peserta melalui kanal komunikasi yang digunakan."
+      );
+
+      setRevisionRow(null);
+    } catch {
+      setError(
+        "Gagal menyalin. Salin catatan secara manual dari kolom teks."
+      );
     }
   }
 
+  // ===================================================
+  // MONITORING PER PESERTA & 25 MINGGU
+  // ===================================================
+
+  const monitorRows = useMemo(
+    () =>
+      selectedPrograms.map(
+        (p) => ({
+          ...p,
+          result: computeProgress(
+            scoped,
+            types,
+            monitorWeek,
+            p.id
+          ),
+        })
+      ),
+    [
+      selectedPrograms,
+      scoped,
+      types,
+      monitorWeek,
+    ]
+  );
+
+  const categoryProgress = useMemo(
+    () =>
+      TARGETS.map((cat, i) => {
+        const amount =
+          monitorRows.reduce(
+            (s, p) =>
+              s +
+              p.result.categories[i]
+                .amount,
+            0
+          );
+
+        const count =
+          monitorRows.length;
+
+        const percentage = count
+          ? Math.round(
+              monitorRows.reduce(
+                (s, p) =>
+                  s +
+                  p.result.categories[i]
+                    .percent,
+                0
+              ) / count
+            )
+          : 0;
+
+        return {
+          ...cat,
+          amount,
+          totalTarget:
+            cat.target * count,
+          percentage,
+        };
+      }),
+    [monitorRows]
+  );
+
+  const trend = useMemo(
+    () =>
+      WEEKS.map((w) => {
+        if (!selectedPrograms.length) {
+          return 0;
+        }
+
+        const sum =
+          selectedPrograms.reduce(
+            (s, p) =>
+              s +
+              computeProgress(
+                scoped,
+                types,
+                w.number,
+                p.id
+              ).percent,
+            0
+          );
+
+        return Math.round(
+          sum /
+            selectedPrograms.length
+        );
+      }),
+    [
+      scoped,
+      types,
+      selectedPrograms,
+    ]
+  );
+
+  const trendPoints = trend
+    .map(
+      (v, i) =>
+        `${44 + i * 17.8},${150 - v * 1.22}`
+    )
+    .join(" ");
+
+  // ===================================================
+  // TAMPILAN DASHBOARD
+  // ===================================================
+
   return (
-    <div className={`vm ${dark ? "dark" : ""}`}>
-      <aside className="vm-sidebar">
+    <div
+      className={`vm ${dark ? "dark" : ""}`}
+    >
+      <aside className="vm-side">
         <div className="vm-logo">
-          ⛑️ OJT <b>MineTrack</b><small>v2.0</small>
+          ⛑ OJT <span>MineTrack</span>
+          <small>v2.0</small>
         </div>
 
-        <div className="vm-brandpanel">
-          <strong>EMERGENCY RESPONSE GROUP</strong>
-          <span>PT BERAU COAL</span>
+        <div className="vm-sidebrand">
+          EMERGENCY RESPONSE GROUP
+          <br />
+          <small>PT BERAU COAL</small>
         </div>
 
-        <nav className="vm-nav">
-          <button onClick={() => router.push("/")}>
-            ⌂ <span>Dashboard</span>
-          </button>
-          <button
-            onClick={() => router.push("/mentor/daftar-peserta")}
-          >
-            👥 <span>Peserta OJT</span>
-          </button>
-          <button className="active" aria-current="page">
-            ✓ <span>Verifikasi & Monitoring</span>
-            {pending > 0 && <em>{pending}</em>}
-          </button>
+        <nav
+          className="vm-nav"
+          aria-label="Menu Mentor"
+        >
           <button
             onClick={() =>
-              router.push("/mentor/monitoring-peserta")
+              router.push("/")
+            }
+          >
+            ⌂ <span>Dashboard</span>
+          </button>
+
+          <button
+            onClick={() =>
+              router.push(
+                "/mentor/daftar-peserta"
+              )
+            }
+          >
+            ♙ <span>Peserta OJT</span>
+          </button>
+
+          <button className="active">
+            ✓
+            <span>
+              Verifikasi & Monitoring
+            </span>
+
+            {pendingTotal > 0 && (
+              <em>{pendingTotal}</em>
+            )}
+          </button>
+
+          <button
+            onClick={() =>
+              router.push(
+                "/mentor/monitoring-peserta"
+              )
             }
           >
             ▥ <span>Monitoring Peserta</span>
           </button>
+
+          <button
+            onClick={() =>
+              router.push("/")
+            }
+          >
+            ▦ <span>Program OJT Mingguan</span>
+          </button>
         </nav>
 
-        <div className="vm-sidefooter">
-          Program OJT 2026–2027
+        <div className="vm-bottomside">
+          PROGRAM OJT 2026–2027
           <br />
-          Week 01–25 · PMO · TSP
+          Week 01–25 · Seluruh Site
         </div>
       </aside>
 
-      <main className="vm-main">
-        <header className="vm-topbar">
-          <div className="vm-topinfo">
-            <strong>Program OJT 2026–2027</strong>
-            <span className="vm-pill">
-              Week {pad(monitorWeek)}
+      <div className="vm-body">
+        <header className="vm-top">
+          <div className="vm-period">
+            <b>
+              ▦ Program OJT 2026–2027
+            </b>
+
+            <span>
+              ▣ Week {P2(monitorWeek)}
               {" · "}
-              {WEEKS[monitorWeek - 1]?.start}
+              {showDate(
+                WEEKS[monitorWeek - 1].start
+              )}
               {" – "}
-              {WEEKS[monitorWeek - 1]?.end}
+              {showDate(
+                WEEKS[monitorWeek - 1].end
+              )}
             </span>
           </div>
 
           <div className="vm-account">
-            <button className="vm-soft" onClick={toggleTheme}>
-              {dark ? "☀️ Terang" : "🌙 Gelap"}
+            <button
+              className="vm-outline"
+              onClick={toggleTheme}
+            >
+              {dark
+                ? "☀ Terang"
+                : "☾ Gelap"}
             </button>
+
+            <div className="vm-avatar">
+              {initials(
+                account?.full_name
+              )}
+            </div>
+
             <div>
-              <strong>
-                {account?.full_name || "Mentor / Admin"}
-              </strong>
-              <small>{account?.role || ""}</small>
+              <b>
+                {account?.full_name ||
+                  "Mentor / Admin"}
+              </b>
+
+              <small>
+                {account?.role || "OJT"}
+              </small>
             </div>
           </div>
         </header>
 
-        <div className="vm-content">
-          <div className="vm-heading">
+        <main className="vm-content">
+          <div className="vm-pagehead">
             <div>
-              <h1>✅ Verifikasi & Monitoring Kegiatan</h1>
+              <h1>
+                ▤ Verifikasi & Monitoring Kegiatan
+              </h1>
+
               <p>
-                Periksa kegiatan mandiri peserta dan pantau
-                pencapaian mingguan dari satu halaman.
+                Periksa kegiatan mandiri peserta,
+                buka bukti dokumentasi, dan pantau
+                target mingguan.
               </p>
             </div>
 
             <button
-              className="vm-soft"
-              disabled={loading || saving}
-              onClick={() => setReload((n) => n + 1)}
+              className="vm-outline"
+              disabled={
+                loading || busy
+              }
+              onClick={() =>
+                setRefreshKey(
+                  (n) => n + 1
+                )
+              }
             >
               ↻ Refresh
             </button>
           </div>
 
           {error && (
-            <div className="vm-alert error" role="alert">
+            <div
+              className="vm-alert error"
+              role="alert"
+            >
               {error}
             </div>
           )}
 
-          {message && (
-            <div className="vm-alert success" role="status">
-              {message}
+          {notice && (
+            <div
+              className="vm-alert ok"
+              role="status"
+            >
+              ✓ {notice}
             </div>
           )}
 
           {loading && (
-            <div className="vm-alert">
-              Mengambil data OJT dan memeriksa akses...
+            <div className="vm-loading">
+              Memuat data OJT dari Supabase...
             </div>
           )}
 
           {!loading && account && (
             <>
-              <section className="vm-kpis">
-                <div className="vm-kpi cream">
-                  <span>⌛ Menunggu Verifikasi</span>
-                  <strong>{pending}</strong>
-                  <small>Kegiatan pending</small>
+              {/* KARTU STATISTIK */}
+              <div className="vm-statgrid">
+                <div className="vm-stat yellow">
+                  <span>
+                    ⌛ Menunggu Verifikasi
+                  </span>
+                  <b>{pendingTotal}</b>
+                  <small>
+                    Kegiatan perlu ditinjau
+                  </small>
                 </div>
 
-                <div className="vm-kpi mint">
-                  <span>✅ Terverifikasi</span>
-                  <strong>{verified}</strong>
-                  <small>Kegiatan verified</small>
+                <div className="vm-stat green">
+                  <span>
+                    ✓ Terverifikasi
+                  </span>
+                  <b>{verifiedTotal}</b>
+                  <small>
+                    Kegiatan disetujui
+                  </small>
                 </div>
 
-                <div className="vm-kpi sky">
-                  <span>👥 Peserta Aktif</span>
-                  <strong>{scopedPrograms.length}</strong>
-                  <small>Program aktif</small>
+                <div className="vm-stat blue">
+                  <span>
+                    ♙ Peserta Aktif
+                  </span>
+                  <b>
+                    {selectedPrograms.length}
+                  </b>
+                  <small>
+                    Program OJT aktif
+                  </small>
                 </div>
 
-                <div className="vm-kpi lilac">
-                  <span>▤ Total Kegiatan</span>
-                  <strong>{scopedRecords.length}</strong>
-                  <small>Seluruh status</small>
+                <div className="vm-stat violet">
+                  <span>
+                    ▤ Total Kegiatan
+                  </span>
+                  <b>{enriched.length}</b>
+                  <small>
+                    Semua status
+                  </small>
                 </div>
-              </section>
+              </div>
 
               <div className="vm-columns">
-                <section className="vm-panel">
-                  <div className="vm-panelheading">
-                    <h2>Daftar Kegiatan Peserta</h2>
-                    <small>{filtered.length} kegiatan</small>
+                {/* DAFTAR VERIFIKASI */}
+                <section className="vm-card vm-listpanel">
+                  <div className="vm-cardhead">
+                    <h2>
+                      ▤ Daftar Kegiatan Peserta
+                    </h2>
+                    <small>
+                      {filtered.length} kegiatan
+                    </small>
                   </div>
 
                   <div className="vm-tabs">
                     {[
-                      { id: "pending", label: "Menunggu" },
-                      { id: "verified", label: "Terverifikasi" },
-                      { id: "all", label: "Semua" },
-                    ].map((tab) => (
+                      {
+                        id: "pending",
+                        label: `⌛ Menunggu (${pendingTotal})`,
+                      },
+                      {
+                        id: "verified",
+                        label: `✓ Terverifikasi (${verifiedTotal})`,
+                      },
+                      {
+                        id: "all",
+                        label: "☷ Semua",
+                      },
+                    ].map((s) => (
                       <button
-                        key={tab.id}
+                        key={s.id}
                         className={
-                          statusFilter === tab.id ? "active" : ""
+                          status === s.id
+                            ? "active"
+                            : ""
                         }
-                        onClick={() => setStatusFilter(tab.id)}
+                        onClick={() =>
+                          setStatus(s.id)
+                        }
                       >
-                        {tab.label}
+                        {s.label}
                       </button>
                     ))}
                   </div>
 
+                  {/* FILTER */}
                   <div className="vm-filters">
                     <input
-                      placeholder="Cari peserta atau kegiatan..."
-                      aria-label="Cari kegiatan"
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(e) =>
+                        setSearch(
+                          e.target.value
+                        )
+                      }
+                      placeholder="⌕ Cari peserta atau kegiatan..."
+                      aria-label="Cari kegiatan"
                     />
 
                     <select
                       value={weekFilter}
                       onChange={(e) =>
-                        setWeekFilter(e.target.value)
+                        setWeekFilter(
+                          e.target.value
+                        )
                       }
                       aria-label="Filter minggu"
                     >
-                      <option value="all">Semua Minggu</option>
+                      <option value="all">
+                        Semua Minggu
+                      </option>
+
                       {WEEKS.map((w) => (
-                        <option key={w.number} value={w.number}>
-                          Week {pad(w.number)}
+                        <option
+                          key={w.number}
+                          value={w.number}
+                        >
+                          Week {P2(w.number)}
                         </option>
                       ))}
                     </select>
@@ -699,13 +1409,21 @@ export default function VerifikasiMonitoringKegiatan() {
                     <select
                       value={categoryFilter}
                       onChange={(e) =>
-                        setCategoryFilter(e.target.value)
+                        setCategoryFilter(
+                          e.target.value
+                        )
                       }
                       aria-label="Filter kategori"
                     >
-                      <option value="all">Semua Kategori</option>
+                      <option value="all">
+                        Semua Kategori
+                      </option>
+
                       {TARGETS.map((c) => (
-                        <option key={c.name} value={c.name}>
+                        <option
+                          key={c.name}
+                          value={c.name}
+                        >
                           {c.name}
                         </option>
                       ))}
@@ -714,15 +1432,25 @@ export default function VerifikasiMonitoringKegiatan() {
                     <select
                       value={siteFilter}
                       onChange={(e) => {
-                        setSiteFilter(e.target.value);
-                        setProgramFilter("all");
+                        setSiteFilter(
+                          e.target.value
+                        );
+                        setProgramFilter(
+                          "all"
+                        );
                       }}
                       aria-label="Filter site"
                     >
-                      <option value="all">Semua Site</option>
-                      {sites.map((site) => (
-                        <option key={site} value={site}>
-                          {site}
+                      <option value="all">
+                        Semua Site
+                      </option>
+
+                      {sites.map((s) => (
+                        <option
+                          key={s}
+                          value={s}
+                        >
+                          {s}
                         </option>
                       ))}
                     </select>
@@ -730,75 +1458,94 @@ export default function VerifikasiMonitoringKegiatan() {
                     <select
                       value={programFilter}
                       onChange={(e) =>
-                        setProgramFilter(e.target.value)
+                        setProgramFilter(
+                          e.target.value
+                        )
                       }
                       aria-label="Filter peserta"
                     >
-                      <option value="all">Semua Peserta</option>
+                      <option value="all">
+                        Semua Peserta
+                      </option>
+
                       {programs
                         .filter(
                           (p) =>
-                            siteFilter === "all" ||
-                            p.site === siteFilter
+                            siteFilter ===
+                              "all" ||
+                            p.site ===
+                              siteFilter
                         )
                         .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.peserta?.full_name || "Peserta OJT"}
+                          <option
+                            value={p.id}
+                            key={p.id}
+                          >
+                            {p.peserta
+                              ?.full_name ||
+                              "Peserta OJT"}
                           </option>
                         ))}
                     </select>
                   </div>
 
-                  <div className="vm-tablewrap">
-                    <table>
+                  {/* TABEL KEGIATAN */}
+                  <div className="vm-scroll">
+                    <table className="vm-table">
                       <thead>
                         <tr>
                           <th>
                             <input
                               type="checkbox"
-                              aria-label="Pilih semua pending"
+                              aria-label="Pilih pending halaman ini"
                               checked={
-                                pagePending.length > 0 &&
-                                pagePending.every((r) =>
-                                  selected.includes(r.id)
+                                pagePending.length >
+                                  0 &&
+                                pagePending.every(
+                                  (r) =>
+                                    picked.includes(
+                                      r.id
+                                    )
                                 )
                               }
-                              onChange={(e) => {
-                                setSelected((prev) =>
-                                  e.target.checked
-                                    ? [
-                                        ...new Set([
-                                          ...prev,
-                                          ...pagePending.map(
-                                            (r) => r.id
-                                          ),
-                                        ]),
-                                      ]
-                                    : prev.filter(
-                                        (id) =>
-                                          !pagePending.some(
-                                            (r) => r.id === id
-                                          )
-                                      )
-                                );
-                              }}
+                              onChange={(e) =>
+                                setPicked(
+                                  (previous) =>
+                                    e.target.checked
+                                      ? [
+                                          ...new Set([
+                                            ...previous,
+                                            ...pagePending.map(
+                                              (r) =>
+                                                r.id
+                                            ),
+                                          ]),
+                                        ]
+                                      : previous.filter(
+                                          (id) =>
+                                            !pagePending.some(
+                                              (r) =>
+                                                r.id ===
+                                                id
+                                            )
+                                        )
+                                )
+                              }
                             />
                           </th>
                           <th>Peserta</th>
                           <th>Kegiatan</th>
                           <th>Realisasi</th>
                           <th>Tanggal</th>
-                          <th>Status / Aksi</th>
+                          <th>Bukti</th>
+                          <th>Aksi</th>
                         </tr>
                       </thead>
 
                       <tbody>
                         {visible.map((r) => {
-                          const program = programMap.get(
-                            r.program_id
-                          );
-                          const category = categoryOf(r, types);
-                          const proof = evidenceUrl(r);
+                          const signed =
+                            links[r.id];
 
                           return (
                             <tr key={r.id}>
@@ -806,800 +1553,1640 @@ export default function VerifikasiMonitoringKegiatan() {
                                 <input
                                   type="checkbox"
                                   disabled={
-                                    r.status !== "pending" || saving
+                                    busy ||
+                                    r.status !==
+                                      "pending"
                                   }
-                                  checked={selected.includes(r.id)}
+                                  checked={picked.includes(
+                                    r.id
+                                  )}
                                   onChange={(e) =>
-                                    setSelected((prev) =>
-                                      e.target.checked
-                                        ? [...prev, r.id]
-                                        : prev.filter(
-                                            (id) => id !== r.id
-                                          )
+                                    setPicked(
+                                      (a) =>
+                                        e.target.checked
+                                          ? [
+                                              ...new Set([
+                                                ...a,
+                                                r.id,
+                                              ]),
+                                            ]
+                                          : a.filter(
+                                              (id) =>
+                                                id !==
+                                                r.id
+                                            )
                                     )
                                   }
                                 />
                               </td>
 
                               <td>
-                                <strong>
-                                  {program?.peserta?.full_name ||
-                                    "Peserta OJT"}
-                                </strong>
-                                <small>{program?.site || "—"}</small>
-                              </td>
-
-                              <td>
-                                <b className="vm-categorybadge">
-                                  {category}
-                                </b>
-                                <small className="vm-ellipsis">
-                                  {r.description ||
-                                    "Tidak ada keterangan"}
-                                </small>
-
-                                <button
-                                  className="vm-link"
-                                  onClick={() =>
-                                    setExpandedId(
-                                      expandedId === r.id
-                                        ? null
-                                        : r.id
-                                    )
-                                  }
-                                >
-                                  {expandedId === r.id
-                                    ? "Tutup detail"
-                                    : "Lihat detail"}
-                                </button>
-
-                                {expandedId === r.id && (
-                                  <div className="vm-detail">
-                                    <b>Detail kegiatan</b>
-                                    <p>
-                                      {r.description ||
-                                        "Tidak ada keterangan."}
-                                    </p>
-
-                                    {proof ? (
-                                      <a
-                                        href={proof}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                      >
-                                        Buka bukti dokumentasi ↗
-                                      </a>
-                                    ) : (
-                                      <small>
-                                        Belum ada tautan bukti yang
-                                        terbaca pada catatan.
-                                      </small>
+                                <div className="vm-person">
+                                  <span>
+                                    {initials(
+                                      r.program
+                                        ?.peserta
+                                        ?.full_name
                                     )}
+                                  </span>
 
-                                    <button
-                                      onClick={() =>
-                                        router.push(
-                                          `/achievement/${r.program_id}`
-                                        )
-                                      }
-                                    >
-                                      Buka halaman peserta ↗
-                                    </button>
+                                  <div>
+                                    <strong>
+                                      {r.program
+                                        ?.peserta
+                                        ?.full_name ||
+                                        "Peserta OJT"}
+                                    </strong>
+
+                                    <small>
+                                      {r.program
+                                        ?.site ||
+                                        "—"}
+                                    </small>
                                   </div>
-                                )}
+                                </div>
                               </td>
 
                               <td>
-                                {category === "Fisik"
-                                  ? `${numberOf(
-                                      r.distance_km
-                                    ).toLocaleString("id-ID")} km`
-                                  : "1 kegiatan"}
+                                <div className="vm-activity">
+                                  <span
+                                    className={`vm-tag ${norm(
+                                      r.category
+                                    )}`}
+                                  >
+                                    {r.category}
+                                  </span>
+
+                                  <div className="vm-desc">
+                                    {r.description ||
+                                      "Tidak ada keterangan kegiatan."}
+                                  </div>
+
+                                  <button
+                                    className="vm-textbutton"
+                                    onClick={() =>
+                                      setExpanded(
+                                        expanded ===
+                                          r.id
+                                          ? null
+                                          : r.id
+                                      )
+                                    }
+                                  >
+                                    {expanded ===
+                                    r.id
+                                      ? "Tutup detail"
+                                      : "Lihat detail"}
+                                  </button>
+
+                                  {expanded ===
+                                    r.id && (
+                                    <div className="vm-expansion">
+                                      <strong>
+                                        Keterangan kegiatan
+                                      </strong>
+
+                                      <p>
+                                        {r.description ||
+                                          "Belum diisi peserta."}
+                                      </p>
+
+                                      <small>
+                                        {r.file
+                                          ? `Dokumentasi: ${r.file.name}`
+                                          : "Belum ada lampiran pada catatan."}
+                                      </small>
+
+                                      <button
+                                        className="vm-textbutton"
+                                        onClick={() =>
+                                          router.push(
+                                            `/achievement/${encodeURIComponent(
+                                              r.program_id
+                                            )}`
+                                          )
+                                        }
+                                      >
+                                        Buka detail peserta ↗
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </td>
 
                               <td>
-                                {formatDate(r.activity_date)}
+                                <span className="vm-amount">
+                                  {r.category ===
+                                  "Fisik"
+                                    ? `${displayNum(
+                                        r.distance_km,
+                                        3
+                                      )} km`
+                                    : "1 kegiatan"}
+                                </span>
+                              </td>
+
+                              <td>
+                                <span>
+                                  {showDate(
+                                    r.activity_date
+                                  )}
+                                </span>
+
                                 <small>
                                   Week{" "}
-                                  {weekOf(r.activity_date)
-                                    ? pad(weekOf(r.activity_date))
+                                  {r.week
+                                    ? P2(r.week)
                                     : "—"}
                                 </small>
                               </td>
 
-                              <td>
-                                <span
-                                  className={`vm-status ${
-                                    r.status === "verified"
-                                      ? "green"
-                                      : r.status === "pending"
-                                      ? "amber"
-                                      : "gray"
-                                  }`}
-                                >
-                                  {r.status || "—"}
-                                </span>
+                              {/* FOTO DOKUMENTASI */}
+                              <td className="vm-proofcell">
+                                {r.file ? (
+                                  <div className="vm-proof">
+                                    {signed?.url &&
+                                    isImage(
+                                      r.file
+                                    ) ? (
+                                      <button
+                                        onClick={() =>
+                                          openFile(
+                                            r
+                                          )
+                                        }
+                                        aria-label={`Buka bukti ${r.file.name}`}
+                                      >
+                                        <img
+                                          src={
+                                            signed.url
+                                          }
+                                          alt={`Bukti ${r.category} oleh ${
+                                            r.program
+                                              ?.peserta
+                                              ?.full_name ||
+                                            "Peserta"
+                                          }`}
+                                        />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        className="vm-prooficon"
+                                        onClick={() =>
+                                          openFile(
+                                            r
+                                          )
+                                        }
+                                      >
+                                        {signed?.error
+                                          ? "⚠"
+                                          : isImage(
+                                                r.file
+                                              )
+                                            ? "▧"
+                                            : "▤"}
+                                      </button>
+                                    )}
 
-                                {r.status === "pending" && (
-                                  <button
-                                    className="vm-verify"
-                                    disabled={saving}
-                                    onClick={() =>
-                                      verifyRows([r])
-                                    }
-                                  >
-                                    ✓ Verifikasi
-                                  </button>
+                                    <button
+                                      className="vm-prooflink"
+                                      onClick={() =>
+                                        openFile(
+                                          r
+                                        )
+                                      }
+                                    >
+                                      {signed?.error
+                                        ? "Bukti tidak bisa dibuka"
+                                        : "Lihat bukti ↗"}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="vm-nofile">
+                                    Tidak ada
+                                  </span>
                                 )}
+                              </td>
+
+                              <td>
+                                <div className="vm-actions">
+                                  <span
+                                    className={`vm-status ${
+                                      r.status ===
+                                      "verified"
+                                        ? "verified"
+                                        : r.status ===
+                                            "pending"
+                                          ? "pending"
+                                          : "other"
+                                    }`}
+                                  >
+                                    {r.status}
+                                  </span>
+
+                                  {r.status ===
+                                    "pending" && (
+                                    <button
+                                      className="vm-approve"
+                                      disabled={
+                                        busy
+                                      }
+                                      onClick={() =>
+                                        verifyRows(
+                                          [r]
+                                        )
+                                      }
+                                    >
+                                      ✓ Verifikasi
+                                    </button>
+                                  )}
+
+                                  {r.status ===
+                                    "pending" && (
+                                    <button
+                                      className="vm-revise"
+                                      disabled={
+                                        busy
+                                      }
+                                      onClick={() =>
+                                        startRevision(
+                                          r
+                                        )
+                                      }
+                                    >
+                                      Perlu revisi
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
-
-                    {!visible.length && (
-                      <div className="vm-empty">
-                        Tidak ada kegiatan sesuai filter.
-                      </div>
-                    )}
                   </div>
 
-                  <div className="vm-bottom">
-                    <span>{selected.length} dipilih</span>
+                  {!visible.length && (
+                    <div className="vm-empty">
+                      Tidak ada kegiatan sesuai filter.
+                    </div>
+                  )}
+
+                  {/* VERIFIKASI MASSAL */}
+                  <div className="vm-pagination">
+                    <span>
+                      {picked.length} dipilih
+                    </span>
 
                     <button
-                      className="vm-verify"
-                      disabled={!selectedPending.length || saving}
-                      onClick={() => verifyRows(selectedPending)}
+                      className="vm-approve"
+                      disabled={
+                        busy ||
+                        !selectedPending.length
+                      }
+                      onClick={() =>
+                        verifyRows(
+                          selectedPending
+                        )
+                      }
                     >
-                      {saving
-                        ? "Memverifikasi..."
-                        : `✓ Verifikasi Terpilih (${selectedPending.length})`}
+                      ✓ Verifikasi Terpilih (
+                      {selectedPending.length})
                     </button>
 
-                    <div className="vm-spacer" />
+                    <div className="vm-grow" />
 
                     <button
-                      className="vm-soft"
-                      disabled={currentPage <= 1}
+                      className="vm-outline"
+                      disabled={
+                        currentPage <= 1
+                      }
                       onClick={() =>
-                        setPage((p) => Math.max(1, p - 1))
+                        setPage(
+                          (p) =>
+                            Math.max(
+                              1,
+                              p - 1
+                            )
+                        )
                       }
                     >
                       ‹
                     </button>
 
-                    <span>{currentPage} / {totalPages}</span>
+                    <span>
+                      {currentPage} / {totalPages}
+                    </span>
 
                     <button
-                      className="vm-soft"
-                      disabled={currentPage >= totalPages}
+                      className="vm-outline"
+                      disabled={
+                        currentPage >=
+                        totalPages
+                      }
                       onClick={() =>
-                        setPage((p) =>
-                          Math.min(totalPages, p + 1)
+                        setPage(
+                          (p) =>
+                            Math.min(
+                              totalPages,
+                              p + 1
+                            )
                         )
                       }
                     >
                       ›
                     </button>
                   </div>
-
-                  <p className="vm-note">
-                    Kegiatan yang perlu diperbaiki dapat dibuka
-                    melalui halaman peserta. Tidak ada status
-                    penolakan baru yang ditambahkan ke database.
-                  </p>
                 </section>
 
-                <aside className="vm-monitor">
-                  <section className="vm-panel">
-                    <div className="vm-panelheading">
-                      <h2>Monitoring Pencapaian</h2>
+                {/* PANEL MONITORING */}
+                <aside className="vm-right">
+                  <section className="vm-card">
+                    <div className="vm-cardhead">
+                      <h2>
+                        ▥ Monitoring Pencapaian Peserta
+                      </h2>
 
                       <select
                         value={monitorWeek}
                         onChange={(e) =>
-                          setMonitorWeek(Number(e.target.value))
+                          setMonitorWeek(
+                            Number(
+                              e.target.value
+                            )
+                          )
                         }
                       >
-                        {WEEKS.map((w) => (
-                          <option key={w.number} value={w.number}>
-                            Week {pad(w.number)}
-                          </option>
-                        ))}
+                        {WEEKS.map(
+                          (w) => (
+                            <option
+                              key={
+                                w.number
+                              }
+                              value={
+                                w.number
+                              }
+                            >
+                              Week{" "}
+                              {P2(
+                                w.number
+                              )}
+                            </option>
+                          )
+                        )}
                       </select>
                     </div>
 
-                    <p className="vm-note">
-                      Target gabungan {scopedPrograms.length} peserta
-                      aktif pada minggu terpilih. Hanya data verified.
-                    </p>
+                    <div className="vm-switch">
+                      <button
+                        className={
+                          monitorTab ===
+                          "category"
+                            ? "active"
+                            : ""
+                        }
+                        onClick={() =>
+                          setMonitorTab(
+                            "category"
+                          )
+                        }
+                      >
+                        Ringkasan Kategori
+                      </button>
 
-                    <div className="vm-categories">
-                      {monitoring.map((c) => (
-                        <div key={c.name} className="vm-progressitem">
-                          <div className="vm-progresslabel">
-                            <span>
-                              {c.icon} {c.name}
-                            </span>
-                            <b>
-                              {c.done.toLocaleString("id-ID", {
-                                maximumFractionDigits: 2,
-                              })}{" "}
-                              / {c.target} {c.unit}
-                            </b>
-                          </div>
-
-                          <div className="vm-progress">
-                            <div
-                              style={{ width: `${c.percent}%` }}
-                            />
-                          </div>
-                          <small>{c.percent}%</small>
-                        </div>
-                      ))}
+                      <button
+                        className={
+                          monitorTab ===
+                          "participant"
+                            ? "active"
+                            : ""
+                        }
+                        onClick={() =>
+                          setMonitorTab(
+                            "participant"
+                          )
+                        }
+                      >
+                        Per Peserta
+                      </button>
                     </div>
+
+                    {monitorTab ===
+                    "category" ? (
+                      <div className="vm-categorylist">
+                        {categoryProgress.map(
+                          (c) => (
+                            <div
+                              className="vm-cat"
+                              key={
+                                c.name
+                              }
+                            >
+                              <div className="vm-catline">
+                                <b>
+                                  {c.icon}{" "}
+                                  {c.name}
+                                </b>
+
+                                <span>
+                                  {displayNum(
+                                    c.amount,
+                                    2
+                                  )}{" "}
+                                  /{" "}
+                                  {displayNum(
+                                    c.totalTarget
+                                  )}{" "}
+                                  {c.unit}
+                                </span>
+                              </div>
+
+                              <div className="vm-barline">
+                                <div className="vm-bar">
+                                  <span
+                                    style={{
+                                      width: `${c.percentage}%`,
+                                    }}
+                                  />
+                                </div>
+
+                                <strong>
+                                  {c.percentage}%
+                                </strong>
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    ) : (
+                      <div className="vm-people">
+                        {monitorRows.map(
+                          (p) => (
+                            <button
+                              key={
+                                p.id
+                              }
+                              onClick={() => {
+                                setProgramFilter(
+                                  p.id
+                                );
+                                setMonitorTab(
+                                  "category"
+                                );
+                              }}
+                            >
+                              <div className="vm-person">
+                                <span>
+                                  {initials(
+                                    p.peserta
+                                      ?.full_name
+                                  )}
+                                </span>
+
+                                <div>
+                                  <strong>
+                                    {p.peserta
+                                      ?.full_name}
+                                  </strong>
+
+                                  <small>
+                                    {p.site}
+                                  </small>
+                                </div>
+                              </div>
+
+                              <b>
+                                {
+                                  p.result
+                                    .percent
+                                }
+                                %
+                              </b>
+                            </button>
+                          )
+                        )}
+
+                        {!monitorRows.length && (
+                          <p>
+                            Belum ada peserta aktif.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="vm-hint">
+                      Progres dihitung dari kegiatan
+                      verified dan target mingguan
+                      tiap peserta. Angka agregat
+                      tidak menentukan kelulusan.
+                    </p>
                   </section>
 
-                  <section className="vm-panel">
-                    <div className="vm-panelheading">
-                      <h2>Tren Verified · 25 Minggu</h2>
+                  {/* GRAFIK 25 MINGGU */}
+                  <section className="vm-card">
+                    <div className="vm-cardhead">
+                      <h2>
+                        ⌁ Tren Pencapaian Verified
+                        (25 Minggu)
+                      </h2>
                     </div>
 
-                    <p className="vm-note">
-                      Jumlah kegiatan terverifikasi per minggu,
-                      bukan persentase kelulusan.
+                    <p className="vm-chartdesc">
+                      Rata-rata persentase target
+                      mingguan dari peserta yang
+                      dipilih.
                     </p>
 
-                    <svg
-                      className="vm-chart"
-                      viewBox="0 0 420 150"
-                      role="img"
-                      aria-label="Grafik kegiatan verified selama 25 minggu"
-                    >
-                      {[23, 71, 118].map((y) => (
-                        <line
-                          key={y}
-                          x1="15"
-                          x2="406"
-                          y1={y}
-                          y2={y}
-                          stroke="currentColor"
-                          opacity=".14"
+                    <div className="vm-chartwrap">
+                      <svg
+                        viewBox="0 0 500 185"
+                        role="img"
+                        aria-label="Tren persentase verified sepanjang 25 minggu"
+                      >
+                        <defs>
+                          <linearGradient
+                            id="vm-green-fill"
+                            x1="0"
+                            y1="0"
+                            x2="0"
+                            y2="1"
+                          >
+                            <stop
+                              offset="0%"
+                              stopColor="#21aa7a"
+                              stopOpacity=".2"
+                            />
+                            <stop
+                              offset="100%"
+                              stopColor="#21aa7a"
+                              stopOpacity="0"
+                            />
+                          </linearGradient>
+                        </defs>
+
+                        {[0, 25, 50, 75, 100].map(
+                          (v) => {
+                            const y =
+                              150 -
+                              v * 1.22;
+
+                            return (
+                              <g key={v}>
+                                <line
+                                  x1="44"
+                                  x2="480"
+                                  y1={y}
+                                  y2={y}
+                                  stroke="currentColor"
+                                  opacity=".1"
+                                />
+
+                                <text
+                                  x="5"
+                                  y={
+                                    y +
+                                    4
+                                  }
+                                  fontSize="11"
+                                  fill="currentColor"
+                                >
+                                  {v}%
+                                </text>
+                              </g>
+                            );
+                          }
+                        )}
+
+                        <polygon
+                          points={`44,150 ${trendPoints} 471.2,150`}
+                          fill="url(#vm-green-fill)"
                         />
-                      ))}
 
-                      <polyline
-                        points={chartPoints}
-                        fill="none"
-                        stroke="#0c9b74"
-                        strokeWidth="3"
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                      />
+                        <polyline
+                          points={
+                            trendPoints
+                          }
+                          fill="none"
+                          stroke="#14a77d"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
 
-                      {trend.map((count, i) => (
-                        <circle
-                          key={i}
-                          cx={16 + i * 15.7}
-                          cy={118 - (count / maxTrend) * 95}
-                          r="2.6"
-                          fill="#0c9b74"
+                        {trend.map(
+                          (v, i) => (
+                            <circle
+                              key={i}
+                              cx={
+                                44 +
+                                i *
+                                  17.8
+                              }
+                              cy={
+                                150 -
+                                v *
+                                  1.22
+                              }
+                              r={
+                                monitorWeek ===
+                                i + 1
+                                  ? 5
+                                  : 2.7
+                              }
+                              fill={
+                                monitorWeek ===
+                                i + 1
+                                  ? "#ffd166"
+                                  : "#14a77d"
+                              }
+                            >
+                              <title>
+                                Week{" "}
+                                {P2(
+                                  i +
+                                    1
+                                )}
+                                : {v}%
+                              </title>
+                            </circle>
+                          )
+                        )}
+
+                        <text
+                          x="43"
+                          y="176"
+                          fontSize="11"
+                          fill="currentColor"
                         >
-                          <title>
-                            {`Week ${pad(i + 1)}: ${count} kegiatan`}
-                          </title>
-                        </circle>
-                      ))}
+                          W01
+                        </text>
 
-                      <text x="16" y="141" fontSize="11" fill="currentColor">
-                        W01
-                      </text>
-                      <text x="195" y="141" fontSize="11" fill="currentColor">
-                        W13
-                      </text>
-                      <text x="380" y="141" fontSize="11" fill="currentColor">
-                        W25
-                      </text>
-                    </svg>
+                        <text
+                          x="244"
+                          y="176"
+                          fontSize="11"
+                          fill="currentColor"
+                        >
+                          W13
+                        </text>
 
-                    <p className="vm-note">
-                      Pilih peserta pada filter untuk melihat
-                      tren pencapaiannya.
+                        <text
+                          x="452"
+                          y="176"
+                          fontSize="11"
+                          fill="currentColor"
+                        >
+                          W25
+                        </text>
+                      </svg>
+                    </div>
+
+                    <p className="vm-hint">
+                      Gunakan filter peserta untuk
+                      melihat progres individu.
                     </p>
                   </section>
                 </aside>
               </div>
             </>
           )}
-        </div>
-      </main>
+        </main>
+      </div>
 
-      <style jsx>{`
+      {/* CATATAN PERLU REVISI */}
+      {revisionRow && (
+        <div
+          className="vm-modalback"
+          role="presentation"
+        >
+          <div
+            className="vm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vm-revision-title"
+          >
+            <h2 id="vm-revision-title">
+              Catatan Perlu Perbaikan
+            </h2>
+
+            <p>
+              Kegiatan tetap berstatus{" "}
+              <b>pending</b>. Catatan ini
+              belum disimpan ke database
+              dan harus disampaikan ke peserta.
+            </p>
+
+            <textarea
+              rows={5}
+              value={revisionText}
+              onChange={(e) =>
+                setRevisionText(
+                  e.target.value
+                )
+              }
+              aria-label="Catatan revisi"
+            />
+
+            <div className="vm-modalactions">
+              <button
+                className="vm-outline"
+                onClick={() =>
+                  setRevisionRow(null)
+                }
+              >
+                Batal
+              </button>
+
+              <button
+                className="vm-approve"
+                onClick={copyRevision}
+              >
+                Salin catatan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================
+          CSS HALAMAN — RESPONSIVE & LIGHT/DARK
+      ================================================= */}
+
+      <style jsx global>{`
         .vm {
-          --paper: #ffffff;
-          --bg: #f4f7f7;
-          --fg: #203342;
-          --muted: #71818b;
-          --line: #e2e9ec;
+          --bg: #f3f7f8;
+          --paper: #fff;
+          --text: #1a2d3e;
+          --muted: #728391;
+          --border: #dfe7eb;
+          --hover: #f7fbf9;
           min-height: 100vh;
           background: var(--bg);
-          color: var(--fg);
-          font-family: Arial, Helvetica, sans-serif;
+          color: var(--text);
+          font: 14px/1.5 Arial, Helvetica, sans-serif;
           display: grid;
-          grid-template-columns: 236px minmax(0, 1fr);
+          grid-template-columns: 246px minmax(0, 1fr);
         }
+
         .vm.dark {
-          --paper: #192a32;
-          --bg: #10202a;
-          --fg: #e6f3f0;
-          --muted: #adc0c6;
-          --line: #34464e;
+          --bg: #101c25;
+          --paper: #1d2a34;
+          --text: #e9f2f4;
+          --muted: #a9bac4;
+          --border: #394953;
+          --hover: #263943;
         }
-        .vm * { box-sizing: border-box; }
-        .vm button, .vm input, .vm select { font: inherit; }
-        .vm button { cursor: pointer; }
+
+        .vm * {
+          box-sizing: border-box;
+        }
+
+        .vm button,
+        .vm input,
+        .vm select,
+        .vm textarea {
+          font: inherit;
+        }
+
+        .vm button {
+          cursor: pointer;
+        }
+
         .vm button:disabled {
-          opacity: .5;
+          opacity: 0.48;
           cursor: not-allowed;
         }
-        .vm-sidebar {
-          background: linear-gradient(165deg,#102d41,#092e38 68%,#087f60);
+
+        .vm h1,
+        .vm h2,
+        .vm p {
+          margin-top: 0;
+        }
+
+        .vm-side {
+          background: linear-gradient(
+            165deg,
+            #0a2839,
+            #142f41 62%,
+            #066d57
+          );
           color: #fff;
           display: flex;
           flex-direction: column;
           min-height: 100vh;
         }
+
         .vm-logo {
-          font-size: 23px;
+          padding: 26px 18px;
+          font-size: 22px;
           font-weight: 800;
-          padding: 27px 17px 25px;
           white-space: nowrap;
         }
-        .vm-logo b { color: #5cdb8d; }
+
+        .vm-logo span {
+          color: #43d48b;
+        }
+
         .vm-logo small {
           font-size: 10px;
-          margin-left: 4px;
-          color: #ccd9da;
+          color: #cbdfdf;
+          margin-left: 5px;
         }
-        .vm-brandpanel {
-          padding: 22px 18px;
-          background: linear-gradient(110deg,#234956,#0d6b58);
-          font-size: 12px;
+
+        .vm-sidebrand {
+          padding: 20px 17px;
+          background: linear-gradient(
+            100deg,
+            #1d5561,
+            #0c7456
+          );
+          font-size: 11px;
+          font-weight: 700;
           letter-spacing: 1px;
-          line-height: 1.7;
         }
-        .vm-brandpanel span {
-          display: block;
-          color: #c9e9df;
+
+        .vm-sidebrand small {
           font-size: 10px;
+          font-weight: 500;
         }
+
         .vm-nav {
           display: grid;
           gap: 6px;
-          padding: 22px 12px;
+          padding: 20px 12px;
         }
+
         .vm-nav button {
-          border: 0;
-          text-align: left;
-          color: #d8e8e9;
-          background: transparent;
-          padding: 13px 12px;
-          border-radius: 9px;
-          font-size: 13px;
-          font-weight: 700;
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 11px;
+          padding: 12px;
+          border: 0;
+          border-radius: 10px;
+          text-align: left;
+          background: none;
+          color: #d8e9ea;
+          font-size: 13px;
+          font-weight: 700;
         }
+
         .vm-nav button.active {
-          color: white;
-          background: #0c9f78;
+          background: #0caa77;
+          color: #fff;
         }
+
         .vm-nav em {
           margin-left: auto;
-          border-radius: 15px;
-          padding: 3px 7px;
-          background: #eefff8;
-          color: #087151;
+          background: #d9ffea;
+          color: #0b7555;
+          border-radius: 20px;
+          padding: 2px 8px;
           font-size: 11px;
           font-style: normal;
         }
-        .vm-sidefooter {
+
+        .vm-bottomside {
           margin-top: auto;
           padding: 20px;
+          color: #cbe8de;
           font-size: 11px;
-          line-height: 1.8;
-          color: #c3e8d9;
         }
-        .vm-main { min-width: 0; }
-        .vm-topbar {
+
+        .vm-body {
+          min-width: 0;
+        }
+
+        .vm-top {
           background: var(--paper);
-          padding: 18px 25px;
+          border-bottom: 1px solid var(--border);
+          padding: 16px 22px;
           display: flex;
           justify-content: space-between;
-          gap: 12px;
-          align-items: center;
-          border-bottom: 1px solid var(--line);
-        }
-        .vm-topinfo, .vm-account {
-          display: flex;
           align-items: center;
           gap: 14px;
+        }
+
+        .vm-period,
+        .vm-account {
+          display: flex;
+          align-items: center;
+          gap: 13px;
           flex-wrap: wrap;
         }
-        .vm-topinfo strong { font-size: 13px; }
-        .vm-pill {
-          background: #e4f8ee;
-          color: #16744e;
-          border-radius: 30px;
-          padding: 8px 11px;
-          font-size: 11px;
-          font-weight: 700;
-        }
-        .vm-account { margin-left: auto; }
-        .vm-account strong {
-          display: block;
-          font-size: 12px;
-          text-align: right;
-        }
-        .vm-account small {
-          display: block;
-          color: #20a576;
-          text-align: right;
-          text-transform: capitalize;
-        }
-        .vm-content {
-          padding: 22px;
-          max-width: 1700px;
-          margin: auto;
-        }
-        .vm-heading {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-          margin-bottom: 20px;
-        }
-        .vm-heading h1 {
-          font-size: 23px;
-          margin: 0 0 7px;
-        }
-        .vm-heading p, .vm-note {
-          color: var(--muted);
-          font-size: 12px;
-          line-height: 1.6;
-          margin: 0;
-        }
-        .vm-soft {
-          border: 1px solid var(--line);
-          background: var(--paper);
-          color: var(--fg);
-          border-radius: 9px;
-          padding: 10px 13px;
-          white-space: nowrap;
-          font-size: 12px;
-        }
-        .vm-alert {
-          border: 1px solid var(--line);
-          border-radius: 10px;
-          padding: 13px 16px;
-          margin-bottom: 14px;
-          background: var(--paper);
+
+        .vm-period b {
           font-size: 13px;
         }
-        .vm-alert.error {
-          background: #fff0f0;
-          color: #b91c1c;
-          border-color: #fecaca;
+
+        .vm-period > span {
+          border-radius: 30px;
+          background: #dcf5e8;
+          color: #116e52;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 8px 12px;
         }
-        .vm-alert.success {
-          background: #e8f8f1;
-          color: #047857;
-          border-color: #a4dfc2;
+
+        .vm-account div:last-child b {
+          display: block;
+          font-size: 12px;
         }
-        .vm-kpis {
+
+        .vm-account div:last-child small {
+          display: block;
+          color: #1ea477;
+          font-size: 11px;
+          text-transform: capitalize;
+        }
+
+        .vm-avatar {
+          width: 38px;
+          height: 38px;
+          border-radius: 50%;
           display: grid;
-          grid-template-columns: repeat(4,minmax(0,1fr));
-          gap: 11px;
+          place-items: center;
+          background: #d9f1ec;
+          color: #136951;
+          font-weight: 800;
+        }
+
+        .vm-content {
+          max-width: 1700px;
+          margin: 0 auto;
+          padding: 22px;
+        }
+
+        .vm-pagehead {
+          display: flex;
+          align-items: start;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .vm-pagehead h1 {
+          font-size: 24px;
+          margin-bottom: 5px;
+        }
+
+        .vm-pagehead p {
+          font-size: 12px;
+          color: var(--muted);
+          margin-bottom: 0;
+        }
+
+        .vm-outline {
+          background: var(--paper);
+          border: 1px solid var(--border);
+          color: var(--text);
+          border-radius: 9px;
+          padding: 8px 12px;
+          white-space: nowrap;
+        }
+
+        .vm-alert,
+        .vm-loading {
+          background: var(--paper);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          margin-bottom: 12px;
+          padding: 13px;
+        }
+
+        .vm-alert.error {
+          color: #b91c1c;
+          background: #fff0f0;
+          border-color: #fdcaca;
+        }
+
+        .vm-alert.ok {
+          color: #076745;
+          background: #e5f8ed;
+          border-color: #b8e8ca;
+        }
+
+        .vm-statgrid {
+          display: grid;
+          grid-template-columns: repeat(
+            4,
+            minmax(0, 1fr)
+          );
+          gap: 10px;
           margin-bottom: 14px;
         }
-        .vm-kpi {
-          border-radius: 15px;
+
+        .vm-stat {
+          border-radius: 13px;
           padding: 18px;
           min-width: 0;
         }
-        .vm-kpi.cream { background: #fff6dd; color: #6e5120; }
-        .vm-kpi.mint { background: #def7e8; color: #196147; }
-        .vm-kpi.sky { background: #e3f2ff; color: #225c81; }
-        .vm-kpi.lilac { background: #f0eaff; color: #514385; }
-        .vm-kpi span, .vm-kpi small {
+
+        .vm-stat.yellow {
+          background: #fff7e3;
+          color: #6f5018;
+        }
+
+        .vm-stat.green {
+          background: #e4f9ec;
+          color: #14653e;
+        }
+
+        .vm-stat.blue {
+          background: #e4f2ff;
+          color: #22597a;
+        }
+
+        .vm-stat.violet {
+          background: #f1ecff;
+          color: #55427e;
+        }
+
+        .vm-stat span,
+        .vm-stat small {
           display: block;
-          font-size: 12px;
-          font-weight: 700;
-        }
-        .vm-kpi strong {
-          font-size: 31px;
-          display: block;
-          margin: 7px 0;
-        }
-        .vm-kpi small { font-weight: 400; font-size: 11px; }
-        .vm-columns {
-          display: grid;
-          grid-template-columns: minmax(0,1.7fr) minmax(310px,.9fr);
-          gap: 14px;
-          align-items: start;
-        }
-        .vm-panel {
-          background: var(--paper);
-          border: 1px solid var(--line);
-          border-radius: 15px;
-          padding: 15px;
-          box-shadow: 0 3px 16px #1233290a;
-          min-width: 0;
-        }
-        .vm-panelheading {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 15px;
-        }
-        .vm-panelheading h2 { font-size: 16px; margin: 0; }
-        .vm-panelheading small {
-          color: var(--muted);
           font-size: 11px;
         }
-        .vm-panel select,
+
+        .vm-stat span {
+          font-weight: 800;
+        }
+
+        .vm-stat b {
+          display: block;
+          font-size: 30px;
+          line-height: 1.2;
+          margin: 8px 0;
+        }
+
+        .vm-columns {
+          display: grid;
+          grid-template-columns:
+            minmax(0, 1.82fr)
+            minmax(340px, 0.95fr);
+          align-items: start;
+          gap: 14px;
+        }
+
+        .vm-card {
+          min-width: 0;
+          border-radius: 15px;
+          border: 1px solid var(--border);
+          background: var(--paper);
+          box-shadow: 0 3px 17px #1234230a;
+          padding: 16px;
+        }
+
+        .vm-cardhead {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 13px;
+        }
+
+        .vm-cardhead h2 {
+          margin: 0;
+          font-size: 16px;
+        }
+
+        .vm-cardhead small {
+          color: var(--muted);
+        }
+
+        .vm-cardhead select,
         .vm-filters select,
         .vm-filters input {
           background: var(--paper);
-          color: var(--fg);
-          border: 1px solid var(--line);
+          color: var(--text);
+          border: 1px solid var(--border);
+          border-radius: 9px;
           padding: 10px;
-          border-radius: 8px;
           min-width: 0;
           font-size: 12px;
         }
-        .vm-tabs {
+
+        .vm-tabs,
+        .vm-switch {
+          background: var(--bg);
+          border-radius: 10px;
+          padding: 5px;
           display: flex;
           gap: 5px;
-          margin-bottom: 13px;
-          background: var(--bg);
-          padding: 5px;
-          border-radius: 10px;
+          margin-bottom: 12px;
         }
-        .vm-tabs button {
+
+        .vm-tabs button,
+        .vm-switch button {
           flex: 1;
-          padding: 10px 7px;
-          border: 0;
           background: transparent;
-          color: var(--muted);
+          border: 0;
           border-radius: 8px;
           font-size: 12px;
           font-weight: 700;
+          color: var(--muted);
+          padding: 10px 6px;
         }
-        .vm-tabs button.active {
-          background: #0d946c;
-          color: white;
+
+        .vm-tabs button.active,
+        .vm-switch button.active {
+          color: #fff;
+          background: #098962;
         }
+
         .vm-filters {
           display: grid;
-          grid-template-columns: 1.7fr 1fr 1.2fr;
+          grid-template-columns: 1.6fr 1fr 1.1fr;
           gap: 7px;
-          margin-bottom: 14px;
+          margin-bottom: 13px;
         }
-        .vm-tablewrap { overflow-x: auto; }
-        .vm-tablewrap table {
+
+        .vm-scroll {
+          overflow-x: auto;
+        }
+
+        .vm-table {
           width: 100%;
-          min-width: 730px;
           border-collapse: collapse;
+          min-width: 845px;
           font-size: 12px;
         }
-        .vm-tablewrap th {
+
+        .vm-table th {
           text-align: left;
-          font-size: 11px;
+          white-space: nowrap;
           background: var(--bg);
+          font-size: 11px;
+          padding: 12px 8px;
+        }
+
+        .vm-table td {
+          vertical-align: middle;
+          border-bottom: 1px solid var(--border);
           padding: 11px 8px;
         }
-        .vm-tablewrap td {
-          vertical-align: top;
-          padding: 12px 8px;
-          border-bottom: 1px solid var(--line);
+
+        .vm-table td:nth-child(3) {
+          min-width: 190px;
         }
-        .vm-tablewrap td strong { font-size: 12px; }
-        .vm-tablewrap td small {
-          display: block;
+
+        .vm-person {
+          display: flex;
+          align-items: center;
+          gap: 9px;
+          min-width: 120px;
+        }
+
+        .vm-person > span {
+          flex: 0 0 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: #d9e8ed;
+          color: #28516b;
+          display: grid;
+          place-items: center;
           font-size: 10px;
-          color: var(--muted);
-          margin-top: 5px;
+          font-weight: 800;
         }
-        .vm-ellipsis {
-          max-width: 205px;
+
+        .vm-person strong {
+          display: block;
+          font-size: 12px;
+        }
+
+        .vm-person small,
+        .vm-table td > small {
+          display: block;
+          color: var(--muted);
+          font-size: 10px;
+          margin-top: 3px;
+        }
+
+        .vm-tag {
+          display: inline-block;
+          background: #e4f6ed;
+          color: #097851;
+          font-weight: 800;
+          border-radius: 6px;
+          padding: 4px 7px;
+          font-size: 10px;
+        }
+
+        .vm-tag.fisik {
+          background: #fff0d7;
+          color: #ad6b08;
+        }
+
+        .vm-tag.hazard {
+          background: #ffeded;
+          color: #c63535;
+        }
+
+        .vm-desc {
+          margin-top: 5px;
+          max-width: 225px;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
-        }
-        .vm-categorybadge {
-          display: inline-block;
+          color: var(--muted);
           font-size: 11px;
-          color: #167c60;
-          background: #dff7ed;
-          border-radius: 6px;
-          padding: 4px 6px;
         }
-        .vm-link {
-          display: block;
+
+        .vm-textbutton {
           border: 0;
           background: none;
-          color: #0f9d79;
+          color: #139f7c;
+          padding: 5px 0 0;
           font-size: 11px;
-          padding: 7px 0 0;
+          display: block;
           text-align: left;
         }
-        .vm-detail {
-          margin-top: 8px;
+
+        .vm-expansion {
+          background: var(--hover);
+          border: 1px solid var(--border);
           border-radius: 9px;
           padding: 10px;
-          background: var(--bg);
-          max-width: 250px;
+          margin-top: 8px;
+          max-width: 255px;
           overflow-wrap: anywhere;
         }
-        .vm-detail p {
-          line-height: 1.5;
-          margin: 8px 0;
-        }
-        .vm-detail a, .vm-detail button {
-          display: block;
-          margin: 8px 0;
-          color: #0f9d79;
+
+        .vm-expansion p {
           font-size: 11px;
+          white-space: pre-wrap;
+          margin: 6px 0;
         }
-        .vm-detail button {
-          border: 0;
-          background: none;
-          padding: 0;
+
+        .vm-expansion small {
+          display: block;
+          color: var(--muted);
         }
+
+        .vm-amount {
+          white-space: nowrap;
+        }
+
         .vm-status {
           display: inline-block;
-          border-radius: 15px;
           font-size: 10px;
-          font-weight: 800;
+          border-radius: 20px;
           padding: 5px 8px;
+          font-weight: 800;
+          text-transform: capitalize;
         }
-        .vm-status.amber {
-          background: #fff0bf;
-          color: #956318;
+
+        .vm-status.verified {
+          background: #dff9eb;
+          color: #08774b;
         }
-        .vm-status.green {
-          background: #dff8e9;
-          color: #087e50;
+
+        .vm-status.pending {
+          background: #fff1d5;
+          color: #996218;
         }
-        .vm-status.gray {
-          background: #edf1f4;
-          color: #657481;
+
+        .vm-status.other {
+          background: #eaf0f4;
+          color: #506773;
         }
-        .vm-verify {
-          border: 0;
-          border-radius: 7px;
-          background: #098c64;
+
+        .vm-actions {
+          display: grid;
+          gap: 5px;
+          justify-items: start;
+        }
+
+        .vm-approve {
+          background: #078a60;
           color: #fff;
-          padding: 9px 10px;
-          font-weight: 700;
+          border: 1px solid #078a60;
+          border-radius: 8px;
+          padding: 8px 10px;
+          font-size: 11px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        .vm-revise {
+          border: 1px solid #ef9898;
+          color: #cf4141;
+          background: transparent;
+          border-radius: 8px;
+          padding: 7px 10px;
           font-size: 11px;
           white-space: nowrap;
         }
-        .vm-tablewrap .vm-verify {
+
+        .vm-proofcell {
+          min-width: 89px;
+        }
+
+        .vm-proof {
+          display: grid;
+          justify-items: center;
+          gap: 4px;
+        }
+
+        .vm-proof > button:first-child {
+          border: 0;
+          background: transparent;
+          padding: 0;
+        }
+
+        .vm-proof img {
+          width: 68px;
+          height: 52px;
+          object-fit: cover;
+          border-radius: 7px;
+          border: 1px solid var(--border);
           display: block;
-          margin-top: 7px;
         }
-        .vm-empty {
-          padding: 30px 12px;
-          text-align: center;
+
+        .vm-prooficon {
+          height: 52px;
+          width: 68px;
+          border: 1px dashed var(--border) !important;
+          border-radius: 7px;
+          background: var(--bg) !important;
+          font-size: 22px !important;
           color: var(--muted);
-          font-size: 12px;
         }
-        .vm-bottom {
+
+        .vm-prooflink {
+          border: 0;
+          background: transparent;
+          color: #109572;
+          font-size: 10px;
+          white-space: nowrap;
+        }
+
+        .vm-nofile {
+          font-size: 10px;
+          color: var(--muted);
+        }
+
+        .vm-pagination {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 9px;
           flex-wrap: wrap;
+          margin-top: 15px;
           font-size: 11px;
-          padding-top: 14px;
         }
-        .vm-spacer { flex: 1; }
-        .vm-panel > .vm-note { margin-top: 12px; }
-        .vm-monitor {
+
+        .vm-grow {
+          flex: 1;
+        }
+
+        .vm-empty {
+          text-align: center;
+          padding: 30px;
+          color: var(--muted);
+        }
+
+        .vm-right {
           display: grid;
           gap: 14px;
         }
-        .vm-categories {
-          display: grid;
-          gap: 18px;
-          margin: 21px 0 8px;
+
+        .vm-hint,
+        .vm-chartdesc {
+          font-size: 11px;
+          color: var(--muted);
+          line-height: 1.55;
+          margin: 12px 0 0;
         }
-        .vm-progressitem {
+
+        .vm-categorylist {
           display: grid;
-          grid-template-columns: minmax(0,1fr) 46px;
-          gap: 7px;
-          align-items: center;
+          gap: 17px;
+          margin-top: 20px;
         }
-        .vm-progresslabel {
-          grid-column: 1 / -1;
+
+        .vm-catline,
+        .vm-barline {
           display: flex;
           justify-content: space-between;
-          gap: 10px;
           align-items: center;
-          font-size: 12px;
+          gap: 10px;
         }
-        .vm-progresslabel b {
+
+        .vm-catline {
+          font-size: 12px;
+          margin-bottom: 8px;
+        }
+
+        .vm-catline span {
           font-size: 11px;
+          color: var(--muted);
           white-space: nowrap;
         }
-        .vm-progress {
-          background: var(--line);
-          height: 10px;
-          border-radius: 9px;
-          overflow: hidden;
-        }
-        .vm-progress > div {
-          height: 100%;
-          background: linear-gradient(90deg,#40c998,#079065);
-          border-radius: inherit;
-        }
-        .vm-progressitem > small {
-          color: var(--muted);
-          text-align: right;
+
+        .vm-barline strong {
+          width: 39px;
           font-size: 11px;
+          text-align: right;
         }
-        .vm-chart {
+
+        .vm-bar {
+          height: 9px;
+          border-radius: 20px;
+          background: var(--border);
+          overflow: hidden;
+          flex: 1;
+        }
+
+        .vm-bar span {
+          display: block;
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(
+            90deg,
+            #31c68c,
+            #04885e
+          );
+        }
+
+        .vm-people {
+          display: grid;
+          gap: 6px;
+          max-height: 400px;
+          overflow: auto;
+        }
+
+        .vm-people > button {
+          border: 1px solid var(--border);
+          background: var(--paper);
+          color: var(--text);
+          border-radius: 9px;
+          padding: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          text-align: left;
+        }
+
+        .vm-people > button > b {
+          color: #14a37a;
+        }
+
+        .vm-chartwrap svg {
           width: 100%;
           height: auto;
-          margin-top: 15px;
-          overflow: visible;
+          display: block;
+          margin-top: 12px;
         }
-        @media (max-width: 1200px) {
-          .vm-columns { grid-template-columns: 1fr; }
-          .vm-monitor { grid-template-columns: 1fr 1fr; }
+
+        .vm-modalback {
+          position: fixed;
+          inset: 0;
+          z-index: 99;
+          background: #071b25a8;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
         }
-        @media (max-width: 820px) {
-          .vm { display: block; }
-          .vm-sidebar { min-height: 0; }
-          .vm-logo { padding: 15px; }
-          .vm-brandpanel, .vm-sidefooter { display: none; }
+
+        .vm-modal {
+          background: var(--paper);
+          color: var(--text);
+          width: min(490px, 100%);
+          border-radius: 16px;
+          padding: 23px;
+          box-shadow: 0 14px 50px #0003;
+        }
+
+        .vm-modal h2 {
+          font-size: 19px;
+        }
+
+        .vm-modal p {
+          color: var(--muted);
+          font-size: 12px;
+        }
+
+        .vm-modal textarea {
+          width: 100%;
+          background: var(--paper);
+          color: var(--text);
+          border: 1px solid var(--border);
+          border-radius: 9px;
+          padding: 12px;
+          resize: vertical;
+        }
+
+        .vm-modalactions {
+          display: flex;
+          justify-content: end;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        @media (max-width: 1280px) {
+          .vm-columns {
+            grid-template-columns: 1fr;
+          }
+
+          .vm-right {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+
+        @media (max-width: 860px) {
+          .vm {
+            display: block;
+          }
+
+          .vm-side {
+            min-height: 0;
+          }
+
+          .vm-logo {
+            padding: 14px 16px;
+          }
+
+          .vm-sidebrand,
+          .vm-bottomside {
+            display: none;
+          }
+
           .vm-nav {
             display: flex;
+            gap: 5px;
             overflow-x: auto;
             padding: 8px;
           }
-          .vm-nav button { flex: 0 0 auto; }
-          .vm-topbar { padding: 13px; }
-          .vm-content { padding: 12px; }
-          .vm-kpis {
-            grid-template-columns: repeat(2,minmax(0,1fr));
+
+          .vm-nav button {
+            white-space: nowrap;
+            flex: 0 0 auto;
           }
-          .vm-monitor { grid-template-columns: 1fr; }
-          .vm-heading h1 { font-size: 19px; }
-          .vm-filters {
-            grid-template-columns: repeat(2,minmax(0,1fr));
+
+          .vm-content {
+            padding: 14px;
           }
-          .vm-filters input { grid-column: 1 / -1; }
+
+          .vm-top {
+            padding: 12px 14px;
+          }
+
+          .vm-statgrid {
+            grid-template-columns: repeat(
+              2,
+              minmax(0, 1fr)
+            );
+          }
+
+          .vm-right {
+            grid-template-columns: 1fr;
+          }
+
+          .vm-pagehead h1 {
+            font-size: 20px;
+          }
         }
-        @media (max-width: 450px) {
-          .vm-topbar {
-            flex-direction: column;
-            align-items: stretch;
+
+        @media (max-width: 550px) {
+          .vm-top {
+            display: block;
           }
+
+          .vm-period,
           .vm-account {
-            margin-left: 0;
             justify-content: space-between;
+            margin-bottom: 8px;
           }
-          .vm-heading h1 { font-size: 17px; }
-          .vm-heading p { font-size: 11px; }
-          .vm-kpi { padding: 13px; }
-          .vm-kpi strong { font-size: 24px; }
-          .vm-panel { padding: 12px; }
+
+          .vm-pagehead h1 {
+            font-size: 18px;
+          }
+
+          .vm-filters {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .vm-filters > input {
+            grid-column: 1 / -1;
+          }
+
+          .vm-tabs button {
+            font-size: 10px;
+            padding: 8px 3px;
+          }
+
+          .vm-card {
+            padding: 12px;
+          }
+
+          .vm-stat {
+            padding: 13px;
+          }
+
+          .vm-stat b {
+            font-size: 25px;
+          }
         }
       `}</style>
     </div>
