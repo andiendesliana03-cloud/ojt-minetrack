@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -14,14 +15,23 @@ import { supabase } from "../../../lib/supabase";
 // OJT MINETRACK V2.0
 // PERSETUJUAN PESERTA OJT — MENTOR
 //
-// UPDATE:
-// - Nama Mentor: Andien Desliana
-// - Inisial Mentor: AL
-// - Email peserta desktop dan mobile
-// - Email pada detail dan konfirmasi
+// PERBAIKAN:
+// - Konfirmasi langsung melalui modal aplikasi
+// - Tidak menggunakan window.confirm setelah await
+// - Timeout API untuk mencegah loading tanpa batas
+// - Error tampil langsung dalam modal keputusan
+// - Mencegah pengiriman keputusan berulang
+// - Status sukses tidak bergantung pada refresh daftar
+//
+// TETAP:
+// - API server dan format payload lama
+// - Feature Flags dengan token autentikasi
+// - Hak akses Mentor
+// - Pengajuan baru dan legacy
 // - Site PMO dan TSP
-// - Feature Flags menggunakan token autentikasi
-// - Transaksi tetap melalui server
+// - Kalender 25 minggu
+// - Light/Dark Mode
+// - Tampilan desktop/mobile
 // - Database dan RPC tidak diubah
 // ======================================================
 
@@ -31,9 +41,8 @@ const BACKGROUND_IMAGE = "/background-erg.png.PNG";
 const MENTOR_DISPLAY_NAME = "Andien Desliana";
 const MENTOR_INITIALS = "AL";
 
-// ======================================================
-// DAFTAR SITE OJT
-// ======================================================
+const API_TIMEOUT_MS = 20000;
+const REVIEW_TIMEOUT_MS = 30000;
 
 const SITES = [
   "LMO",
@@ -57,7 +66,7 @@ const NAV = [
 ];
 
 // ======================================================
-// ICON COMPONENT
+// ICON
 // ======================================================
 
 function Icon({ name, size = 18 }) {
@@ -240,11 +249,63 @@ function DetailItem({ label, value }) {
 }
 
 // ======================================================
+// HELPER FETCH DENGAN TIMEOUT
+// ======================================================
+
+async function fetchApiJson(
+  url,
+  options = {},
+  timeoutMs = API_TIMEOUT_MS
+) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    const raw = await response.text();
+    let result = {};
+
+    if (raw.trim()) {
+      try {
+        result = JSON.parse(raw);
+      } catch {
+        throw new Error(
+          `Server memberikan respons yang bukan JSON (HTTP ${response.status}).`
+        );
+      }
+    }
+
+    return { response, result };
+  } catch (err) {
+    if (controller.signal.aborted) {
+      const timeoutError = new Error(
+        "Permintaan melewati batas waktu. Status transaksi belum dapat dipastikan. Perbarui daftar pengajuan sebelum mencoba lagi."
+      );
+      timeoutError.isTimeout = true;
+      throw timeoutError;
+    }
+
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// ======================================================
 // MAIN PAGE
 // ======================================================
 
 export default function PersetujuanPesertaPage() {
   const router = useRouter();
+
+  const processingRef = useRef(false);
 
   const [account, setAccount] = useState(null);
 
@@ -259,6 +320,7 @@ export default function PersetujuanPesertaPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [processingLabel, setProcessingLabel] = useState("");
 
   const [filter, setFilter] = useState("pending");
   const [search, setSearch] = useState("");
@@ -299,18 +361,23 @@ export default function PersetujuanPesertaPage() {
         return disabled;
       }
 
-      const response = await fetch(FLAGS_URL, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
+      const { response, result } = await fetchApiJson(
+        FLAGS_URL,
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
         },
-        cache: "no-store",
-      });
+        API_TIMEOUT_MS
+      );
 
       if (!response.ok) {
-        throw new Error("Gagal membaca fitur.");
+        throw new Error(
+          result.error ||
+            result.message ||
+            `Gagal membaca fitur (HTTP ${response.status}).`
+        );
       }
-
-      const result = await response.json();
 
       if (result?.success !== true) {
         throw new Error("Respons fitur tidak valid.");
@@ -355,17 +422,15 @@ export default function PersetujuanPesertaPage() {
           return false;
         }
 
-        const response = await fetch(
+        const { response, result } = await fetchApiJson(
           "/api/mentor/registrations",
           {
             headers: {
               Authorization: `Bearer ${session.access_token}`,
             },
-            cache: "no-store",
-          }
+          },
+          API_TIMEOUT_MS
         );
-
-        const result = await response.json();
 
         if (response.status === 401) {
           router.replace("/login");
@@ -378,7 +443,9 @@ export default function PersetujuanPesertaPage() {
 
         if (!response.ok) {
           throw new Error(
-            result.error || "Gagal mengambil pengajuan."
+            result.error ||
+              result.message ||
+              `Gagal mengambil pengajuan (HTTP ${response.status}).`
           );
         }
 
@@ -481,12 +548,12 @@ export default function PersetujuanPesertaPage() {
   // ====================================================
 
   function openDetail(item) {
-    if (processing) return;
+    if (processingRef.current) return;
     setDetail(item);
   }
 
   function closeDetail() {
-    if (!processing) {
+    if (!processingRef.current) {
       setDetail(null);
     }
   }
@@ -497,7 +564,7 @@ export default function PersetujuanPesertaPage() {
 
   function openDecision(item, type) {
     if (
-      processing ||
+      processingRef.current ||
       flagsLoading ||
       !canReview(item) ||
       !decisionEnabled(type, features)
@@ -509,23 +576,22 @@ export default function PersetujuanPesertaPage() {
     setDetail(null);
     setDecision(type);
 
-    setSite(
-      SITES.includes(item.site) ? item.site : ""
-    );
-
+    setSite(SITES.includes(item.site) ? item.site : "");
     setStartDate(dateOnly(item.start_date));
     setEndDate(dateOnly(item.end_date));
     setReason("");
 
     setError("");
     setMessage("");
+    setProcessingLabel("");
   }
 
   function closeDecision() {
-    if (processing) return;
+    if (processingRef.current) return;
 
     setSelected(null);
     setReason("");
+    setError("");
   }
 
   // ====================================================
@@ -535,7 +601,11 @@ export default function PersetujuanPesertaPage() {
   async function submitDecision(event) {
     event.preventDefault();
 
-    if (!selected || processing || flagsLoading) {
+    if (
+      !selected ||
+      processingRef.current ||
+      flagsLoading
+    ) {
       return;
     }
 
@@ -544,6 +614,13 @@ export default function PersetujuanPesertaPage() {
     if (!canReview(selected) || !source) {
       setError(
         "Sumber pengajuan tidak dikenali. Keputusan tidak dikirim."
+      );
+      return;
+    }
+
+    if (!decisionEnabled(decision, features)) {
+      setError(
+        "Fitur keputusan Mentor belum aktif. Perbarui status fitur terlebih dahulu."
       );
       return;
     }
@@ -559,8 +636,6 @@ export default function PersetujuanPesertaPage() {
       );
       return;
     }
-
-    // Tanggal wajib untuk pengajuan legacy.
 
     if (source === "legacy" && decision === "approved") {
       if (!SITES.includes(site)) {
@@ -583,51 +658,33 @@ export default function PersetujuanPesertaPage() {
       }
     }
 
+    // Modal ini sendiri merupakan tahap konfirmasi.
+    // Tidak memakai window.confirm() lagi.
+
+    processingRef.current = true;
     setProcessing(true);
+    setProcessingLabel("Memeriksa sesi...");
     setError("");
     setMessage("");
 
+    const participantName =
+      selected.full_name || "Peserta OJT";
+
+    let committed = false;
+
     try {
-      const latestFlags = await loadFeatureFlags();
-
-      if (!decisionEnabled(decision, latestFlags)) {
-        throw new Error(
-          "Fitur keputusan Mentor belum aktif."
-        );
-      }
-
-      const participantName =
-        selected.full_name || "Peserta OJT";
-
-      const periodText =
-        source === "legacy"
-          ? `${formatDate(startDate)} s.d. ${formatDate(endDate)}`
-          : `${formatDate(selected.start_date)} s.d. ${formatDate(selected.end_date)}`;
-
-      const confirmed = window.confirm(
-        `${decision === "approved" ? "SETUJUI" : "TOLAK"} PENGAJUAN OJT?\n\n` +
-          `Peserta: ${participantName}\n` +
-          `Email: ${selected.email || "Tidak tersedia"}\n` +
-          `Site: ${site || selected.site || "—"}\n` +
-          `Periode: ${periodText}\n` +
-          (decision === "rejected"
-            ? `Alasan: ${cleanReason}\n`
-            : "") +
-          "\nKeputusan akan disimpan oleh server."
-      );
-
-      if (!confirmed) return;
-
       const {
         data: { session },
         error: sessionError,
       } = await supabase.auth.getSession();
 
       if (sessionError || !session?.access_token) {
-        router.replace("/login");
-        return;
+        throw new Error(
+          "Sesi login Mentor tidak tersedia. Silakan login kembali."
+        );
       }
 
+      // Format payload tetap sama dengan API asli.
       const payload = {
         request_id: selected.id,
         source,
@@ -643,7 +700,9 @@ export default function PersetujuanPesertaPage() {
         payload.end_date = endDate;
       }
 
-      const response = await fetch(
+      setProcessingLabel("Menyimpan keputusan...");
+
+      const { response, result } = await fetchApiJson(
         "/api/mentor/review-registration",
         {
           method: "POST",
@@ -651,34 +710,34 @@ export default function PersetujuanPesertaPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
-          cache: "no-store",
           body: JSON.stringify(payload),
-        }
+        },
+        REVIEW_TIMEOUT_MS
       );
 
-      let result = {};
-
-      try {
-        result = await response.json();
-      } catch {
+      if (response.status === 401) {
         throw new Error(
-          "Respons server tidak dapat dibaca."
+          "Sesi login Mentor sudah tidak berlaku. Silakan login kembali."
         );
       }
 
-      if (response.status === 401) {
-        router.replace("/login");
-        return;
+      if (response.status === 403) {
+        throw new Error(
+          result.error ||
+            result.message ||
+            "Mentor tidak memiliki izin melakukan keputusan ini."
+        );
       }
 
       if (!response.ok) {
         throw new Error(
           result.error ||
             result.message ||
-            "Keputusan gagal disimpan."
+            `Persetujuan gagal (HTTP ${response.status}).`
         );
       }
 
+      // Validasi respons transaksi asli dipertahankan.
       if (
         result.success !== true ||
         result.dry_run !== false ||
@@ -687,32 +746,49 @@ export default function PersetujuanPesertaPage() {
         (decision === "approved" && !result.program_id)
       ) {
         throw new Error(
-          "Keputusan belum dapat dipastikan. Periksa status pengajuan sebelum mengulang."
+          "Server merespons, tetapi hasil transaksi belum dapat dipastikan. Perbarui daftar pengajuan sebelum mengulang."
         );
       }
 
+      committed = true;
+
+      // Langsung akhiri modal setelah server
+      // mengonfirmasi keberhasilan transaksi.
       setSelected(null);
       setReason("");
       setFilter(decision);
 
+      setMessage(
+        decision === "approved"
+          ? `${participantName} berhasil disetujui. Program OJT telah dikonfirmasi oleh server.`
+          : `Pengajuan ${participantName} berhasil ditolak.`
+      );
+    } catch (err) {
+      console.error(
+        "Review registration failed:",
+        err?.message || err
+      );
+
+      setError(
+        err?.message ||
+          "Terjadi kesalahan saat menyimpan keputusan."
+      );
+    } finally {
+      processingRef.current = false;
+      setProcessing(false);
+      setProcessingLabel("");
+    }
+
+    // Refresh tidak boleh mempertahankan tombol
+    // dalam keadaan Memproses... setelah transaksi sukses.
+    if (committed) {
       const refreshed = await loadRegistrations(false);
 
-      if (decision === "approved") {
+      if (!refreshed) {
         setMessage(
-          `${participantName} berhasil disetujui.` +
-            (refreshed
-              ? " Program OJT telah dibuat."
-              : " Data daftar perlu diperbarui.")
-        );
-      } else {
-        setMessage(
-          `Pengajuan ${participantName} berhasil ditolak.`
+          "Keputusan berhasil disimpan oleh server, tetapi daftar pengajuan belum berhasil diperbarui. Gunakan Perbarui Data."
         );
       }
-    } catch (err) {
-      setError(err?.message || "Terjadi kesalahan.");
-    } finally {
-      setProcessing(false);
     }
   }
 
@@ -721,7 +797,11 @@ export default function PersetujuanPesertaPage() {
   // ====================================================
 
   async function refreshData() {
-    if (loading || refreshing || processing) {
+    if (
+      loading ||
+      refreshing ||
+      processingRef.current
+    ) {
       return;
     }
 
@@ -803,9 +883,7 @@ export default function PersetujuanPesertaPage() {
   // ====================================================
 
   function DecisionButtons({ item }) {
-    if (!canReview(item)) {
-      return null;
-    }
+    if (!canReview(item)) return null;
 
     return (
       <>
@@ -865,7 +943,6 @@ export default function PersetujuanPesertaPage() {
               OJT <em>MineTrack</em>
               <small>v2.0</small>
             </strong>
-
             <label>
               ON THE JOB TRAINING MANAGEMENT SYSTEM
             </label>
@@ -893,13 +970,10 @@ export default function PersetujuanPesertaPage() {
           ))}
         </nav>
 
-        {/* IDENTITAS MENTOR */}
-
         <div className="ap-account">
           <span className="ap-avatar">
             {MENTOR_INITIALS}
           </span>
-
           <span>
             <strong>{MENTOR_DISPLAY_NAME}</strong>
             <small>Mentor OJT</small>
@@ -909,7 +983,9 @@ export default function PersetujuanPesertaPage() {
         <button
           type="button"
           className="ap-menu"
-          aria-label={mobileMenu ? "Tutup menu" : "Buka menu"}
+          aria-label={
+            mobileMenu ? "Tutup menu" : "Buka menu"
+          }
           aria-expanded={mobileMenu}
           onClick={() => setMobileMenu((v) => !v)}
         >
@@ -954,12 +1030,10 @@ export default function PersetujuanPesertaPage() {
                 <Icon name="shield" size={15} />
                 Akses Mentor
               </span>
-
               <span>
                 <Icon name="calendar" size={15} />
                 Program 2026–2027
               </span>
-
               <span>
                 <Icon name="check" size={15} />
                 Verifikasi Peserta
@@ -977,7 +1051,10 @@ export default function PersetujuanPesertaPage() {
         {/* BREADCRUMB */}
 
         <div className="ap-breadcrumb">
-          <button type="button" onClick={() => navigate("/")}>
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+          >
             Dashboard
           </button>
           <span>/</span>
@@ -1002,7 +1079,7 @@ export default function PersetujuanPesertaPage() {
 
         {/* ERROR MESSAGE */}
 
-        {error && (
+        {error && !selected && (
           <div className="ap-alert error" role="alert">
             <Icon name="info" />
             <span>{error}</span>
@@ -1028,7 +1105,9 @@ export default function PersetujuanPesertaPage() {
             <button
               type="button"
               key={key}
-              className={"ap-stat " + (filter === key ? "active" : "")}
+              className={
+                "ap-stat " + (filter === key ? "active" : "")
+              }
               aria-pressed={filter === key}
               onClick={() => setFilter(key)}
             >
@@ -1097,11 +1176,9 @@ export default function PersetujuanPesertaPage() {
           </div>
         </section>
 
-        {/* REGISTRATIONS CARD */}
+        {/* REGISTRATIONS */}
 
         <section className="ap-card">
-
-          {/* HEADING */}
 
           <div className="ap-section-heading">
             <div className="ap-section-title">
@@ -1143,7 +1220,9 @@ export default function PersetujuanPesertaPage() {
                 <button
                   type="button"
                   key={key}
-                  className={filter === key ? "active" : ""}
+                  className={
+                    filter === key ? "active" : ""
+                  }
                   aria-pressed={filter === key}
                   onClick={() => setFilter(key)}
                 >
@@ -1160,12 +1239,12 @@ export default function PersetujuanPesertaPage() {
                 placeholder="Cari nama, email, departemen, site..."
                 aria-label="Cari pengajuan peserta"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) =>
+                  setSearch(e.target.value)
+                }
               />
             </label>
           </div>
-
-          {/* RESULT COUNT */}
 
           <p className="ap-count">
             Menampilkan <strong>{filtered.length}</strong>
@@ -1173,8 +1252,6 @@ export default function PersetujuanPesertaPage() {
             <strong>{counts.all}</strong>
             {" pengajuan."}
           </p>
-
-          {/* REGISTRATION DATA */}
 
           {loading ? (
             <div className="ap-empty">
@@ -1204,7 +1281,9 @@ export default function PersetujuanPesertaPage() {
 
                   <tbody>
                     {filtered.map((item, index) => (
-                      <tr key={`${item.source}-${item.id}`}>
+                      <tr
+                        key={`${item.source}-${item.id}`}
+                      >
                         <td>{index + 1}</td>
 
                         <td>
@@ -1228,7 +1307,8 @@ export default function PersetujuanPesertaPage() {
 
                               <small className="ap-email">
                                 <span>Email:</span>{" "}
-                                {item.email || "Email belum tersedia"}
+                                {item.email ||
+                                  "Email belum tersedia"}
                               </small>
                             </span>
                           </div>
@@ -1254,7 +1334,9 @@ export default function PersetujuanPesertaPage() {
                         </td>
 
                         <td>
-                          <StatusBadge status={item.status} />
+                          <StatusBadge
+                            status={item.status}
+                          />
                         </td>
 
                         <td>
@@ -1262,7 +1344,9 @@ export default function PersetujuanPesertaPage() {
                             <button
                               type="button"
                               className="ap-detail"
-                              onClick={() => openDetail(item)}
+                              onClick={() =>
+                                openDetail(item)
+                              }
                             >
                               Detail
                             </button>
@@ -1302,7 +1386,8 @@ export default function PersetujuanPesertaPage() {
 
                         <small className="ap-email">
                           <span>Email:</span>{" "}
-                          {item.email || "Email belum tersedia"}
+                          {item.email ||
+                            "Email belum tersedia"}
                         </small>
                       </span>
                     </div>
@@ -1329,7 +1414,9 @@ export default function PersetujuanPesertaPage() {
                       <button
                         type="button"
                         className="ap-detail"
-                        onClick={() => openDetail(item)}
+                        onClick={() =>
+                          openDetail(item)
+                        }
                       >
                         Detail
                       </button>
@@ -1374,20 +1461,23 @@ export default function PersetujuanPesertaPage() {
             </div>
 
             <div className="ap-timeline">
-              {Array.from({ length: 25 }, (_, index) => (
-                <span key={index}>
-                  <i />
-                  <small>
-                    {String(index + 1).padStart(2, "0")}
-                  </small>
-                </span>
-              ))}
+              {Array.from(
+                { length: 25 },
+                (_, index) => (
+                  <span key={index}>
+                    <i />
+                    <small>
+                      {String(index + 1).padStart(2, "0")}
+                    </small>
+                  </span>
+                )
+              )}
             </div>
 
             <p className="ap-note">
               Kalender global digunakan untuk monitoring
-              25 minggu. Periode masing-masing peserta tetap
-              mengikuti tanggal individual.
+              25 minggu. Periode masing-masing peserta
+              tetap mengikuti tanggal individual.
             </p>
           </div>
 
@@ -1409,10 +1499,22 @@ export default function PersetujuanPesertaPage() {
 
             <div className="ap-flow">
               {[
-                ["Pendaftaran", "Peserta mengajukan pendaftaran."],
-                ["Verifikasi", "Mentor memeriksa data peserta."],
-                ["Keputusan", "Mentor menyetujui atau menolak."],
-                ["Aktivasi", "Server membuat program jika disetujui."],
+                [
+                  "Pendaftaran",
+                  "Peserta mengajukan pendaftaran.",
+                ],
+                [
+                  "Verifikasi",
+                  "Mentor memeriksa data peserta.",
+                ],
+                [
+                  "Keputusan",
+                  "Mentor menyetujui atau menolak.",
+                ],
+                [
+                  "Aktivasi",
+                  "Server membuat program jika disetujui.",
+                ],
               ].map(([title, desc], i) => (
                 <div key={title}>
                   <span>{i + 1}</span>
@@ -1426,8 +1528,6 @@ export default function PersetujuanPesertaPage() {
           </div>
         </section>
 
-        {/* BACK BUTTON */}
-
         <div className="ap-bottom-actions">
           <button
             type="button"
@@ -1437,8 +1537,6 @@ export default function PersetujuanPesertaPage() {
             Kembali ke Dashboard Mentor
           </button>
         </div>
-
-        {/* FOOTER */}
 
         <footer className="ap-footer">
           <span>
@@ -1472,7 +1570,9 @@ export default function PersetujuanPesertaPage() {
                 <h2 id="detail-title">
                   Detail Pengajuan Peserta
                 </h2>
-                <p>Informasi berdasarkan data sistem.</p>
+                <p>
+                  Informasi berdasarkan data sistem.
+                </p>
               </div>
 
               <button
@@ -1493,7 +1593,10 @@ export default function PersetujuanPesertaPage() {
 
                 <DetailItem
                   label="Email"
-                  value={detail.email || "Email belum tersedia"}
+                  value={
+                    detail.email ||
+                    "Email belum tersedia"
+                  }
                 />
 
                 <DetailItem
@@ -1554,9 +1657,9 @@ export default function PersetujuanPesertaPage() {
               {detail.status === "pending" &&
                 !sourceOf(detail) && (
                   <p className="ap-note">
-                    Sumber pengajuan belum dikenali oleh API
-                    daftar. Keputusan tidak dapat dikirim
-                    dengan aman.
+                    Sumber pengajuan belum dikenali oleh
+                    API daftar. Keputusan tidak dapat
+                    dikirim dengan aman.
                   </p>
                 )}
 
@@ -1596,7 +1699,6 @@ export default function PersetujuanPesertaPage() {
                     ? "Persetujuan Peserta OJT"
                     : "Penolakan Peserta OJT"}
                 </h2>
-
                 <p>Konfirmasi keputusan Mentor.</p>
               </div>
 
@@ -1614,8 +1716,6 @@ export default function PersetujuanPesertaPage() {
               className="ap-modal-body"
               onSubmit={submitDecision}
             >
-              {/* SELECTED PARTICIPANT */}
-
               <div className="ap-person ap-modal-person">
                 <span className="ap-person-avatar">
                   {initials(selected.full_name)}
@@ -1623,7 +1723,8 @@ export default function PersetujuanPesertaPage() {
 
                 <span>
                   <strong>
-                    {selected.full_name || "Peserta OJT"}
+                    {selected.full_name ||
+                      "Peserta OJT"}
                   </strong>
 
                   <small>
@@ -1634,12 +1735,13 @@ export default function PersetujuanPesertaPage() {
 
                   <small className="ap-email">
                     <span>Email:</span>{" "}
-                    {selected.email || "Email belum tersedia"}
+                    {selected.email ||
+                      "Email belum tersedia"}
                   </small>
                 </span>
               </div>
 
-              {/* LEGACY REGISTRATION */}
+              {/* LEGACY PERIOD FORM */}
 
               {sourceOf(selected) === "legacy" &&
               decision === "approved" ? (
@@ -1655,12 +1757,20 @@ export default function PersetujuanPesertaPage() {
                     <select
                       value={site}
                       disabled={processing}
-                      onChange={(e) => setSite(e.target.value)}
+                      onChange={(e) =>
+                        setSite(e.target.value)
+                      }
                       required
                     >
-                      <option value="">Pilih Site</option>
+                      <option value="">
+                        Pilih Site
+                      </option>
+
                       {SITES.map((value) => (
-                        <option key={value} value={value}>
+                        <option
+                          key={value}
+                          value={value}
+                        >
                           {value}
                         </option>
                       ))}
@@ -1686,7 +1796,9 @@ export default function PersetujuanPesertaPage() {
                       <input
                         type="date"
                         required
-                        min={startDate || undefined}
+                        min={
+                          startDate || undefined
+                        }
                         value={endDate}
                         disabled={processing}
                         onChange={(e) =>
@@ -1719,10 +1831,14 @@ export default function PersetujuanPesertaPage() {
                     maxLength={1000}
                     value={reason}
                     disabled={processing}
-                    onChange={(e) => setReason(e.target.value)}
+                    onChange={(e) =>
+                      setReason(e.target.value)
+                    }
                     placeholder="Tuliskan alasan penolakan..."
                   />
-                  <small>{reason.length}/1000 karakter</small>
+                  <small>
+                    {reason.length}/1000 karakter
+                  </small>
                 </label>
               )}
 
@@ -1731,10 +1847,24 @@ export default function PersetujuanPesertaPage() {
               <div className="ap-notice">
                 <Icon name="info" size={18} />
                 <span>
-                  Keputusan akan diverifikasi dan disimpan
-                  melalui API Mentor.
+                  Dengan menekan tombol konfirmasi,
+                  keputusan dikirim ke API Mentor untuk
+                  diverifikasi dan disimpan oleh server.
                 </span>
               </div>
+
+              {/* ERROR DI DALAM MODAL */}
+
+              {error && (
+                <div
+                  className="ap-alert error"
+                  role="alert"
+                  style={{ marginTop: 15 }}
+                >
+                  <Icon name="info" size={18} />
+                  <span>{error}</span>
+                </div>
+              )}
 
               {/* MODAL ACTIONS */}
 
@@ -1755,10 +1885,12 @@ export default function PersetujuanPesertaPage() {
                       ? "ap-confirm-approve"
                       : "ap-confirm-reject"
                   }
-                  disabled={processing || flagsLoading}
+                  disabled={
+                    processing || flagsLoading
+                  }
                 >
                   {processing
-                    ? "Memproses..."
+                    ? processingLabel || "Memproses..."
                     : decision === "approved"
                     ? "Konfirmasi Persetujuan"
                     : "Konfirmasi Penolakan"}
@@ -1774,6 +1906,7 @@ export default function PersetujuanPesertaPage() {
 
 // ======================================================
 // COMPLETE CSS — LIGHT & DARK MODE
+// TAMPILAN ASLI DIPERTAHANKAN
 // ======================================================
 
 const css = `
