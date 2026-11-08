@@ -1525,6 +1525,27 @@ export default function MentorDashboard() {
               <Icon name="chart" size={19} />
               <span>Monitoring Peserta</span>
             </button>
+           
+<button
+  type="button"
+  className="mt-nav"
+  onClick={() =>
+    navigate("/mentor/verifikasi-kegiatan")
+  }
+>
+  <Icon name="check" size={19} />
+  <span>Verifikasi & Monitoring</span>
+  {achievements.filter(
+    (item) => item.status === "pending"
+  ).length > 0 && (
+    <span className="mt-pending-count">
+      {achievements.filter(
+        (item) => item.status === "pending"
+      ).length}
+    </span>
+  )}
+</button>
+
 
             <button
               type="button"
