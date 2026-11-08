@@ -1098,12 +1098,10 @@ export default function MentorDashboard() {
     });
   }
 
-  // Menu baru mengarahkan ke modul yang sudah tersedia,
-  // tanpa membuat route palsu atau mengubah hak akses.
+  // Monitoring dan laporan masih membuka modul per peserta.
+  // Verifikasi Kegiatan memiliki halaman antrean tersendiri.
   function openParticipantModule(type) {
     const instructions = {
-      verification:
-        "Untuk verifikasi kegiatan, pilih peserta lalu tekan Input. Pemeriksaan dan keputusan tetap mengikuti hak akses Mentor/Admin pada modul terkait.",
       monitoring:
         "Untuk Monitoring Achievement, pilih peserta lalu tekan Monitoring. Grafik dan riwayat tetap menggunakan data program peserta tersebut.",
       report:
@@ -1543,7 +1541,7 @@ export default function MentorDashboard() {
               <button
                 type="button"
                 className="mt-nav"
-                onClick={() => openParticipantModule("verification")}
+                onClick={() => navigate("/mentor/verifikasi-kegiatan")}
               >
                 <Icon name="shield" size={19} />
                 <span>Verifikasi Kegiatan</span>
