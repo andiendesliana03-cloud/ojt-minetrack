@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -27,6 +26,9 @@ import { supabase } from "../../../lib/supabase";
 // - Riwayat dan pencarian
 // - Rata-rata nilai
 // - Supabase database asli
+// - Nilai pengajuan Peserta + evidence wajib
+// - Verifikasi nilai terpisah oleh Mentor/Admin
+// - Nilai pending tidak dihitung pada rata-rata
 // ======================================================
 
 // ======================================================
@@ -42,6 +44,90 @@ const PRACTICE_MATERIALS = [
   "SCBA",
   "TOG",
 ];
+
+// ======================================================
+// DOKUMENTASI PRAKTIK (METADATA DI KOLOM notes)
+// Tidak membuat kolom ataupun tabel baru.
+// Backup otomatis ke Google Drive untuk Praktik memerlukan
+// perluasan Edge Function + webhook Praktik secara terpisah.
+// ======================================================
+
+const PRACTICE_BUCKET = "achievement-files";
+const MAX_DOCUMENT_SIZE = 5 * 1024 * 1024;
+const ALLOWED_DOCUMENT_TYPES = [
+  "image/jpeg", "image/png", "image/webp", "application/pdf",
+];
+const FILE_METADATA_REGEX = /\[\[OJT_FILE_V1:([\s\S]*?)\]\]/g;
+const REVIEW_METADATA_REGEX = /\[\[OJT_PRACTICE_REVIEW_V1:([\s\S]*?)\]\]/g;
+
+// Metadata pengajuan skor Peserta disimpan di notes.
+// Kolom score hanya menyimpan nilai resmi setelah verifikasi Mentor/Admin.
+// Hal ini mempertahankan perhitungan nilai lama tanpa mengubah schema.
+function parsePracticeNotes(raw) {
+  let evidence = null;
+  let review = null;
+  const withoutFile = String(raw || "").replace(
+    FILE_METADATA_REGEX,
+    (_match, encoded) => {
+      try {
+        const data = JSON.parse(decodeURIComponent(encoded));
+        if (typeof data?.path === "string" && data.path.trim()) {
+          evidence = {
+            name: String(data.name || "Dokumentasi Praktik"),
+            path: data.path.trim(),
+          };
+        }
+      } catch {
+        // Metadata rusak tidak ditampilkan sebagai teks.
+      }
+      return "";
+    }
+  );
+  const text = withoutFile.replace(
+    REVIEW_METADATA_REGEX,
+    (_match, encoded) => {
+      try {
+        const data = JSON.parse(decodeURIComponent(encoded));
+        const score = Number(data?.submittedScore);
+        if (
+          data && typeof data === "object" &&
+          ["pending", "verified"].includes(data.status) &&
+          Number.isFinite(score) && score >= 0 && score <= 100
+        ) {
+          review = { ...data, submittedScore: score };
+        }
+      } catch {
+        // Metadata rusak tetap tidak ditampilkan sebagai teks.
+      }
+      return "";
+    }
+  );
+  return { text: text.trim(), evidence, review };
+}
+
+function composePracticeNotes(text, evidence, review = null) {
+  const pieces = [];
+  const description = String(text || "").trim();
+  if (description) pieces.push(description);
+  if (evidence?.path) {
+    const meta = encodeURIComponent(JSON.stringify({
+      name: evidence.name,
+      path: evidence.path,
+    }));
+    pieces.push(`[[OJT_FILE_V1:${meta}]]`);
+  }
+  if (review) {
+    const meta = encodeURIComponent(JSON.stringify(review));
+    pieces.push(`[[OJT_PRACTICE_REVIEW_V1:${meta}]]`);
+  }
+  return pieces.join("\n") || null;
+}
+
+function safeUploadName(value) {
+  return String(value || "dokumentasi.jpg")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(-95) || "dokumentasi.jpg";
+}
 
 // ======================================================
 // STYLE DASAR
@@ -231,6 +317,11 @@ export default function PraktikMingguanPage() {
 
   const [notes, setNotes] = useState("");
 
+  // Dokumentasi bisa diunggah Peserta atau Mentor.
+  const [documentFile, setDocumentFile] = useState(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [openingEvidenceId, setOpeningEvidenceId] = useState(null);
+
   const [editId, setEditId] = useState(null);
 
   const [search, setSearch] = useState("");
@@ -245,13 +336,20 @@ export default function PraktikMingguanPage() {
 
   const role = String(
     profile?.role || ""
-  ).toLowerCase();
+  ).trim().toLowerCase();
 
   const isAdmin = role === "admin";
 
   const isMentor = role === "mentor";
 
+  const isParticipant = ["participant", "peserta"].includes(role);
+
+  // Peserta mengirim nilai pengajuan (0–100) dengan bukti wajib.
+  // Mentor/Admin memverifikasi lalu menetapkan nilai resmi.
+  // Angka pengajuan tidak langsung mempengaruhi nilai rata-rata.
   const canManage = isAdmin || isMentor;
+  const canSubmit = isParticipant;
+  const canUsePage = canManage || canSubmit;
 
   const selectedProgram = programs.find(
     (item) =>
@@ -304,7 +402,7 @@ export default function PraktikMingguanPage() {
 
       return [
         item.practice_name,
-        item.notes,
+        parsePracticeNotes(item.notes).text,
         item.practice_date,
       ]
         .map((value) =>
@@ -327,6 +425,7 @@ export default function PraktikMingguanPage() {
     (item) =>
       item.score !== null &&
       item.score !== undefined &&
+      item.score !== "" &&
       Number.isFinite(Number(item.score))
   ).length;
 
@@ -378,11 +477,9 @@ export default function PraktikMingguanPage() {
     ).toLowerCase();
 
     if (
-      !["admin", "mentor"].includes(currentRole)
+      !["admin", "mentor", "participant", "peserta"].includes(currentRole)
     ) {
-      throw new Error(
-        "Halaman Praktik Mingguan hanya dapat diakses Admin atau Mentor."
-      );
+      throw new Error("Akun tidak memiliki akses Praktik Mingguan.");
     }
 
     let query = supabase
@@ -406,6 +503,9 @@ export default function PraktikMingguanPage() {
 
     if (currentRole === "mentor") {
       query = query.eq("mentor_id", userId);
+    } else if (["participant", "peserta"].includes(currentRole)) {
+      // Wajib filter di database, bukan hanya dropdown UI.
+      query = query.eq("participant_id", userId).eq("status", "active");
     }
 
     const programResult = await query;
@@ -599,6 +699,8 @@ export default function PraktikMingguanPage() {
     setPracticeName("");
     setScore("");
     setNotes("");
+    setDocumentFile(null);
+    setFileInputKey((value) => value + 1);
   }
 
   // ====================================================
@@ -606,7 +708,7 @@ export default function PraktikMingguanPage() {
   // ====================================================
 
   function selectProgram(programId) {
-    if (saving || actionId) return;
+    if (saving || actionId || isParticipant) return;
 
     if (
       !programs.some(
@@ -643,13 +745,16 @@ export default function PraktikMingguanPage() {
     // Materi lama tetap dapat diedit.
     setPracticeName(item.practice_name || "");
 
+    const review = parsePracticeNotes(item.notes).review;
     setScore(
       item.score == null
-        ? ""
+        ? review ? String(review.submittedScore) : ""
         : String(item.score)
     );
 
-    setNotes(item.notes || "");
+    setNotes(parsePracticeNotes(item.notes).text);
+    setDocumentFile(null);
+    setFileInputKey((value) => value + 1);
 
     setError("");
     setMessage("");
@@ -668,92 +773,59 @@ export default function PraktikMingguanPage() {
     event.preventDefault();
 
     if (
-      !canManage ||
+      !canUsePage ||
       !selectedProgram ||
-      saving ||
-      actionId ||
-      loadingRecords
-    ) {
+      saving || actionId || loadingRecords
+    ) return;
+
+    if (isParticipant && selectedProgram.status !== "active") {
+      setError("Penginputan hanya tersedia untuk program OJT aktif.");
       return;
     }
 
-    const numericScore = Number(score);
-
-    if (!practiceDate) {
-      setError(
-        "Tanggal praktik wajib diisi."
-      );
-      return;
-    }
-
-    if (
-      getWeek(
-        practiceDate,
-        selectedProgram.start_date
-      ) === null
-    ) {
-      setError(
-        "Tanggal harus berada pada Week 01–25 program OJT."
-      );
-      return;
-    }
-
-    if (
-      selectedProgram.end_date &&
-      practiceDate > selectedProgram.end_date
-    ) {
-      setError(
-        "Tanggal praktik melewati akhir periode OJT."
-      );
+    if (!practiceDate ||
+        getWeek(practiceDate, selectedProgram.start_date) === null ||
+        (selectedProgram.end_date && practiceDate > selectedProgram.end_date)) {
+      setError("Tanggal harus berada di periode Week 01–25 OJT.");
       return;
     }
 
     if (!practiceName.trim()) {
-      setError(
-        "Materi Praktik wajib dipilih."
-      );
+      setError("Materi Praktik wajib dipilih.");
       return;
     }
-
-    // Pastikan materi baru berasal dari dropdown.
-    // Saat edit, materi lama yang sudah tersimpan
-    // tetap dapat digunakan.
-    const isOfficialMaterial =
-      PRACTICE_MATERIALS.includes(
-        practiceName.trim()
-      );
 
     const previousRecord = editId
-      ? records.find(
-          (item) => item.id === editId
-        )
+      ? records.find((item) => item.id === editId)
       : null;
-
-    const isExistingLegacyMaterial =
-      Boolean(editId) &&
-      Boolean(previousRecord) &&
-      previousRecord.practice_name ===
-        practiceName.trim();
-
-    if (
-      !isOfficialMaterial &&
-      !isExistingLegacyMaterial
-    ) {
-      setError(
-        "Pilih salah satu materi Praktik dari daftar dropdown."
-      );
+    const official = PRACTICE_MATERIALS.includes(practiceName.trim());
+    const legacy = Boolean(canManage && editId && previousRecord &&
+      previousRecord.practice_name === practiceName.trim());
+    if (!official && !legacy) {
+      setError("Pilih materi Praktik dari dropdown yang tersedia.");
       return;
     }
 
-    if (
-      score.trim() === "" ||
-      !Number.isFinite(numericScore) ||
-      numericScore < 0 ||
-      numericScore > 100
-    ) {
-      setError(
-        "Nilai praktik harus berada antara 0–100."
-      );
+    // Peserta dan Mentor/Admin sama-sama wajib memasukkan angka.
+    // Angka dari Peserta disimpan sebagai pengajuan, belum nilai resmi.
+    const numericScore = Number(score);
+    if (score.trim() === "" ||
+        !Number.isFinite(numericScore) ||
+        numericScore < 0 || numericScore > 100) {
+      setError("Nilai praktik wajib diisi antara 0–100.");
+      return;
+    }
+
+    if (isParticipant && !documentFile) {
+      setError("Peserta wajib melampirkan dokumentasi Praktik.");
+      return;
+    }
+
+    if (documentFile && (
+      documentFile.size > MAX_DOCUMENT_SIZE ||
+      !ALLOWED_DOCUMENT_TYPES.includes(documentFile.type)
+    )) {
+      setError("Dokumentasi harus JPG, PNG, WEBP, atau PDF maksimal 5 MB.");
       return;
     }
 
@@ -761,58 +833,210 @@ export default function PraktikMingguanPage() {
     setError("");
     setMessage("");
 
+    let uploadedPath = null;
     try {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (authError || !auth?.user || auth.user.id !== profile?.id) {
+        throw new Error("Sesi akun tidak valid. Silakan login ulang.");
+      }
+
+      // Validasi ulang izin melalui program yang dibaca dari database.
+      let ownershipQuery = supabase.from("ojt_programs")
+        .select("id,status,participant_id,mentor_id")
+        .eq("id", selectedProgramId);
+      if (isParticipant) {
+        ownershipQuery = ownershipQuery
+          .eq("participant_id", auth.user.id)
+          .eq("status", "active");
+      } else if (isMentor) {
+        ownershipQuery = ownershipQuery.eq("mentor_id", auth.user.id);
+      }
+      const { data: authorized, error: ownershipError } =
+        await ownershipQuery.maybeSingle();
+      if (ownershipError || !authorized?.id) {
+        throw new Error("Akun tidak berhak mengisi program Praktik ini.");
+      }
+
+      let evidence = previousRecord
+        ? parsePracticeNotes(previousRecord.notes).evidence
+        : null;
+
+      if (documentFile) {
+        const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+        const fileName = safeUploadName(documentFile.name);
+        const path = `${selectedProgramId}/praktik/${profile.id}/${uniqueId}-${fileName}`;
+        const { error: uploadError } = await supabase.storage
+          .from(PRACTICE_BUCKET)
+          .upload(path, documentFile, {
+            upsert: false,
+            contentType: documentFile.type,
+          });
+        if (uploadError) {
+          throw new Error(`Upload dokumentasi gagal: ${uploadError.message}`);
+        }
+        uploadedPath = path;
+        evidence = { name: documentFile.name, path };
+      }
+
+      const previousReview = previousRecord
+        ? parsePracticeNotes(previousRecord.notes).review
+        : null;
+      if (canManage && previousReview?.status === "pending" && !evidence?.path) {
+        throw new Error("Tidak boleh memverifikasi laporan tanpa dokumentasi.");
+      }
+
+      const review = isParticipant
+        ? {
+            status: "pending",
+            submittedScore: numericScore,
+            submittedBy: profile.id,
+            submittedAt: new Date().toISOString(),
+          }
+        : previousReview
+          ? {
+              ...previousReview,
+              status: "verified",
+              reviewedBy: profile.id,
+              reviewedAt: new Date().toISOString(),
+              approvedScore: numericScore,
+            }
+          : null;
+
       const payload = {
         practice_date: practiceDate,
         practice_name: practiceName.trim(),
-        score: numericScore,
-        notes: notes.trim() || null,
+        // Nilai Peserta disimpan sebagai pengajuan di notes.
+        // Nilai resmi hanya boleh diisi Mentor/Admin setelah review.
+        score: canManage ? numericScore : null,
+        notes: composePracticeNotes(notes, evidence, review),
       };
 
-      const result = editId
-        ? await supabase
-            .from("weekly_practice_scores")
-            .update(payload)
-            .eq("id", editId)
-            .eq("program_id", selectedProgramId)
-            .select("id")
-        : await supabase
-            .from("weekly_practice_scores")
-            .insert({
-              ...payload,
-              program_id: selectedProgramId,
-              created_by: profile.id,
-            })
-            .select("id");
+      const result = canManage && editId
+        ? await supabase.from("weekly_practice_scores")
+          .update(payload)
+          .eq("id", editId)
+          .eq("program_id", selectedProgramId)
+          .select("id")
+        : await supabase.from("weekly_practice_scores")
+          .insert({
+            ...payload,
+            program_id: selectedProgramId,
+            created_by: profile.id,
+          })
+          .select("id");
 
-      if (result.error) {
-        throw result.error;
-      }
-
+      if (result.error) throw result.error;
       if (!result.data?.length) {
-        throw new Error(
-          "Data tidak berhasil disimpan. Periksa kebijakan akses database."
-        );
+        throw new Error("Data tidak tersimpan. Periksa izin RLS Supabase.");
       }
 
       await reloadRecords(selectedProgramId);
-
       const wasEditing = Boolean(editId);
-
       resetForm();
-
-      setMessage(
-        wasEditing
-          ? "Perubahan nilai praktik berhasil disimpan."
-          : "Nilai praktik berhasil disimpan."
-      );
+      setMessage(isParticipant
+        ? `Nilai pengajuan ${numericScore} dan dokumentasi berhasil dikirim. Menunggu verifikasi Mentor.`
+        : wasEditing
+          ? "Penilaian Praktik berhasil disimpan atau diverifikasi."
+          : "Nilai Praktik dan dokumentasi berhasil disimpan.");
     } catch (err) {
-      setError(
-        err.message ||
-          "Gagal menyimpan nilai praktik."
-      );
+      // Beri tahu jika file masuk ke Storage tetapi data gagal dicatat.
+      const extra = uploadedPath
+        ? " File telah terunggah, tetapi data penilaian belum tersimpan. Jangan mengunggah ulang berulang kali; periksa izin tabel."
+        : "";
+      setError((err?.message || "Gagal menyimpan Praktik.") + extra);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Verifikasi eksplisit oleh Mentor/Admin. Nilai pengajuan tetap
+  // disimpan dalam metadata supaya perbedaan nilai dapat dilihat.
+  async function verifySubmittedScore(item) {
+    if (!canManage || !selectedProgram || saving || actionId) return;
+    const { evidence, review, text } = parsePracticeNotes(item.notes);
+    if (!evidence?.path || review?.status !== "pending") {
+      setError("Hanya laporan Pending dengan bukti yang dapat diverifikasi.");
+      return;
+    }
+    const claimed = Number(review.submittedScore);
+    if (!Number.isFinite(claimed) || claimed < 0 || claimed > 100) {
+      setError("Nilai pengajuan tidak valid.");
+      return;
+    }
+    if (!window.confirm(
+      `Pastikan dokumentasi Praktik sudah diperiksa.\n\n` +
+      `Setujui nilai pengajuan ${claimed} untuk ${item.practice_name}?\n\n` +
+      `Jika nilai perlu dikoreksi, pilih Edit dan masukkan nilai hasil pemeriksaan.`
+    )) return;
+
+    setActionId(item.id);
+    setError("");
+    setMessage("");
+    try {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (authError || !auth?.user || auth.user.id !== profile?.id) {
+        throw new Error("Sesi akun tidak valid.");
+      }
+      let check = supabase.from("ojt_programs")
+        .select("id")
+        .eq("id", selectedProgramId);
+      if (isMentor) check = check.eq("mentor_id", auth.user.id);
+      const { data: authorized, error: checkError } = await check.maybeSingle();
+      if (checkError || !authorized?.id) {
+        throw new Error("Akun tidak memiliki izin verifikasi program ini.");
+      }
+      const approved = {
+        ...review,
+        status: "verified",
+        approvedScore: claimed,
+        reviewedBy: profile.id,
+        reviewedAt: new Date().toISOString(),
+      };
+      const result = await supabase.from("weekly_practice_scores")
+        .update({
+          score: claimed,
+          notes: composePracticeNotes(text, evidence, approved),
+        })
+        .eq("id", item.id)
+        .eq("program_id", selectedProgramId)
+        .is("score", null)
+        .select("id");
+      if (result.error) throw result.error;
+      if (!result.data?.length) {
+        throw new Error("Laporan telah diubah atau tidak dapat diverifikasi.");
+      }
+      await reloadRecords(selectedProgramId);
+      setMessage("Nilai pengajuan telah diverifikasi oleh Mentor/Admin.");
+    } catch (err) {
+      setError(err?.message || "Verifikasi Praktik gagal.");
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  // Buka dokumentasi privat menggunakan signed URL Supabase.
+  async function openEvidence(item) {
+    const evidence = parsePracticeNotes(item.notes).evidence;
+    if (!evidence?.path || openingEvidenceId !== null) return;
+    setOpeningEvidenceId(item.id);
+    setError("");
+    const tab = window.open("about:blank", "_blank");
+    try {
+      const { data, error: signedError } = await supabase.storage
+        .from(PRACTICE_BUCKET)
+        .createSignedUrl(evidence.path, 600);
+      if (signedError || !data?.signedUrl) {
+        throw signedError || new Error("Tautan dokumentasi gagal dibuat.");
+      }
+      if (!tab || tab.closed) {
+        throw new Error("Browser memblokir popup. Izinkan popup dokumentasi.");
+      }
+      tab.location.replace(data.signedUrl);
+    } catch (err) {
+      if (tab && !tab.closed) tab.close();
+      setError(err?.message || "Dokumentasi tidak dapat dibuka.");
+    } finally {
+      setOpeningEvidenceId(null);
     }
   }
 
@@ -932,7 +1156,7 @@ export default function PraktikMingguanPage() {
   // TAMPILAN AKSES DITOLAK
   // ====================================================
 
-  if (!profile || !canManage) {
+  if (!profile || !canUsePage) {
     return (
       <main className="pm-loading">
         <h2>
@@ -971,15 +1195,15 @@ export default function PraktikMingguanPage() {
         <button
           type="button"
           className="pm-btn secondary"
-          onClick={() =>
-            router.push(
-              selectedProgramId
+          onClick={() => router.push(
+            isParticipant
+              ? "/dashboard-peserta"
+              : selectedProgramId
                 ? `/peserta/${selectedProgramId}`
                 : "/"
-            )
-          }
+          )}
         >
-          ← Detail Peserta
+          ← {isParticipant ? "Dashboard Peserta" : "Detail Peserta"}
         </button>
       </header>
 
@@ -991,16 +1215,17 @@ export default function PraktikMingguanPage() {
             EMERGENCY RESPONSE GROUP · PT BERAU COAL
           </small>
 
-          <h1>Penilaian Praktik Mingguan</h1>
+          <h1>{isParticipant ? "Laporan Praktik Saya" : "Penilaian Praktik Mingguan"}</h1>
 
           <p>
             Pengelola:{" "}
-            {isAdmin ? "Administrator" : "Mentor"}
+            {isAdmin ? "Administrator" : isMentor ? "Mentor" : "Peserta OJT"}
           </p>
 
           <p>
-            Input, monitoring, dan evaluasi
-            keterampilan praktik peserta OJT.
+            {isParticipant
+              ? "Laporkan kegiatan dan dokumentasi. Nilai tetap diberikan Mentor."
+              : "Input, monitoring, dan evaluasi keterampilan praktik peserta OJT."}
           </p>
         </section>
 
@@ -1027,7 +1252,7 @@ export default function PraktikMingguanPage() {
         {/* PILIH PESERTA */}
 
         <section className="pm-card">
-          <h2>Pilih Peserta OJT</h2>
+          <h2>{isParticipant ? "Program OJT Saya" : "Pilih Peserta OJT"}</h2>
 
           <div className="pm-field">
             <label
@@ -1045,6 +1270,7 @@ export default function PraktikMingguanPage() {
                 selectProgram(event.target.value)
               }
               disabled={
+                isParticipant ||
                 saving ||
                 !!actionId ||
                 loadingRecords
@@ -1118,7 +1344,7 @@ export default function PraktikMingguanPage() {
             <div className="pm-stats">
               <div className="pm-stat">
                 <small>
-                  Total Penilaian
+                  {isParticipant ? "Total Laporan Praktik" : "Total Penilaian"}
                 </small>
                 <strong>
                   {records.length}
@@ -1148,15 +1374,17 @@ export default function PraktikMingguanPage() {
 
             <section className="pm-card">
               <h2>
-                {editId
-                  ? "Edit Penilaian Praktik"
-                  : "Input Penilaian Praktik"}
+                {isParticipant
+                  ? "Kirim Laporan Praktik"
+                  : editId
+                    ? "Edit Penilaian Praktik"
+                    : "Input Penilaian Praktik"}
               </h2>
 
               <p className="pm-muted">
-                Pilih materi Praktik yang telah
-                dilaksanakan, kemudian masukkan
-                nilai pada skala 0–100.
+                {isParticipant
+                  ? "Pilih tanggal dan materi, isi nilai pengajuan 0–100, lalu wajib lampirkan bukti dokumentasi. Nilai baru dihitung resmi setelah diverifikasi Mentor."
+                  : "Isi nilai 0–100 untuk penilaian langsung, atau tinjau pengajuan Peserta dan dokumentasinya sebelum verifikasi."}
               </p>
 
               <form onSubmit={saveRecord}>
@@ -1196,9 +1424,10 @@ export default function PraktikMingguanPage() {
                       className="pm-label"
                       htmlFor="pm-score"
                     >
-                      Nilai Praktik (0–100)
+                      {isParticipant
+                        ? "Nilai Pengajuan Praktik (0–100)"
+                        : "Nilai Praktik (0–100)"}
                     </label>
-
                     <input
                       id="pm-score"
                       className="pm-input"
@@ -1207,14 +1436,16 @@ export default function PraktikMingguanPage() {
                       max="100"
                       step="0.01"
                       value={score}
-                      onChange={(event) =>
-                        setScore(
-                          event.target.value
-                        )
-                      }
+                      onChange={(event) => setScore(event.target.value)}
                       placeholder="Contoh: 85"
                       required
                     />
+                    {isParticipant && (
+                      <p className="pm-muted">
+                        Nilai yang Anda masukkan merupakan pengajuan;
+                        Mentor akan membandingkannya dengan dokumentasi.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -1268,7 +1499,7 @@ export default function PraktikMingguanPage() {
                     className="pm-label"
                     htmlFor="pm-notes"
                   >
-                    Catatan Penilaian
+                      {isParticipant ? "Catatan Pelaksanaan" : "Catatan Penilaian"}
                   </label>
 
                   <textarea
@@ -1285,6 +1516,31 @@ export default function PraktikMingguanPage() {
                   />
                 </div>
 
+                {/* DOKUMENTASI PRAKTIK — UPLOAD SUPABASE */}
+                <div className="pm-field">
+                  <label className="pm-label" htmlFor="pm-document">
+                    Upload Dokumentasi Praktik {isParticipant ? "(Wajib)" : "(Opsional)"}
+                  </label>
+                  <input
+                    key={fileInputKey}
+                    id="pm-document"
+                    className="pm-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={(event) =>
+                      setDocumentFile(event.target.files?.[0] || null)
+                    }
+                    disabled={saving}
+                  />
+                  <p className="pm-muted">
+                    Format JPG, PNG, WEBP, atau PDF. Maksimal 5 MB per file.
+                    File disimpan privat pada Supabase Storage.
+                    {editId && parsePracticeNotes(records.find((r) => r.id === editId)?.notes).evidence
+                      ? " Jika tidak memilih file baru, dokumentasi lama tetap dipertahankan."
+                      : ""}
+                  </p>
+                </div>
+
                 {/* TOMBOL SIMPAN */}
 
                 <div className="pm-actions">
@@ -1299,9 +1555,11 @@ export default function PraktikMingguanPage() {
                   >
                     {saving
                       ? "Menyimpan..."
+                      : isParticipant
+                      ? "Kirim Nilai & Dokumentasi"
                       : editId
-                      ? "Simpan Perubahan"
-                      : "Simpan Nilai Praktik"}
+                        ? "Simpan Perubahan"
+                        : "Simpan Nilai Praktik"}
                   </button>
 
                   {editId && (
@@ -1341,7 +1599,7 @@ export default function PraktikMingguanPage() {
 
                 <div>
                   <p className="pm-muted">
-                    Jumlah penilaian pada minggu
+                    Jumlah laporan/penilaian pada minggu
                     tersebut.
                   </p>
 
@@ -1359,7 +1617,7 @@ export default function PraktikMingguanPage() {
             <section className="pm-card">
               <div className="pm-heading">
                 <h2>
-                  Riwayat Penilaian Praktik
+                  {isParticipant ? "Riwayat Laporan Praktik Saya" : "Riwayat Penilaian Praktik"}
                 </h2>
 
                 <button
@@ -1445,19 +1703,70 @@ export default function PraktikMingguanPage() {
                         </div>
 
                         <div className="pm-score">
-                          {formatScore(
-                            item.score
+                          {item.score == null && parsePracticeNotes(item.notes).review
+                            ? formatScore(parsePracticeNotes(item.notes).review.submittedScore)
+                            : formatScore(item.score)}
+                          {item.score == null && parsePracticeNotes(item.notes).review?.status === "pending" && (
+                            <small style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#a57b28" }}>
+                              Nilai pengajuan
+                            </small>
                           )}
                         </div>
                       </div>
 
-                      {item.notes && (
+                      {parsePracticeNotes(item.notes).review && (
+                        <div className="pm-review">
+                          <strong>
+                            {parsePracticeNotes(item.notes).review.status === "pending"
+                              ? "Menunggu Verifikasi Mentor"
+                              : "Sudah Diverifikasi Mentor/Admin"}
+                          </strong>
+                          <span>
+                            Nilai diajukan: {formatScore(parsePracticeNotes(item.notes).review.submittedScore)}
+                            {item.score != null ? ` · Nilai resmi: ${formatScore(item.score)}` : " · Belum masuk rata-rata resmi"}
+                          </span>
+                        </div>
+                      )}
+
+                      {parsePracticeNotes(item.notes).text && (
                         <p className="pm-record-notes">
-                          {item.notes}
+                          {parsePracticeNotes(item.notes).text}
                         </p>
                       )}
 
+                      {parsePracticeNotes(item.notes).evidence && (
+                        <div className="pm-evidence">
+                          <span>📎 {parsePracticeNotes(item.notes).evidence.name}</span>
+                          <button
+                            type="button"
+                            className="pm-btn secondary"
+                            onClick={() => openEvidence(item)}
+                            disabled={openingEvidenceId !== null}
+                          >
+                            {openingEvidenceId === item.id ? "Membuka..." : "Lihat Dokumentasi"}
+                          </button>
+                        </div>
+                      )}
+
+                      {isParticipant && !parsePracticeNotes(item.notes).review && (
+                        <p className="pm-muted">
+                          {item.score == null ? "Menunggu penilaian Mentor" : "Sudah dinilai Mentor"}
+                        </p>
+                      )}
+
+                      {canManage && (
                       <div className="pm-actions">
+                        {parsePracticeNotes(item.notes).review?.status === "pending" &&
+                          parsePracticeNotes(item.notes).evidence && (
+                          <button
+                            type="button"
+                            className="pm-btn"
+                            disabled={saving || !!actionId}
+                            onClick={() => verifySubmittedScore(item)}
+                          >
+                            {actionId === item.id ? "Memverifikasi..." : "Verifikasi Nilai Pengajuan"}
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="pm-btn blue"
@@ -1486,6 +1795,7 @@ export default function PraktikMingguanPage() {
                             : "Hapus"}
                         </button>
                       </div>
+                      )}
                     </article>
                   )
                 )}
@@ -1778,6 +2088,33 @@ const css = `
   overflow-wrap: anywhere;
 }
 
+.pm-review {
+  border: 1px solid #d8e7e0;
+  background: #eff9f4;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #17694d;
+  font-size: 12px;
+}
+
+.pm-evidence {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #eef7f2;
+  border: 1px solid #d4e6d9;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 12px 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .pm-footer {
   text-align: center;
   color: #839a90;
@@ -2008,6 +2345,20 @@ html[data-theme="dark"] .pm-alert.success {
   background: #1b4534;
   color: #b2f2cc;
   border: 1px solid #35674f;
+}
+
+/* LAMPIRAN PRAKTIK */
+
+html[data-theme="dark"] .pm-review {
+  background: #203c35;
+  border-color: #3a6254;
+  color: #a4f4cd;
+}
+
+html[data-theme="dark"] .pm-evidence {
+  background: #203438;
+  border-color: #36524a;
+  color: #d0ecdd;
 }
 
 /* FOOTER */
