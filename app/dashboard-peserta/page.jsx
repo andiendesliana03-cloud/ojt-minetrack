@@ -52,6 +52,15 @@ const MENUS = [
   { id: "rapor", label: "Rapor & Evaluasi", icon: "file" },
 ];
 
+// Menu pengisian mandiri. URL mengikuti rute input Mentor yang sudah ada.
+// Hanya dipakai pada program milik akun Peserta OJT yang login.
+const INPUT_MENUS = [
+  { id: "achievement", label: "Input Achievement", icon: "trophy", route: (id) => `/achievement/${id}` },
+  { id: "posttest", label: "Input Post-Test", icon: "file", route: (id) => `/mingguan/${id}` },
+  { id: "praktik", label: "Input Praktik", icon: "tools", route: (id) => `/praktik/${id}` },
+  { id: "samapta", label: "Input Samapta", icon: "run", route: (id) => `/samapta/${id}` },
+];
+
 const PAGE_TITLES = {
   dashboard: "Dashboard Peserta OJT",
   jadwal: "Jadwal Kegiatan",
@@ -1509,6 +1518,18 @@ export default function DashboardPeserta() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [openingInput, setOpeningInput] = useState("");
+  const [inputError, setInputError] = useState("");
+
+  // Form pengisian Achievement secara mandiri.
+  const [ownCategory, setOwnCategory] = useState("");
+  const [ownDate, setOwnDate] = useState(todayWITA());
+  const [ownDescription, setOwnDescription] = useState("");
+  const [ownDistance, setOwnDistance] = useState("");
+  const [ownFile, setOwnFile] = useState(null);
+  const [ownSaving, setOwnSaving] = useState(false);
+  const [ownMessage, setOwnMessage] = useState("");
+  const ownFileInputRef = useRef(null);
   const [error, setError] = useState("");
 
   const [progress, setProgress] = useState(
@@ -1546,6 +1567,21 @@ export default function DashboardPeserta() {
     access === "approved" &&
     Boolean(program?.id) &&
     Boolean(profile);
+
+  const canInputOwnData =
+    !isAdmin &&
+    isParticipantRole(account?.role) &&
+    hasActiveProgram &&
+    program?.participant_id === account?.id;
+
+  const ownAvailableTypes = weeklyData.types.filter((type) =>
+    TARGETS.some((target) => normalizeType(target.name) === normalizeType(type.name))
+  );
+  const ownSelectedType =
+    ownAvailableTypes.find((type) => type.code === ownCategory) ||
+    ownAvailableTypes[0] ||
+    null;
+
 
   // ====================================================
   // THEME
@@ -2537,6 +2573,173 @@ export default function DashboardPeserta() {
     });
   }
 
+  // Akses pengisian hanya untuk program sendiri. Admin Preview tetap baca-saja.
+  // Aturan Supabase RLS dan izin di halaman tujuan wajib tetap memeriksa identitas.
+  async function openOwnInput(kind) {
+    const item = INPUT_MENUS.find((entry) => entry.id === kind);
+    if (!item || !canInputOwnData || openingInput) return;
+
+    // Achievement tersedia langsung di dashboard, tanpa halaman Mentor.
+    if (kind === "achievement") {
+      setOwnMessage("");
+      navigatePage("achievement");
+      return;
+    }
+
+    setInputError("");
+    setOpeningInput(kind);
+
+    try {
+      const { data: authData, error: authError } =
+        await supabase.auth.getUser();
+      const user = authData?.user;
+      if (authError || !user || user.id !== account?.id) {
+        throw new Error("Sesi akun berubah. Silakan login ulang.");
+      }
+
+      // Pastikan ID program yang akan dibuka adalah milik Peserta aktif ini.
+      const { data: ownProgram, error: programError } = await supabase
+        .from("ojt_programs")
+        .select("id")
+        .eq("id", program.id)
+        .eq("participant_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (programError) throw programError;
+      if (!ownProgram?.id) {
+        throw new Error("Program OJT aktif milik akun ini tidak ditemukan.");
+      }
+
+      // Simpan posisi dashboard sebelum pindah ke halaman input.
+      try {
+        sessionStorage.setItem(
+          viewStorageKey(user.id),
+          JSON.stringify({
+            participantId: "",
+            page,
+            week: selectedWeek,
+            resultTab,
+            reportTab,
+            monitorDetail,
+            achievementHistory,
+          })
+        );
+      } catch {}
+
+      router.push(item.route(ownProgram.id));
+    } catch (err) {
+      setInputError(err?.message || "Halaman input gagal dibuka.");
+      setOpeningInput("");
+    }
+  }
+
+  // Simpan ke tabel yang sama agar rekap dan webhook Drive tetap dapat bekerja.
+  // Semua hasil input peserta otomatis PENDING, verifikasi tetap dilakukan Mentor.
+  async function saveOwnAchievement(event) {
+    event.preventDefault();
+    if (!canInputOwnData || ownSaving) return;
+
+    setInputError("");
+    setOwnMessage("");
+
+    const selectedCode = ownSelectedType?.code || "";
+    const selectedType = ownSelectedType;
+    const isFisik = normalizeType(selectedType?.name) === "fisik";
+    const distance = Number(ownDistance);
+
+    if (!selectedType || !TARGETS.some((target) => normalizeType(target.name) === normalizeType(selectedType.name))) {
+      setInputError("Kategori Achievement tidak valid.");
+      return;
+    }
+    if (!parseDate(ownDate) || globalWeekOf(ownDate) === null || weekOf(ownDate, program.start_date) === null) {
+      setInputError("Tanggal harus berada dalam periode 25 minggu OJT.");
+      return;
+    }
+    if (!ownDescription.trim()) {
+      setInputError("Deskripsi kegiatan wajib diisi.");
+      return;
+    }
+    if (isFisik && (!Number.isFinite(distance) || distance <= 0 || distance > 100)) {
+      setInputError("Jarak Fisik harus lebih dari 0 sampai 100 km.");
+      return;
+    }
+    if (ownFile && (ownFile.size > 5 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(ownFile.type))) {
+      setInputError("Dokumentasi harus JPG, PNG, WEBP, atau PDF dan maksimal 5 MB.");
+      return;
+    }
+
+    setOwnSaving(true);
+    let uploadedPath = "";
+    let createdRecord = false;
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData?.user || authData.user.id !== account.id) {
+        throw new Error("Sesi peserta tidak valid. Silakan login ulang.");
+      }
+
+      const { data: ownProgram, error: ownProgramError } = await supabase
+        .from("ojt_programs")
+        .select("id")
+        .eq("id", program.id)
+        .eq("participant_id", authData.user.id)
+        .eq("status", "active")
+        .maybeSingle();
+      if (ownProgramError) throw ownProgramError;
+      if (!ownProgram?.id) throw new Error("Program aktif milik peserta tidak ditemukan.");
+
+      let description = ownDescription.trim();
+      if (ownFile) {
+        const safeFileName = ownFile.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-90) || "dokumentasi";
+        const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+        uploadedPath = `${program.id}/${authData.user.id}/${uniqueId}-${safeFileName}`;
+        const { error: uploadError } = await supabase.storage
+          .from(ACHIEVEMENT_BUCKET)
+          .upload(uploadedPath, ownFile, { upsert: false, contentType: ownFile.type });
+        if (uploadError) throw new Error(`Gagal upload dokumentasi: ${uploadError.message}`);
+        description += `
+[[OJT_FILE_V1:${encodeURIComponent(JSON.stringify({ name: ownFile.name, path: uploadedPath }))}]]`;
+      }
+
+      const { data: saved, error: insertError } = await supabase
+        .from("achievement_records")
+        .insert({
+          program_id: ownProgram.id,
+          type_code: selectedCode,
+          activity_date: ownDate,
+          description,
+          distance_km: isFisik ? Number(distance.toFixed(3)) : null,
+          status: "pending",
+          verified_by: null,
+        })
+        .select("id");
+
+      if (insertError || !saved?.length) {
+        throw insertError || new Error("Data kegiatan tidak berhasil disimpan.");
+      }
+      createdRecord = true;
+
+      const refreshed = await fetchProgramProgress(program);
+      setProgress(refreshed.progress);
+      setWeeklyData(refreshed.weekly);
+      setOwnDescription("");
+      setOwnDistance("");
+      setOwnFile(null);
+      if (ownFileInputRef.current) ownFileInputRef.current.value = "";
+      setAchievementHistory(true);
+      setOwnMessage("Achievement berhasil dikirim dengan status Pending. Menunggu verifikasi Mentor.");
+    } catch (err) {
+      // Berusaha bersihkan file jika record belum berhasil dibuat.
+      // Jika cleanup ditolak oleh policy, file tetap aman pada Storage.
+      if (uploadedPath && !createdRecord) {
+        try { await supabase.storage.from(ACHIEVEMENT_BUCKET).remove([uploadedPath]); } catch {}
+      }
+      setInputError(err?.message || "Gagal menyimpan Achievement.");
+    } finally {
+      setOwnSaving(false);
+    }
+  }
+
   function openFeature(path) {
     if (
       !hasActiveProgram ||
@@ -3128,6 +3331,27 @@ export default function DashboardPeserta() {
             ))}
           </nav>
 
+          {canInputOwnData && (
+            <>
+              <small className="dp-menu-label">INPUT KEGIATAN</small>
+              <nav aria-label="Input kegiatan OJT mandiri">
+                {INPUT_MENUS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="dp-menu"
+                    disabled={Boolean(openingInput)}
+                    onClick={() => openOwnInput(item.id)}
+                  >
+                    <Icon name={item.icon} />
+                    <span>{openingInput === item.id ? "Membuka..." : item.label}</span>
+                    <Icon name="arrow" size={14} />
+                  </button>
+                ))}
+              </nav>
+            </>
+          )}
+
           <div className="dp-sidebar-bottom">
             <button
               type="button"
@@ -3171,6 +3395,11 @@ export default function DashboardPeserta() {
         )}
 
         <main className="dp-main">
+          {inputError && (
+            <div className="dp-alert error dp-no-print" role="alert">
+              {inputError}
+            </div>
+          )}
           <div className="dp-page-heading dp-no-print">
             <div>
               <h1>
@@ -3468,6 +3697,34 @@ export default function DashboardPeserta() {
                     </span>
                   </section>
 
+                  {canInputOwnData && (
+                    <section className="dp-panel dp-input-panel dp-no-print">
+                      <div className="dp-section-head">
+                        <div>
+                          <h2>Input Kegiatan Saya</h2>
+                          <p className="dp-input-subtitle">
+                            Catat capaian OJT pada program sendiri. Verifikasi tetap oleh Mentor.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="dp-input-grid">
+                        {INPUT_MENUS.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="dp-input-card"
+                            disabled={Boolean(openingInput)}
+                            onClick={() => openOwnInput(item.id)}
+                          >
+                            <Icon name={item.icon} size={23} />
+                            <span>{openingInput === item.id ? "Membuka..." : item.label}</span>
+                            <Icon name="arrow" size={16} />
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
                   <div className="dp-stat-grid">
                     <Stat
                       label="Minggu Program"
@@ -3701,6 +3958,49 @@ export default function DashboardPeserta() {
                     </strong>
                   </div>
 
+                  {canInputOwnData && (
+                    <form className="dp-self-form dp-no-print" onSubmit={saveOwnAchievement}>
+                      <h3>Input Achievement Saya</h3>
+                      <p>Isi kegiatan sendiri. Data baru berstatus Pending hingga diverifikasi Mentor.</p>
+                      <div className="dp-self-grid">
+                        <label>
+                          Kategori
+                          <select
+                            required
+                            value={ownSelectedType?.code || ""}
+                            onChange={(event) => setOwnCategory(event.target.value)}
+                          >
+                            {ownAvailableTypes.map((type) => (
+                                <option key={type.code} value={type.code}>{type.name}</option>
+                              ))}
+                          </select>
+                        </label>
+                        <label>
+                          Tanggal Pelaksanaan
+                          <input type="date" required value={ownDate} onChange={(event) => setOwnDate(event.target.value)} />
+                        </label>
+                      </div>
+                      {normalizeType(ownSelectedType?.name) === "fisik" && (
+                        <label>
+                          Jarak Fisik (km)
+                          <input type="number" min="0.001" max="100" step="0.001" required value={ownDistance} onChange={(event) => setOwnDistance(event.target.value)} placeholder="Contoh: 3.250" />
+                        </label>
+                      )}
+                      <label>
+                        Deskripsi Kegiatan
+                        <textarea required rows={3} value={ownDescription} onChange={(event) => setOwnDescription(event.target.value)} placeholder="Jelaskan kegiatan yang telah dilakukan..." />
+                      </label>
+                      <label>
+                        Foto / Dokumen Pendukung (maksimal 5 MB)
+                        <input ref={ownFileInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => setOwnFile(event.target.files?.[0] || null)} />
+                      </label>
+                      <button type="submit" className="dp-button" disabled={ownSaving}>
+                        {ownSaving ? "Menyimpan..." : "Kirim Achievement Saya"}
+                      </button>
+                      {ownMessage && <div className="dp-alert" role="status">{ownMessage}</div>}
+                    </form>
+                  )}
+
                   <ProgressBar
                     value={
                       progress.achievement
@@ -3712,6 +4012,20 @@ export default function DashboardPeserta() {
                       categories
                     }
                   />
+
+                  {canInputOwnData && (
+                    <div className="dp-buttons dp-no-print dp-input-shortcut">
+                      <button
+                        type="button"
+                        className="dp-button"
+                        disabled={Boolean(openingInput)}
+                        onClick={() => openOwnInput("achievement")}
+                      >
+                        <Icon name="trophy" size={17} />
+                        Input Achievement Saya
+                      </button>
+                    </div>
+                  )}
 
                   <div className="dp-buttons dp-no-print">
                     <button
@@ -3805,6 +4119,27 @@ export default function DashboardPeserta() {
                       </button>
                     </div>
                   </div>
+
+                  {canInputOwnData && (
+                    <div className="dp-buttons dp-no-print dp-input-shortcut">
+                      <button
+                        type="button"
+                        className="dp-button"
+                        disabled={Boolean(openingInput)}
+                        onClick={() => openOwnInput("posttest")}
+                      >
+                        Input Post-Test Saya
+                      </button>
+                      <button
+                        type="button"
+                        className="dp-button secondary"
+                        disabled={Boolean(openingInput)}
+                        onClick={() => openOwnInput("praktik")}
+                      >
+                        Input Praktik Saya
+                      </button>
+                    </div>
+                  )}
 
                   <div className="dp-stat-grid two">
                     <Stat
@@ -4167,6 +4502,24 @@ const dashboardCSS = `
     font-family: Arial, Helvetica, sans-serif;
     line-height: 1.5;
   }
+
+  .dp-self-form { display: flex; flex-direction: column; gap: 12px; margin: 16px 0 20px; background: var(--dp-soft); border: 1px solid var(--dp-border); border-radius: 12px; padding: 16px; }
+  .dp-self-form h3 { margin: 0; }
+  .dp-self-form p { margin: 0; color: var(--dp-muted); font-size: 12px; }
+  .dp-self-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: bold; }
+  .dp-self-form input, .dp-self-form textarea, .dp-self-form select { width: 100%; border: 1px solid var(--dp-border); background: var(--dp-surface); color: var(--dp-text); border-radius: 8px; padding: 10px 12px; font: inherit; }
+  .dp-self-form input[type="file"] { font-size: 12px; }
+  .dp-self-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+  @media (max-width: 600px) { .dp-self-grid { grid-template-columns: 1fr; } }
+  .dp-input-panel { margin-bottom: 18px; }
+  .dp-input-subtitle { margin: 5px 0 0; color: var(--dp-muted); font-size: 12px; }
+  .dp-input-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .dp-input-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--dp-soft); color: var(--dp-text); border: 1px solid var(--dp-border); border-radius: 12px; min-height: 72px; padding: 12px; font-weight: 700; text-align: left; }
+  .dp-input-card:hover:not(:disabled) { border-color: var(--dp-accent); background: var(--dp-tint); }
+  .dp-input-card > span { flex: 1; }
+  .dp-input-shortcut { margin: 16px 0; }
+  @media (max-width: 1000px) { .dp-input-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .dp-input-grid { grid-template-columns: 1fr; } }
 
   .dp-app button,
   .dp-app select {
