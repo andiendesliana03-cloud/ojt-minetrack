@@ -9,16 +9,17 @@ import { supabase } from "../../lib/supabase";
 // OJT MINETRACK V2.0
 // LUPA PASSWORD — EMAIL RECOVERY
 //
-// Digunakan oleh Admin, Mentor, dan Peserta.
-// Tidak mengubah database maupun role pengguna.
-//
-// Alur:
-// 1. Masukkan email
-// 2. Kirim permintaan reset ke Supabase
-// 3. Buka tautan terbaru dari email
-// 4. Masuk ke /reset-password
-// 5. Buat password baru
+// PERBAIKAN:
+// - Redirect reset selalu ke domain produksi utama
+// - Tidak mengikuti domain preview Vercel
+// - Tetap menggunakan SMTP terpusat Supabase
+// - Berlaku untuk Admin, Mentor, Peserta
+// - Tidak mengubah database, role, atau kalender
+// - Desain dan fitur sebelumnya dipertahankan
 // ======================================================
+
+const RESET_PASSWORD_URL =
+  "https://ojt-minetrack.vercel.app/reset-password";
 
 export default function LupaPasswordPage() {
   const router = useRouter();
@@ -44,21 +45,15 @@ export default function LupaPasswordPage() {
     }
 
     setSending(true);
+    setSent(false);
     setError("");
 
     try {
-      // Menggunakan domain tempat website
-      // sedang dibuka, bukan domain hardcode.
-      const redirectTo = new URL(
-        "/reset-password",
-        window.location.origin
-      ).toString();
-
       const { error: resetError } =
         await supabase.auth.resetPasswordForEmail(
           cleanEmail,
           {
-            redirectTo,
+            redirectTo: RESET_PASSWORD_URL,
           }
         );
 
@@ -101,6 +96,7 @@ export default function LupaPasswordPage() {
       <style>{css}</style>
 
       <section className="lp-card">
+
         {/* BRAND */}
 
         <div className="lp-brand">
@@ -313,6 +309,7 @@ export default function LupaPasswordPage() {
 
 // ======================================================
 // CSS — OJT MINETRACK V2.0
+// DESAIN ASLI DIPERTAHANKAN
 // ======================================================
 
 const css = `
