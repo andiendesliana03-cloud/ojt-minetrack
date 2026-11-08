@@ -1099,7 +1099,8 @@ export default function MentorDashboard() {
   }
 
   // Monitoring dan laporan masih membuka modul per peserta.
-  // Verifikasi Kegiatan memiliki halaman antrean tersendiri.
+  // Verifikasi Kegiatan memakai <a href> langsung ke halaman antrean.
+  // Tidak lagi memakai openParticipantModule("verification").
   function openParticipantModule(type) {
     const instructions = {
       monitoring:
@@ -1538,14 +1539,15 @@ export default function MentorDashboard() {
                 <Icon name="chart" size={19} />
                 <span>Monitoring Peserta</span>
               </button>
-              <button
-                type="button"
+              <a
                 className="mt-nav"
-                onClick={() => navigate("/mentor/verifikasi-kegiatan")}
+                href="/mentor/verifikasi-kegiatan"
+                title="Buka antrean Verifikasi Kegiatan"
+                onClick={() => setMenuOpen(false)}
               >
                 <Icon name="shield" size={19} />
                 <span>Verifikasi Kegiatan</span>
-              </button>
+              </a>
               <button
                 type="button"
                 className="mt-nav"
@@ -2753,6 +2755,11 @@ html[data-theme="dark"] .mt-sidebar {
   font-weight: 700;
 
   transition: background .15s ease;
+}
+
+.mt-nav[href] {
+  text-decoration: none;
+  cursor: pointer;
 }
 
 .mt-nav svg {
