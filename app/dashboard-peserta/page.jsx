@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -162,6 +161,28 @@ function parseAchievementDescription(raw) {
 // ======================================================
 
 const WEEKLY_SCHEDULE = [
+  // Jadwal Week 07 yang tercantum dalam Excel Link Andien.xlsx.
+  // Materi tidak disebutkan dalam Excel, sehingga judulnya mengikuti tanggal.
+  {
+    id: "w07-tue-posttest",
+    week: 7,
+    start: "2026-10-27",
+    end: "2026-10-27",
+    type: "Post-Test",
+    title: "Post-Test Selasa, 27 Oktober 2026",
+    description: "Akses sesuai jadwal pada tanggal yang ditetapkan.",
+    icon: "clipboard",
+  },
+  {
+    id: "w07-thu-posttest",
+    week: 7,
+    start: "2026-10-29",
+    end: "2026-10-29",
+    type: "Post-Test",
+    title: "Post-Test Kamis, 29 Oktober 2026",
+    description: "Akses sesuai jadwal pada tanggal yang ditetapkan.",
+    icon: "clipboard",
+  },
   {
     id: "w08-navigation",
     week: 8,
@@ -1112,7 +1133,148 @@ function Stat({ label, value }) {
   );
 }
 
-function ActivityItem({ activity }) {
+
+// ======================================================
+// AKSES POST-TEST BERJADWAL (WITA)
+// Link dan password tidak disimpan di kode browser.
+// Keduanya diberikan oleh Edge Function posttest-access
+// hanya pada tanggal ujian dan kepada Peserta aktif.
+// ======================================================
+const POST_TEST_DATES_FROM_EXCEL = ["2026-10-27", "2026-10-29", "2026-11-03", "2026-11-05", "2026-11-10", "2026-11-12", "2026-11-17", "2026-11-19", "2026-11-24", "2026-11-26", "2026-12-01", "2026-12-03"];
+
+function PostTestAccess({ activity, programId, canAccess }) {
+  const [dateNow, setDateNow] = useState(todayWITA());
+  const [credentials, setCredentials] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const refreshDate = () => setDateNow(todayWITA());
+    refreshDate();
+    const timer = window.setInterval(refreshDate, 30000);
+    window.addEventListener("focus", refreshDate);
+    document.addEventListener("visibilitychange", refreshDate);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshDate);
+      document.removeEventListener("visibilitychange", refreshDate);
+    };
+  }, []);
+
+  // Sembunyikan kredensial jika halaman melewati tengah malam WITA
+  // atau pengguna memilih jadwal berbeda.
+  useEffect(() => {
+    setCredentials(null);
+    setMessage("");
+  }, [dateNow, activity.start, programId]);
+
+  if (normalizeType(activity.type) !== "posttest") return null;
+
+  const date = activity.start;
+  const known = activity.start === activity.end &&
+    POST_TEST_DATES_FROM_EXCEL.includes(date);
+
+  if (!known) {
+    return (
+      <p className="dp-posttest-note">
+        Link dan password Post-Test belum tercantum pada data Excel.
+      </p>
+    );
+  }
+
+  if (dateNow !== date) {
+    return (
+      <p className="dp-posttest-note" role="status">
+        {dateNow < date
+          ? `Link dan password tersedia pada ${formatDate(date)}, pukul 00.00–23.59 WITA.`
+          : "Masa akses link dan password Post-Test telah berakhir."}
+      </p>
+    );
+  }
+
+  if (!canAccess || !programId) {
+    return (
+      <p className="dp-posttest-note">
+        Hanya Peserta OJT aktif yang dapat membuka link dan password.
+        Admin Preview tidak membuka akses ujian.
+      </p>
+    );
+  }
+
+  async function showLink() {
+    if (busy || dateNow !== date || !canAccess) return;
+    setBusy(true);
+    setMessage("");
+    setCredentials(null);
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "posttest-access",
+        { body: { date, programId } }
+      );
+      if (error) {
+        let detail = error.message || "Fungsi Post-Test tidak dapat dihubungi.";
+        try {
+          const responseData = await error.context?.json?.();
+          if (responseData?.message) detail = responseData.message;
+        } catch {}
+        throw new Error(detail);
+      }
+      if (!data?.available) {
+        throw new Error(
+          data?.message || "Link belum tersedia pada tanggal ini."
+        );
+      }
+      if (!/^https:\/\//.test(data.url || "") || !data.password) {
+        throw new Error("Data link atau password Post-Test belum lengkap.");
+      }
+      setCredentials({
+        url: data.url,
+        password: String(data.password)
+      });
+    } catch (err) {
+      setMessage(err?.message || "Tidak dapat membuka link Post-Test.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="dp-posttest-box dp-no-print">
+      <strong>Post-Test tersedia hari ini (WITA)</strong>
+      <p className="dp-posttest-note">
+        Klik tombol berikut untuk memperoleh link dan password.
+      </p>
+      {!credentials ? (
+        <button
+          type="button"
+          className="dp-button"
+          onClick={showLink}
+          disabled={busy}
+        >
+          {busy ? "Memeriksa jadwal..." : "Tampilkan Link & Password"}
+        </button>
+      ) : (
+        <div className="dp-posttest-credentials">
+          <a
+            className="dp-button"
+            href={credentials.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Kerjakan Post-Test
+          </a>
+          <div className="dp-posttest-pass">
+            <span>Password ujian:</span>
+            <code>{credentials.password}</code>
+          </div>
+        </div>
+      )}
+      {message && <p className="dp-posttest-error" role="alert">{message}</p>}
+    </div>
+  );
+}
+
+function ActivityItem({ activity, programId, canAccessPostTest }) {
   return (
     <div className="dp-activity">
       <span className="dp-activity-icon">
@@ -1135,6 +1297,11 @@ function ActivityItem({ activity }) {
         <details className="dp-schedule-detail">
           <summary>Materi</summary>
           <p>{activity.description}</p>
+          <PostTestAccess
+            activity={activity}
+            programId={programId}
+            canAccess={canAccessPostTest}
+          />
         </details>
       </div>
     </div>
@@ -3771,6 +3938,8 @@ export default function DashboardPeserta() {
                             <ActivityItem
                               key={item.id}
                               activity={item}
+                              programId={program?.id}
+                              canAccessPostTest={canInputOwnData}
                             />
                           )
                         )
@@ -3924,6 +4093,8 @@ export default function DashboardPeserta() {
                         <ActivityItem
                           key={item.id}
                           activity={item}
+                          programId={program?.id}
+                          canAccessPostTest={canInputOwnData}
                         />
                       )
                     )
@@ -5170,6 +5341,47 @@ const dashboardCSS = `
     margin-top: 5px;
   }
 
+  .dp-posttest-box {
+    margin-top: 11px;
+    padding: 13px;
+    background: var(--dp-tint);
+    border: 1px solid var(--dp-border);
+    border-radius: 10px;
+  }
+  .dp-posttest-box > strong { font-size: 12px; }
+  .dp-posttest-note {
+    color: var(--dp-muted);
+    font-size: 11px;
+    line-height: 1.6;
+    margin: 8px 0;
+  }
+  .dp-posttest-credentials {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .dp-posttest-pass {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .dp-posttest-pass code {
+    background: var(--dp-surface);
+    border: 1px solid var(--dp-border);
+    color: var(--dp-text);
+    border-radius: 7px;
+    padding: 10px;
+    user-select: text;
+    overflow-wrap: anywhere;
+  }
+  .dp-posttest-error {
+    font-size: 11px;
+    color: #c83e49;
+  }
+
   .dp-schedule-detail {
     margin-top: 6px;
     font-size: 11px;
@@ -5700,103 +5912,3 @@ const dashboardCSS = `
     .dp-topbar,
     .dp-sidebar,
     .dp-overlay,
-    .dp-no-print,
-    .dp-footer,
-    .dp-week-nav,
-    .dp-button,
-    .dp-text-button {
-      display: none !important;
-    }
-
-    .dp-layout {
-      display: block;
-      min-height: 0;
-    }
-
-    .dp-main {
-      padding: 0;
-      max-width: none;
-    }
-
-    .dp-print-heading {
-      display: block;
-      margin-bottom: 15px;
-    }
-
-    .dp-print-heading h1 {
-      font-size: 20px;
-      margin: 0 0 6px;
-    }
-
-    .dp-print-heading p {
-      font-size: 12px;
-      margin: 0;
-    }
-
-    .dp-panel {
-      box-shadow: none;
-    }
-
-    .dp-table-wrap {
-      overflow: visible;
-    }
-
-    .dp-table {
-      min-width: 0;
-    }
-
-    .dp-table th,
-    .dp-table td {
-      padding: 8px;
-      font-size: 10px;
-    }
-
-    .dp-table thead {
-      display: table-header-group;
-    }
-
-    .dp-table tr {
-      break-inside: avoid;
-    }
-
-    .dp-stat-grid.four {
-      grid-template-columns:
-        repeat(4,minmax(0,1fr));
-    }
-
-    .dp-category-grid {
-      grid-template-columns:
-        repeat(3,minmax(0,1fr));
-    }
-
-    .dp-stat,
-    .dp-category {
-      break-inside: avoid;
-    }
-
-    .dp-progress,
-    .dp-badge,
-    .dp-week-info {
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-
-    /* Dokumentasi ditampilkan sebagai nama file
-       tanpa tombol pada hasil cetak PDF. */
-
-    .dp-evidence {
-      background: #f3f6f4;
-      border-color: #ccd8d1;
-      break-inside: avoid;
-    }
-
-    .dp-evidence-name {
-      color: #52685d;
-      font-size: 9px;
-    }
-
-    .dp-evidence-button {
-      display: none !important;
-    }
-  }
-`;
