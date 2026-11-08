@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -5912,3 +5913,103 @@ const dashboardCSS = `
     .dp-topbar,
     .dp-sidebar,
     .dp-overlay,
+    .dp-no-print,
+    .dp-footer,
+    .dp-week-nav,
+    .dp-button,
+    .dp-text-button {
+      display: none !important;
+    }
+
+    .dp-layout {
+      display: block;
+      min-height: 0;
+    }
+
+    .dp-main {
+      padding: 0;
+      max-width: none;
+    }
+
+    .dp-print-heading {
+      display: block;
+      margin-bottom: 15px;
+    }
+
+    .dp-print-heading h1 {
+      font-size: 20px;
+      margin: 0 0 6px;
+    }
+
+    .dp-print-heading p {
+      font-size: 12px;
+      margin: 0;
+    }
+
+    .dp-panel {
+      box-shadow: none;
+    }
+
+    .dp-table-wrap {
+      overflow: visible;
+    }
+
+    .dp-table {
+      min-width: 0;
+    }
+
+    .dp-table th,
+    .dp-table td {
+      padding: 8px;
+      font-size: 10px;
+    }
+
+    .dp-table thead {
+      display: table-header-group;
+    }
+
+    .dp-table tr {
+      break-inside: avoid;
+    }
+
+    .dp-stat-grid.four {
+      grid-template-columns:
+        repeat(4,minmax(0,1fr));
+    }
+
+    .dp-category-grid {
+      grid-template-columns:
+        repeat(3,minmax(0,1fr));
+    }
+
+    .dp-stat,
+    .dp-category {
+      break-inside: avoid;
+    }
+
+    .dp-progress,
+    .dp-badge,
+    .dp-week-info {
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+    }
+
+    /* Dokumentasi ditampilkan sebagai nama file
+       tanpa tombol pada hasil cetak PDF. */
+
+    .dp-evidence {
+      background: #f3f6f4;
+      border-color: #ccd8d1;
+      break-inside: avoid;
+    }
+
+    .dp-evidence-name {
+      color: #52685d;
+      font-size: 9px;
+    }
+
+    .dp-evidence-button {
+      display: none !important;
+    }
+  }
+`;
