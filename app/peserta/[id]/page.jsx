@@ -7,7 +7,7 @@ import { supabase } from "../../../lib/supabase";
 
 // ======================================================
 // OJT MINETRACK V2.0
-// DETAIL PESERTA — LIGHT / DARK MODE
+// DETAIL PESERTA — LIGHT / DARK MODE — HEADER REVISED
 //
 // DIPERTAHANKAN:
 // - Database dan nama tabel
@@ -1118,63 +1118,24 @@ export default function DetailPeserta() {
     <div className="dp-app">
       <style>{css}</style>
 
-      {/* ================================================
-          HEADER
-          ================================================ */}
+      <main className="dp-content">
 
-      <header className="dp-topbar">
-        <button
-          type="button"
-          className="dp-brand"
-          onClick={() => router.push("/")}
-        >
-          OJT <span>MineTrack</span>
-          <small>v2.0</small>
-        </button>
+        {/* ============================================
+            ACCOUNT IDENTITY — TOP RIGHT
+            ============================================ */}
 
-        <nav
-          className="dp-top-links"
-          aria-label="Navigasi Detail Peserta"
-        >
-          <button
-            type="button"
-            onClick={() => router.push("/")}
-          >
-            ⌂ Dashboard
-          </button>
+        <div className="dp-account-corner">
+          <div className="dp-top-account">
+            <span className="dp-top-avatar">
+              {initials(accountName)}
+            </span>
 
-          <button
-            type="button"
-            onClick={() =>
-              router.push("/mentor/monitoring-peserta")
-            }
-          >
-            ♙ Peserta OJT
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              router.push(`/achievement/${programId}`)
-            }
-          >
-            ▤ Input Achievement
-          </button>
-        </nav>
-
-        <div className="dp-top-account">
-          <span className="dp-top-avatar">
-            {initials(accountName)}
-          </span>
-
-          <div>
-            <strong>{accountName}</strong>
-            <small>{roleName}</small>
+            <div>
+              <strong>{accountName}</strong>
+              <small>{roleName}</small>
+            </div>
           </div>
         </div>
-      </header>
-
-      <main className="dp-content">
 
         {/* ============================================
             PAGE TITLE
@@ -1982,81 +1943,24 @@ const css = `
 }
 
 /* =====================================================
-   HEADER
+   ACCOUNT IDENTITY — TOP RIGHT
    ===================================================== */
 
-.dp-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-
-  min-height: 70px;
-
+.dp-account-corner {
   display: flex;
+  justify-content: flex-end;
   align-items: center;
-  gap: 28px;
+  margin-bottom: 18px;
+}
 
-  padding: 12px max(
-    24px,
-    calc((100vw - 1540px) / 2)
-  );
+.dp-account-corner .dp-top-account {
+  max-width: 100%;
+  padding: 9px 13px;
 
   background: var(--dp-surface);
-  border-bottom: 1px solid var(--dp-border);
-  box-shadow: 0 2px 12px var(--dp-shadow);
-}
-
-.dp-brand {
-  flex-shrink: 0;
-
-  border: 0;
-  background: none;
-  padding: 4px 0;
-
-  color: var(--dp-heading);
-
-  font-size: 23px;
-  font-weight: 900;
-  letter-spacing: -.7px;
-  white-space: nowrap;
-}
-
-.dp-brand span {
-  color: var(--green);
-}
-
-.dp-brand small {
-  margin-left: 7px;
-
-  color: var(--dp-muted);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.dp-top-links {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  gap: 5px;
-}
-
-.dp-top-links button {
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-
-  color: var(--dp-muted);
-
-  padding: 11px 13px;
-
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.dp-top-links button:hover {
-  background: var(--dp-surface-soft);
-  color: var(--green);
+  border: 1px solid var(--dp-border);
+  border-radius: 12px;
+  box-shadow: 0 3px 12px var(--dp-shadow);
 }
 
 .dp-top-account {
@@ -3218,17 +3122,6 @@ const css = `
    ===================================================== */
 
 @media (max-width:1100px) {
-  .dp-topbar {
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-
-  .dp-top-links {
-    order: 3;
-    width: 100%;
-    justify-content: center;
-  }
-
   .dp-category-grid {
     grid-template-columns:
       repeat(3,minmax(0,1fr));
@@ -3257,28 +3150,6 @@ const css = `
    ===================================================== */
 
 @media (max-width:760px) {
-  .dp-topbar {
-    padding: 12px;
-  }
-
-  .dp-brand {
-    font-size: 19px;
-  }
-
-  .dp-top-account {
-    margin-left: auto;
-  }
-
-  .dp-top-links {
-    justify-content: space-between;
-    gap: 3px;
-  }
-
-  .dp-top-links button {
-    padding: 8px 4px;
-    font-size: 10px;
-  }
-
   .dp-content {
     padding: 14px 11px;
   }
@@ -3436,7 +3307,7 @@ const css = `
     color: #10243b !important;
   }
 
-  .dp-topbar,
+  .dp-account-corner,
   .dp-back-button,
   .dp-refresh,
   .dp-ach-actions,
