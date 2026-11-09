@@ -759,6 +759,23 @@ export default function MentorDashboard() {
       )
     );
 
+    // Simulasi 01 adalah akun pengujian Dashboard Peserta.
+    // Akunnya tetap aktif; hanya dikecualikan dari daftar,
+    // statistik, dan rekap resmi pada Dashboard Admin/Mentor.
+    const simulationProfiles = (profileRes.data || []).filter(
+      (profile) => normalizeType(profile.full_name) === "simulasi01"
+    );
+
+    if (simulationProfiles.length > 1) {
+      throw new Error(
+        "Terdapat lebih dari satu profil Simulasi 01. Periksa ID akun sebelum memfilter data."
+      );
+    }
+
+    const excludedSimulationIds = new Set(
+      simulationProfiles.map((profile) => profile.id)
+    );
+
     const activePrograms = rawPrograms
       .map((program) => ({
         ...program,
@@ -767,7 +784,8 @@ export default function MentorDashboard() {
       .filter(
         (program) =>
           program.peserta &&
-          isParticipant(program.peserta.role)
+          isParticipant(program.peserta.role) &&
+          !excludedSimulationIds.has(program.participant_id)
       );
 
     const ids = activePrograms.map((item) => item.id);
@@ -1098,11 +1116,12 @@ export default function MentorDashboard() {
     });
   }
 
-  // Monitoring dan laporan masih membuka modul per peserta.
-  // Verifikasi Kegiatan memakai <a href> langsung ke halaman antrean.
-  // Tidak lagi memakai openParticipantModule("verification").
+  // Menu baru mengarahkan ke modul yang sudah tersedia,
+  // tanpa membuat route palsu atau mengubah hak akses.
   function openParticipantModule(type) {
     const instructions = {
+      verification:
+        "Untuk verifikasi kegiatan, pilih peserta lalu tekan Input. Pemeriksaan dan keputusan tetap mengikuti hak akses Mentor/Admin pada modul terkait.",
       monitoring:
         "Untuk Monitoring Achievement, pilih peserta lalu tekan Monitoring. Grafik dan riwayat tetap menggunakan data program peserta tersebut.",
       report:
@@ -1539,15 +1558,14 @@ export default function MentorDashboard() {
                 <Icon name="chart" size={19} />
                 <span>Monitoring Peserta</span>
               </button>
-              <a
+              <button
+                type="button"
                 className="mt-nav"
-                href="/mentor/verifikasi-kegiatan"
-                title="Buka antrean Verifikasi Kegiatan"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => navigate("/mentor/verifikasi-kegiatan")}
               >
                 <Icon name="shield" size={19} />
                 <span>Verifikasi Kegiatan</span>
-              </a>
+              </button>
               <button
                 type="button"
                 className="mt-nav"
@@ -2755,11 +2773,6 @@ html[data-theme="dark"] .mt-sidebar {
   font-weight: 700;
 
   transition: background .15s ease;
-}
-
-.mt-nav[href] {
-  text-decoration: none;
-  cursor: pointer;
 }
 
 .mt-nav svg {
