@@ -1553,10 +1553,10 @@ export default function MentorDashboard() {
               <button
                 type="button"
                 className="mt-nav"
-                onClick={() => navigate("/mentor/monitoring-peserta")}
+                onClick={() => navigate("/mentor/monitoring-kegiatan")}
               >
                 <Icon name="chart" size={19} />
-                <span>Monitoring Peserta</span>
+                <span>Monitoring Kegiatan</span>
               </button>
               <button
                 type="button"
@@ -1620,25 +1620,6 @@ export default function MentorDashboard() {
               )}
             </div>
 
-            <div className="mt-sidebar-group">
-              <div className="mt-menu-label">EVALUASI &amp; LAPORAN</div>
-              <button
-                type="button"
-                className="mt-nav"
-                onClick={() => openParticipantModule("monitoring")}
-              >
-                <Icon name="chart" size={19} />
-                <span>Monitoring Achievement</span>
-              </button>
-              <button
-                type="button"
-                className="mt-nav"
-                onClick={() => openParticipantModule("report")}
-              >
-                <Icon name="file" size={19} />
-                <span>Laporan Rekap</span>
-              </button>
-            </div>
           </nav>
         </div>
 
@@ -2214,8 +2195,7 @@ export default function MentorDashboard() {
                 <div>
                   <h2>Daftar Peserta OJT Aktif</h2>
                   <small>
-                    Pilih Detail, Input, atau Monitoring
-                    untuk mengelola peserta.
+                    Pilih Detail untuk melihat profil dan perkembangan peserta OJT.
                   </small>
                 </div>
               </div>
@@ -2239,11 +2219,11 @@ export default function MentorDashboard() {
                   className="mt-list-button"
                   onClick={() =>
                     navigate(
-                      "/mentor/monitoring-peserta"
+                      "/mentor/monitoring-kegiatan"
                     )
                   }
                 >
-                  Lihat Semua
+                  Monitoring Kegiatan
                   <Icon name="right" size={15} />
                 </button>
               </div>
@@ -2338,49 +2318,10 @@ export default function MentorDashboard() {
                           <div className="mt-row-actions">
                             <button
                               type="button"
-                              onClick={() =>
-                                openParticipant(
-                                  program.id
-                                )
-                              }
+                              onClick={() => openParticipant(program.id)}
                             >
                               Detail
                             </button>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openAchievement(
-                                  program.id
-                                )
-                              }
-                            >
-                              Input
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openMonitoring(
-                                  program.id
-                                )
-                              }
-                            >
-                              Monitoring
-                            </button>
-
-                            {isAdmin && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openAdminPreview(
-                                    program.participant_id
-                                  )
-                                }
-                              >
-                                Preview
-                              </button>
-                            )}
                           </div>
                         </td>
                       </tr>
@@ -2465,43 +2406,10 @@ export default function MentorDashboard() {
                   <div className="mt-mobile-actions">
                     <button
                       type="button"
-                      onClick={() =>
-                        openParticipant(program.id)
-                      }
+                      onClick={() => openParticipant(program.id)}
                     >
                       Detail
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openAchievement(program.id)
-                      }
-                    >
-                      Input
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openMonitoring(program.id)
-                      }
-                    >
-                      Monitoring
-                    </button>
-
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openAdminPreview(
-                            program.participant_id
-                          )
-                        }
-                      >
-                        Preview
-                      </button>
-                    )}
                   </div>
                 </article>
               ))}
