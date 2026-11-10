@@ -21,6 +21,46 @@ import { supabase } from "../lib/supabase";
 const TOTAL_WEEKS = 25;
 const THEME_KEY = "ojt-minetrack-theme";
 const BACKGROUND_IMAGE = "/background-erg.png.PNG";
+const POSTTEST_REVIEW_RE = /\[\[OJT_POSTTEST_REVIEW_V1:([\s\S]*?)\]\]/g;
+const PRACTICE_REVIEW_RE = /\[\[OJT_PRACTICE_REVIEW_V1:([\s\S]*?)\]\]/g;
+const SAMAPTA_REVIEW_RE = /\[\[OJT_SAMAPTA_REVIEW_V1:([\s\S]*?)\]\]/g;
+const SAMAPTA_COMPONENTS = ["Lari 12 Menit", "Pull-Up", "Push-Up", "Sit-Up", "Shuttle Run"];
+
+function readReviewMeta(notes, regex) {
+  let meta = null;
+  for (const match of String(notes || "").matchAll(new RegExp(regex.source, "g"))) {
+    try { meta = JSON.parse(decodeURIComponent(match[1])); } catch { /* ignore invalid legacy metadata */ }
+  }
+  return meta;
+}
+
+function isOfficialPostTest(record) {
+  return readReviewMeta(record?.notes, POSTTEST_REVIEW_RE)?.status !== "pending";
+}
+
+function isOfficialPractice(record) {
+  const meta = readReviewMeta(record?.notes, PRACTICE_REVIEW_RE);
+  if (meta?.status === "pending") return false;
+  return meta?.status === "verified" || (record?.score !== null && record?.score !== undefined);
+}
+
+function countOfficialSamaptaSessions(rows) {
+  const groups = new Map();
+  for (const row of rows || []) {
+    const date = String(row.test_date || "").slice(0, 10);
+    if (!date) continue;
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(row);
+  }
+  let count = 0;
+  for (const group of groups.values()) {
+    const names = new Set(group.map((row) => String(row.test_type || "").toLowerCase().replace(/[^a-z0-9]/g, "")));
+    const complete = group.length === SAMAPTA_COMPONENTS.length && SAMAPTA_COMPONENTS.every((name) => names.has(name.toLowerCase().replace(/[^a-z0-9]/g, "")));
+    const pending = group.some((row) => readReviewMeta(row.notes, SAMAPTA_REVIEW_RE)?.status === "pending");
+    if (complete && !pending) count += 1;
+  }
+  return count;
+}
 
 const SITES = [
   "LMO", "SMO", "GMO NORTH", "GMO SOUTH",
@@ -802,18 +842,18 @@ export default function MentorDashboard() {
 
       supabase
         .from("post_test_scores")
-        .select("id,program_id,score,test_date")
+        .select("id,program_id,score,test_date,notes")
         .in("program_id", ids),
 
       supabase
         .from("weekly_practice_scores")
-        .select("id,program_id,score,practice_date")
+        .select("id,program_id,score,practice_date,notes")
         .in("program_id", ids),
 
       supabase
         .from("samapta_records")
         .select(
-          "id,program_id,test_date,test_type,score,outcome,result_value"
+          "id,program_id,test_date,test_type,score,outcome,result_value,notes"
         )
         .in("program_id", ids),
 
@@ -1299,13 +1339,15 @@ export default function MentorDashboard() {
       const weekPostTests = postTests.filter(
         (record) =>
           record.program_id === program.id &&
-          globalWeekOf(record.test_date) === selectedWeek
+          globalWeekOf(record.test_date) === selectedWeek &&
+          isOfficialPostTest(record)
       );
 
       const weekPractices = practices.filter(
         (record) =>
           record.program_id === program.id &&
-          globalWeekOf(record.practice_date) === selectedWeek
+          globalWeekOf(record.practice_date) === selectedWeek &&
+          isOfficialPractice(record)
       );
 
       const weekSamapta = samapta.filter(
@@ -1326,7 +1368,7 @@ export default function MentorDashboard() {
         simperIssued: simperInfo.released,
         postTestCount: weekPostTests.length,
         practiceCount: weekPractices.length,
-        samaptaCount: weekSamapta.length,
+        samaptaCount: countOfficialSamaptaSessions(weekSamapta),
         averageScore: average([
           ...weekPostTests,
           ...weekPractices,
