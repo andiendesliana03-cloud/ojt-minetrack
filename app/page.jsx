@@ -1603,6 +1603,14 @@ export default function MentorDashboard() {
               <button
                 type="button"
                 className="mt-nav"
+                onClick={() => navigate("/mentor/monitoring-penilaian")}
+              >
+                <Icon name="clipboard" size={19} />
+                <span>Monitoring Penilaian</span>
+              </button>
+              <button
+                type="button"
+                className="mt-nav"
                 onClick={() => navigate("/mentor/verifikasi-kegiatan")}
               >
                 <Icon name="shield" size={19} />
