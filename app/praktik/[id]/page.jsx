@@ -214,6 +214,7 @@ function formatScore(value) {
 
 function getAverage(rows) {
   const values = rows
+    .filter((row) => parsePracticeNotes(row.notes).review?.status !== "pending")
     .map((row) => row.score)
     .filter(
       (value) =>
@@ -423,6 +424,7 @@ export default function PraktikMingguanPage() {
 
   const scoredCount = records.filter(
     (item) =>
+      parsePracticeNotes(item.notes).review?.status !== "pending" &&
       item.score !== null &&
       item.score !== undefined &&
       item.score !== "" &&
@@ -816,8 +818,11 @@ export default function PraktikMingguanPage() {
       return;
     }
 
-    if (isParticipant && !documentFile) {
-      setError("Peserta wajib melampirkan dokumentasi Praktik.");
+    const existingEvidence = previousRecord
+      ? parsePracticeNotes(previousRecord.notes).evidence
+      : null;
+    if (!documentFile && !existingEvidence?.path) {
+      setError("Dokumentasi Praktik wajib dilampirkan untuk setiap pengajuan baru atau perubahan nilai.");
       return;
     }
 
@@ -878,36 +883,25 @@ export default function PraktikMingguanPage() {
         evidence = { name: documentFile.name, path };
       }
 
-      const previousReview = previousRecord
-        ? parsePracticeNotes(previousRecord.notes).review
-        : null;
-      if (canManage && previousReview?.status === "pending" && !evidence?.path) {
-        throw new Error("Tidak boleh memverifikasi laporan tanpa dokumentasi.");
+      if (!evidence?.path) {
+        throw new Error("Dokumentasi Praktik wajib tersedia sebelum pengajuan dikirim untuk verifikasi.");
       }
 
-      const review = isParticipant
-        ? {
-            status: "pending",
-            submittedScore: numericScore,
-            submittedBy: profile.id,
-            submittedAt: new Date().toISOString(),
-          }
-        : previousReview
-          ? {
-              ...previousReview,
-              status: "verified",
-              reviewedBy: profile.id,
-              reviewedAt: new Date().toISOString(),
-              approvedScore: numericScore,
-            }
-          : null;
+      // Setiap input maupun perubahan nilai dari Peserta, Mentor, atau Admin
+      // selalu kembali ke antrean Pending. Nilai resmi tetap null sampai
+      // disetujui melalui proses verifikasi yang sudah tersedia.
+      const review = {
+        status: "pending",
+        submittedScore: numericScore,
+        submittedBy: profile.id,
+        submittedAt: new Date().toISOString(),
+        submittedByRole: role,
+      };
 
       const payload = {
         practice_date: practiceDate,
         practice_name: practiceName.trim(),
-        // Nilai Peserta disimpan sebagai pengajuan di notes.
-        // Nilai resmi hanya boleh diisi Mentor/Admin setelah review.
-        score: canManage ? numericScore : null,
+        score: null,
         notes: composePracticeNotes(notes, evidence, review),
       };
 
@@ -933,11 +927,9 @@ export default function PraktikMingguanPage() {
       await reloadRecords(selectedProgramId);
       const wasEditing = Boolean(editId);
       resetForm();
-      setMessage(isParticipant
-        ? `Nilai pengajuan ${numericScore} dan dokumentasi berhasil dikirim. Menunggu verifikasi Mentor.`
-        : wasEditing
-          ? "Penilaian Praktik berhasil disimpan atau diverifikasi."
-          : "Nilai Praktik dan dokumentasi berhasil disimpan.");
+      setMessage(
+        `Pengajuan nilai Praktik ${numericScore} dan dokumentasi berhasil disimpan${wasEditing ? " kembali" : ""}. Status Pending dan menunggu verifikasi Admin/Mentor. Nilai belum masuk rata-rata resmi.`
+      );
     } catch (err) {
       // Beri tahu jika file masuk ke Storage tetapi data gagal dicatat.
       const extra = uploadedPath
@@ -1383,8 +1375,8 @@ export default function PraktikMingguanPage() {
 
               <p className="pm-muted">
                 {isParticipant
-                  ? "Pilih tanggal dan materi, isi nilai pengajuan 0–100, lalu wajib lampirkan bukti dokumentasi. Nilai baru dihitung resmi setelah diverifikasi Mentor."
-                  : "Isi nilai 0–100 untuk penilaian langsung, atau tinjau pengajuan Peserta dan dokumentasinya sebelum verifikasi."}
+                  ? "Pilih tanggal dan materi, isi nilai pengajuan 0–100, lalu wajib lampirkan dokumentasi. Nilai baru dihitung resmi setelah disetujui melalui verifikasi."
+                  : "Setiap input atau perubahan nilai 0–100 wajib disertai dokumentasi dan otomatis berstatus Pending. Nilai baru dihitung resmi setelah disetujui Admin/Mentor."}
               </p>
 
               <form onSubmit={saveRecord}>
@@ -1442,8 +1434,7 @@ export default function PraktikMingguanPage() {
                     />
                     {isParticipant && (
                       <p className="pm-muted">
-                        Nilai yang Anda masukkan merupakan pengajuan;
-                        Mentor akan membandingkannya dengan dokumentasi.
+                        Nilai yang Anda masukkan merupakan pengajuan dan belum masuk rata-rata resmi sampai disetujui Admin/Mentor.
                       </p>
                     )}
                   </div>
@@ -1519,7 +1510,7 @@ export default function PraktikMingguanPage() {
                 {/* DOKUMENTASI PRAKTIK — UPLOAD SUPABASE */}
                 <div className="pm-field">
                   <label className="pm-label" htmlFor="pm-document">
-                    Upload Dokumentasi Praktik {isParticipant ? "(Wajib)" : "(Opsional)"}
+                    Upload Dokumentasi Praktik (Wajib)
                   </label>
                   <input
                     key={fileInputKey}
@@ -1718,7 +1709,7 @@ export default function PraktikMingguanPage() {
                         <div className="pm-review">
                           <strong>
                             {parsePracticeNotes(item.notes).review.status === "pending"
-                              ? "Menunggu Verifikasi Mentor"
+                              ? "Menunggu Verifikasi Admin/Mentor"
                               : "Sudah Diverifikasi Mentor/Admin"}
                           </strong>
                           <span>
