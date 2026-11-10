@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -68,6 +67,42 @@ const TESTS = [
     unit: "Detik",
   },
 ];
+
+const SAMAPTA_REVIEW_REGEX = /\[\[OJT_SAMAPTA_REVIEW_V1:([\s\S]*?)\]\]/g;
+
+function decodeSamaptaReview(raw) {
+  const pattern = new RegExp(SAMAPTA_REVIEW_REGEX.source, "g");
+  let found = null;
+  for (const match of String(raw || "").matchAll(pattern)) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(match[1]));
+      if (parsed && typeof parsed === "object") found = parsed;
+    } catch {
+      // Metadata yang rusak tidak boleh menggagalkan pembacaan riwayat.
+    }
+  }
+  return found;
+}
+
+function samaptaReviewStatus(raw) {
+  const meta = decodeSamaptaReview(raw);
+  if (meta?.status === "pending") return "pending";
+  if (meta?.status === "verified") return "verified";
+  // Data lama tanpa marker tetap dianggap sudah disetujui.
+  return "verified";
+}
+
+function stripSamaptaReviewMarker(raw) {
+  return String(raw || "")
+    .replace(new RegExp(SAMAPTA_REVIEW_REGEX.source, "g"), "")
+    .trim();
+}
+
+function appendSamaptaReviewMarker(raw, meta) {
+  const clean = stripSamaptaReviewMarker(raw);
+  const marker = `[[OJT_SAMAPTA_REVIEW_V1:${encodeURIComponent(JSON.stringify(meta))}]]`;
+  return [clean, marker].filter(Boolean).join("\n");
+}
 
 const AGES = [
   {
@@ -595,7 +630,7 @@ function ScoreRow({ label, value }) {
   );
 }
 
-function HistoryItem({ test, record }) {
+function HistoryItem({ test, record, pending = false }) {
   return (
     <div className="sa-history-item">
       <span>
@@ -607,7 +642,7 @@ function HistoryItem({ test, record }) {
           ? "Belum tercatat"
           : `${record.result_value} ${
               record.result_unit || test.unit
-            } · Skor ${
+            } · ${pending ? "Skor pengajuan" : "Skor"} ${
               record.score == null
                 ? "—"
                 : record.score
@@ -658,46 +693,50 @@ function groupHistory(records) {
         byType.get(name);
 
       const run = get("Lari 12 Menit");
+      const complete =
+        TESTS.every((test) => byType.has(test.name)) &&
+        items.length === TESTS.length;
+      const pending = items.some(
+        (record) => samaptaReviewStatus(record.notes) === "pending"
+      );
+      const status = pending
+        ? "pending"
+        : complete
+          ? "verified"
+          : "other";
 
-      const a =
+      // Nilai resmi hanya ditampilkan untuk sesi Verified.
+      // Skor komponen Pending tetap terlihat sebagai nilai pengajuan.
+      const aValue =
         run?.score == null
           ? null
           : Number(run.score);
 
       const bValues = TESTS.slice(1).map(
         (test) => {
-          const value = get(
-            test.name
-          )?.score;
-
-          return value == null
-            ? null
-            : Number(value);
+          const value = get(test.name)?.score;
+          return value == null ? null : Number(value);
         }
       );
 
-      const b = bValues.every(
-        (value) =>
-          value !== null &&
-          Number.isFinite(value)
+      const bValue = bValues.every(
+        (value) => value !== null && Number.isFinite(value)
       )
-        ? bValues.reduce(
-            (sum, value) => sum + value,
-            0
-          ) / 4
+        ? bValues.reduce((sum, value) => sum + value, 0) / 4
         : null;
-
-      const final =
-        a !== null &&
-        Number.isFinite(a) &&
-        b !== null
-          ? (a + b) / 2
-          : null;
 
       const distance =
         run?.result_value == null
           ? null
           : Number(run.result_value);
+
+      const official = status === "verified";
+      const a = official && Number.isFinite(aValue) ? aValue : null;
+      const b = official ? bValue : null;
+      const final =
+        official && a !== null && b !== null
+          ? (a + b) / 2
+          : null;
 
       return {
         date,
@@ -707,21 +746,14 @@ function groupHistory(records) {
         b,
         final,
         distance,
-
-        complete:
-          TESTS.every((test) =>
-            byType.has(test.name)
-          ) &&
-          Number.isFinite(a) &&
-          b !== null &&
-          items.length === TESTS.length,
-
+        status,
+        complete,
         outcome:
-          distance === null
+          status === "pending" || distance === null
             ? "pending"
             : distance >= 2600
-            ? "pass"
-            : "fail",
+              ? "pass"
+              : "fail",
       };
     });
 }
@@ -1225,24 +1257,36 @@ export default function MonitoringSamapta() {
       ])
     );
 
+    const submittedAt = new Date().toISOString();
+    const reviewMeta = {
+      status: "pending",
+      submittedBy: mentor.id,
+      submittedAt,
+    };
+
     const payloads = TESTS.map(
-      (test) => ({
-        test_date: form.date,
-        test_type: test.name,
-        result_value: raw[test.key],
-        result_unit: test.unit,
-        score: scores[test.key],
+      (test) => {
+        const rawNotes = test.key === "lari"
+          ? `USIA=${form.age}; PUTARAN=${form.laps}; TAMBAHAN=${form.extra}; ${form.notes.trim()}`
+          : form.notes.trim();
 
-        outcome:
-          test.key === "lari"
-            ? outcome
-            : "pending",
+        return {
+          test_date: form.date,
+          test_type: test.name,
+          result_value: raw[test.key],
+          result_unit: test.unit,
+          score: scores[test.key],
 
-        notes:
-          test.key === "lari"
-            ? `USIA=${form.age}; PUTARAN=${form.laps}; TAMBAHAN=${form.extra}; ${form.notes.trim()}`
-            : form.notes.trim(),
-      })
+          outcome:
+            test.key === "lari"
+              ? outcome
+              : "pending",
+
+          // Marker identik pada kelima komponen agar satu sesi
+          // masuk antrean verifikasi sebagai satu kesatuan.
+          notes: appendSamaptaReviewMarker(rawNotes, reviewMeta),
+        };
+      }
     );
 
     setSaving(true);
@@ -1292,7 +1336,7 @@ export default function MonitoringSamapta() {
       reset();
 
       setNotice(
-        "Seluruh lima komponen Samapta A dan B berhasil disimpan."
+        "Seluruh lima komponen Samapta berhasil disimpan dengan status Pending. Sesi menunggu persetujuan Admin dan belum masuk perhitungan resmi."
       );
     } catch (err) {
       setError(
@@ -1393,9 +1437,9 @@ export default function MonitoringSamapta() {
           ?.result_value
           ?.toString() ?? "",
 
-      notes:
-        get("Push-Up")
-          ?.notes || "",
+      notes: stripSamaptaReviewMarker(
+        get("Push-Up")?.notes || ""
+      ),
     });
 
     setEditDate(group.date);
@@ -2069,7 +2113,7 @@ export default function MonitoringSamapta() {
                   </span>
 
                   <h2>
-                    Hasil Perhitungan Otomatis
+                    Pratinjau Hasil Perhitungan
                   </h2>
                 </div>
 
@@ -2149,6 +2193,7 @@ export default function MonitoringSamapta() {
                   Nilai B = (Pull-Up + Push-Up +
                   Sit-Up + Shuttle Run) / 4.
                   Nilai Akhir = (Nilai A + Nilai B) / 2.
+                  Hasil pada formulir ini merupakan pratinjau pengajuan; nilai resmi baru dihitung setelah sesi disetujui Admin.
                 </p>
               </section>
 
@@ -2269,22 +2314,26 @@ export default function MonitoringSamapta() {
                       <span
                         className={
                           "sa-badge " +
-                          (group.outcome ===
-                          "pass"
-                            ? "pass"
-                            : group.outcome ===
-                              "fail"
-                            ? "fail"
-                            : "")
+                          (group.status === "pending"
+                            ? "pending"
+                            : group.status === "other"
+                              ? "incomplete"
+                              : group.outcome === "pass"
+                                ? "pass"
+                                : group.outcome === "fail"
+                                  ? "fail"
+                                  : "")
                         }
                       >
-                        {group.outcome ===
-                        "pass"
-                          ? "Lulus Lari"
-                          : group.outcome ===
-                            "fail"
-                          ? "Belum Lulus Lari"
-                          : "Belum Dinilai"}
+                        {group.status === "pending"
+                          ? "Pending Verifikasi Admin"
+                          : group.status === "other"
+                            ? "Belum Lengkap"
+                            : group.outcome === "pass"
+                              ? "Lulus Lari"
+                              : group.outcome === "fail"
+                                ? "Belum Lulus Lari"
+                                : "Belum Dinilai"}
                       </span>
                     </div>
 
@@ -2301,6 +2350,7 @@ export default function MonitoringSamapta() {
                           "Lari 12 Menit"
                         )
                       }
+                      pending={group.status === "pending"}
                     />
 
                     <h3>
@@ -2323,6 +2373,7 @@ export default function MonitoringSamapta() {
                               test.name
                             )
                           }
+                          pending={group.status === "pending"}
                         />
                       )
                     )}
@@ -2365,10 +2416,15 @@ export default function MonitoringSamapta() {
                       </div>
                     </div>
 
+                    {group.status === "pending" && (
+                      <p className="sa-warning">
+                        Lima komponen sesi ini berstatus Pending. Skor di atas hanya nilai pengajuan dan belum masuk perhitungan resmi sampai disetujui Admin.
+                      </p>
+                    )}
+
                     {!group.complete && (
                       <p className="sa-warning">
-                        Sebagian komponen penilaian
-                        belum lengkap.
+                        Sebagian komponen penilaian belum lengkap. Sesi belum dapat disetujui.
                       </p>
                     )}
 
@@ -2967,6 +3023,16 @@ const styles = `
   color: #b91c1c;
 }
 
+.sa-badge.pending {
+  background: #fff4d6;
+  color: #98620d;
+}
+
+.sa-badge.incomplete {
+  background: #eef2f7;
+  color: #475569;
+}
+
 .sa-history-item {
   display: flex;
   justify-content: space-between;
@@ -3413,6 +3479,16 @@ html[data-theme="dark"] .sa-badge.pass {
 html[data-theme="dark"] .sa-badge.fail {
   background: #4d2930;
   color: #ffb8c1;
+}
+
+html[data-theme="dark"] .sa-badge.pending {
+  background: #49371f;
+  color: #ffd98a;
+}
+
+html[data-theme="dark"] .sa-badge.incomplete {
+  background: #334155;
+  color: #dbe5ef;
 }
 
 html[data-theme="dark"] .sa-empty {
