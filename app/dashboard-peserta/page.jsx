@@ -5893,3 +5893,122 @@ const dashboardCSS = `
 
     .dp-app,
     html[data-theme="dark"] .dp-app {
+      color-scheme: light;
+      --dp-bg: #ffffff;
+      --dp-surface: #ffffff;
+      --dp-soft: #f3f6f4;
+      --dp-text: #172b24;
+      --dp-muted: #52685d;
+      --dp-border: #ccd8d1;
+      --dp-accent: #087947;
+      --dp-tint: #e7f8ef;
+      --dp-green: #07572d;
+      --dp-orange-bg: #fff1df;
+      --dp-orange-text: #915500;
+      --dp-shadow: none;
+      min-height: 0;
+    }
+
+    .dp-topbar,
+    .dp-sidebar,
+    .dp-overlay,
+    .dp-no-print,
+    .dp-footer,
+    .dp-week-nav,
+    .dp-button,
+    .dp-text-button {
+      display: none !important;
+    }
+
+    .dp-layout {
+      display: block;
+      min-height: 0;
+    }
+
+    .dp-main {
+      padding: 0;
+      max-width: none;
+    }
+
+    .dp-print-heading {
+      display: block;
+      margin-bottom: 15px;
+    }
+
+    .dp-print-heading h1 {
+      font-size: 20px;
+      margin: 0 0 6px;
+    }
+
+    .dp-print-heading p {
+      font-size: 12px;
+      margin: 0;
+    }
+
+    .dp-panel {
+      box-shadow: none;
+    }
+
+    .dp-table-wrap {
+      overflow: visible;
+    }
+
+    .dp-table {
+      min-width: 0;
+    }
+
+    .dp-table th,
+    .dp-table td {
+      padding: 8px;
+      font-size: 10px;
+    }
+
+    .dp-table thead {
+      display: table-header-group;
+    }
+
+    .dp-table tr {
+      break-inside: avoid;
+    }
+
+    .dp-stat-grid.four {
+      grid-template-columns:
+        repeat(4,minmax(0,1fr));
+    }
+
+    .dp-category-grid {
+      grid-template-columns:
+        repeat(3,minmax(0,1fr));
+    }
+
+    .dp-stat,
+    .dp-category {
+      break-inside: avoid;
+    }
+
+    .dp-progress,
+    .dp-badge,
+    .dp-week-info {
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+    }
+
+    /* Dokumentasi ditampilkan sebagai nama file
+       tanpa tombol pada hasil cetak PDF. */
+
+    .dp-evidence {
+      background: #f3f6f4;
+      border-color: #ccd8d1;
+      break-inside: avoid;
+    }
+
+    .dp-evidence-name {
+      color: #52685d;
+      font-size: 9px;
+    }
+
+    .dp-evidence-button {
+      display: none !important;
+    }
+  }
+`;
