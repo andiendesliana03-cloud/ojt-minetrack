@@ -180,6 +180,11 @@ function getParticipant(program) {
   return Array.isArray(program?.peserta) ? program.peserta[0] : program?.peserta;
 }
 
+// Akun simulasi dipakai untuk pengujian dan tidak dihitung sebagai peserta OJT.
+function isSimulationParticipant(profile) {
+  return normalize(profile?.full_name).replace(/\s+/g, " ") === "simulasi 01";
+}
+
 function activityValue(rows, categoryName) {
   if (categoryName !== "Fisik") return rows.length;
 
@@ -309,6 +314,7 @@ async function fetchDashboardData(userId, userRole) {
     .filter(({ peserta, participant_id }) =>
       peserta &&
       peserta.id === participant_id &&
+      !isSimulationParticipant(peserta) &&
       ["participant", "peserta"].includes(normalize(peserta.role))
     );
 
@@ -711,10 +717,15 @@ export default function MonitoringKegiatanPage() {
 
   const leadingCategory = targetResults.reduce((best, item) => item.percent > best.percent ? item : best);
 
-  const menu = [
+  const mainMenu = [
     ["⌂", isAdmin ? "Dashboard Admin" : "Dashboard Mentor", "/"],
     ["▤", "Monitoring Kegiatan", null],
-    ["♙", "Peserta OJT", "/mentor/daftar-peserta"],
+    ["✓", "Verifikasi Kegiatan", "/mentor/verifikasi-kegiatan"],
+    ["▦", "Jadwal Kegiatan Mingguan", "/#jadwal-kegiatan"],
+  ];
+
+  const participantMenu = [
+    ["♙", "Peserta OJT", "/#daftar-peserta"],
     ["▣", "Pendaftaran Peserta", "/mentor/daftar-peserta"],
     ["☑", "Persetujuan Peserta", "/mentor/persetujuan-peserta"],
   ];
@@ -727,10 +738,10 @@ export default function MonitoringKegiatanPage() {
         <aside className="mp-sidebar">
           <div className="mp-brand">OJT <span>MineTrack</span> <small>v2.0</small></div>
           <p>Emergency Response Group<br />PT Berau Coal</p>
-          <h2>Menu {isAdmin ? "Admin" : "Mentor"}</h2>
+          <h2>MENU UTAMA</h2>
 
-          <nav aria-label="Menu OJT">
-            {menu.map(([icon, label, path]) => (
+          <nav aria-label="Menu utama">
+            {mainMenu.map(([icon, label, path]) => (
               <button key={label} type="button" aria-current={!path ? "page" : undefined}
                 onClick={path ? () => router.push(path) : undefined}>
                 <span aria-hidden="true">{icon}</span>{label}
@@ -738,8 +749,18 @@ export default function MonitoringKegiatanPage() {
             ))}
           </nav>
 
-          <h2>Pengelolaan OJT</h2>
-          <p>Monitoring program dan pencapaian peserta</p>
+          <h2>MANAJEMEN PESERTA</h2>
+
+          <nav aria-label="Manajemen peserta">
+            {participantMenu.map(([icon, label, path]) => (
+              <button key={label} type="button"
+                onClick={() => router.push(path)}>
+                <span aria-hidden="true">{icon}</span>{label}
+              </button>
+            ))}
+          </nav>
+
+          <h2>AKSI HALAMAN</h2>
           <nav aria-label="Aksi halaman">
             <button type="button" onClick={() => refresh()} disabled={refreshing}>
               ↻ {refreshing ? "Memperbarui…" : "Refresh Data"}
