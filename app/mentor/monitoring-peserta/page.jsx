@@ -357,6 +357,38 @@ async function fetchDashboardData(userRole) {
   };
 }
 
+
+function MonitoringIcon({ name, size = 19 }) {
+  const paths = {
+    home: <path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-8h6v8" />,
+    chart: <path d="M3 21h18M6 17v-5M12 17V7M18 17V3" />,
+    shield: <><path d="m12 2 9 4v6c0 5-4 8-9 10-5-2-9-5-9-10V6z" /><path d="m8 12 3 3 5-6" /></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4M17 3v4M3 10h18" /></>,
+    users: <><circle cx="9" cy="8" r="3" /><path d="M2 20v-2a7 7 0 0 1 14 0v2M17 5a3 3 0 0 1 0 6M18 14a6 6 0 0 1 4 6" /></>,
+    file: <><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" /></>,
+    check: <path d="m4 12 5 5L20 6" />,
+    refresh: <path d="M20 11a8 8 0 0 0-14-5L3 9M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />,
+    logout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
+    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  };
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[name] || paths.check}
+    </svg>
+  );
+}
+
 function ProgressBar({ value, label }) {
   const safe = Math.max(0, Math.min(100, Number(value) || 0));
   return (
@@ -558,6 +590,8 @@ export default function MonitoringKegiatanPage() {
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState("");
   const [accessError, setAccessError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -654,6 +688,24 @@ export default function MonitoringKegiatanPage() {
     }
   }, [account, applyData, loading, verifyAccess]);
 
+  const logout = useCallback(async () => {
+    if (loggingOut) return;
+
+    setLoggingOut(true);
+    setError("");
+
+    try {
+      const { error: logoutError } = await supabase.auth.signOut();
+      if (logoutError) throw logoutError;
+
+      router.replace("/login");
+      router.refresh();
+    } catch (err) {
+      setError(err?.message || "Gagal keluar dari akun.");
+      setLoggingOut(false);
+    }
+  }, [loggingOut, router]);
+
   useEffect(() => {
     if (!account || accessError) return;
 
@@ -724,59 +776,189 @@ export default function MonitoringKegiatanPage() {
 
   const leadingCategory = targetResults.reduce((best, item) => item.percent > best.percent ? item : best);
 
-  const mainMenu = [
-    ["⌂", isAdmin ? "Dashboard Admin" : "Dashboard Mentor", "/"],
-    ["▤", "Monitoring Kegiatan", null],
-    ["✓", "Verifikasi Kegiatan", "/mentor/verifikasi-kegiatan"],
-    ["▦", "Jadwal Kegiatan Mingguan", "/#jadwal-kegiatan"],
-  ];
-
-  const participantMenu = [
-    ["♙", "Peserta OJT", "/#daftar-peserta"],
-    ["▣", "Pendaftaran Peserta", "/mentor/daftar-peserta"],
-    ["☑", "Persetujuan Peserta", "/mentor/persetujuan-peserta"],
-  ];
+  const accountName = account.full_name || "Pengguna";
+  const accountRole = isAdmin ? "Administrator" : "Mentor OJT";
 
   return (
     <main className="mp-root">
       <style>{css}</style>
 
+      {menuOpen && (
+        <button
+          type="button"
+          className="mt-overlay"
+          onClick={() => setMenuOpen(false)}
+          aria-label="Tutup sidebar"
+        />
+      )}
+
       <div className="mp-shell">
-        <aside className="mp-sidebar">
-          <div className="mp-brand">OJT <span>MineTrack</span> <small>v2.0</small></div>
-          <p>Emergency Response Group<br />PT Berau Coal</p>
-          <h2>MENU UTAMA</h2>
+        <aside className={`mt-sidebar ${menuOpen ? "open" : ""}`}>
+          <div>
+            <div className="mt-brand">
+              <div className="mt-brand-title">
+                OJT <span>MineTrack</span>
+                <small> v2.0</small>
+              </div>
+              <p>
+                Emergency Response Group
+                <br />
+                PT Berau Coal
+              </p>
+            </div>
 
-          <nav aria-label="Menu utama">
-            {mainMenu.map(([icon, label, path]) => (
-              <button key={label} type="button" aria-current={!path ? "page" : undefined}
-                onClick={path ? () => router.push(path) : undefined}>
-                <span aria-hidden="true">{icon}</span>{label}
-              </button>
-            ))}
-          </nav>
+            <nav className="mt-sidebar-nav" aria-label="Navigasi Mentor dan Admin">
+              <div className="mt-sidebar-group">
+                <div className="mt-menu-label">MENU UTAMA</div>
 
-          <h2>MANAJEMEN PESERTA</h2>
+                <button
+                  type="button"
+                  className="mt-nav"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/");
+                  }}
+                >
+                  <MonitoringIcon name="home" size={19} />
+                  <span>{isAdmin ? "Dashboard Admin" : "Dashboard Mentor"}</span>
+                </button>
 
-          <nav aria-label="Manajemen peserta">
-            {participantMenu.map(([icon, label, path]) => (
-              <button key={label} type="button"
-                onClick={() => router.push(path)}>
-                <span aria-hidden="true">{icon}</span>{label}
-              </button>
-            ))}
-          </nav>
+                <button
+                  type="button"
+                  className="mt-nav active"
+                  aria-current="page"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <MonitoringIcon name="chart" size={19} />
+                  <span>Monitoring Kegiatan</span>
+                </button>
 
-          <h2>AKSI HALAMAN</h2>
-          <nav aria-label="Aksi halaman">
-            <button type="button" onClick={() => refresh()} disabled={refreshing}>
-              ↻ {refreshing ? "Memperbarui…" : "Refresh Data"}
+                <button
+                  type="button"
+                  className="mt-nav"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/mentor/verifikasi-kegiatan");
+                  }}
+                >
+                  <MonitoringIcon name="shield" size={19} />
+                  <span>Verifikasi Kegiatan</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="mt-nav"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/#jadwal-kegiatan");
+                  }}
+                >
+                  <MonitoringIcon name="calendar" size={19} />
+                  <span>Jadwal Kegiatan Mingguan</span>
+                </button>
+              </div>
+
+              <div className="mt-sidebar-group">
+                <div className="mt-menu-label">MANAJEMEN PESERTA</div>
+
+                <button
+                  type="button"
+                  className="mt-nav"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/#daftar-peserta");
+                  }}
+                >
+                  <MonitoringIcon name="users" size={19} />
+                  <span>Peserta OJT</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="mt-nav"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/mentor/daftar-peserta");
+                  }}
+                >
+                  <MonitoringIcon name="file" size={19} />
+                  <span>Pendaftaran Peserta</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="mt-nav"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/mentor/persetujuan-peserta");
+                  }}
+                >
+                  <MonitoringIcon name="check" size={19} />
+                  <span>Persetujuan Peserta</span>
+                </button>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="mt-nav"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      router.push("/admin/persetujuan-mentor");
+                    }}
+                  >
+                    <MonitoringIcon name="check" size={19} />
+                    <span>Persetujuan Mentor</span>
+                  </button>
+                )}
+              </div>
+            </nav>
+          </div>
+
+          <div className="mt-sidebar-bottom">
+            <div className="mt-sidebar-user">
+              <div className="mt-avatar">{initials(accountName)}</div>
+              <div>
+                <strong>{accountName}</strong>
+                <small>{accountRole} · Profil Akun</small>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="mt-nav"
+              onClick={() => refresh()}
+              disabled={refreshing}
+            >
+              <MonitoringIcon name="refresh" size={19} />
+              <span>{refreshing ? "Memperbarui..." : "Refresh Data"}</span>
             </button>
-            <button type="button" onClick={() => router.push("/")}>← Kembali ke Dashboard</button>
-          </nav>
+
+            <button
+              type="button"
+              className="mt-nav"
+              onClick={logout}
+              disabled={loggingOut}
+            >
+              <MonitoringIcon name="logout" size={19} />
+              <span>{loggingOut ? "Sedang Keluar..." : "Keluar Akun"}</span>
+            </button>
+          </div>
         </aside>
 
         <div className="mp-main">
+          <div className="mt-mobile-header">
+            <strong>
+              OJT <span>MineTrack</span>
+            </strong>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Buka sidebar"
+            >
+              <MonitoringIcon name="menu" size={23} />
+            </button>
+          </div>
+
           <header className="mp-hero">
             <div>
               <div className="mp-kicker">Emergency Response Group · PT Berau Coal</div>
@@ -1055,54 +1237,246 @@ const css = `
 .mp-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .mp-shell {
-  display: grid;
-  grid-template-columns: 216px minmax(0, 1fr);
+  min-height: 100vh;
   max-width: 1920px;
   margin: auto;
 }
 
-.mp-sidebar, .mp-hero {
-  --surface: #154236; --ink: #edf9f2; --dim: #b3d3c7; --accent: #82edb8; --line: #3a6456;
+/* SIDEBAR — DISELARASKAN DENGAN DASHBOARD MENTOR */
+
+.mp-root .mt-sidebar {
+  --surface: #154236;
+  --ink: #edf9f2;
+  --dim: #b3d3c7;
+  --accent: #82edb8;
+  --line: #3a6456;
+
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+
+  width: 255px;
+  padding: 20px 14px 15px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+
+  overflow-y: auto;
+  color: #ffffff;
+  color-scheme: dark;
+
+  background: linear-gradient(
+    170deg,
+    #063c32 0%,
+    #042e29 55%,
+    #03231f 100%
+  );
+
+  box-shadow: 5px 0 22px rgba(0, 0, 0, .10);
+}
+
+html[data-theme="dark"] .mp-root .mt-sidebar {
+  background: linear-gradient(
+    170deg,
+    #0b2a26,
+    #071d1b 60%,
+    #061514
+  );
+}
+
+/* Pertahankan tampilan hero/header seperti versi asli Monitoring. */
+.mp-hero {
+  --surface: #154236;
+  --ink: #edf9f2;
+  --dim: #b3d3c7;
+  --accent: #82edb8;
+  --line: #3a6456;
   color: var(--ink);
   color-scheme: dark;
 }
 
-.mp-sidebar {
-  position: sticky;
-  top: 0;
-  align-self: start;
-  min-height: 100vh;
-  max-height: 100vh;
-  overflow: auto;
-  background: #102b25;
-  border-right: 1px solid var(--line);
-  padding: 20px 14px;
+.mp-root .mt-brand {
+  padding: 12px 10px 22px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid #ffffff25;
 }
 
-.mp-brand { font-size: 20px; font-weight: 800; }
-.mp-brand span, .mp-brand small { color: var(--accent); }
-.mp-brand small { font-size: 10px; }
-.mp-sidebar p { margin: 6px 0 16px; font-size: 12px; }
-.mp-sidebar h2 {
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
-  margin: 14px 0 8px;
-  text-transform: uppercase;
+.mp-root .mt-brand-title {
+  color: #ffffff;
+  font-size: 23px;
+  font-weight: 900;
+  letter-spacing: -.7px;
+  white-space: nowrap;
+}
+
+.mp-root .mt-brand-title span {
+  color: #48dfa7;
+}
+
+.mp-root .mt-brand-title small {
+  color: #b8dbce;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.mp-root .mt-brand p {
+  margin: 9px 0 0;
+  color: #c0ddd0;
   font-size: 11px;
-  letter-spacing: .1em;
-  color: var(--dim);
+  line-height: 1.7;
 }
 
-.mp-sidebar nav { display: grid; gap: 5px; }
-.mp-sidebar nav button { text-align: left; background: transparent; border-color: transparent; }
-.mp-sidebar nav button span { display: inline-block; width: 24px; color: var(--accent); }
-.mp-sidebar nav button[aria-current="page"] {
-  background: var(--surface);
-  border-color: var(--line);
-  color: var(--accent);
+.mp-root .mt-sidebar-nav {
+  display: grid;
+  gap: 15px;
+  align-content: start;
 }
 
-.mp-main { display: grid; gap: 16px; min-width: 0; padding: 20px; }
+.mp-root .mt-sidebar-group {
+  display: grid;
+  gap: 5px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid rgba(207, 247, 221, .16);
+}
+
+.mp-root .mt-sidebar-group:last-child {
+  border-bottom: 0;
+}
+
+.mp-root .mt-sidebar-group .mt-menu-label {
+  padding: 4px 9px 9px;
+  color: #8fe9bd;
+  font-size: 9.5px;
+  letter-spacing: 1.6px;
+}
+
+.mp-root .mt-menu-label {
+  padding: 10px 12px;
+  color: #95cebb;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.1px;
+}
+
+.mp-root .mt-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+
+  color: #e5f6ed;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+
+  transition: background .15s ease;
+}
+
+.mp-root .mt-nav svg {
+  flex-shrink: 0;
+}
+
+.mp-root .mt-nav span {
+  min-width: 0;
+  flex: 1;
+}
+
+.mp-root .mt-nav:hover:not(:disabled) {
+  background: #ffffff16;
+  border-color: transparent;
+}
+
+.mp-root .mt-nav.active {
+  color: #ffffff;
+  background: #07885c;
+  border-color: #ffffff19;
+}
+
+.mp-root .mt-sidebar-bottom {
+  margin-top: 24px;
+  padding-top: 17px;
+  border-top: 1px solid #ffffff25;
+}
+
+.mp-root .mt-sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+
+  min-width: 0;
+  padding: 12px;
+  margin-bottom: 13px;
+
+  border: 1px solid #ffffff22;
+  border-radius: 11px;
+  background: #ffffff0e;
+}
+
+.mp-root .mt-sidebar-user > div:last-child {
+  min-width: 0;
+}
+
+.mp-root .mt-sidebar-user strong,
+.mp-root .mt-sidebar-user small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.mp-root .mt-sidebar-user strong {
+  color: #ffffff;
+  font-size: 11px;
+}
+
+.mp-root .mt-sidebar-user small {
+  margin-top: 4px;
+  color: #b9d8c9;
+  font-size: 10px;
+}
+
+.mp-root .mt-sidebar-bottom .mt-nav {
+  min-height: 40px;
+  padding: 10px 12px;
+}
+
+.mp-root .mt-sidebar-bottom .mt-nav:last-child {
+  color: #ffd6cd;
+}
+
+.mp-root .mt-avatar {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #d4f4e3;
+  color: #07573d;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mp-root .mp-main {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin-left: 255px;
+  padding: 20px;
+}
+
+.mp-root .mt-mobile-header,
+.mp-root .mt-overlay {
+  display: none;
+}
 
 .mp-hero {
   display: flex;
@@ -1270,11 +1644,77 @@ const css = `
   .mp-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-@media (max-width: 850px) {
-  .mp-shell { grid-template-columns: minmax(0, 1fr); }
-  .mp-sidebar { position: static; min-height: auto; max-height: none; border-right: 0; }
-  .mp-sidebar nav { display: flex; flex-wrap: wrap; }
-  .mp-main { padding: 14px; }
+@media (max-width: 1400px) {
+  .mp-root .mt-sidebar { width: 235px; }
+  .mp-root .mp-main { margin-left: 235px; }
+}
+
+@media (max-width: 760px) {
+  .mp-root .mt-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 275px;
+    transform: translateX(-105%);
+    transition: transform .2s ease;
+    z-index: 55;
+  }
+
+  .mp-root .mt-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .mp-root .mt-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 54;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    background: rgba(0, 20, 17, .65);
+  }
+
+  .mp-root .mp-main {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .mp-root .mt-mobile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 58px;
+    padding: 11px 15px;
+    margin: -20px -20px 0;
+    background: #06392e;
+    color: #ffffff;
+  }
+
+  .mp-root .mt-mobile-header strong {
+    font-size: 18px;
+    font-weight: 900;
+  }
+
+  .mp-root .mt-mobile-header strong span {
+    color: #53e7a5;
+  }
+
+  .mp-root .mt-mobile-header button {
+    display: grid;
+    place-items: center;
+    width: 37px;
+    height: 37px;
+    min-height: 37px;
+    padding: 0;
+    border: 1px solid #ffffff35;
+    border-radius: 9px;
+    background: #ffffff12;
+    color: #ffffff;
+  }
 }
 
 @media (max-width: 580px) {
@@ -1282,5 +1722,3 @@ const css = `
   .mp-hero-controls { margin-left: 0; justify-items: start; }
   .mp-filters, .mp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mp-panels { grid-template-columns: minmax(0, 1fr); }
-}
-`;
