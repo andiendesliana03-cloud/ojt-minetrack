@@ -56,6 +56,10 @@ const TARGETS = [
 // POST-TEST NOTES
 // ======================================================
 
+const POSTTEST_REVIEW_RE = /\[\[OJT_POSTTEST_REVIEW_V1:([\s\S]*?)\]\]/g;
+const SAMAPTA_REVIEW_RE = /\[\[OJT_SAMAPTA_REVIEW_V1:([\s\S]*?)\]\]/g;
+const SAMAPTA_COMPONENTS = ["Lari 12 Menit", "Pull-Up", "Push-Up", "Sit-Up", "Shuttle Run"];
+
 function buildTestNotes(material, description) {
   const cleanMaterial = String(material || "").trim();
   const cleanDescription = String(description || "").trim();
@@ -65,8 +69,62 @@ function buildTestNotes(material, description) {
     : `Materi: ${cleanMaterial}`;
 }
 
+function readReviewMetadata(value, regex) {
+  let metadata = null;
+  for (const match of String(value || "").matchAll(new RegExp(regex.source, "g"))) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(match[1]));
+      if (parsed && typeof parsed === "object") metadata = parsed;
+    } catch {
+      // Metadata lama/tidak valid tidak menggagalkan halaman.
+    }
+  }
+  return metadata;
+}
+
+function appendReviewMetadata(value, markerName, regex, metadata) {
+  const clean = String(value || "").replace(new RegExp(regex.source, "g"), "").trim();
+  const marker = `[[${markerName}:${encodeURIComponent(JSON.stringify(metadata))}]]`;
+  return [clean, marker].filter(Boolean).join("\n");
+}
+
+function isPostTestPending(item) {
+  return readReviewMetadata(item?.notes, POSTTEST_REVIEW_RE)?.status === "pending";
+}
+
+function isPostTestVerified(item) {
+  // Record lama tanpa metadata approval tetap dianggap Verified.
+  return !isPostTestPending(item);
+}
+
+function isSamaptaPending(record) {
+  return readReviewMetadata(record?.notes, SAMAPTA_REVIEW_RE)?.status === "pending";
+}
+
+function samaptaSessionCounts(records) {
+  const groups = new Map();
+  for (const record of records || []) {
+    const date = String(record.test_date || "").slice(0, 10);
+    if (!date) continue;
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(record);
+  }
+
+  let verified = 0;
+  let pending = 0;
+  for (const rows of groups.values()) {
+    const names = new Set(rows.map((row) => String(row.test_type || "").toLowerCase().replace(/[^a-z0-9]/g, "")));
+    const complete = rows.length === SAMAPTA_COMPONENTS.length && SAMAPTA_COMPONENTS.every((name) => names.has(name.toLowerCase().replace(/[^a-z0-9]/g, "")));
+    if (rows.some(isSamaptaPending)) pending += 1;
+    else if (complete) verified += 1;
+  }
+  return { verified, pending };
+}
+
 function parseTestNotes(value) {
-  const text = String(value || "").replace(/\r\n/g, "\n");
+  const text = String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(new RegExp(POSTTEST_REVIEW_RE.source, "g"), "");
   const lines = text.split("\n");
   const firstLine = lines[0]?.trim() || "";
 
@@ -445,6 +503,9 @@ export default function DetailPeserta() {
   const [message, setMessage] = useState("");
 
   const isAdmin = roleOf(manager?.role) === "admin";
+  const verifiedPostTests = postTests.filter(isPostTestVerified);
+  const pendingPostTestCount = postTests.length - verifiedPostTests.length;
+  const samaptaSessionSummary = samaptaSessionCounts(samapta);
 
   // ====================================================
   // SUPABASE — EXISTING QUERIES
@@ -474,7 +535,7 @@ export default function DetailPeserta() {
       supabase
         .from("samapta_records")
         .select(
-          "id,test_date,test_type,score,outcome,result_value"
+          "id,test_date,test_type,score,outcome,result_value,notes"
         )
         .eq("program_id", id),
 
@@ -776,7 +837,16 @@ export default function DetailPeserta() {
       const payload = {
         test_date: testDate,
         score,
-        notes: buildTestNotes(testMaterial, testNotes),
+        notes: appendReviewMetadata(
+          buildTestNotes(testMaterial, testNotes),
+          "OJT_POSTTEST_REVIEW_V1",
+          POSTTEST_REVIEW_RE,
+          {
+            status: "pending",
+            submittedBy: manager.id,
+            submittedAt: new Date().toISOString(),
+          }
+        ),
       };
 
       const result = editTestId
@@ -1018,14 +1088,14 @@ export default function DetailPeserta() {
     },
     {
       title: "Samapta",
-      subtitle: `${samapta.length} data tes`,
+      subtitle: `${samaptaSessionSummary.verified} sesi Verified · ${samaptaSessionSummary.pending} Pending`,
       icon: "🏃",
       tone: "amber",
       route: `/samapta/${programId}`,
     },
     {
       title: "Post-Test",
-      subtitle: `${postTests.length} nilai tercatat`,
+      subtitle: `${verifiedPostTests.length} Verified · ${pendingPostTestCount} Pending`,
       icon: "📘",
       tone: "blue",
       panel: "posttest",
@@ -1597,14 +1667,15 @@ export default function DetailPeserta() {
                   <strong>
                     {postTests.length}
                   </strong>
+                  <small>{verifiedPostTests.length} Verified · {pendingPostTestCount} Pending</small>
                 </div>
 
                 <div>
-                  Rata-rata Nilai
+                  Rata-rata Nilai Verified
 
                   <strong>
                     {scoreText(
-                      averageScore(postTests)
+                      averageScore(verifiedPostTests)
                     )}
                   </strong>
                 </div>
@@ -1771,6 +1842,10 @@ export default function DetailPeserta() {
                         </div>
                       )}
 
+                      <span className={`dp-review-status ${isPostTestPending(item) ? "pending" : "verified"}`}>
+                        {isPostTestPending(item) ? "Pending Verifikasi Admin" : "Verified"}
+                      </span>
+
                       <strong>
                         Nilai:{" "}
                         {scoreText(item.score)}
@@ -1851,6 +1926,10 @@ export default function DetailPeserta() {
 // ======================================================
 
 const css = `
+.dp-review-status{display:inline-flex;width:fit-content;margin:5px 0;padding:4px 8px;border-radius:6px;font-size:10px;font-weight:800}
+.dp-review-status.pending{background:#574322;color:#ffda91}
+.dp-review-status.verified{background:#174a36;color:#a4f0c5}
+
 /* =====================================================
    THEME VARIABLES — LIGHT
    ===================================================== */
