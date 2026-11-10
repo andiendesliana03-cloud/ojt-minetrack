@@ -651,6 +651,73 @@ function averageScores(records) {
   );
 }
 
+const POSTTEST_REVIEW_RE = /\[\[OJT_POSTTEST_REVIEW_V1:([\s\S]*?)\]\]/g;
+const PRACTICE_REVIEW_RE = /\[\[OJT_PRACTICE_REVIEW_V1:([\s\S]*?)\]\]/g;
+const SAMAPTA_REVIEW_RE = /\[\[OJT_SAMAPTA_REVIEW_V1:([\s\S]*?)\]\]/g;
+const SAMAPTA_COMPONENTS = ["Lari 12 Menit", "Pull-Up", "Push-Up", "Sit-Up", "Shuttle Run"];
+
+function readReviewMeta(notes, regex) {
+  let meta = null;
+  for (const match of String(notes || "").matchAll(new RegExp(regex.source, "g"))) {
+    try { meta = JSON.parse(decodeURIComponent(match[1])); } catch { /* ignore invalid legacy metadata */ }
+  }
+  return meta;
+}
+
+function isOfficialPostTest(record) {
+  return readReviewMeta(record?.notes, POSTTEST_REVIEW_RE)?.status !== "pending";
+}
+
+function isOfficialPractice(record) {
+  const meta = readReviewMeta(record?.notes, PRACTICE_REVIEW_RE);
+  if (meta?.status === "pending") return false;
+  return meta?.status === "verified" || (record?.score !== null && record?.score !== undefined);
+}
+
+function isOfficialSamaptaSession(records) {
+  if (!records?.length) return false;
+  const names = new Set(records.map((row) => String(row.test_type || "").toLowerCase().replace(/[^a-z0-9]/g, "")));
+  const complete = records.length === SAMAPTA_COMPONENTS.length && SAMAPTA_COMPONENTS.every((name) => names.has(name.toLowerCase().replace(/[^a-z0-9]/g, "")));
+  return complete && !records.some((row) => readReviewMeta(row.notes, SAMAPTA_REVIEW_RE)?.status === "pending");
+}
+
+function verifiedSamaptaRows(records) {
+  const groups = new Map();
+  for (const row of records || []) {
+    const date = String(row.test_date || "").slice(0, 10);
+    if (!date) continue;
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(row);
+  }
+  return [...groups.values()].filter(isOfficialSamaptaSession).flat();
+}
+
+function countOfficialSamaptaSessions(records) {
+  const groups = new Map();
+  for (const row of records || []) {
+    const date = String(row.test_date || "").slice(0, 10);
+    if (!date) continue;
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(row);
+  }
+  return [...groups.values()].filter(isOfficialSamaptaSession).length;
+}
+
+function samaptaSessionLabel(record, allRecords) {
+  const session = (allRecords || []).filter((row) => String(row.test_date || "").slice(0, 10) === String(record.test_date || "").slice(0, 10));
+  if (session.some((row) => readReviewMeta(row.notes, SAMAPTA_REVIEW_RE)?.status === "pending")) return "Pending";
+  return isOfficialSamaptaSession(session) ? "Verified" : "Belum Lengkap";
+}
+
+function cleanReviewText(value) {
+  return String(value || "")
+    .replace(/\[\[OJT_FILE_V1:([\s\S]*?)\]\]/g, "")
+    .replace(new RegExp(POSTTEST_REVIEW_RE.source, "g"), "")
+    .replace(new RegExp(PRACTICE_REVIEW_RE.source, "g"), "")
+    .replace(new RegExp(SAMAPTA_REVIEW_RE.source, "g"), "")
+    .trim();
+}
+
 function emptyProgress() {
   return {
     achievement: 0,
@@ -804,19 +871,19 @@ function buildProgress(program, data) {
     if (week !== null) weeks.add(week);
   }
 
-  data.achievements.forEach((record) =>
+  data.achievements.filter((record) => normalize(record.status) === "verified").forEach((record) =>
     markWeek(record.activity_date)
   );
 
-  data.postTests.forEach((record) =>
+  data.postTests.filter(isOfficialPostTest).forEach((record) =>
     markWeek(record.test_date)
   );
 
-  data.practices.forEach((record) =>
+  data.practices.filter(isOfficialPractice).forEach((record) =>
     markWeek(record.practice_date)
   );
 
-  data.samapta.forEach((record) =>
+  verifiedSamaptaRows(data.samapta).forEach((record) =>
     markWeek(record.test_date)
   );
 
@@ -1624,7 +1691,7 @@ function ScoreTable({ records, practice = false }) {
 
   return (
     <Table
-      columns={["Tanggal", "Kegiatan", "Nilai"]}
+      columns={["Tanggal", "Kegiatan", "Nilai", "Status"]}
     >
       {sorted.length ? (
         sorted.map((item) => (
@@ -1640,7 +1707,7 @@ function ScoreTable({ records, practice = false }) {
             <td className="dp-description">
               {practice
                 ? item.practice_name || "Praktik OJT"
-                : item.notes || "Post-Test"}
+                : cleanReviewText(item.notes) || "Post-Test"}
             </td>
 
             <td>
@@ -1648,11 +1715,16 @@ function ScoreTable({ records, practice = false }) {
                 {scoreText(item.score)}
               </strong>
             </td>
+            <td>
+              {practice
+                ? (isOfficialPractice(item) ? "Verified" : "Pending")
+                : (isOfficialPostTest(item) ? "Verified" : "Pending")}
+            </td>
           </tr>
         ))
       ) : (
         <tr>
-          <td colSpan={3}>
+          <td colSpan={4}>
             Belum ada nilai.
           </td>
         </tr>
@@ -1985,14 +2057,14 @@ export default function DashboardPeserta() {
       supabase
         .from("weekly_practice_scores")
         .select(
-          "id,program_id,practice_date,practice_name,score"
+          "id,program_id,practice_date,practice_name,score,notes"
         )
         .eq("program_id", id),
 
       supabase
         .from("samapta_records")
         .select(
-          "id,program_id,test_date,test_type,outcome,result_value,score"
+          "id,program_id,test_date,test_type,outcome,result_value,score,notes"
         )
         .eq("program_id", id),
 
@@ -2991,8 +3063,8 @@ export default function DashboardPeserta() {
             "pending"
         ).length,
       average: averageScores([
-        ...postTests,
-        ...practices,
+        ...postTests.filter(isOfficialPostTest),
+        ...practices.filter(isOfficialPractice),
       ]),
     };
   }
@@ -3032,19 +3104,19 @@ export default function DashboardPeserta() {
       }
     };
 
-    weeklyData.achievements.forEach(
+    weeklyData.achievements.filter((item) => normalize(item.status) === "verified").forEach(
       (item) => mark(item.activity_date)
     );
 
-    weeklyData.postTests.forEach(
+    weeklyData.postTests.filter(isOfficialPostTest).forEach(
       (item) => mark(item.test_date)
     );
 
-    weeklyData.practices.forEach(
+    weeklyData.practices.filter(isOfficialPractice).forEach(
       (item) => mark(item.practice_date)
     );
 
-    weeklyData.samapta.forEach(
+    verifiedSamaptaRows(weeklyData.samapta).forEach(
       (item) => mark(item.test_date)
     );
   }
@@ -3102,8 +3174,8 @@ export default function DashboardPeserta() {
     );
 
   const allScores = [
-    ...weeklyData.postTests,
-    ...weeklyData.practices,
+    ...weeklyData.postTests.filter(isOfficialPostTest),
+    ...weeklyData.practices.filter(isOfficialPractice),
   ];
 
   const overallScore =
@@ -3165,7 +3237,7 @@ export default function DashboardPeserta() {
             label="Post-Test · Rata-rata"
             value={scoreText(
               averageScores(
-                selectedWeekly.postTests
+                selectedWeekly.postTests.filter(isOfficialPostTest)
               )
             )}
           />
@@ -3174,16 +3246,14 @@ export default function DashboardPeserta() {
             label="Praktik · Rata-rata"
             value={scoreText(
               averageScores(
-                selectedWeekly.practices
+                selectedWeekly.practices.filter(isOfficialPractice)
               )
             )}
           />
 
           <Stat
-            label="Catatan Samapta"
-            value={
-              selectedWeekly.samapta.length
-            }
+            label="Sesi Samapta Verified"
+            value={countOfficialSamaptaSessions(selectedWeekly.samapta)}
           />
         </div>
 
@@ -3325,6 +3395,7 @@ export default function DashboardPeserta() {
                   "Jenis Tes",
                   "Hasil",
                   "Nilai",
+                  "Status Verifikasi",
                 ]}
               >
                 {selectedWeekly.samapta.length
@@ -3356,12 +3427,15 @@ export default function DashboardPeserta() {
                               item.score
                             )}
                           </td>
+                          <td>
+                            {samaptaSessionLabel(item, selectedWeekly.samapta)}
+                          </td>
                         </tr>
                       )
                     )
                   : (
                     <tr>
-                      <td colSpan={5}>
+                      <td colSpan={6}>
                         Belum ada hasil Samapta.
                       </td>
                     </tr>
