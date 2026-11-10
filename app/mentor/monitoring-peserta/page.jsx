@@ -1,5 +1,11 @@
 "use client";
 
+// OJT MINETRACK V2.0 — MONITORING KEGIATAN MENTOR/ADMIN
+// Simpan sebagai: app/mentor/monitoring-peserta/page.jsx
+// URL yang dipakai pada tahap ini: /mentor/monitoring-peserta
+// Jangan rename folder pada tahap ini. Tautan Dashboard app/page.jsx
+// akan diselaraskan setelah halaman ini dipasang dan diuji.
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
@@ -290,16 +296,17 @@ async function fetchAchievements(ids) {
   }
 }
 
-async function fetchDashboardData(userId, userRole) {
+async function fetchDashboardData(userRole) {
   let query = supabase
     .from("ojt_programs")
     .select(`
-      id, participant_id, mentor_id, site, status, start_date, end_date,
+      id, participant_id, site, status, start_date, end_date,
       peserta:profiles!ojt_programs_participant_id_fkey(id,full_name,department,role)
     `)
     .order("start_date", { ascending: false });
 
-  if (userRole === "mentor") query = query.eq("mentor_id", userId);
+  // Admin dan Mentor membaca seluruh program yang diizinkan RLS.
+  // Jangan membatasi query berdasarkan mentor_id di sisi halaman ini.
 
   const [programResult, typeResult] = await Promise.all([
     query,
@@ -605,7 +612,7 @@ export default function MonitoringKegiatanPage() {
       try {
         const access = await verifyAccess();
         if (!access || !active) return;
-        const nextData = await fetchDashboardData(access.user.id, access.role);
+        const nextData = await fetchDashboardData(access.role);
         if (active) applyData(access.profile, nextData);
       } catch (err) {
         if (!active) return;
@@ -637,7 +644,7 @@ export default function MonitoringKegiatanPage() {
         throw new Error("Akun login berubah. Silakan buka ulang halaman.");
       }
 
-      const nextData = await fetchDashboardData(access.user.id, access.role);
+      const nextData = await fetchDashboardData(access.role);
       applyData(access.profile, nextData);
     } catch (err) {
       setError(err?.message || "Gagal memperbarui data peserta.");
