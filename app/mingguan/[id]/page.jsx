@@ -486,6 +486,36 @@ function achievementSummary(
 // SAMAPTA SESSIONS
 // =====================================================
 
+// ===================================================
+// REVIEW METADATA — LEGACY DATA IS VERIFIED
+// ===================================================
+const POSTTEST_REVIEW_RE = /\[\[OJT_POSTTEST_REVIEW_V1:([\s\S]*?)\]\]/g;
+const PRACTICE_REVIEW_RE = /\[\[OJT_PRACTICE_REVIEW_V1:([\s\S]*?)\]\]/g;
+const SAMAPTA_REVIEW_RE = /\[\[OJT_SAMAPTA_REVIEW_V1:([\s\S]*?)\]\]/g;
+const SAMAPTA_COMPONENTS = ["Lari 12 Menit", "Pull-Up", "Push-Up", "Sit-Up", "Shuttle Run"];
+
+function reviewMeta(notes, regex) {
+  let meta = null;
+  for (const match of String(notes || "").matchAll(new RegExp(regex.source, "g"))) {
+    try { meta = JSON.parse(decodeURIComponent(match[1])); } catch { /* ignore invalid legacy metadata */ }
+  }
+  return meta;
+}
+
+function isOfficialPostTest(record) {
+  return reviewMeta(record?.notes, POSTTEST_REVIEW_RE)?.status !== "pending";
+}
+
+function isOfficialPractice(record) {
+  const meta = reviewMeta(record?.notes, PRACTICE_REVIEW_RE);
+  if (meta?.status === "pending") return false;
+  return meta?.status === "verified" || (record?.score !== null && record?.score !== undefined);
+}
+
+// ===================================================
+// SAMAPTA SESSIONS — ONLY COMPLETE, VERIFIED SESSIONS
+// ===================================================
+
 function samaptaSessions(records) {
   const dates = [
     ...new Set(
@@ -495,11 +525,16 @@ function samaptaSessions(records) {
     ),
   ].sort();
 
-  return dates.map((date) => {
+  return dates.flatMap((date) => {
     const matching = records.filter(
       (record) =>
         record.test_date === date
     );
+    const names = new Set(matching.map((record) => norm(record.test_type)));
+    const complete = matching.length === SAMAPTA_COMPONENTS.length &&
+      SAMAPTA_COMPONENTS.every((name) => names.has(norm(name)));
+    const pending = matching.some((record) => reviewMeta(record.notes, SAMAPTA_REVIEW_RE)?.status === "pending");
+    if (!complete || pending) return [];
 
     const metrics = SAMAPTA_TARGETS.map(
       (target) => {
@@ -529,11 +564,11 @@ function samaptaSessions(records) {
       }
     );
 
-    return {
+    return [{
       date,
       metrics,
       score: average(matching),
-    };
+    }];
   });
 }
 
@@ -1799,7 +1834,7 @@ export default function MingguanPage() {
           supabase
             .from("weekly_practice_scores")
             .select(
-              "id,practice_date,practice_name,score"
+              "id,practice_date,practice_name,score,notes"
             )
             .eq("program_id", id)
             .order("practice_date"),
@@ -1807,7 +1842,7 @@ export default function MingguanPage() {
           supabase
             .from("samapta_records")
             .select(
-              "id,test_date,test_type,result_value,score,outcome"
+              "id,test_date,test_type,result_value,score,outcome,notes"
             )
             .eq("program_id", id)
             .order("test_date"),
@@ -1995,7 +2030,7 @@ export default function MingguanPage() {
           withinProgram(
             record.test_date,
             selectedProgram
-          )
+          ) && isOfficialPostTest(record)
       );
 
     const practice =
@@ -2007,7 +2042,7 @@ export default function MingguanPage() {
           withinProgram(
             record.practice_date,
             selectedProgram
-          )
+          ) && isOfficialPractice(record)
       );
 
     const samapta =
