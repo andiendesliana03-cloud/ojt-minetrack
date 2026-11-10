@@ -1722,3 +1722,7 @@ html[data-theme="dark"] .mp-root .mt-sidebar {
   .mp-hero-controls { margin-left: 0; justify-items: start; }
   .mp-filters, .mp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mp-panels { grid-template-columns: minmax(0, 1fr); }
+  .mp-root .mp-main { padding: 14px; }
+  .mp-root .mt-mobile-header { margin: -14px -14px 0; }
+}
+`;
