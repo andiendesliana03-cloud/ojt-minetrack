@@ -17,10 +17,7 @@ import { supabase } from "../../../lib/supabase";
 // - Data baru dengan marker status=pending menunggu Admin.
 // - Praktik mengikuti marker OJT_PRACTICE_REVIEW_V1.
 // - Samapta diverifikasi per satu sesi (lima komponen).
-// - Ringkasan dan enam kartu kategori dihitung berdasarkan minggu terpilih.
-// - Antrean utama hanya menampilkan Pending; Verified tetap dihitung pada ringkasan.
-// - Kalender global 25 minggu tetap dipakai untuk filter/label data.
-// - Perlu Revisi hanya menyalin catatan; status tetap Pending.
+// - Kalender global 25 minggu dipertahankan.
 // - Tidak menambah tabel/kolom database atau RPC.
 // =====================================================
 
@@ -31,22 +28,17 @@ const PRACTICE_RE = /\[\[OJT_PRACTICE_REVIEW_V1:([\s\S]*?)\]\]/g;
 const POSTTEST_RE = /\[\[OJT_POSTTEST_REVIEW_V1:([\s\S]*?)\]\]/g;
 const SAMAPTA_RE = /\[\[OJT_SAMAPTA_REVIEW_V1:([\s\S]*?)\]\]/g;
 
-const ACHIEVEMENT_CATEGORY_DEFS = [
+const CATEGORY_DEFS = [
   { key: "Fisik", kind: "achievement", icon: "run", color: "#63bfff" },
   { key: "Training", kind: "achievement", icon: "training", color: "#58e4a4" },
   { key: "Sosialisasi", kind: "achievement", icon: "users", color: "#f3ce75" },
   { key: "Coaching", kind: "achievement", icon: "message", color: "#b9a2fc" },
   { key: "Orientasi Area", kind: "achievement", icon: "compass", color: "#ff9d6a" },
   { key: "Hazard", kind: "achievement", icon: "warning", color: "#fa9196" },
-];
-
-const ASSESSMENT_DEFS = [
   { key: "Post-Test", kind: "posttest", icon: "book", color: "#82b8ff" },
   { key: "Praktik", kind: "praktik", icon: "clipboard", color: "#f3bd6c" },
   { key: "Samapta", kind: "samapta", icon: "run", color: "#8fd4c1" },
 ];
-
-const CATEGORY_DEFS = [...ACHIEVEMENT_CATEGORY_DEFS, ...ASSESSMENT_DEFS];
 
 const SAMAPTA_TYPES = [
   "Lari 12 Menit",
@@ -135,15 +127,6 @@ function formatNumber(value, digits = 2) {
 
 function weekLabel(week) {
   return `Week ${String(week).padStart(2, "0")}`;
-}
-
-function revisionPromptFor(item) {
-  const date = formatDate(item?.date);
-  if (item?.kind === "achievement") return `Mohon perbaiki kegiatan ${item.category} tanggal ${date}:`;
-  if (item?.kind === "posttest") return `Mohon perbaiki data Post-Test tanggal ${date}:`;
-  if (item?.kind === "praktik") return `Mohon perbaiki data Praktik (${item.title}) tanggal ${date}:`;
-  if (item?.kind === "samapta") return `Mohon perbaiki data Samapta tanggal ${date}:`;
-  return `Mohon perbaiki data kegiatan tanggal ${date}:`;
 }
 
 function initials(value) {
@@ -312,8 +295,6 @@ function Icon({ name, size = 20 }) {
     clipboard: <><rect x="5" y="5" width="14" height="16" rx="2" /><path d="M9 3h6v5H9zM9 13h6M9 17h5" /></>,
     book: <><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5A2.5 2.5 0 0 0 4 22.5z" /><path d="M4 4.5v18M8 6h8M8 10h8" /></>,
     refresh: <path d="M20 11a8 8 0 0 0-14-5L3 9M3 3v6h6M4 13a8 8 0 0 0 14 5l3-3" />,
-    search: <><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 5 5" /></>,
-    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
     logout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     close: <path d="M5 5l14 14M19 5 5 19" />,
@@ -336,9 +317,9 @@ function StatusBadge({ status }) {
 function Progress({ value }) {
   const safe = Math.max(0, Math.min(100, Number(value) || 0));
   return (
-    <span className="vk-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={safe}>
+    <div className="vk-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={safe}>
       <span style={{ width: `${safe}%` }} />
-    </span>
+    </div>
   );
 }
 
@@ -353,17 +334,12 @@ export default function VerifikasiKegiatanPage() {
   const [processing, setProcessing] = useState(null);
   const [active, setActive] = useState(null);
   const [checked, setChecked] = useState(false);
-  const [revisionOpen, setRevisionOpen] = useState(false);
-  const [revisionNote, setRevisionNote] = useState("");
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("all");
   const [selectedSite, setSelectedSite] = useState("all");
-  const [selectedWeek, setSelectedWeek] = useState(() => {
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    return globalWeekOf(today) || 1;
-  });
+  const [selectedWeek, setSelectedWeek] = useState(0);
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState("");
@@ -571,98 +547,77 @@ export default function VerifikasiKegiatanPage() {
     load();
   }, [load]);
 
-  const weekItems = useMemo(
-    () => items.filter((item) => globalWeekOf(item.date) === selectedWeek),
-    [items, selectedWeek]
-  );
-
-  const selectedWeekInfo = GLOBAL_WEEKS.find((week) => week.week === selectedWeek) || GLOBAL_WEEKS[0];
-  const selectedWeekRange = selectedWeekInfo
-    ? `${formatDate(selectedWeekInfo.start)} – ${formatDate(selectedWeekInfo.end)}`
-    : "Periode minggu tidak tersedia";
-
-  const sites = useMemo(
-    () => [...new Set(weekItems.map((item) => item.site).filter(Boolean))].sort(),
-    [weekItems]
-  );
+  const sites = useMemo(() => [...new Set(items.map((item) => item.site).filter(Boolean))].sort(), [items]);
 
   const summary = useMemo(() => {
-    const verified = weekItems.filter((item) => item.status === "verified").length;
-    const pending = weekItems.filter((item) => item.status === "pending").length;
-    const other = weekItems.filter((item) => item.status === "other").length;
-    const total = weekItems.length;
-    return {
-      total,
-      verified,
-      pending,
-      other,
-      verifiedPercent: total ? (verified / total) * 100 : 0,
-    };
-  }, [weekItems]);
+    const verified = items.filter((item) => item.status === "verified").length;
+    const pending = items.filter((item) => item.status === "pending").length;
+    const other = items.filter((item) => item.status === "other").length;
+    return { total: items.length, verified, pending, other, verifiedPercent: items.length ? (verified / items.length) * 100 : 0 };
+  }, [items]);
 
-  const categoryCards = useMemo(() => ACHIEVEMENT_CATEGORY_DEFS.map((category) => {
-    const matching = weekItems.filter(
-      (item) => item.kind === "achievement" && item.category === category.key
-    );
-    const total = matching.length;
-    const verified = matching.filter((item) => item.status === "verified").length;
-    const pending = matching.filter((item) => item.status === "pending").length;
-    const other = matching.filter((item) => item.status === "other").length;
+  const categoryCards = useMemo(() => CATEGORY_DEFS.map((category) => {
+    const matching = items.filter((item) => item.category === category.key);
     return {
       ...category,
-      total,
-      pending,
-      verified,
-      other,
-      verifiedPercent: total ? (verified / total) * 100 : 0,
+      total: matching.length,
+      pending: matching.filter((item) => item.status === "pending").length,
+      verified: matching.filter((item) => item.status === "verified").length,
+      other: matching.filter((item) => item.status === "other").length,
     };
-  }), [weekItems]);
+  }), [items]);
 
-  const assessmentCards = useMemo(() => ASSESSMENT_DEFS.map((assessment) => {
-    const matching = weekItems.filter((item) => item.kind === assessment.kind);
-    const total = matching.length;
+  const chartWeeks = useMemo(() => GLOBAL_WEEKS.map((week) => {
+    const matching = items.filter((item) => globalWeekOf(item.date) === week.week);
     const verified = matching.filter((item) => item.status === "verified").length;
     const pending = matching.filter((item) => item.status === "pending").length;
     const other = matching.filter((item) => item.status === "other").length;
+    const total = matching.length;
     return {
-      ...assessment,
+      ...week,
       total,
-      pending,
       verified,
+      pending,
       other,
       verifiedPercent: total ? (verified / total) * 100 : 0,
+      pendingPercent: total ? (pending / total) * 100 : 0,
     };
-  }), [weekItems]);
+  }), [items]);
 
-  const filteredItems = useMemo(() => weekItems.filter((item) => {
-    // Antrean utama hanya menampilkan data yang masih Pending.
-    // Setelah status berubah menjadi Verified, item otomatis keluar dari daftar,
-    // tetapi tetap dihitung pada ringkasan mingguan dan kartu kategori.
-    if (item.status !== "pending") return false;
+  const filteredItems = useMemo(() => items.filter((item) => {
     if (selectedCategory !== "all" && item.category !== selectedCategory) return false;
+    if (selectedStatus !== "all" && item.status !== selectedStatus) return false;
     if (selectedSite !== "all" && item.site !== selectedSite) return false;
+    if (selectedWeek && globalWeekOf(item.date) !== selectedWeek) return false;
     if (!search.trim()) return true;
-    const haystack = [
-      item.person, item.department, item.site, item.category, item.title, item.details,
-    ].join(" ").toLowerCase();
+    const haystack = [item.person, item.department, item.site, item.category, item.title, item.details].join(" ").toLowerCase();
     return haystack.includes(search.trim().toLowerCase());
-  }), [weekItems, selectedCategory, selectedSite, search]);
+  }), [items, selectedCategory, selectedStatus, selectedSite, selectedWeek, search]);
+
+  const activeCategoryStats = useMemo(() => {
+    if (selectedCategory === "all") return summary;
+    const matching = items.filter((item) => item.category === selectedCategory);
+    return {
+      total: matching.length,
+      pending: matching.filter((item) => item.status === "pending").length,
+      verified: matching.filter((item) => item.status === "verified").length,
+      other: matching.filter((item) => item.status === "other").length,
+    };
+  }, [items, selectedCategory, summary]);
 
   function resetFilters() {
     setSelectedCategory("all");
+    setSelectedStatus("all");
     setSelectedSite("all");
+    setSelectedWeek(0);
     setSearch("");
   }
 
   async function openReview(item) {
     setActive(item);
     setChecked(false);
-    setRevisionOpen(false);
-    setRevisionNote(revisionPromptFor(item));
     setPreview(null);
-    setPreviewLoading(false);
     setError("");
-    setMessage("");
     if (!item.evidence?.path) return;
     setPreviewLoading(true);
     const { data, error: signedError } = await supabase.storage
@@ -870,31 +825,6 @@ export default function VerifikasiKegiatanPage() {
     if (active.kind === "samapta") return approveSamapta();
   }
 
-  async function copyRevisionNote() {
-    if (!active || active.status !== "pending" || !checked || !revisionNote.trim()) return;
-    const textToCopy = `Untuk ${active.person}:\n${revisionNote.trim()}`;
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(textToCopy);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = textToCopy;
-        textarea.setAttribute("readonly", "");
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        const copied = document.execCommand("copy");
-        textarea.remove();
-        if (!copied) throw new Error("Browser tidak mengizinkan penyalinan otomatis.");
-      }
-      setRevisionOpen(false);
-      setMessage("Catatan revisi berhasil disalin. Kirimkan kepada peserta melalui kanal komunikasi yang digunakan. Status pengajuan tetap Pending.");
-    } catch (err) {
-      setError(err?.message || "Catatan gagal disalin. Silakan salin teks secara manual.");
-    }
-  }
-
   async function logout() {
     if (loggingOut) return;
     setLoggingOut(true);
@@ -910,11 +840,11 @@ export default function VerifikasiKegiatanPage() {
     }
   }
 
+  const chartMax = Math.max(1, ...chartWeeks.map((week) => week.total));
   const canApproveActive = active && active.status === "pending" && (
     active.kind === "achievement" || active.kind === "praktik" ||
     (isAdmin && (active.kind === "posttest" || active.kind === "samapta"))
   );
-  const canRequestRevision = Boolean(active && active.status === "pending");
 
   return (
     <main className="vk-root">
@@ -938,8 +868,11 @@ export default function VerifikasiKegiatanPage() {
                 <button type="button" className="mt-nav" onClick={() => { setMenuOpen(false); router.push("/"); }}>
                   <Icon name="home" size={19} /><span>Dashboard {isAdmin ? "Admin" : "Mentor"}</span>
                 </button>
-                <button type="button" className="mt-nav" onClick={() => { setMenuOpen(false); router.push("/mentor/monitoring-kegiatan"); }}>
+                <button type="button" className="mt-nav" onClick={() => { setMenuOpen(false); router.push("/mentor/monitoring-peserta"); }}>
                   <Icon name="chart" size={19} /><span>Monitoring Kegiatan</span>
+                </button>
+                <button type="button" className="mt-nav" onClick={() => { setMenuOpen(false); router.push("/mentor/monitoring-penilaian"); }}>
+                  <Icon name="file" size={19} /><span>Monitoring Penilaian</span>
                 </button>
                 <button type="button" className="mt-nav active" aria-current="page" onClick={() => setMenuOpen(false)}>
                   <Icon name="shield" size={19} /><span>Verifikasi Kegiatan</span>
@@ -993,7 +926,7 @@ export default function VerifikasiKegiatanPage() {
             <div>
               <div className="vk-eyebrow">EMERGENCY RESPONSE GROUP · PT BERAU COAL</div>
               <h1>Verifikasi Kegiatan</h1>
-              <p>Pemeriksaan dan persetujuan kegiatan peserta OJT berdasarkan minggu program.</p>
+              <p>Persetujuan Achievement, Post-Test, Praktik, dan Samapta peserta OJT.</p>
               <small>Periode Program OJT · 12 Sep 2026 – 06 Mar 2027</small>
             </div>
             <div className="vk-head-actions">
@@ -1010,250 +943,95 @@ export default function VerifikasiKegiatanPage() {
           {error && <div className="vk-alert error" role="alert">{error}</div>}
           {message && <div className="vk-alert success" role="status">{message}</div>}
 
-          <section className="vk-weekly-overview vk-panel">
-            <div className="vk-weekly-content">
-              <div className="vk-weekly-top">
-                <div className="vk-weekly-title-group">
-                  <span className="vk-weekly-shield"><Icon name="shield" size={30} /></span>
-                  <div>
-                    <span className="vk-weekly-eyebrow">VERIFIKASI KEGIATAN</span>
-                    <h2>{weekLabel(selectedWeek)}</h2>
-                    <p><Icon name="calendar" size={14} /> {selectedWeekRange}</p>
-                  </div>
-                </div>
-
-                <label className="vk-week-select">
-                  <span>Pilih Minggu Program</span>
-                  <select
-                    value={selectedWeek}
-                    onChange={(event) => {
-                      setSelectedWeek(Number(event.target.value));
-                      setSelectedSite("all");
-                      setSearch("");
-                    }}
-                  >
-                    {GLOBAL_WEEKS.map((week) => (
-                      <option key={week.week} value={week.week}>
-                        {weekLabel(week.week)} ({formatDate(week.start)} – {formatDate(week.end)})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="vk-weekly-kpis">
-                <div className="vk-kpi-card total">
-                  <span className="vk-kpi-icon"><Icon name="file" size={23} /></span>
-                  <div><strong>{summary.total}</strong><small>Total Input</small></div>
-                </div>
-                <div className="vk-kpi-card verified">
-                  <span className="vk-kpi-icon"><Icon name="check" size={23} /></span>
-                  <div><strong>{summary.verified}</strong><small>Terverifikasi</small></div>
-                </div>
-                <div className="vk-kpi-card pending">
-                  <span className="vk-kpi-icon"><Icon name="clock" size={23} /></span>
-                  <div><strong>{summary.pending}</strong><small>Menunggu</small></div>
-                </div>
-              </div>
-              {summary.other > 0 && (
-                <p className="vk-weekly-other">
-                  {summary.other} data memerlukan pemeriksaan status lebih lanjut.
-                </p>
-              )}
-            </div>
-
-            <div className="vk-weekly-donut-wrap">
-              <div
-                className="vk-weekly-donut"
-                style={{ "--vk-donut-value": `${summary.verifiedPercent}%` }}
-                role="img"
-                aria-label={`Persentase verifikasi ${formatNumber(summary.verifiedPercent, 2)} persen`}
-              >
-                <div>
-                  <strong>{formatNumber(summary.verifiedPercent, 2)}%</strong>
-                  <span>Persentase<br />Verifikasi</span>
-                </div>
-              </div>
-            </div>
+          <section className="vk-section-title">
+            <div><h2>Ringkasan Verifikasi</h2><p>Seluruh pengajuan dari program OJT aktif dan disetujui yang dapat dikelola akun ini.</p></div>
+            <button type="button" onClick={() => load(true)} disabled={refreshing || loading}><Icon name="refresh" size={16} /> {refreshing ? "Memperbarui..." : "Refresh"}</button>
           </section>
 
-          <section className="vk-panel vk-category-panel">
-            <div className="vk-section-title">
-              <div>
-                <h2>Verifikasi per Kategori ({weekLabel(selectedWeek)})</h2>
-                <p>Pilih kategori untuk melihat dan memeriksa pengajuan yang masih menunggu verifikasi.</p>
-              </div>
-              {selectedCategory !== "all" && (
-                <button type="button" onClick={() => setSelectedCategory("all")}>
-                  Tampilkan Semua
-                </button>
-              )}
-            </div>
+          <section className="vk-summary-grid">
+            <article className="vk-summary-card"><small>Total Input</small><strong>{summary.total}</strong><span>Seluruh pengajuan dan sesi penilaian</span></article>
+            <article className="vk-summary-card pending"><small>Pending Verifikasi</small><strong>{summary.pending}</strong><span>Menunggu pemeriksaan / persetujuan</span></article>
+            <article className="vk-summary-card verified"><small>Terverifikasi</small><strong>{summary.verified}</strong><span>{summary.verifiedPercent.toFixed(1).replace(".", ",")}% dari seluruh input</span><Progress value={summary.verifiedPercent} /></article>
+          </section>
 
+          <section className="vk-panel">
+            <div className="vk-section-title"><div><h2>Verifikasi per Kategori</h2><p>Pilih kategori untuk melihat jumlah input, Pending, dan Verified.</p></div></div>
             <div className="vk-category-grid">
               {categoryCards.map((card) => (
-                <button
-                  type="button"
-                  key={card.key}
-                  className={`vk-category-card ${selectedCategory === card.key ? "selected" : ""}`}
-                  onClick={() => {
-                    setSelectedCategory(selectedCategory === card.key ? "all" : card.key);
-                    setSelectedSite("all");
-                    setSearch("");
-                  }}
-                  aria-pressed={selectedCategory === card.key}
-                >
-                  <span className="vk-category-card-head">
-                    <span className="vk-category-card-name">
-                      <span className="vk-category-icon" style={{ color: card.color }}>
-                        <Icon name={card.icon} size={21} />
+                <button type="button" key={card.key} className={`vk-category-card ${selectedCategory === card.key ? "selected" : ""}`}
+                  onClick={() => { setSelectedCategory(selectedCategory === card.key ? "all" : card.key); setSelectedWeek(0); }}
+                  aria-pressed={selectedCategory === card.key}>
+                  <span className="vk-category-icon" style={{ color: card.color }}><Icon name={card.icon} size={23} /></span>
+                  <span className="vk-category-name">{card.key}</span>
+                  <strong>{card.total}</strong>
+                  <small>Total input</small>
+                  <span className="vk-category-counts"><em>{card.pending} Pending</em><em>{card.verified} Verified</em></span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="vk-panel">
+            <div className="vk-section-title"><div><h2>Grafik Persentase Verifikasi per Minggu</h2><p>Persentase dihitung dari pengajuan yang masuk pada setiap minggu. Klik batang untuk memfilter minggu.</p></div></div>
+            <div className="vk-chart-scroll">
+              <div className="vk-chart">
+                {chartWeeks.map((week) => {
+                  const verifiedHeight = week.total ? (week.verified / week.total) * 100 : 0;
+                  const pendingHeight = week.total ? (week.pending / week.total) * 100 : 0;
+                  const otherHeight = week.total ? (week.other / week.total) * 100 : 0;
+                  const isSelected = selectedWeek === week.week;
+                  return (
+                    <button type="button" key={week.week} className={`vk-chart-col ${isSelected ? "selected" : ""}`}
+                      onClick={() => setSelectedWeek(isSelected ? 0 : week.week)} aria-pressed={isSelected}
+                      title={`${weekLabel(week.week)} · Verified ${week.verified} · Pending ${week.pending} · Total ${week.total}`}>
+                      <span className="vk-chart-percent">{week.total ? `${Math.round(week.verifiedPercent)}%` : "—"}</span>
+                      <span className="vk-chart-track">
+                        <span className="vk-chart-stack">
+                          <i className="verified" style={{ height: `${verifiedHeight}%` }} />
+                          <i className="pending" style={{ height: `${pendingHeight}%` }} />
+                          <i className="other" style={{ height: `${otherHeight}%` }} />
+                        </span>
                       </span>
-                      <strong>{card.key}</strong>
-                    </span>
-                    <span className="vk-category-percent">{formatNumber(card.verifiedPercent, 2)}%</span>
-                  </span>
-                  <span className="vk-category-progress"><Progress value={card.verifiedPercent} /></span>
-                  <span className="vk-category-stats">
-                    <span>Total: <strong>{card.total}</strong></span>
-                    <span>Terverifikasi: <strong>{card.verified}</strong></span>
-                    <span>Menunggu: <strong>{card.pending}</strong></span>
-                  </span>
-                  {card.other > 0 && (
-                    <span className="vk-category-other">Perlu pemeriksaan: {card.other}</span>
-                  )}
-                </button>
-              ))}
+                      <span className="vk-chart-label">W{String(week.week).padStart(2, "0")}</span>
+                      <span className="vk-chart-total">{week.total}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+            <div className="vk-legend"><span><i className="verified" /> Verified</span><span><i className="pending" /> Pending</span><span><i className="other" /> Status lain</span></div>
           </section>
 
-          <section className="vk-panel vk-assessment-panel">
-            <div className="vk-section-title">
-              <div>
-                <h2>Verifikasi Penilaian ({weekLabel(selectedWeek)})</h2>
-                <p>Post-Test, Praktik, dan Samapta tetap tersedia sesuai kewenangan Admin/Mentor.</p>
-              </div>
-            </div>
-            <div className="vk-assessment-compact-grid">
-              {assessmentCards.map((card) => (
-                <button
-                  type="button"
-                  key={card.key}
-                  className={`vk-assessment-compact ${selectedCategory === card.key ? "selected" : ""}`}
-                  onClick={() => {
-                    setSelectedCategory(selectedCategory === card.key ? "all" : card.key);
-                    setSelectedSite("all");
-                    setSearch("");
-                  }}
-                  aria-pressed={selectedCategory === card.key}
-                >
-                  <span className="vk-assessment-compact-icon" style={{ color: card.color }}>
-                    <Icon name={card.icon} size={19} />
-                  </span>
-                  <span className="vk-assessment-compact-name">{card.key}</span>
-                  <span className="vk-assessment-compact-count">{card.pending} Pending</span>
-                  <span className="vk-assessment-compact-sub">{card.verified} Verified · {card.total} total</span>
-                </button>
-              ))}
-            </div>
-            {!isAdmin && (
-              <p className="vk-assessment-note">
-                Catatan kewenangan: persetujuan Post-Test dan Samapta hanya dapat dilakukan Admin.
-                Mentor tetap dapat memeriksa detail dan menyalin catatan revisi.
-              </p>
-            )}
-          </section>
-
-          <section className="vk-panel vk-pending-panel">
-            <div className="vk-pending-header">
-              <div>
-                <h2>
-                  Daftar Pengajuan — {selectedCategory === "all" ? "Semua Kategori" : selectedCategory}
-                  {" "}({weekLabel(selectedWeek)})
-                </h2>
-                <p>
-                  Menampilkan <strong>{filteredItems.length}</strong> kegiatan yang masih menunggu verifikasi.
-                  {selectedCategory === "all" ? " Pilih kartu kategori untuk mempersempit daftar." : ""}
-                </p>
-              </div>
-              <label className="vk-pending-search">
-                <Icon name="search" size={17} />
-                <input
-                  type="search"
-                  placeholder="Cari peserta, judul kegiatan, atau site..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-              </label>
+          <section className="vk-panel">
+            <div className="vk-section-title"><div><h2>Daftar Pengajuan</h2><p>{filteredItems.length} data sesuai kategori dan filter yang dipilih.</p></div></div>
+            <div className="vk-filters">
+              <label><span>Kategori</span><select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)}><option value="all">Semua kategori</option>{CATEGORY_DEFS.map((item) => <option key={item.key} value={item.key}>{item.key}</option>)}</select></label>
+              <label><span>Status</span><select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}><option value="all">Semua status</option><option value="pending">Pending</option><option value="verified">Verified</option><option value="other">Status lain</option></select></label>
+              <label><span>Site</span><select value={selectedSite} onChange={(event) => setSelectedSite(event.target.value)}><option value="all">Semua site</option>{sites.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
+              <label className="vk-search"><span>Cari peserta / kegiatan</span><input type="search" placeholder="Nama peserta, site, materi..." value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+              <button type="button" className="vk-reset" onClick={resetFilters}>Reset</button>
             </div>
 
-            <div className="vk-pending-toolbar">
-              <label>
-                <span>Site</span>
-                <select value={selectedSite} onChange={(event) => setSelectedSite(event.target.value)}>
-                  <option value="all">Semua Site</option>
-                  {sites.map((site) => <option key={site} value={site}>{site}</option>)}
-                </select>
-              </label>
-              <button type="button" className="vk-reset" onClick={resetFilters}>
-                Reset Filter
-              </button>
-              <span className="vk-pending-only-label"><Icon name="clock" size={14} /> Antrean Pending saja</span>
-            </div>
-
-            {loading ? (
-              <div className="vk-empty">Memuat data verifikasi dari Supabase...</div>
-            ) : !filteredItems.length ? (
-              <div className="vk-empty">
-                <strong>Tidak ada pengajuan yang menunggu verifikasi.</strong>
-                <span>Semua kegiatan pada kategori dan minggu ini sudah diperiksa, atau belum ada pengajuan.</span>
-              </div>
+            {loading ? <div className="vk-empty">Memuat data verifikasi dari Supabase...</div> : !filteredItems.length ? (
+              <div className="vk-empty">Tidak ada data yang sesuai dengan filter ini.</div>
             ) : (
-              <div className="vk-table-wrap">
-                <table className="vk-pending-table">
-                  <thead>
-                    <tr>
-                      <th>No.</th>
-                      <th>Peserta</th>
-                      <th>Site / Posisi</th>
-                      <th>Judul Kegiatan</th>
-                      <th>Tanggal</th>
-                      <th>Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredItems.map((item, index) => (
-                      <tr key={`${item.kind}-${item.id}`}>
-                        <td>{index + 1}</td>
-                        <td>
-                          <strong>{item.person}</strong>
-                          <small>{item.department}</small>
-                        </td>
-                        <td>{item.site}</td>
-                        <td>
-                          <span className="vk-table-category">{item.category}</span>
-                          <strong>{item.kind === "achievement" ? (item.details || item.title) : item.title}</strong>
-                          {item.kind !== "achievement" && item.details && (
-                            <small>{item.details}</small>
-                          )}
-                          {item.kind === "achievement" && item.category === "Fisik" && (
-                            <small>Jarak: {formatNumber(item.distanceKm, 3)} km</small>
-                          )}
-                        </td>
-                        <td>{formatDate(item.date)}</td>
-                        <td>
-                          <div className="vk-table-actions">
-                            <button type="button" className="vk-detail-btn" onClick={() => openReview(item)}>
-                              Lihat Detail
-                            </button>
-                            <button type="button" className="vk-record-verify" onClick={() => openReview(item)}>
-                              Verifikasi
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="vk-record-list">
+                {filteredItems.map((item) => (
+                  <article className="vk-record" key={`${item.kind}-${item.id}`}>
+                    <div className="vk-record-main">
+                      <div className="vk-record-top"><span className="vk-kind">{item.category}</span><StatusBadge status={item.status} /></div>
+                      <h3>{item.title}</h3>
+                      <p>{item.person} · {item.department} · {item.site}</p>
+                      <small>{formatDate(item.date)} · {globalWeekOf(item.date) ? weekLabel(globalWeekOf(item.date)) : "Di luar kalender"}</small>
+                      {item.kind === "posttest" && <p className="vk-record-detail">Nilai Post-Test: <strong>{formatNumber(item.score)}</strong></p>}
+                      {item.kind === "praktik" && <p className="vk-record-detail">Nilai Praktik: <strong>{formatNumber(item.score)}</strong></p>}
+                      {item.kind === "samapta" && <p className="vk-record-detail">{item.rows.length}/5 komponen · Rata-rata skor: <strong>{formatNumber(item.score)}</strong></p>}
+                      {item.kind === "achievement" && item.category === "Fisik" && <p className="vk-record-detail">Jarak: <strong>{formatNumber(item.distanceKm, 3)} km</strong></p>}
+                      {item.details && <p className="vk-record-description">{item.details}</p>}
+                    </div>
+                    <div className="vk-record-actions"><button type="button" onClick={() => openReview(item)}>Lihat Detail</button></div>
+                  </article>
+                ))}
               </div>
             )}
           </section>
@@ -1299,26 +1077,11 @@ export default function VerifikasiKegiatanPage() {
               {active.status === "pending" && (
                 <label className="vk-confirm"><input type="checkbox" checked={checked} disabled={!!processing || previewLoading} onChange={(event) => setChecked(event.target.checked)} />Saya sudah memeriksa data dan dokumentasi yang tersedia.</label>
               )}
-              {revisionOpen && canRequestRevision && (
-                <div className="vk-revision-box">
-                  <strong>Catatan perbaikan untuk peserta</strong>
-                  <textarea
-                    rows={4}
-                    value={revisionNote}
-                    onChange={(event) => setRevisionNote(event.target.value)}
-                    placeholder="Tuliskan bagian yang perlu diperbaiki peserta..."
-                    disabled={!!processing}
-                  />
-                  <p>Catatan ini hanya disalin untuk dikirimkan kepada peserta. Status data tetap Pending dan tidak ada perubahan database.</p>
-                  <button type="button" className="vk-revision-copy" onClick={copyRevisionNote} disabled={!checked || !revisionNote.trim() || !!processing || previewLoading}>Salin Catatan</button>
-                </div>
-              )}
-              {active.kind === "posttest" && !isAdmin && active.status === "pending" && <div className="vk-inline-warning">Post-Test menunggu persetujuan Admin. Mentor dapat melihat detail dan meminta perbaikan, tetapi tidak dapat menyetujui.</div>}
-              {active.kind === "samapta" && !isAdmin && active.status === "pending" && <div className="vk-inline-warning">Samapta menunggu persetujuan Admin. Mentor dapat melihat detail dan meminta perbaikan, tetapi tidak dapat menyetujui.</div>}
+              {active.kind === "posttest" && !isAdmin && active.status === "pending" && <div className="vk-inline-warning">Post-Test menunggu persetujuan Admin. Mentor dapat melihat detail, tetapi tidak dapat menyetujui.</div>}
+              {active.kind === "samapta" && !isAdmin && active.status === "pending" && <div className="vk-inline-warning">Samapta menunggu persetujuan Admin. Mentor dapat melihat detail, tetapi tidak dapat menyetujui.</div>}
 
               <div className="vk-modal-actions">
                 <button type="button" className="vk-secondary" onClick={() => router.push(active.kind === "achievement" ? `/achievement/${active.programId}` : active.kind === "praktik" ? `/praktik/${active.programId}` : active.kind === "posttest" ? `/peserta/${active.programId}` : `/samapta/${active.programId}`)}>Buka Modul Peserta</button>
-                {canRequestRevision && <button type="button" className="vk-revision" onClick={() => { setRevisionOpen((value) => !value); setError(""); }} disabled={!!processing || previewLoading}>Perlu Revisi</button>}
                 {canApproveActive && <button type="button" className="vk-approve" onClick={approveActive} disabled={!checked || !!processing || previewLoading || (active.kind === "praktik" && !active.evidence?.path) || (active.kind === "samapta" && !active.complete)}>{processing ? "Menyimpan..." : "✓ Setujui / Verifikasi"}</button>}
                 {active.status === "verified" && <span className="vk-verified-note">Data ini sudah Verified dan masuk perhitungan resmi.</span>}
               </div>
@@ -1390,39 +1153,43 @@ html[data-theme="dark"] .vk-root .mt-sidebar{background:linear-gradient(170deg,#
 .vk-section-title{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .vk-section-title h2{margin:0;font-size:18px}
 .vk-section-title p{margin:4px 0 0;color:var(--vk-muted);font-size:12px}
-.vk-panel{min-width:0;border:1px solid var(--vk-border);border-radius:13px;background:var(--vk-panel);padding:17px}
-.vk-summary-inline{display:block;margin-top:7px;color:var(--vk-green);font-size:11px;font-weight:800}
-.vk-category-grid,.vk-assessment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:15px}
-.vk-category-card,.vk-assessment-card{display:grid;grid-template-columns:44px minmax(0,1fr);grid-template-rows:auto auto auto auto;align-items:center;gap:7px 11px;min-width:0;padding:16px;text-align:left;border:1px solid var(--vk-border);border-radius:13px;background:var(--vk-surface);color:var(--vk-text);transition:border-color .15s ease,background .15s ease}
-.vk-category-card:hover,.vk-category-card.selected,.vk-assessment-card:hover,.vk-assessment-card.selected{border-color:#21b77c;background:color-mix(in srgb,var(--vk-surface) 82%,#0b9867 18%)}
-.vk-category-icon{grid-column:1;grid-row:1/3;width:42px;height:42px;display:grid;place-items:center;border-radius:11px;background:#28534422}
-.vk-category-name{grid-column:2;grid-row:1;font-weight:800;font-size:14px;overflow-wrap:anywhere}
-.vk-category-total{grid-column:2;grid-row:2;display:flex;align-items:baseline;gap:8px}
-.vk-category-total strong{font-size:25px;line-height:1.1;color:var(--vk-green)}
-.vk-category-total small{font-size:10px;color:var(--vk-muted)}
-.vk-category-progress{grid-column:1/-1;display:block;margin-top:5px}
-.vk-progress{width:100%;height:7px;overflow:hidden;border-radius:99px;background:color-mix(in srgb,var(--vk-border) 72%,transparent)}
-.vk-progress>span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#159b6b,#58e4a4);transition:width .2s ease}
-.vk-category-counts{grid-column:1/-1;display:flex;justify-content:space-between;gap:8px;margin-top:3px;padding-top:9px;border-top:1px solid var(--vk-border);font-size:10px}
+.vk-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.vk-summary-card,.vk-panel{min-width:0;border:1px solid var(--vk-border);border-radius:13px;background:var(--vk-panel);padding:17px}
+.vk-summary-card{display:grid;gap:5px;align-content:start}
+.vk-summary-card small{font-size:11px;color:var(--vk-muted)}
+.vk-summary-card strong{font-size:31px;line-height:1.2;color:var(--vk-green)}
+.vk-summary-card span{font-size:11px;color:var(--vk-muted)}
+.vk-summary-card.pending{border-top:2px solid #d7aa55}
+.vk-summary-card.pending strong{color:#e7b95d}
+.vk-summary-card.verified{border-top:2px solid #36b983}
+.vk-category-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:14px}
+.vk-category-card{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:5px 11px;text-align:left;padding:15px;border:1px solid var(--vk-border);border-radius:12px;background:var(--vk-surface);color:var(--vk-text);min-width:0}
+.vk-category-card:hover,.vk-category-card.selected{border-color:#21b77c;background:color-mix(in srgb,var(--vk-surface) 82%,#0b9867 18%)}
+.vk-category-icon{grid-row:span 3;width:42px;height:42px;display:grid;place-items:center;border-radius:11px;background:#28534422}
+.vk-category-name{font-weight:800;font-size:13px;overflow-wrap:anywhere}
+.vk-category-card>strong{font-size:25px;line-height:1.1;color:var(--vk-green)}
+.vk-category-card>small{font-size:10px;color:var(--vk-muted)}
+.vk-category-counts{grid-column:1/-1;display:flex;justify-content:space-between;gap:8px;margin-top:7px;padding-top:8px;border-top:1px solid var(--vk-border);font-size:10px}
 .vk-category-counts em{font-style:normal;color:#d9ad57}
 .vk-category-counts em:last-child{color:#46c98f}
-.vk-assessment-note{margin:13px 0 0;padding:10px 12px;border-left:3px solid #d7aa55;border-radius:6px;background:var(--vk-surface);color:var(--vk-muted);font-size:11px}
-.vk-chart-list{display:grid;gap:11px;margin-top:15px}
-.vk-chart-row{display:grid;gap:8px;width:100%;padding:11px 12px;text-align:left;border:1px solid var(--vk-border);border-radius:10px;background:var(--vk-surface);color:var(--vk-text)}
-.vk-chart-row:hover,.vk-chart-row.selected{border-color:#299d72;background:color-mix(in srgb,var(--vk-surface) 82%,#0b9867 18%)}
-.vk-chart-head,.vk-chart-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
-.vk-chart-head strong{font-size:12px}
-.vk-chart-head>span,.vk-chart-foot{color:var(--vk-muted);font-size:10px}
-.vk-chart-track{display:flex;width:100%;height:11px;overflow:hidden;border-radius:99px;background:var(--vk-border)}
-.vk-chart-track i{display:block;height:100%;min-width:0}
-.vk-chart-track i.verified{background:#42c88e}
-.vk-chart-track i.pending{background:#e5b452}
-.vk-chart-track i.other{background:#de8087}
-.vk-legend{display:flex;gap:15px;flex-wrap:wrap;margin-top:12px;color:var(--vk-muted);font-size:11px}
+.vk-chart-scroll{overflow-x:auto;margin-top:12px;padding-bottom:5px}
+.vk-chart{min-width:850px;display:grid;grid-template-columns:repeat(25,minmax(0,1fr));gap:5px;align-items:end}
+.vk-chart-col{min-width:0;display:grid;grid-template-rows:18px 126px 18px 16px;gap:3px;justify-items:center;border:1px solid transparent;border-radius:7px;padding:4px 2px;background:transparent;color:var(--vk-muted)}
+.vk-chart-col:hover,.vk-chart-col.selected{background:var(--vk-surface);border-color:#299d72}
+.vk-chart-percent{font-size:9px;font-weight:800;color:var(--vk-text)}
+.vk-chart-track{width:100%;height:100%;display:flex;align-items:end;justify-content:center;border-bottom:1px solid var(--vk-border);background:repeating-linear-gradient(to top,transparent 0 calc(25% - 1px),var(--vk-border) calc(25% - 1px) 25%)}
+.vk-chart-stack{width:min(22px,80%);height:100%;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;border-radius:5px 5px 0 0}
+.vk-chart-stack i{display:block;flex:none;min-height:0}
+.vk-chart-stack i.verified{background:#42c88e}
+.vk-chart-stack i.pending{background:#e5b452}
+.vk-chart-stack i.other{background:#de8087}
+.vk-chart-label{font-size:9px}
+.vk-chart-total{font-size:9px;color:var(--vk-text)}
+.vk-legend{display:flex;gap:15px;flex-wrap:wrap;margin-top:10px;color:var(--vk-muted);font-size:11px}
 .vk-legend span{display:flex;align-items:center;gap:6px}
 .vk-legend i{width:9px;height:9px;border-radius:50%}
 .vk-legend i.verified{background:#42c88e}.vk-legend i.pending{background:#e5b452}.vk-legend i.other{background:#de8087}
-.vk-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(180px,2fr) auto;gap:9px;align-items:end;margin:14px 0;padding-bottom:14px;border-bottom:1px solid var(--vk-border)}
+.vk-filters{display:grid;grid-template-columns:1fr 1fr 1fr minmax(180px,2fr) auto;gap:9px;align-items:end;margin:14px 0;padding-bottom:14px;border-bottom:1px solid var(--vk-border)}
 .vk-filters label{display:grid;gap:5px;min-width:0}
 .vk-filters label span{font-size:11px;color:var(--vk-muted);font-weight:700}
 .vk-filters input,.vk-filters select{width:100%;min-width:0;min-height:39px;padding:9px 10px;border:1px solid var(--vk-border);border-radius:8px;background:var(--vk-surface);color:var(--vk-text);font-size:12px}
@@ -1441,10 +1208,8 @@ html[data-theme="dark"] .vk-root .mt-sidebar{background:linear-gradient(170deg,#
 .vk-record small{color:var(--vk-muted);font-size:10px}
 .vk-record-detail{margin-top:7px!important;color:var(--vk-text)!important}
 .vk-record-description{max-width:900px;white-space:pre-wrap;line-height:1.5}
-.vk-record-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.vk-record-actions{flex-shrink:0}
 .vk-record-actions button{border:1px solid #278b65;border-radius:8px;background:#087c58;color:white;padding:9px 13px;font-size:11px;font-weight:800}
-.vk-record-actions .vk-detail-btn{border-color:var(--vk-border);background:transparent;color:var(--vk-text)}
-.vk-record-actions .vk-record-verify{background:#07885c;border-color:#28a979;color:#fff}
 .vk-empty{padding:38px 12px;text-align:center;color:var(--vk-muted);font-size:12px}
 .vk-footer{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 2px;color:var(--vk-muted);font-size:10px}
 .vk-modal-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:rgba(0,15,13,.76)}
@@ -1464,21 +1229,15 @@ html[data-theme="dark"] .vk-root .mt-sidebar{background:linear-gradient(170deg,#
 .vk-samapta-details>div:last-of-type{border-bottom:0}
 .vk-samapta-details>div strong{text-align:right}
 .vk-inline-warning{margin-top:10px;padding:10px;border:1px solid #94723d;border-radius:8px;background:#47381f;color:#ffdfa1;font-size:11px}
-.vk-revision-box{display:grid;gap:9px;margin-top:14px;padding:13px;border:1px solid #b78a42;border-radius:10px;background:color-mix(in srgb,var(--vk-surface) 82%,#9b712c 18%)}
-.vk-revision-box>strong{font-size:12px}
-.vk-revision-box textarea{width:100%;min-height:94px;resize:vertical;padding:10px;border:1px solid var(--vk-border);border-radius:8px;background:var(--vk-panel);color:var(--vk-text);font:inherit;font-size:12px;line-height:1.5}
-.vk-revision-box p{margin:0;color:var(--vk-muted);font-size:10px;line-height:1.5}
-.vk-revision-copy{justify-self:end;border:1px solid #b78a42;border-radius:8px;background:#78551f;color:#fff1cf;padding:9px 13px;font-size:11px;font-weight:800}
 .vk-confirm{display:flex;align-items:flex-start;gap:9px;margin-top:16px;color:var(--vk-text);font-size:11px;line-height:1.6}
 .vk-confirm input{width:17px;height:17px;flex:none;accent-color:#0a9b69}
 .vk-modal-actions{display:flex;align-items:center;justify-content:flex-end;gap:9px;flex-wrap:wrap;margin-top:18px}
-.vk-secondary,.vk-approve,.vk-revision{border:1px solid var(--vk-border);border-radius:8px;padding:10px 13px;font-size:11px;font-weight:800}
+.vk-secondary,.vk-approve{border:1px solid var(--vk-border);border-radius:8px;padding:10px 13px;font-size:11px;font-weight:800}
 .vk-secondary{background:var(--vk-surface);color:var(--vk-text)}
-.vk-revision{background:#78551f;border-color:#b78a42;color:#fff1cf}
 .vk-approve{background:#07885c;border-color:#28a979;color:#fff}
 .vk-verified-note{color:var(--vk-green);font-size:11px}
 @media(max-width:1200px){.vk-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.vk-search{grid-column:span 2}.vk-reset{justify-self:start}}
-@media(max-width:900px){.vk-root .mt-sidebar{width:235px}.vk-main{margin-left:235px}.vk-category-grid,.vk-assessment-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.vk-root .mt-sidebar{width:235px}.vk-main{margin-left:235px}.vk-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){
   .vk-root .mt-sidebar{width:275px;transform:translateX(-105%);transition:transform .2s ease;z-index:55}
   .vk-root .mt-sidebar.open{transform:translateX(0)}
@@ -1487,117 +1246,7 @@ html[data-theme="dark"] .vk-root .mt-sidebar{background:linear-gradient(170deg,#
   .vk-mobile-head{display:flex;align-items:center;justify-content:space-between;min-height:55px;margin:-14px -14px 0;padding:10px 15px;background:#06392e;color:#fff}
   .vk-mobile-head strong{font-size:18px}.vk-mobile-head strong span{color:#53e7a5}
   .vk-mobile-head button{width:36px;height:36px;display:grid;place-items:center;border:1px solid #ffffff35;border-radius:8px;background:#ffffff12;color:#fff}
-  .vk-page-head{padding:16px}.vk-head-actions{margin-left:0;justify-items:start}.vk-filters{grid-template-columns:1fr 1fr}.vk-search{grid-column:span 2}
+  .vk-page-head{padding:16px}.vk-head-actions{margin-left:0;justify-items:start}.vk-summary-grid{grid-template-columns:1fr}.vk-filters{grid-template-columns:1fr 1fr}.vk-search{grid-column:span 2}
 }
-@media(max-width:520px){.vk-category-grid,.vk-assessment-grid{grid-template-columns:1fr 1fr;gap:7px}.vk-category-card,.vk-assessment-card{padding:10px;gap:5px 8px}.vk-category-icon{width:34px;height:34px}.vk-category-name{font-size:11px}.vk-category-total strong{font-size:21px}.vk-category-counts{font-size:9px}.vk-record{align-items:stretch;flex-direction:column}.vk-record-actions{width:100%}.vk-record-actions button{flex:1}.vk-modal-actions>*{flex:1}.vk-footer{display:grid}}
-@media(max-width:390px){.vk-category-grid,.vk-assessment-grid{grid-template-columns:1fr}.vk-filters{grid-template-columns:1fr}.vk-search{grid-column:auto}}
-
-/* WEEKLY VERIFICATION TEMPLATE — uses the existing OJT theme variables */
-.vk-weekly-overview{display:grid;grid-template-columns:minmax(0,1fr) 205px;align-items:center;gap:22px;padding:20px 22px}
-.vk-weekly-content{display:grid;gap:17px;min-width:0}
-.vk-weekly-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,370px);align-items:center;gap:20px}
-.vk-weekly-title-group{display:flex;align-items:center;gap:14px;min-width:0}
-.vk-weekly-shield{width:66px;height:66px;display:grid;place-items:center;flex:none;border-radius:15px;background:color-mix(in srgb,var(--vk-green) 17%,var(--vk-surface));color:var(--vk-green)}
-.vk-weekly-eyebrow{display:block;color:var(--vk-green);font-size:11px;font-weight:900;letter-spacing:.8px}
-.vk-weekly-title-group h2{margin:3px 0 4px;font-size:27px;line-height:1.2}
-.vk-weekly-title-group p{display:flex;align-items:center;gap:6px;margin:0;color:var(--vk-muted);font-size:12px}
-.vk-week-select{display:grid;gap:7px;min-width:0}
-.vk-week-select>span,.vk-pending-toolbar label>span{color:var(--vk-muted);font-size:11px;font-weight:800}
-.vk-week-select select{width:100%;min-height:43px;padding:10px 12px;border:1px solid var(--vk-border);border-radius:10px;background:var(--vk-surface);color:var(--vk-text);font-size:12px}
-.vk-weekly-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}
-.vk-kpi-card{display:flex;align-items:center;gap:12px;min-width:0;min-height:76px;padding:12px 14px;border:1px solid var(--vk-border);border-radius:11px;background:var(--vk-surface)}
-.vk-kpi-icon{width:43px;height:43px;display:grid;place-items:center;flex:none;border-radius:10px;background:color-mix(in srgb,var(--vk-green) 15%,var(--vk-panel));color:var(--vk-green)}
-.vk-kpi-card.total .vk-kpi-icon{background:#1c4050;color:#8bcfff}
-.vk-kpi-card.verified .vk-kpi-icon{background:#174c39;color:#65e3a8}
-.vk-kpi-card.pending .vk-kpi-icon{background:#514020;color:#f0c36c}
-.vk-kpi-card strong,.vk-kpi-card small{display:block}
-.vk-kpi-card strong{font-size:26px;line-height:1.1;color:var(--vk-text);font-weight:900}
-.vk-kpi-card small{margin-top:4px;color:var(--vk-muted);font-size:11px}
-.vk-weekly-other{margin:-7px 0 0;color:var(--vk-muted);font-size:10px}
-.vk-weekly-donut-wrap{display:grid;place-items:center;min-height:180px;border-left:1px solid var(--vk-border);padding-left:20px}
-.vk-weekly-donut{width:172px;max-width:100%;aspect-ratio:1;border-radius:50%;padding:13px;background:conic-gradient(var(--vk-green) var(--vk-donut-value),var(--vk-border) 0);display:grid;place-items:center}
-.vk-weekly-donut>div{width:100%;height:100%;border-radius:50%;background:var(--vk-panel);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-.vk-weekly-donut strong{font-size:27px;line-height:1.1;color:var(--vk-text);font-weight:900}
-.vk-weekly-donut span{margin-top:7px;color:var(--vk-muted);font-size:11px;line-height:1.35}
-.vk-category-panel .vk-section-title{margin-bottom:13px}
-.vk-category-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:0}
-.vk-category-card{display:grid;grid-template-columns:1fr;grid-template-rows:auto auto auto;gap:10px;min-width:0;padding:14px 15px;border:1px solid var(--vk-border);border-radius:12px;background:var(--vk-surface);color:var(--vk-text);text-align:left;transition:border-color .15s ease,background .15s ease,transform .15s ease}
-.vk-category-card:hover{transform:translateY(-1px)}
-.vk-category-card.selected{border-color:var(--vk-green);background:color-mix(in srgb,var(--vk-surface) 84%,var(--vk-green) 16%);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--vk-green) 45%,transparent)}
-.vk-category-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
-.vk-category-card-name{display:flex;align-items:center;gap:9px;min-width:0}
-.vk-category-card-name strong{font-size:13px;overflow-wrap:anywhere}
-.vk-category-icon{width:32px;height:32px;display:grid;place-items:center;flex:none;border-radius:9px;background:color-mix(in srgb,var(--vk-green) 13%,var(--vk-panel))}
-.vk-category-percent{flex:none;padding:4px 8px;border-radius:99px;background:color-mix(in srgb,var(--vk-green) 17%,var(--vk-panel));color:var(--vk-green);font-size:11px;font-weight:900}
-.vk-category-progress{display:block;margin:0}
-.vk-category-progress .vk-progress{height:9px;background:var(--vk-border)}
-.vk-category-progress .vk-progress>span{background:linear-gradient(90deg,#12b981,#5de3a4)}
-.vk-category-stats{display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap;padding-top:2px;color:var(--vk-muted);font-size:10px}
-.vk-category-stats strong{color:var(--vk-text);font-weight:800}
-.vk-category-other{color:#d8ae5e;font-size:10px}
-.vk-assessment-panel{padding:14px 17px}
-.vk-assessment-panel .vk-section-title{margin-bottom:10px}
-.vk-assessment-compact-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
-.vk-assessment-compact{display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:5px 9px;min-width:0;padding:10px 12px;border:1px solid var(--vk-border);border-radius:10px;background:var(--vk-surface);color:var(--vk-text);text-align:left}
-.vk-assessment-compact.selected{border-color:var(--vk-green);background:color-mix(in srgb,var(--vk-surface) 84%,var(--vk-green) 16%)}
-.vk-assessment-compact-icon{grid-row:1/3;width:30px;height:30px;display:grid;place-items:center;border-radius:8px;background:color-mix(in srgb,var(--vk-green) 13%,var(--vk-panel))}
-.vk-assessment-compact-name{font-size:12px;font-weight:900}
-.vk-assessment-compact-count{color:#e3b75e;font-size:10px;font-weight:800}
-.vk-assessment-compact-sub{grid-column:2/4;color:var(--vk-muted);font-size:10px}
-.vk-pending-header{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;flex-wrap:wrap}
-.vk-pending-header h2{margin:0;font-size:18px}
-.vk-pending-header p{margin:5px 0 0;color:var(--vk-muted);font-size:11px;line-height:1.5}
-.vk-pending-header p strong{color:var(--vk-green)}
-.vk-pending-search{display:flex;align-items:center;gap:8px;min-width:min(310px,100%);padding:0 11px;border:1px solid var(--vk-border);border-radius:9px;background:var(--vk-surface);color:var(--vk-muted)}
-.vk-pending-search input{width:100%;min-width:0;min-height:39px;border:0;outline:0;background:transparent;color:var(--vk-text);font-size:11px}
-.vk-pending-search input::placeholder{color:var(--vk-muted)}
-.vk-pending-toolbar{display:flex;align-items:end;gap:9px;flex-wrap:wrap;margin:13px 0;padding-bottom:12px;border-bottom:1px solid var(--vk-border)}
-.vk-pending-toolbar label{display:grid;gap:5px;min-width:170px}
-.vk-pending-toolbar select{min-height:37px;padding:8px 10px;border:1px solid var(--vk-border);border-radius:8px;background:var(--vk-surface);color:var(--vk-text);font-size:11px}
-.vk-pending-toolbar .vk-reset{min-height:37px}
-.vk-pending-only-label{display:flex;align-items:center;gap:6px;margin-left:auto;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--vk-green) 12%,var(--vk-panel));color:var(--vk-green);font-size:10px;font-weight:800}
-.vk-table-wrap{width:100%;overflow-x:auto;border:1px solid var(--vk-border);border-radius:10px}
-.vk-pending-table{width:100%;min-width:850px;border-collapse:collapse;text-align:left}
-.vk-pending-table th{padding:11px 10px;border-bottom:1px solid var(--vk-border);background:color-mix(in srgb,var(--vk-surface) 80%,var(--vk-panel));color:var(--vk-muted);font-size:10px;font-weight:900;white-space:nowrap}
-.vk-pending-table td{padding:11px 10px;border-bottom:1px solid var(--vk-border);color:var(--vk-text);font-size:11px;vertical-align:middle}
-.vk-pending-table tbody tr:last-child td{border-bottom:0}
-.vk-pending-table tbody tr:hover{background:color-mix(in srgb,var(--vk-surface) 82%,var(--vk-green) 8%)}
-.vk-pending-table td:first-child{width:35px;color:var(--vk-muted);text-align:center}
-.vk-pending-table td:nth-child(2){min-width:155px}
-.vk-pending-table td:nth-child(2) strong,.vk-pending-table td:nth-child(2) small,.vk-pending-table td:nth-child(4) strong,.vk-pending-table td:nth-child(4) small{display:block}
-.vk-pending-table td:nth-child(2) strong,.vk-pending-table td:nth-child(4) strong{font-size:11px;font-weight:900}
-.vk-pending-table td:nth-child(2) small,.vk-pending-table td:nth-child(4) small{margin-top:4px;color:var(--vk-muted);font-size:10px;line-height:1.4;max-width:260px;white-space:normal}
-.vk-table-category{display:inline-block;margin-bottom:4px;padding:3px 6px;border-radius:5px;background:color-mix(in srgb,var(--vk-green) 16%,var(--vk-panel));color:var(--vk-green);font-size:9px;font-weight:900}
-.vk-table-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}
-.vk-table-actions button{padding:8px 10px;font-size:10px}
-.vk-empty{display:grid;gap:6px}
-.vk-empty strong{color:var(--vk-text)}
-.vk-empty span{color:var(--vk-muted);font-size:11px}
-@media(max-width:1100px){
-  .vk-weekly-overview{grid-template-columns:minmax(0,1fr) 170px;gap:14px}
-  .vk-weekly-top{grid-template-columns:1fr;gap:12px}
-  .vk-weekly-donut{width:145px}
-  .vk-weekly-donut-wrap{min-height:150px}
-}
-@media(max-width:900px){
-  .vk-weekly-overview{grid-template-columns:1fr}
-  .vk-weekly-donut-wrap{border-left:0;border-top:1px solid var(--vk-border);padding:16px 0 0;min-height:0}
-  .vk-weekly-donut{width:138px}
-  .vk-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-@media(max-width:600px){
-  .vk-weekly-overview{padding:14px}
-  .vk-weekly-kpis{grid-template-columns:1fr;gap:7px}
-  .vk-kpi-card{min-height:62px;padding:9px 11px}
-  .vk-kpi-icon{width:37px;height:37px}
-  .vk-kpi-card strong{font-size:22px}
-  .vk-weekly-title-group h2{font-size:23px}
-  .vk-weekly-shield{width:53px;height:53px}
-  .vk-category-grid{grid-template-columns:1fr}
-  .vk-assessment-compact-grid{grid-template-columns:1fr}
-  .vk-pending-search{min-width:100%}
-  .vk-pending-toolbar{align-items:stretch}
-  .vk-pending-toolbar label{flex:1;min-width:135px}
-  .vk-pending-only-label{margin-left:0}
-}
+@media(max-width:520px){.vk-category-grid{grid-template-columns:1fr 1fr;gap:7px}.vk-category-card{padding:10px;gap:4px 8px}.vk-category-icon{width:34px;height:34px}.vk-category-name{font-size:11px}.vk-category-card>strong{font-size:21px}.vk-category-counts{font-size:9px}.vk-record{align-items:stretch;flex-direction:column}.vk-record-actions button{width:100%}.vk-modal-actions>*{flex:1}.vk-footer{display:grid}}
 `;
