@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -326,6 +327,7 @@ function Progress({ value }) {
 export default function VerifikasiKegiatanPage() {
   const router = useRouter();
   const busyRef = useRef(false);
+  const submissionListRef = useRef(null);
   const [account, setAccount] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -613,6 +615,21 @@ export default function VerifikasiKegiatanPage() {
     setSearch("");
   }
 
+  function openCategoryQueue(categoryKey) {
+    setSelectedCategory(categoryKey);
+    setSelectedStatus("pending");
+    setSelectedSite("all");
+    setSelectedWeek(0);
+    setSearch("");
+
+    requestAnimationFrame(() => {
+      submissionListRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
+
   async function openReview(item) {
     setActive(item);
     setChecked(false);
@@ -841,10 +858,16 @@ export default function VerifikasiKegiatanPage() {
   }
 
   const chartMax = Math.max(1, ...chartWeeks.map((week) => week.total));
-  const canApproveActive = active && active.status === "pending" && (
-    active.kind === "achievement" || active.kind === "praktik" ||
-    (isAdmin && (active.kind === "posttest" || active.kind === "samapta"))
-  );
+
+  function canApproveItem(item) {
+    return Boolean(item && item.status === "pending" && (
+      item.kind === "achievement" ||
+      item.kind === "praktik" ||
+      (isAdmin && (item.kind === "posttest" || item.kind === "samapta"))
+    ));
+  }
+
+  const canApproveActive = canApproveItem(active);
 
   return (
     <main className="vk-root">
@@ -959,8 +982,9 @@ export default function VerifikasiKegiatanPage() {
             <div className="vk-category-grid">
               {categoryCards.map((card) => (
                 <button type="button" key={card.key} className={`vk-category-card ${selectedCategory === card.key ? "selected" : ""}`}
-                  onClick={() => { setSelectedCategory(selectedCategory === card.key ? "all" : card.key); setSelectedWeek(0); }}
-                  aria-pressed={selectedCategory === card.key}>
+                  onClick={() => openCategoryQueue(card.key)}
+                  aria-pressed={selectedCategory === card.key}
+                  aria-label={`Tampilkan ${card.pending} pengajuan Pending kategori ${card.key}`}>
                   <span className="vk-category-icon" style={{ color: card.color }}><Icon name={card.icon} size={23} /></span>
                   <span className="vk-category-name">{card.key}</span>
                   <strong>{card.total}</strong>
@@ -1002,7 +1026,7 @@ export default function VerifikasiKegiatanPage() {
             <div className="vk-legend"><span><i className="verified" /> Verified</span><span><i className="pending" /> Pending</span><span><i className="other" /> Status lain</span></div>
           </section>
 
-          <section className="vk-panel">
+          <section className="vk-panel" id="daftar-pengajuan" ref={submissionListRef}>
             <div className="vk-section-title"><div><h2>Daftar Pengajuan</h2><p>{filteredItems.length} data sesuai kategori dan filter yang dipilih.</p></div></div>
             <div className="vk-filters">
               <label><span>Kategori</span><select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)}><option value="all">Semua kategori</option>{CATEGORY_DEFS.map((item) => <option key={item.key} value={item.key}>{item.key}</option>)}</select></label>
@@ -1013,7 +1037,11 @@ export default function VerifikasiKegiatanPage() {
             </div>
 
             {loading ? <div className="vk-empty">Memuat data verifikasi dari Supabase...</div> : !filteredItems.length ? (
-              <div className="vk-empty">Tidak ada data yang sesuai dengan filter ini.</div>
+              <div className="vk-empty">
+                {selectedCategory !== "all" && selectedStatus === "pending"
+                  ? `Tidak ada pengajuan Pending untuk kategori ${selectedCategory}.`
+                  : "Tidak ada data yang sesuai dengan filter ini."}
+              </div>
             ) : (
               <div className="vk-record-list">
                 {filteredItems.map((item) => (
@@ -1029,7 +1057,16 @@ export default function VerifikasiKegiatanPage() {
                       {item.kind === "achievement" && item.category === "Fisik" && <p className="vk-record-detail">Jarak: <strong>{formatNumber(item.distanceKm, 3)} km</strong></p>}
                       {item.details && <p className="vk-record-description">{item.details}</p>}
                     </div>
-                    <div className="vk-record-actions"><button type="button" onClick={() => openReview(item)}>Lihat Detail</button></div>
+                    <div className="vk-record-actions">
+                      <button type="button" className="vk-detail-btn" onClick={() => openReview(item)}>
+                        Lihat Detail
+                      </button>
+                      {canApproveItem(item) && (
+                        <button type="button" className="vk-record-verify" onClick={() => openReview(item)}>
+                          Verifikasi
+                        </button>
+                      )}
+                    </div>
                   </article>
                 ))}
               </div>
@@ -1208,8 +1245,10 @@ html[data-theme="dark"] .vk-root .mt-sidebar{background:linear-gradient(170deg,#
 .vk-record small{color:var(--vk-muted);font-size:10px}
 .vk-record-detail{margin-top:7px!important;color:var(--vk-text)!important}
 .vk-record-description{max-width:900px;white-space:pre-wrap;line-height:1.5}
-.vk-record-actions{flex-shrink:0}
-.vk-record-actions button{border:1px solid #278b65;border-radius:8px;background:#087c58;color:white;padding:9px 13px;font-size:11px;font-weight:800}
+.vk-record-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.vk-record-actions button{border:1px solid #278b65;border-radius:8px;background:#087c58;color:white;padding:9px 13px;font-size:11px;font-weight:800;white-space:nowrap}
+.vk-record-actions .vk-detail-btn{border-color:var(--vk-border);background:transparent;color:var(--vk-text)}
+.vk-record-actions .vk-record-verify{background:#07885c;border-color:#28a979;color:#fff}
 .vk-empty{padding:38px 12px;text-align:center;color:var(--vk-muted);font-size:12px}
 .vk-footer{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 2px;color:var(--vk-muted);font-size:10px}
 .vk-modal-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:rgba(0,15,13,.76)}
@@ -1248,5 +1287,5 @@ html[data-theme="dark"] .vk-root .mt-sidebar{background:linear-gradient(170deg,#
   .vk-mobile-head button{width:36px;height:36px;display:grid;place-items:center;border:1px solid #ffffff35;border-radius:8px;background:#ffffff12;color:#fff}
   .vk-page-head{padding:16px}.vk-head-actions{margin-left:0;justify-items:start}.vk-summary-grid{grid-template-columns:1fr}.vk-filters{grid-template-columns:1fr 1fr}.vk-search{grid-column:span 2}
 }
-@media(max-width:520px){.vk-category-grid{grid-template-columns:1fr 1fr;gap:7px}.vk-category-card{padding:10px;gap:4px 8px}.vk-category-icon{width:34px;height:34px}.vk-category-name{font-size:11px}.vk-category-card>strong{font-size:21px}.vk-category-counts{font-size:9px}.vk-record{align-items:stretch;flex-direction:column}.vk-record-actions button{width:100%}.vk-modal-actions>*{flex:1}.vk-footer{display:grid}}
+@media(max-width:520px){.vk-category-grid{grid-template-columns:1fr 1fr;gap:7px}.vk-category-card{padding:10px;gap:4px 8px}.vk-category-icon{width:34px;height:34px}.vk-category-name{font-size:11px}.vk-category-card>strong{font-size:21px}.vk-category-counts{font-size:9px}.vk-record{align-items:stretch;flex-direction:column}.vk-record-actions{width:100%}.vk-record-actions button{flex:1;width:auto}.vk-modal-actions>*{flex:1}.vk-footer{display:grid}}
 `;
