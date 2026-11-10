@@ -13,19 +13,6 @@ import { supabase } from "../../../lib/supabase";
 const TOTAL_WEEKS = 25;
 const BACKGROUND_IMAGE = "/background-erg.png.PNG";
 
-// Metadata persetujuan disimpan pada kolom notes yang sudah tersedia.
-// Data historis tanpa marker tetap diperlakukan sebagai Verified.
-const POSTTEST_REVIEW_RE = /\[\[OJT_POSTTEST_REVIEW_V1:([\s\S]*?)\]\]/g;
-const PRACTICE_REVIEW_RE = /\[\[OJT_PRACTICE_REVIEW_V1:([\s\S]*?)\]\]/g;
-const SAMAPTA_REVIEW_RE = /\[\[OJT_SAMAPTA_REVIEW_V1:([\s\S]*?)\]\]/g;
-const SAMAPTA_COMPONENTS = [
-  "Lari 12 Menit",
-  "Pull-Up",
-  "Push-Up",
-  "Sit-Up",
-  "Shuttle Run",
-];
-
 const SITES = [
   "LMO", "SMO", "GMO NORTH", "GMO SOUTH", "BMO 1", "BMO 2",
   "BMO 3", "SRN", "PMO", "TSP", "HO",
@@ -157,78 +144,6 @@ function categoryOf(value) {
 
 function resolveCategory(record, typeMap) {
   return categoryOf(record.type_code) || categoryOf(typeMap.get(normalizeKey(record.type_code)));
-}
-
-// Membaca metadata JSON yang di-encode pada marker notes.
-// Marker yang tidak valid diabaikan agar data historis tetap dapat dibaca.
-function readReviewMeta(notes, regex) {
-  let meta = null;
-
-  for (const match of String(notes || "").matchAll(new RegExp(regex.source, "g"))) {
-    try {
-      meta = JSON.parse(decodeURIComponent(match[1]));
-    } catch {
-      // Abaikan metadata lama atau marker yang tidak valid.
-    }
-  }
-
-  return meta;
-}
-
-// Post-Test lama tanpa marker adalah data historis Verified.
-// Post-Test baru dikecualikan dari nilai resmi jika statusnya Pending.
-function isOfficialPostTest(row) {
-  return readReviewMeta(row?.notes, POSTTEST_REVIEW_RE)?.status !== "pending";
-}
-
-// Praktik lama tetap dihitung jika memiliki nilai.
-// Praktik baru berstatus Pending tidak masuk rata-rata resmi.
-function isOfficialPractice(row) {
-  const meta = readReviewMeta(row?.notes, PRACTICE_REVIEW_RE);
-
-  if (meta?.status === "pending") return false;
-
-  return meta?.status === "verified" ||
-    (row?.score !== null && row?.score !== undefined);
-}
-
-// Satu sesi Samapta terdiri dari lima komponen pada tanggal yang sama.
-// Sesi lama tanpa marker tetap Verified; satu komponen Pending membuat
-// seluruh sesi dikecualikan dari jumlah sesi resmi.
-function countOfficialSamaptaSessions(rows) {
-  const groups = new Map();
-
-  for (const row of rows || []) {
-    const date = String(row.test_date || "").slice(0, 10);
-    if (!date) continue;
-
-    if (!groups.has(date)) groups.set(date, []);
-    groups.get(date).push(row);
-  }
-
-  let count = 0;
-
-  for (const group of groups.values()) {
-    const names = new Set(
-      group.map((row) =>
-        String(row.test_type || "").toLowerCase().replace(/[^a-z0-9]/g, "")
-      )
-    );
-
-    const complete =
-      group.length === SAMAPTA_COMPONENTS.length &&
-      SAMAPTA_COMPONENTS.every((name) =>
-        names.has(name.toLowerCase().replace(/[^a-z0-9]/g, ""))
-      );
-
-    const pending = group.some(
-      (row) => readReviewMeta(row.notes, SAMAPTA_REVIEW_RE)?.status === "pending"
-    );
-
-    if (complete && !pending) count += 1;
-  }
-
-  return count;
 }
 
 function averageScore(rows) {
@@ -419,9 +334,9 @@ async function fetchDashboardData(userRole) {
 
   const [achievements, post, practice, fitness, permits] = await Promise.all([
     fetchAchievements(ids),
-    supabase.from("post_test_scores").select("id,program_id,test_date,score,notes").in("program_id", ids),
-    supabase.from("weekly_practice_scores").select("id,program_id,practice_date,score,notes").in("program_id", ids),
-    supabase.from("samapta_records").select("id,program_id,test_date,test_type,score,result_value,notes").in("program_id", ids),
+    supabase.from("post_test_scores").select("id,program_id,test_date,score").in("program_id", ids),
+    supabase.from("weekly_practice_scores").select("id,program_id,practice_date,score").in("program_id", ids),
+    supabase.from("samapta_records").select("id,program_id,test_date,test_type,score,result_value").in("program_id", ids),
     supabase.from("simper_records").select("id,program_id,status,notes").in("program_id", ids),
   ]);
 
@@ -635,15 +550,9 @@ function buildMonitoring(programs, data, selectedWeek) {
       program,
       counts,
       progress,
-      post: averageScore(
-        assessments(data.postTests, id, "test_date").filter(isOfficialPostTest)
-      ),
-      practice: averageScore(
-        assessments(data.practices, id, "practice_date").filter(isOfficialPractice)
-      ),
-      samapta: countOfficialSamaptaSessions(
-        assessments(data.samapta, id, "test_date")
-      ),
+      post: averageScore(assessments(data.postTests, id, "test_date")),
+      practice: averageScore(assessments(data.practices, id, "practice_date")),
+      samapta: assessments(data.samapta, id, "test_date").length,
       simper: simperLabel(latestSimper),
     };
   });
@@ -922,6 +831,18 @@ export default function MonitoringKegiatanPage() {
                 >
                   <MonitoringIcon name="chart" size={19} />
                   <span>Monitoring Kegiatan</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="mt-nav"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    router.push("/mentor/monitoring-penilaian");
+                  }}
+                >
+                  <MonitoringIcon name="file" size={19} />
+                  <span>Monitoring Penilaian</span>
                 </button>
 
                 <button
