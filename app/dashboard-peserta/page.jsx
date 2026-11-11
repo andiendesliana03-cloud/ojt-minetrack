@@ -51,11 +51,14 @@ const MENUS = [
   { id: "rapor", label: "Rapor & Evaluasi", icon: "file" },
 ];
 
-// Menu pengisian mandiri. URL mengikuti rute input Mentor yang sudah ada.
-// Hanya dipakai pada program milik akun Peserta OJT yang login.
+// FIX MENU INPUT PESERTA:
+// Achievement menggunakan formulir internal Dashboard Peserta.
+// Post-Test membuka Jadwal Kegiatan (link Google Forms melalui posttest-access).
+// Praktik dan Samapta menuju rute input masing-masing dengan ID program peserta.
+// Halaman tujuan tetap harus memeriksa role peserta dan kebijakan RLS.
 const INPUT_MENUS = [
-  { id: "achievement", label: "Input Achievement", icon: "trophy", route: (id) => `/achievement/${id}` },
-  { id: "posttest", label: "Input Post-Test", icon: "file", route: (id) => `/mingguan/${id}` },
+  { id: "achievement", label: "Input Achievement", icon: "trophy" },
+  { id: "posttest", label: "Input Post-Test", icon: "file" },
   { id: "praktik", label: "Input Praktik", icon: "tools", route: (id) => `/praktik/${id}` },
   { id: "samapta", label: "Input Samapta", icon: "run", route: (id) => `/samapta/${id}` },
 ];
@@ -1364,12 +1367,13 @@ function ActivityItem({ activity, programId, canAccessPostTest }) {
         <details className="dp-schedule-detail">
           <summary>Materi</summary>
           <p>{activity.description}</p>
-          <PostTestAccess
-            activity={activity}
-            programId={programId}
-            canAccess={canAccessPostTest}
-          />
         </details>
+        {/* Tombol/link ujian harus terlihat tanpa membuka detail materi. */}
+        <PostTestAccess
+          activity={activity}
+          programId={programId}
+          canAccess={canAccessPostTest}
+        />
       </div>
     </div>
   );
@@ -1759,6 +1763,7 @@ export default function DashboardPeserta() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [openingInput, setOpeningInput] = useState("");
   const [inputError, setInputError] = useState("");
+  const [postTestOnly, setPostTestOnly] = useState(false);
 
   // Form pengisian Achievement secara mandiri.
   const [ownCategory, setOwnCategory] = useState("");
@@ -2781,6 +2786,11 @@ export default function DashboardPeserta() {
   function navigatePage(nextPage) {
     if (!validPage(nextPage)) return;
 
+    // Menu Jadwal biasa menampilkan semua kegiatan, bukan hanya Post-Test.
+    setPostTestOnly(false);
+    setInputError("");
+    setOpeningInput("");
+
     if (nextPage === "dashboard") {
       const latest =
         getCurrentGlobalWeek();
@@ -2812,22 +2822,37 @@ export default function DashboardPeserta() {
     });
   }
 
-  // Akses pengisian hanya untuk program sendiri. Admin Preview tetap baca-saja.
-  // Aturan Supabase RLS dan izin di halaman tujuan wajib tetap memeriksa identitas.
+  // Menu Input Kegiatan Peserta: navigasi tanpa tombol macet "Membuka...".
+  // Akses hanya untuk program sendiri. Preview Admin tidak dapat input.
   async function openOwnInput(kind) {
     const item = INPUT_MENUS.find((entry) => entry.id === kind);
     if (!item || !canInputOwnData || openingInput) return;
 
-    // Achievement tersedia langsung di dashboard, tanpa halaman Mentor.
+    setInputError("");
+    setMobileMenu(false);
+
     if (kind === "achievement") {
       setOwnMessage("");
       navigatePage("achievement");
       return;
     }
 
-    setInputError("");
-    setOpeningInput(kind);
+    if (kind === "posttest") {
+      // Post-Test adalah Google Forms pada hari Selasa/Kamis sesuai jadwal.
+      // Jangan arahkan ke /mingguan/[id]: itu halaman Evaluasi Mingguan.
+      navigatePage("jadwal");
+      setSelectedWeek(getCurrentGlobalWeek());
+      setPostTestOnly(true);
+      return;
+    }
 
+    // Hanya Praktik dan Samapta menggunakan rute halaman input terpisah.
+    if (!item.route) {
+      setInputError("Halaman input untuk menu ini belum dikonfigurasi.");
+      return;
+    }
+
+    setOpeningInput(kind);
     try {
       const { data: authData, error: authError } =
         await supabase.auth.getUser();
@@ -2836,7 +2861,7 @@ export default function DashboardPeserta() {
         throw new Error("Sesi akun berubah. Silakan login ulang.");
       }
 
-      // Pastikan ID program yang akan dibuka adalah milik Peserta aktif ini.
+      // Verifikasi program milik pengguna, tidak memperluas akses database.
       const { data: ownProgram, error: programError } = await supabase
         .from("ojt_programs")
         .select("id")
@@ -2850,7 +2875,7 @@ export default function DashboardPeserta() {
         throw new Error("Program OJT aktif milik akun ini tidak ditemukan.");
       }
 
-      // Simpan posisi dashboard sebelum pindah ke halaman input.
+      // Pulihkan tampilan bila peserta kembali ke Dashboard.
       try {
         sessionStorage.setItem(
           viewStorageKey(user.id),
@@ -2869,6 +2894,10 @@ export default function DashboardPeserta() {
       router.push(item.route(ownProgram.id));
     } catch (err) {
       setInputError(err?.message || "Halaman input gagal dibuka.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
+      // Next.js router.push tidak memberi Promise navigasi.
+      // Jangan biarkan tombol lain terkunci jika tujuan gagal dibuka.
       setOpeningInput("");
     }
   }
@@ -3086,6 +3115,10 @@ export default function DashboardPeserta() {
       (item) =>
         item.week === selectedWeek
     );
+
+  const visibleSchedule = postTestOnly
+    ? selectedSchedule.filter((item) => normalizeType(item.type) === "posttest")
+    : selectedSchedule;
 
   const dashboardWeekly =
     getWeekRecords(currentWeek);
@@ -4161,8 +4194,27 @@ export default function DashboardPeserta() {
                     </span>
                   </div>
 
-                  {selectedSchedule.length ? (
-                    selectedSchedule.map(
+                  {postTestOnly && (
+                    <div className="dp-posttest-box dp-no-print" role="status">
+                      <strong>Input Post-Test · {weekLabel(selectedWeek)}</strong>
+                      <p className="dp-posttest-note">
+                        Pilih ujian sesuai jadwal Selasa/Kamis. Link Google Forms
+                        tersedia pada tanggal ujian untuk peserta aktif (WITA).
+                        Nilai dikirim oleh integrasi Google Forms dan menunggu
+                        verifikasi Admin.
+                      </p>
+                      <button
+                        type="button"
+                        className="dp-button secondary"
+                        onClick={() => setPostTestOnly(false)}
+                      >
+                        Tampilkan Semua Jadwal
+                      </button>
+                    </div>
+                  )}
+
+                  {visibleSchedule.length ? (
+                    visibleSchedule.map(
                       (item) => (
                         <ActivityItem
                           key={item.id}
@@ -4174,7 +4226,9 @@ export default function DashboardPeserta() {
                     )
                   ) : (
                     <EmptyState>
-                      Belum ada jadwal untuk minggu ini.
+                      {postTestOnly
+                        ? "Belum ada jadwal Post-Test untuk minggu ini."
+                        : "Belum ada jadwal untuk minggu ini."}
                     </EmptyState>
                   )}
                 </section>
