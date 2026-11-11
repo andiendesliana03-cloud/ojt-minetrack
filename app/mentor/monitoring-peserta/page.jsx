@@ -318,11 +318,14 @@ async function fetchDashboardData(userRole) {
 
   const programs = (programResult.data || [])
     .map((item) => ({ ...item, peserta: getParticipant(item) }))
-    .filter(({ peserta, participant_id }) =>
+    .filter(({ peserta, participant_id, status }) =>
       peserta &&
       peserta.id === participant_id &&
       !isSimulationParticipant(peserta) &&
-      ["participant", "peserta"].includes(normalize(peserta.role))
+      ["participant", "peserta"].includes(normalize(peserta.role)) &&
+      // Program dibatalkan tetap disimpan di database, tetapi tidak ikut
+      // daftar peserta, statistik, grafik, atau rekap Monitoring Kegiatan.
+      !["cancelled", "canceled", "dibatalkan"].includes(normalize(status))
     );
 
   const types = typeResult.data || [];
@@ -1038,7 +1041,7 @@ export default function MonitoringKegiatanPage() {
               Status Program
               <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
                 <option value="ALL">Semua Status</option>
-                {["active", "approved", "aktif", "pending", "completed", "finished", "cancelled"].map((status) => (
+                {["active", "approved", "aktif", "pending", "completed", "finished"].map((status) => (
                   <option key={status} value={status}>
                     {status === "aktif" ? "Aktif (legacy)" : programLabel(status)}
                   </option>
