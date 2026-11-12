@@ -46,21 +46,26 @@ const MENUS = [
   { id: "jadwal", label: "Jadwal Kegiatan", icon: "calendar" },
   { id: "monitoring", label: "Monitoring Mingguan", icon: "chart" },
   { id: "achievement", label: "Achievement OJT", icon: "trophy" },
-  { id: "hasil", label: "Hasil Post-Test & Praktik", icon: "file" },
+  { id: "hasil", label: "Hasil Penilaian", icon: "file" },
+  { id: "input-kegiatan", label: "Input Kegiatan", icon: "clipboard" },
   { id: "simper", label: "Status SIMPER", icon: "shield" },
   { id: "rapor", label: "Rapor & Evaluasi", icon: "file" },
 ];
 
-// FIX MENU INPUT PESERTA:
-// Achievement menggunakan formulir internal Dashboard Peserta.
-// Post-Test membuka Jadwal Kegiatan (link Google Forms melalui posttest-access).
-// Praktik dan Samapta menuju rute input masing-masing dengan ID program peserta.
-// Halaman tujuan tetap harus memeriksa role peserta dan kebijakan RLS.
+// MENU INPUT: satu akses terpusat; link Google Forms tetap di Jadwal Kegiatan.
+// Input manual Post-Test adalah opsi setelah arahan Mentor, bukan kewajiban.
+// Pengajuan baru tetap Pending sampai verifikasi Admin.
 const INPUT_MENUS = [
   { id: "achievement", label: "Input Achievement", icon: "trophy" },
   { id: "posttest", label: "Input Post-Test", icon: "file" },
   { id: "praktik", label: "Input Praktik", icon: "tools", route: (id) => `/praktik/${id}` },
   { id: "samapta", label: "Input Samapta", icon: "run", route: (id) => `/samapta/${id}` },
+];
+
+// Materi konsisten dengan form Post-Test Mentor/Admin yang sudah dipakai.
+const POST_TEST_MATERIALS = [
+  "HAR", "Fire", "Hazmat", "CSR", "Navigasi Darat",
+  "Water Rescue", "Medical", "CSSR", "Size Up", "RAR",
 ];
 
 const PAGE_TITLES = {
@@ -69,7 +74,9 @@ const PAGE_TITLES = {
   monitoring: "Monitoring Mingguan",
   achievement: "Achievement OJT",
   "input-achievement": "Input Achievement",
-  hasil: "Hasil Post-Test & Praktik",
+  hasil: "Hasil Penilaian",
+  "input-kegiatan": "Input Kegiatan",
+  "input-posttest": "Input Post-Test",
   simper: "Status SIMPER",
   rapor: "Rapor & Evaluasi",
   profil: "Profil Akun",
@@ -1766,6 +1773,17 @@ export default function DashboardPeserta() {
   const [inputError, setInputError] = useState("");
   const [postTestOnly, setPostTestOnly] = useState(false);
 
+  // Pengajuan manual Post-Test hanya sebagai fallback atas arahan Mentor.
+  // Post-Test Google Forms tetap sinkron melalui sistem yang sudah ada.
+  const [manualTestDate, setManualTestDate] = useState(todayWITA());
+  const [manualTestMaterial, setManualTestMaterial] = useState("");
+  const [manualTestScore, setManualTestScore] = useState("");
+  const [manualTestNotes, setManualTestNotes] = useState("");
+  const [manualTestAuthorized, setManualTestAuthorized] = useState(false);
+  const [manualTestSaving, setManualTestSaving] = useState(false);
+  const [manualTestError, setManualTestError] = useState("");
+  const [manualTestMessage, setManualTestMessage] = useState("");
+
   // Form pengisian Achievement secara mandiri.
   const [ownCategory, setOwnCategory] = useState("");
   const [ownDate, setOwnDate] = useState(todayWITA());
@@ -2790,6 +2808,10 @@ export default function DashboardPeserta() {
     // Menu Jadwal biasa menampilkan semua kegiatan, bukan hanya Post-Test.
     setPostTestOnly(false);
     setInputError("");
+    if (nextPage !== "input-posttest") {
+      setManualTestError("");
+      setManualTestMessage("");
+    }
     setOpeningInput("");
 
     if (nextPage === "dashboard") {
@@ -2839,11 +2861,11 @@ export default function DashboardPeserta() {
     }
 
     if (kind === "posttest") {
-      // Post-Test adalah Google Forms pada hari Selasa/Kamis sesuai jadwal.
-      // Jangan arahkan ke /mingguan/[id]: itu halaman Evaluasi Mingguan.
-      navigatePage("jadwal");
-      setSelectedWeek(getCurrentGlobalWeek());
-      setPostTestOnly(true);
+      // Pengajuan nilai manual berbeda dari pengerjaan soal di Google Forms.
+      // Tombol/link ujian tetap tersedia pada halaman Jadwal Kegiatan.
+      setManualTestMessage("");
+      setManualTestError("");
+      navigatePage("input-posttest");
       return;
     }
 
@@ -2900,6 +2922,121 @@ export default function DashboardPeserta() {
       // Next.js router.push tidak memberi Promise navigasi.
       // Jangan biarkan tombol lain terkunci jika tujuan gagal dibuka.
       setOpeningInput("");
+    }
+  }
+
+  // Pengajuan MANUAL nilai Post-Test tidak mengubah data Google Forms.
+  // Materi/tanggal yang sudah tercatat ditolak untuk menghindari duplikasi.
+  async function submitManualPostTest(event) {
+    event.preventDefault();
+    if (!canInputOwnData || !program?.id || manualTestSaving) return;
+
+    setManualTestError("");
+    setManualTestMessage("");
+
+    const testDate = String(manualTestDate || "").trim();
+    const material = String(manualTestMaterial || "").trim();
+    const scoreTextValue = String(manualTestScore || "").trim();
+    const numericScore = Number(scoreTextValue);
+
+    if (!manualTestAuthorized) {
+      setManualTestError("Centang konfirmasi bahwa penginputan ini diminta Mentor.");
+      return;
+    }
+    if (
+      !parseDate(testDate) ||
+      globalWeekOf(testDate) === null ||
+      weekOf(testDate, program.start_date) === null ||
+      (program.end_date && testDate > String(program.end_date).slice(0, 10))
+    ) {
+      setManualTestError("Tanggal harus berada dalam periode OJT Week 01–25.");
+      return;
+    }
+    if (!POST_TEST_MATERIALS.includes(material)) {
+      setManualTestError("Pilih materi Post-Test terlebih dahulu.");
+      return;
+    }
+    if (scoreTextValue === "" || !Number.isFinite(numericScore) || numericScore < 0 || numericScore > 100) {
+      setManualTestError("Nilai harus berupa angka 0–100.");
+      return;
+    }
+
+    setManualTestSaving(true);
+    try {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (authError || !auth?.user || auth.user.id !== account?.id) {
+        throw new Error("Sesi login berubah. Silakan login kembali.");
+      }
+      const { data: authorizedProgram, error: programError } = await supabase
+        .from("ojt_programs")
+        .select("id,status,participant_id")
+        .eq("id", program.id)
+        .eq("participant_id", auth.user.id)
+        .eq("status", "active")
+        .maybeSingle();
+      if (programError) throw programError;
+      if (!authorizedProgram?.id) {
+        throw new Error("Program aktif peserta tidak ditemukan atau tidak diizinkan.");
+      }
+
+      // Baca ulang server sebelum insert; cocok dengan pengecekan duplikasi
+      // di Edge Function posttest-sync yang membaca baris 'Materi: ...'.
+      const { data: previous, error: historyError } = await supabase
+        .from("post_test_scores")
+        .select("id,notes")
+        .eq("program_id", authorizedProgram.id)
+        .eq("test_date", testDate);
+      if (historyError) throw historyError;
+      const duplicate = (previous || []).some((row) => {
+        const firstLine = String(row.notes || "").split(/\r?\n/)[0].trim();
+        return normalize(firstLine) === normalize(`Materi: ${material}`);
+      });
+      if (duplicate) {
+        throw new Error("Nilai materi dan tanggal ini sudah tercatat. Lihat Hasil Penilaian.");
+      }
+
+      const marker = encodeURIComponent(JSON.stringify({
+        status: "pending",
+        submittedBy: auth.user.id,
+        submittedAt: new Date().toISOString(),
+        source: "participant_manual",
+      }));
+      const noteLines = [
+        `Materi: ${material}`,
+        "Sumber: Input Manual Peserta (atas arahan Mentor)",
+        String(manualTestNotes || "").trim(),
+        `[[OJT_POSTTEST_REVIEW_V1:${marker}]]`,
+      ].filter(Boolean);
+
+      const { data: saved, error: insertError } = await supabase
+        .from("post_test_scores")
+        .insert({
+          program_id: authorizedProgram.id,
+          test_date: testDate,
+          score: numericScore,
+          notes: noteLines.join("\n"),
+          created_by: auth.user.id,
+        })
+        .select("id");
+      if (insertError) throw insertError;
+      if (!saved?.length) {
+        throw new Error("Nilai tidak tersimpan. Periksa izin RLS tabel Post-Test.");
+      }
+
+      const updated = await fetchProgramProgress(program);
+      setProgress(updated.progress);
+      setWeeklyData(updated.weekly);
+      setManualTestScore("");
+      setManualTestNotes("");
+      setManualTestAuthorized(false);
+      setManualTestMessage("Nilai berhasil diajukan sebagai Pending. Menunggu verifikasi Admin.");
+    } catch (err) {
+      const detail = String(err?.message || "Gagal menyimpan Post-Test.");
+      setManualTestError(/row.level security|permission denied|403|42501/i.test(detail)
+        ? "Akses penyimpanan Post-Test ditolak Supabase (RLS). Minta Admin periksa izin akun."
+        : detail);
+    } finally {
+      setManualTestSaving(false);
     }
   }
 
@@ -3619,12 +3756,12 @@ export default function DashboardPeserta() {
           </small>
 
           <nav>
-            {MENUS.map((item) => (
+            {MENUS.filter((item) => item.id !== "input-kegiatan" || canInputOwnData).map((item) => (
               <button
                 type="button"
                 key={item.id}
                 className={`dp-menu ${
-                  page === item.id
+                  (page === item.id || (item.id === "input-kegiatan" && ["input-achievement", "input-posttest"].includes(page)))
                     ? "active"
                     : ""
                 }`}
@@ -3632,7 +3769,7 @@ export default function DashboardPeserta() {
                   navigatePage(item.id)
                 }
                 aria-current={
-                  page === item.id
+                  (page === item.id || (item.id === "input-kegiatan" && ["input-achievement", "input-posttest"].includes(page)))
                     ? "page"
                     : undefined
                 }
@@ -3646,27 +3783,6 @@ export default function DashboardPeserta() {
             ))}
           </nav>
 
-          {canInputOwnData && (
-            <>
-              <small className="dp-menu-label">INPUT KEGIATAN</small>
-              <nav aria-label="Input kegiatan OJT mandiri">
-                {INPUT_MENUS.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`dp-menu ${page === "input-achievement" && item.id === "achievement" ? "active" : ""}`}
-                    aria-current={page === "input-achievement" && item.id === "achievement" ? "page" : undefined}
-                    disabled={Boolean(openingInput)}
-                    onClick={() => openOwnInput(item.id)}
-                  >
-                    <Icon name={item.icon} />
-                    <span>{openingInput === item.id ? "Membuka..." : item.label}</span>
-                    <Icon name="arrow" size={14} />
-                  </button>
-                ))}
-              </nav>
-            </>
-          )}
 
           <div className="dp-sidebar-bottom">
             <button
@@ -4238,7 +4354,7 @@ export default function DashboardPeserta() {
 
                   {postTestOnly && (
                     <div className="dp-posttest-box dp-no-print" role="status">
-                      <strong>Input Post-Test · {weekLabel(selectedWeek)}</strong>
+                      <strong>Jadwal Post-Test · {weekLabel(selectedWeek)}</strong>
                       <p className="dp-posttest-note">
                         Pilih ujian sesuai jadwal Selasa/Kamis. Link Google Forms
                         tersedia pada tanggal ujian untuk peserta aktif (WITA).
@@ -4404,6 +4520,41 @@ export default function DashboardPeserta() {
               )}
 
               {/* ======================================
+                  SATU MENU INPUT KEGIATAN: SEMUA JENIS INPUT
+                  ====================================== */}
+              {page === "input-kegiatan" && (
+                <section className="dp-panel">
+                  <div className="dp-section-head">
+                    <div>
+                      <h2>Input Kegiatan Saya</h2>
+                      <p className="dp-ach-subtitle">
+                        Pilih jenis input. Nilai Post-Test dari Google Forms tidak perlu diinput ulang.
+                      </p>
+                    </div>
+                  </div>
+                  {canInputOwnData ? (
+                    <div className="dp-input-grid dp-no-print">
+                      {INPUT_MENUS.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="dp-input-card"
+                          disabled={Boolean(openingInput)}
+                          onClick={() => openOwnInput(item.id)}
+                        >
+                          <Icon name={item.icon} size={23} />
+                          <span>{item.label}</span>
+                          <Icon name="arrow" size={16} />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState>Input kegiatan hanya untuk akun peserta dengan program aktif.</EmptyState>
+                  )}
+                </section>
+              )}
+
+              {/* ======================================
                   INPUT ACHIEVEMENT — FORM ASLI DIPINDAH UTUH
                   Tidak mengubah proses upload, insert, atau verifikasi.
                   ====================================== */}
@@ -4461,6 +4612,86 @@ export default function DashboardPeserta() {
                       </button>
                       {ownMessage && <div className="dp-alert" role="status">{ownMessage}</div>}
                     </form>
+                  )}
+                </section>
+              )}
+
+              {/* ======================================
+                  INPUT POST-TEST MANUAL — OPSIONAL ATAS ARAHAN MENTOR
+                  Link ujian tetap berada di Jadwal Kegiatan.
+                  ====================================== */}
+              {page === "input-posttest" && (
+                <section className="dp-panel">
+                  <div className="dp-section-head">
+                    <div>
+                      <h2>Input Post-Test Saya</h2>
+                      <p className="dp-ach-subtitle">
+                        Gunakan formulir ini hanya jika Mentor meminta input manual.
+                        Nilai dari Google Forms yang sudah tersinkron tidak perlu diinput ulang.
+                        Jika baru selesai ujian, tunggu sinkronisasi sebelum mengajukan nilai manual.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="dp-buttons dp-no-print">
+                    <button type="button" className="dp-button secondary"
+                      onClick={() => navigatePage("jadwal")}>
+                      <Icon name="calendar" size={16} /> Kerjakan Soal di Jadwal Kegiatan
+                    </button>
+                    <button type="button" className="dp-button secondary"
+                      onClick={() => { setResultTab("posttest"); navigatePage("hasil"); }}>
+                      Lihat Hasil Post-Test
+                    </button>
+                  </div>
+                  {canInputOwnData ? (
+                    <form className="dp-self-form dp-no-print" onSubmit={submitManualPostTest}>
+                      <h3>Pengajuan Nilai Post-Test</h3>
+                      <p>
+                        Pengajuan manual tidak langsung menjadi nilai resmi.
+                        Status Pending sampai diverifikasi Admin.
+                      </p>
+                      <div className="dp-self-grid">
+                        <label>
+                          Tanggal Pelaksanaan
+                          <input type="date" value={manualTestDate} required
+                            onChange={(event) => setManualTestDate(event.target.value)} />
+                        </label>
+                        <label>
+                          Materi Post-Test
+                          <select value={manualTestMaterial} required
+                            onChange={(event) => setManualTestMaterial(event.target.value)}>
+                            <option value="">-- Pilih Materi --</option>
+                            {POST_TEST_MATERIALS.map((material) => (
+                              <option key={material} value={material}>{material}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <label>
+                        Nilai Post-Test (0–100)
+                        <input type="number" min="0" max="100" step="0.01" required
+                          placeholder="Contoh: 85" value={manualTestScore}
+                          onChange={(event) => setManualTestScore(event.target.value)} />
+                      </label>
+                      <label>
+                        Catatan (opsional)
+                        <textarea rows={3} value={manualTestNotes}
+                          placeholder="Catatan pengajuan dari Mentor..."
+                          onChange={(event) => setManualTestNotes(event.target.value)} />
+                      </label>
+                      <label className="dp-manual-consent">
+                        <input type="checkbox" checked={manualTestAuthorized}
+                          onChange={(event) => setManualTestAuthorized(event.target.checked)} />
+                        <span>Saya mengisi nilai secara manual atas arahan Mentor dan memastikan belum ada nilai untuk materi serta tanggal yang sama.</span>
+                      </label>
+                      <button type="submit" className="dp-button"
+                        disabled={manualTestSaving}>
+                        {manualTestSaving ? "Mengirim..." : "Kirim Nilai untuk Verifikasi Admin"}
+                      </button>
+                      {manualTestError && <div className="dp-alert error" role="alert">{manualTestError}</div>}
+                      {manualTestMessage && <div className="dp-alert" role="status">{manualTestMessage}</div>}
+                    </form>
+                  ) : (
+                    <EmptyState>Pengajuan manual hanya tersedia untuk Peserta OJT aktif.</EmptyState>
                   )}
                 </section>
               )}
@@ -4933,6 +5164,8 @@ const dashboardCSS = `
   .dp-self-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: bold; }
   .dp-self-form input, .dp-self-form textarea, .dp-self-form select { width: 100%; border: 1px solid var(--dp-border); background: var(--dp-surface); color: var(--dp-text); border-radius: 8px; padding: 10px 12px; font: inherit; }
   .dp-self-form input[type="file"] { font-size: 12px; }
+  .dp-self-form .dp-manual-consent { display:flex; flex-direction:row; align-items:flex-start; gap:10px; line-height:1.5; font-weight:normal; }
+  .dp-self-form .dp-manual-consent input[type="checkbox"] { width:16px; min-width:16px; height:16px; margin:2px 0 0; padding:0; }
   .dp-self-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
   @media (max-width: 600px) { .dp-self-grid { grid-template-columns: 1fr; } }
   .dp-input-panel { margin-bottom: 18px; }
