@@ -11,7 +11,7 @@ import { supabase } from "../../../lib/supabase";
 
 // =========================================================
 // OJT MINETRACK V2.0
-// PENILAIAN SAMAPTA MENTOR
+// INPUT & MONITORING SAMAPTA — PESERTA / MENTOR / ADMIN
 //
 // REFERENSI:
 // Salinan dari FCT CREW ER GMO
@@ -28,7 +28,7 @@ import { supabase } from "../../../lib/supabase";
 // REVISI:
 // 1. Perbaikan validasi status program.
 // 2. Mendukung status Active / ACTIVE / active.
-// 3. Mempertahankan validasi Mentor dan program aktif.
+// 3. Izin program aktif: Peserta milik sendiri, Mentor binaan, Admin berwenang.
 // 4. Perbaikan tombol Hapus menggunakan modal.
 // 5. Hapus berdasarkan ID dan tanggal penilaian.
 // 6. Refresh riwayat setelah penghapusan.
@@ -36,7 +36,7 @@ import { supabase } from "../../../lib/supabase";
 //
 // Tidak mengubah database.
 // Tidak mengubah rumus dan tabel konversi.
-// Tidak mengubah kalender global.
+// Memakai kalender global OJT Week 01–25 (Asia/Makassar).
 // Tidak mengubah fitur lain.
 // =========================================================
 
@@ -580,6 +580,25 @@ function normalizeStatus(value) {
     .toLowerCase();
 }
 
+function isActiveProgramStatus(value) {
+  return ["active", "approved"].includes(normalizeStatus(value));
+}
+
+// Kalender global OJT; Week 01 = 12–18 Sep 2026, Week 02 = 20–26 Sep.
+// Tanggal 19 Sep 2026 memang di luar rentang kalender global.
+function samaptaGlobalWeek(value) {
+  const date = String(value || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return null;
+  if (date >= "2026-09-12" && date <= "2026-09-18") return 1;
+  if (date < "2026-09-20" || date > "2027-03-06") return null;
+  const start = Date.parse("2026-09-20T00:00:00.000Z");
+  const days = Math.floor((parsed.getTime() - start) / 86400000);
+  const week = 2 + Math.floor(days / 7);
+  return week <= 25 ? week : null;
+}
+
 // =========================================================
 // KOMPONEN FORM
 // =========================================================
@@ -772,6 +791,8 @@ export default function MonitoringSamapta() {
 
   const requestRef = useRef(0);
 
+  // Menyimpan profil akun yang login; nama state lama dipertahankan agar
+  // kode lain tetap kompatibel. Bisa berupa Peserta, Mentor, atau Admin.
   const [mentor, setMentor] = useState(null);
   const [program, setProgram] = useState(null);
   const [records, setRecords] = useState([]);
@@ -800,6 +821,21 @@ export default function MonitoringSamapta() {
     () => validateReference(),
     []
   );
+
+  const actorRole = normalizeStatus(mentor?.role);
+  const isParticipant = ["participant", "peserta"].includes(actorRole);
+  const isManager = ["mentor", "admin"].includes(actorRole);
+
+  // Peserta hanya dapat memperbaiki pengajuan Pending yang dibuat sendiri.
+  // Nilai historis/Verified tidak boleh diedit oleh Peserta.
+  function canEditSession(group) {
+    if (isManager) return true;
+    return isParticipant && group?.status === "pending" &&
+      group.items?.length > 0 && group.items.every((item) => {
+        const review = decodeSamaptaReview(item.notes);
+        return review?.status === "pending" && review.submittedBy === mentor?.id;
+      });
+  }
 
   const participant = participantOf(program);
 
@@ -875,87 +911,44 @@ export default function MonitoringSamapta() {
   // =====================================================
 
   async function verifyActiveProgram() {
-    if (
-      !mentor ||
-      !program ||
-      !programId
-    ) {
-      throw new Error(
-        "Identitas Mentor atau program belum tersedia."
-      );
+    if (!mentor || !program || !programId) {
+      throw new Error("Identitas akun atau program belum tersedia.");
     }
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      throw new Error(
-        "Sesi login tidak tersedia. Silakan login kembali."
-      );
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user || user.id !== mentor.id) {
+      throw new Error("Sesi akun tidak valid. Silakan login kembali.");
     }
 
-    if (user.id !== mentor.id) {
-      throw new Error(
-        "Akun aktif tidak sesuai dengan Mentor yang terdaftar."
-      );
-    }
-
-    const {
-      data: profile,
-      error: profileError,
-    } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("id,role")
       .eq("id", user.id)
       .maybeSingle();
+    if (profileError) throw profileError;
 
-    if (profileError) {
-      throw profileError;
+    const role = normalizeStatus(profile?.role);
+    const participantRole = ["participant", "peserta"].includes(role);
+    if (!["admin", "mentor", "participant", "peserta"].includes(role) ||
+        role !== normalizeStatus(mentor.role)) {
+      throw new Error("Hak akses akun telah berubah. Muat ulang halaman.");
     }
 
-    if (
-      normalizeStatus(profile?.role) !==
-      "mentor"
-    ) {
-      throw new Error(
-        "Akun tidak memiliki hak akses sebagai Mentor."
-      );
-    }
+    let query = supabase.from("ojt_programs")
+      .select("id,status,participant_id,mentor_id,start_date,end_date")
+      .eq("id", programId);
+    if (participantRole) query = query.eq("participant_id", user.id);
+    else if (role === "mentor") query = query.eq("mentor_id", user.id);
+    // Admin dapat membuka program sesuai RLS, Peserta dibatasi ke miliknya.
 
-    const {
-      data: activeProgram,
-      error: activeError,
-    } = await supabase
-      .from("ojt_programs")
-      .select("id,status,mentor_id")
-      .eq("id", programId)
-      .eq("mentor_id", user.id)
-      .maybeSingle();
-
-    if (activeError) {
-      throw activeError;
-    }
-
+    const { data: activeProgram, error: activeError } = await query.maybeSingle();
+    if (activeError) throw activeError;
     if (!activeProgram) {
-      throw new Error(
-        "Program tidak ditemukan, tidak dapat diakses, " +
-        "atau bukan binaan Mentor."
-      );
+      throw new Error("Program tidak ditemukan atau bukan milik/binaan akun ini.");
     }
-
-    if (
-      normalizeStatus(
-        activeProgram.status
-      ) !== "active"
-    ) {
-      throw new Error(
-        "Program OJT tidak aktif. Status saat ini: " +
-        (activeProgram.status || "Tidak diketahui")
-      );
+    if (!isActiveProgramStatus(activeProgram.status)) {
+      throw new Error("Program OJT tidak aktif. Status: " + (activeProgram.status || "—"));
     }
-
     return activeProgram;
   }
 
@@ -1008,21 +1001,12 @@ export default function MonitoringSamapta() {
           throw profileError;
         }
 
-        if (
-          normalizeStatus(
-            profile?.role
-          ) !== "mentor"
-        ) {
-          router.replace(
-            "/dashboard-peserta"
-          );
-          return;
+        const role = normalizeStatus(profile?.role);
+        if (!["admin", "mentor", "participant", "peserta"].includes(role)) {
+          throw new Error("Akun tidak memiliki akses ke halaman Samapta.");
         }
 
-        const {
-          data: programData,
-          error: programError,
-        } = await supabase
+        let programQuery = supabase
           .from("ojt_programs")
           .select(`
             id,
@@ -1037,29 +1021,21 @@ export default function MonitoringSamapta() {
               department
             )
           `)
-          .eq("id", programId)
-          .eq("mentor_id", user.id)
-          .maybeSingle();
-
-        if (programError) {
-          throw programError;
+          .eq("id", programId);
+        if (["participant", "peserta"].includes(role)) {
+          programQuery = programQuery.eq("participant_id", user.id);
+        } else if (role === "mentor") {
+          programQuery = programQuery.eq("mentor_id", user.id);
         }
 
+        const { data: programData, error: programError } =
+          await programQuery.maybeSingle();
+        if (programError) throw programError;
         if (!programData) {
-          throw new Error(
-            "Program tidak ditemukan atau bukan binaan Mentor."
-          );
+          throw new Error("Program tidak ditemukan atau akses akun tidak sesuai.");
         }
-
-        if (
-          normalizeStatus(
-            programData.status
-          ) !== "active"
-        ) {
-          throw new Error(
-            "Program OJT tidak aktif. Status: " +
-            (programData.status || "Tidak diketahui")
-          );
+        if (!isActiveProgramStatus(programData.status)) {
+          throw new Error("Program OJT belum aktif. Status: " + (programData.status || "—"));
         }
 
         const history =
@@ -1134,10 +1110,18 @@ export default function MonitoringSamapta() {
     setNotice("");
 
     if (!referenceValid) {
-      setError(
-        "Pemeriksaan internal tabel konversi gagal. " +
-        "Penilaian belum dapat disimpan."
-      );
+      setError("Pemeriksaan internal tabel konversi gagal. Penilaian belum dapat disimpan.");
+      return;
+    }
+
+    const globalWeek = samaptaGlobalWeek(form.date);
+    if (globalWeek === null) {
+      setError("Tanggal Samapta harus berada pada kalender global Week 01–25 OJT.");
+      return;
+    }
+    if (form.date < String(program.start_date).slice(0, 10) ||
+        (program.end_date && form.date > String(program.end_date).slice(0, 10))) {
+      setError("Tanggal Samapta di luar periode program peserta.");
       return;
     }
 
@@ -1211,6 +1195,13 @@ export default function MonitoringSamapta() {
           .slice(0, 10) === form.date
     );
 
+    if (isParticipant && editDate && !canEditSession(
+      groups.find((group) => group.date === editDate)
+    )) {
+      setError("Peserta tidak dapat mengubah nilai Verified atau pengajuan akun lain.");
+      return;
+    }
+
     if (
       !editDate &&
       existing.length
@@ -1262,6 +1253,8 @@ export default function MonitoringSamapta() {
       status: "pending",
       submittedBy: mentor.id,
       submittedAt,
+      submittedByRole: actorRole,
+      week: globalWeek,
     };
 
     const payloads = TESTS.map(
@@ -1292,12 +1285,36 @@ export default function MonitoringSamapta() {
     setSaving(true);
 
     try {
-      // Periksa ulang program dan Mentor.
-      // Status diperiksa tanpa membedakan kapital.
+      // Validasi ulang di database sebelum menyimpan data apa pun.
+      const verifiedProgram = await verifyActiveProgram();
+      if (form.date < String(verifiedProgram.start_date).slice(0, 10) ||
+          (verifiedProgram.end_date && form.date > String(verifiedProgram.end_date).slice(0, 10))) {
+        throw new Error("Tanggal di luar periode program aktif.");
+      }
 
-      await verifyActiveProgram();
+      const latestRecords = await fetchRecords(programId);
+      const latestSameDay = latestRecords.filter(
+        (item) => String(item.test_date || "").slice(0, 10) === form.date
+      );
+      if (!editDate && latestSameDay.length) {
+        throw new Error("Data Samapta tanggal ini sudah ada. Muat ulang sebelum input kembali.");
+      }
+      if (editDate && !latestSameDay.length) {
+        throw new Error("Data yang ingin diedit sudah tidak tersedia. Muat ulang riwayat.");
+      }
+      if (isParticipant && editDate && !latestSameDay.every((item) => {
+        const meta = decodeSamaptaReview(item.notes);
+        return meta?.status === "pending" && meta.submittedBy === mentor.id;
+      })) {
+        throw new Error("Peserta hanya boleh mengedit pengajuan Samapta Pending miliknya sendiri.");
+      }
+      const latestIds = new Map(latestSameDay.map((item) => [item.test_type, item.id]));
+      // Perubahan yang tersimpan dari sesi lain tidak boleh ditimpa diam-diam.
+      if (editDate && existing.some((item) => latestIds.get(item.test_type) !== item.id)) {
+        throw new Error("Data penilaian sudah berubah. Muat ulang sebelum mengedit.");
+      }
 
-      // Simpan dengan logika asli.
+      // Simpan lima komponen dengan skema yang sama (tanpa tabel baru).
       for (const payload of payloads) {
         const old = oldByType.get(
           payload.test_type
@@ -1336,7 +1353,9 @@ export default function MonitoringSamapta() {
       reset();
 
       setNotice(
-        "Seluruh lima komponen Samapta berhasil disimpan dengan status Pending. Sesi menunggu persetujuan Admin dan belum masuk perhitungan resmi."
+        "Seluruh lima komponen Samapta berhasil dikirim sebagai Pending (Week " +
+        String(globalWeek).padStart(2, "0") +
+        "). Menunggu verifikasi Admin dan belum masuk nilai resmi."
       );
     } catch (err) {
       setError(
@@ -1360,11 +1379,9 @@ export default function MonitoringSamapta() {
   // =====================================================
 
   function edit(group) {
-    if (
-      saving ||
-      busy ||
-      !program
-    ) {
+    if (saving || busy || !program) return;
+    if (!canEditSession(group)) {
+      setError("Peserta hanya boleh mengedit pengajuan Pending miliknya sendiri.");
       return;
     }
 
@@ -1461,6 +1478,10 @@ export default function MonitoringSamapta() {
   // =====================================================
 
   function openDeleteDialog(group) {
+    if (!isManager) {
+      setError("Hanya Mentor dan Admin yang boleh menghapus penilaian Samapta.");
+      return;
+    }
     if (saving || busy) {
       return;
     }
@@ -1534,13 +1555,7 @@ export default function MonitoringSamapta() {
   // =====================================================
 
   async function confirmDelete() {
-    if (
-      busy ||
-      saving ||
-      !deleteTarget
-    ) {
-      return;
-    }
+    if (!isManager || busy || saving || !deleteTarget) return;
 
     const target = deleteTarget;
 
@@ -1735,15 +1750,11 @@ export default function MonitoringSamapta() {
         <button
           type="button"
           className="sa-back"
-          onClick={() =>
-            router.push(
-              programId
-                ? `/peserta/${programId}`
-                : "/"
-            )
-          }
+          onClick={() => router.push(
+            isParticipant ? "/dashboard-peserta" : programId ? `/peserta/${programId}` : "/"
+          )}
         >
-          ← Detail Peserta
+          ← {isParticipant ? "Dashboard Peserta" : "Detail Peserta"}
         </button>
       </header>
 
@@ -1756,11 +1767,13 @@ export default function MonitoringSamapta() {
           </small>
 
           <h1>
-            Monitoring Samapta
+            {isParticipant ? "Input Samapta Saya" : "Monitoring Samapta"}
           </h1>
 
           <p>
-            Penilaian Tes Fisik dan Kesiapan Personel OJT
+            {isParticipant
+              ? "Laporkan hasil tes fisik pada program sendiri. Seluruh nilai menunggu verifikasi Admin."
+              : "Penilaian Tes Fisik dan Kesiapan Personel OJT"}
           </p>
         </section>
 
@@ -1818,8 +1831,9 @@ export default function MonitoringSamapta() {
               </div>
 
               <div className="sa-lock">
-                Penilaian hanya dapat dilakukan Mentor
-                untuk peserta OJT binaannya.
+                {isParticipant
+                  ? "Anda hanya dapat menginput Samapta untuk program sendiri. Edit hanya untuk pengajuan Pending milik sendiri; nilai Verified tetap dilindungi."
+                  : "Admin/Mentor dapat mencatat pengukuran Samapta sesuai hak akses. Setiap input baru menunggu verifikasi Admin."}
               </div>
             </section>
 
@@ -2202,7 +2216,7 @@ export default function MonitoringSamapta() {
               <section className="sa-card">
                 <label className="sa-field-wrap">
                   <span className="sa-label">
-                    Catatan Evaluasi Mentor
+                    {isParticipant ? "Catatan Pelaksanaan Samapta" : "Catatan Evaluasi Mentor"}
                   </span>
 
                   <textarea
@@ -2242,7 +2256,7 @@ export default function MonitoringSamapta() {
                     ? "Menyimpan..."
                     : editDate
                     ? "Simpan Perubahan Samapta"
-                    : "Simpan Penilaian Samapta"}
+                    : isParticipant ? "Kirim Pengajuan Samapta" : "Simpan Penilaian Samapta"}
                 </button>
 
                 {editDate && (
@@ -2437,41 +2451,31 @@ export default function MonitoringSamapta() {
                       </strong>
                     </p>
 
-                    <div className="sa-actions">
-                      <button
-                        type="button"
-                        className="sa-btn blue"
-                        disabled={
-                          saving ||
-                          busy
-                        }
-                        onClick={() =>
-                          edit(group)
-                        }
-                      >
-                        Edit
-                      </button>
-
-                      <button
-                        type="button"
-                        className="sa-btn red"
-                        disabled={
-                          saving ||
-                          busy
-                        }
-                        onClick={() =>
-                          openDeleteDialog(
-                            group
-                          )
-                        }
-                      >
-                        {busy &&
-                        deleteTarget?.date ===
-                          group.date
-                          ? "Memproses..."
-                          : "Hapus"}
-                      </button>
-                    </div>
+                    {(canEditSession(group) || isManager) && (
+                      <div className="sa-actions">
+                        {canEditSession(group) && (
+                          <button
+                            type="button"
+                            className="sa-btn blue"
+                            disabled={saving || busy}
+                            onClick={() => edit(group)}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {isManager && (
+                          <button
+                            type="button"
+                            className="sa-btn red"
+                            disabled={saving || busy}
+                            onClick={() => openDeleteDialog(group)}
+                          >
+                            {busy && deleteTarget?.date === group.date
+                              ? "Memproses..." : "Hapus"}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </article>
                 )
               )}
