@@ -14,7 +14,10 @@ import { supabase } from "../../../lib/supabase";
 // PENILAIAN PRAKTIK MINGGUAN
 //
 // UPDATE:
-// Dropdown 7 Materi Praktik
+// - Dropdown 7 Materi Praktik
+// - Akses peserta aktif/disetujui ke programnya sendiri
+// - Kalender Week global, tidak relatif ke tanggal mulai peserta
+// - Alur pengajuan Pending dan verifikasi tetap dipertahankan
 //
 // FITUR DIPERTAHANKAN:
 // - Admin dan Mentor
@@ -234,34 +237,38 @@ function getAverage(rows) {
 }
 
 // ======================================================
-// PERHITUNGAN WEEK ASLI
-// TIDAK DIUBAH
+// KALENDER GLOBAL OJT MINETRACK (ASIA/MAKASSAR)
+// Week 01: 12-18 Sep 2026
+// 19 Sep: jeda, di luar Week
+// Week 02: 20-26 Sep 2026
+// Week 09: 08-14 Nov 2026
+// Week 25: 28 Feb-06 Mar 2027
+// Tanggal sebelum peserta mulai OJT tetap tidak diizinkan.
 // ======================================================
 
 function getWeek(dateValue, startValue) {
-  if (!dateValue || !startValue) return null;
+  const day = String(dateValue || "").slice(0, 10);
+  const personalStart = String(startValue || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
 
-  const date = Date.parse(
-    `${String(dateValue).slice(0, 10)}T00:00:00Z`
-  );
-
-  const start = Date.parse(
-    `${String(startValue).slice(0, 10)}T00:00:00Z`
-  );
-
-  if (
-    !Number.isFinite(date) ||
-    !Number.isFinite(start)
-  ) {
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== day) {
     return null;
   }
 
-  const week =
-    Math.floor((date - start) / 604800000) + 1;
+  if (personalStart && day < personalStart) return null;
+  if (day < "2026-09-12" || day > "2027-03-06" || day === "2026-09-19") {
+    return null;
+  }
+  if (day <= "2026-09-18") return 1;
 
-  return week >= 1 && week <= 25
-    ? week
-    : null;
+  const weekTwoStart = Date.parse("2026-09-20T00:00:00Z");
+  const week = Math.floor((ms - weekTwoStart) / 604800000) + 2;
+  return week >= 2 && week <= 25 ? week : null;
+}
+
+function isActiveOJTStatus(status) {
+  return ["active", "approved"].includes(String(status || "").trim().toLowerCase());
 }
 
 function participantOf(program) {
@@ -476,7 +483,7 @@ export default function PraktikMingguanPage() {
 
     const currentRole = String(
       profileResult.data?.role || ""
-    ).toLowerCase();
+    ).trim().toLowerCase();
 
     if (
       !["admin", "mentor", "participant", "peserta"].includes(currentRole)
@@ -507,7 +514,7 @@ export default function PraktikMingguanPage() {
       query = query.eq("mentor_id", userId);
     } else if (["participant", "peserta"].includes(currentRole)) {
       // Wajib filter di database, bukan hanya dropdown UI.
-      query = query.eq("participant_id", userId).eq("status", "active");
+      query = query.eq("participant_id", userId).in("status", ["active", "approved"]);
     }
 
     const programResult = await query;
@@ -586,7 +593,7 @@ export default function PraktikMingguanPage() {
         );
 
         const firstActive = result.programs.find(
-          (item) => item.status === "active"
+          (item) => isActiveOJTStatus(item.status)
         );
 
         const initialSelection = initialExists
@@ -640,7 +647,7 @@ export default function PraktikMingguanPage() {
             String(selectedProgramId)
         )
       ) {
-        setError("Program tidak dapat diakses.");
+        setError("Program tidak dapat diakses. Periksa akun peserta, status program OJT, dan kebijakan RLS Supabase.");
         setLoadingRecords(false);
         return;
       }
@@ -780,15 +787,15 @@ export default function PraktikMingguanPage() {
       saving || actionId || loadingRecords
     ) return;
 
-    if (isParticipant && selectedProgram.status !== "active") {
-      setError("Penginputan hanya tersedia untuk program OJT aktif.");
+    if (isParticipant && !isActiveOJTStatus(selectedProgram.status)) {
+      setError("Penginputan hanya tersedia untuk program OJT aktif/disetujui.");
       return;
     }
 
     if (!practiceDate ||
         getWeek(practiceDate, selectedProgram.start_date) === null ||
         (selectedProgram.end_date && practiceDate > selectedProgram.end_date)) {
-      setError("Tanggal harus berada di periode Week 01–25 OJT.");
+      setError("Tanggal harus berada pada Week global 01–25 dan periode OJT peserta.");
       return;
     }
 
@@ -852,7 +859,7 @@ export default function PraktikMingguanPage() {
       if (isParticipant) {
         ownershipQuery = ownershipQuery
           .eq("participant_id", auth.user.id)
-          .eq("status", "active");
+          .in("status", ["active", "approved"]);
       } else if (isMentor) {
         ownershipQuery = ownershipQuery.eq("mentor_id", auth.user.id);
       }
@@ -1288,7 +1295,7 @@ export default function PraktikMingguanPage() {
                     {" · "}
                     {item.site || "Tanpa Site"}
                     {" · "}
-                    {item.status === "active"
+                    {isActiveOJTStatus(item.status)
                       ? "Aktif"
                       : "Tidak Aktif"}
                   </option>
