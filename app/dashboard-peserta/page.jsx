@@ -68,6 +68,7 @@ const PAGE_TITLES = {
   jadwal: "Jadwal Kegiatan",
   monitoring: "Monitoring Mingguan",
   achievement: "Achievement OJT",
+  "input-achievement": "Input Achievement",
   hasil: "Hasil Post-Test & Praktik",
   simper: "Status SIMPER",
   rapor: "Rapor & Evaluasi",
@@ -2833,7 +2834,7 @@ export default function DashboardPeserta() {
 
     if (kind === "achievement") {
       setOwnMessage("");
-      navigatePage("achievement");
+      navigatePage("input-achievement");
       return;
     }
 
@@ -3205,6 +3206,46 @@ export default function DashboardPeserta() {
         };
       }
     );
+
+  // Achievement OJT — periode global 25 Week, kumulatif sampai akhir Week pilihan.
+  // Statistik hanya menampilkan data milik program Peserta yang sedang dibuka.
+  // Tidak mengubah fungsi hitung Achievement lama di halaman lain.
+  const achievementPeriodRecords = (weeklyData.achievements || []).filter((record) => {
+    const date = String(record.activity_date || "").slice(0, 10);
+    return Boolean(
+      selectedWeekInfo?.end &&
+      parseDate(date) &&
+      globalWeekOf(date) !== null &&
+      date <= selectedWeekInfo.end &&
+      (!program?.start_date || date >= String(program.start_date).slice(0, 10)) &&
+      (!program?.end_date || date <= String(program.end_date).slice(0, 10))
+    );
+  });
+  const achievementPeriod = calculateAchievements(
+    achievementPeriodRecords,
+    weeklyData.types,
+    program?.start_date
+  );
+  const achievementVerified = achievementPeriodRecords.filter(
+    (record) => normalize(record.status) === "verified"
+  );
+  const achievementPending = achievementPeriodRecords.filter(
+    (record) => normalize(record.status) === "pending"
+  );
+  // Persentase dua desimal sebagaimana ringkasan Detail Peserta Mentor.
+  const achievementPercent = Number((
+    achievementPeriod.categories.reduce((sum, item) => sum + item.progress, 0) /
+    TARGETS.length
+  ).toFixed(2));
+  const achievementPeriodCategories = achievementPeriod.categories.map((item) => {
+    const type = weeklyData.types.find(
+      (entry) => normalizeType(entry.name) === normalizeType(item.name)
+    );
+    const verifiedCount = type
+      ? achievementVerified.filter((record) => normalizeType(record.type_code) === normalizeType(type.code)).length
+      : 0;
+    return { ...item, verifiedCount };
+  });
 
   const allScores = [
     ...weeklyData.postTests.filter(isOfficialPostTest),
@@ -3613,7 +3654,8 @@ export default function DashboardPeserta() {
                   <button
                     key={item.id}
                     type="button"
-                    className="dp-menu"
+                    className={`dp-menu ${page === "input-achievement" && item.id === "achievement" ? "active" : ""}`}
+                    aria-current={page === "input-achievement" && item.id === "achievement" ? "page" : undefined}
                     disabled={Boolean(openingInput)}
                     onClick={() => openOwnInput(item.id)}
                   >
@@ -4242,21 +4284,142 @@ export default function DashboardPeserta() {
                 renderWeeklyReport()}
 
               {/* ======================================
-                  ACHIEVEMENT OJT
+                  ACHIEVEMENT OJT — MONITORING SAJA
+                  Referensi: ringkasan capaian Detail Peserta Mentor
                   ====================================== */}
 
               {page === "achievement" && (
                 <section className="dp-panel">
                   <div className="dp-section-head">
-                    <h2>
-                      Achievement Program
-                    </h2>
-
-                    <strong className="dp-total">
-                      {progress.achievement}%
-                    </strong>
+                    <div>
+                      <h2>Monitoring Achievement OJT</h2>
+                      <p className="dp-ach-subtitle">
+                        Capaian program dan status verifikasi kegiatan peserta.
+                      </p>
+                    </div>
+                    <WeekSelector
+                      week={selectedWeek}
+                      onChange={setSelectedWeek}
+                      weeksWithData={weeksWithData}
+                    />
                   </div>
 
+                  <div className="dp-ach-overview">
+                    <div className="dp-ach-period">
+                      <div>
+                        <span className="dp-ach-eyebrow">Capaian Achievement</span>
+                        <h3>{weekLabel(selectedWeek)}</h3>
+                        <small>{formatDate(selectedWeekInfo?.start)} – {formatDate(selectedWeekInfo?.end)}</small>
+                      </div>
+                      <span className="dp-ach-note">Akumulasi sampai Week terpilih</span>
+                    </div>
+                    <div className="dp-ach-overview-metrics">
+                      <div className="dp-ach-donut" style={{ "--dp-ach-value": `${achievementPercent}%` }}
+                        role="img" aria-label={`Rata-rata capaian ${achievementPercent}%`}>
+                        <div className="dp-ach-donut-label">
+                          <strong>{amountText(achievementPercent)}%</strong>
+                          <small>Rata-rata Capaian</small>
+                        </div>
+                      </div>
+                      <div className="dp-ach-kpi verified">
+                        <Icon name="check" size={24} />
+                        <strong>{achievementVerified.length}</strong>
+                        <span>Terverifikasi</span>
+                      </div>
+                      <div className="dp-ach-kpi pending">
+                        <Icon name="calendar" size={24} />
+                        <strong>{achievementPending.length}</strong>
+                        <span>Menunggu</span>
+                      </div>
+                      <div className="dp-ach-kpi categories">
+                        <Icon name="chart" size={24} />
+                        <strong>{achievementPeriod.completed}/{TARGETS.length}</strong>
+                        <span>Kategori Tercapai</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="dp-ach-subtitle">Realisasi terverifikasi hingga {formatDate(selectedWeekInfo?.end)}.</p>
+                  <div className="dp-ach-six-grid">
+                    {achievementPeriodCategories.map((item) => (
+                      <div className="dp-ach-cat" key={item.name}>
+                        <div className="dp-ach-cat-head">
+                          <span className="dp-ach-cat-icon"><Icon name={item.icon} size={19} /></span>
+                          <strong>{item.name}</strong>
+                        </div>
+                        <h3>{Math.round(item.progress)}%</h3>
+                        <ProgressBar value={item.progress} />
+                        <dl>
+                          <div><dt>Realisasi</dt><dd>{amountText(item.amount)} {item.name === "Fisik" ? "km" : "kegiatan"}</dd></div>
+                          <div><dt>Target</dt><dd>{item.target} {item.name === "Fisik" ? "km" : "kegiatan"}</dd></div>
+                          <div><dt>Kegiatan</dt><dd>{item.verifiedCount}</dd></div>
+                        </dl>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="dp-ach-subtitle">
+                    Hanya kegiatan Verified yang dihitung. Realisasi asli tidak dibatasi,
+                    sedangkan persentase tiap kategori maksimal 100%.
+                  </p>
+
+                  <div className="dp-buttons dp-no-print">
+                    {canInputOwnData && (
+                      <button
+                        type="button"
+                        className="dp-button"
+                        onClick={() => openOwnInput("achievement")}
+                        disabled={Boolean(openingInput)}
+                      >
+                        <Icon name="trophy" size={17} />
+                        Input Achievement
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="dp-button secondary"
+                      onClick={() => setAchievementHistory((old) => !old)}
+                      aria-expanded={achievementHistory}
+                    >
+                      {achievementHistory ? "Tutup Riwayat" : "Lihat Riwayat"}
+                    </button>
+                    <button
+                      type="button"
+                      className="dp-button secondary"
+                      onClick={() => navigatePage("monitoring")}
+                    >
+                      Rekap Mingguan
+                    </button>
+                  </div>
+
+                  {achievementHistory && (
+                    <div className="dp-detail-stack">
+                      <AchievementHistory
+                        key={`achievement-${program.id}-${selectedWeek}`}
+                        records={achievementPeriodRecords}
+                        types={weeklyData.types}
+                      />
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* ======================================
+                  INPUT ACHIEVEMENT — FORM ASLI DIPINDAH UTUH
+                  Tidak mengubah proses upload, insert, atau verifikasi.
+                  ====================================== */}
+
+              {page === "input-achievement" && (
+                <section className="dp-panel">
+                  <div className="dp-section-head">
+                    <div>
+                      <h2>Input Achievement Saya</h2>
+                      <p className="dp-ach-subtitle">Isi kegiatan baru dan unggah bukti dokumentasi.</p>
+                    </div>
+                    <button type="button" className="dp-button secondary dp-no-print"
+                      onClick={() => navigatePage("achievement")}>
+                      Lihat Achievement OJT
+                    </button>
+                  </div>
                   {canInputOwnData && (
                     <form className="dp-self-form dp-no-print" onSubmit={saveOwnAchievement}>
                       <h3>Input Achievement Saya</h3>
@@ -4298,77 +4461,6 @@ export default function DashboardPeserta() {
                       </button>
                       {ownMessage && <div className="dp-alert" role="status">{ownMessage}</div>}
                     </form>
-                  )}
-
-                  <ProgressBar
-                    value={
-                      progress.achievement
-                    }
-                  />
-
-                  <CategoryCards
-                    categories={
-                      categories
-                    }
-                  />
-
-                  {canInputOwnData && (
-                    <div className="dp-buttons dp-no-print dp-input-shortcut">
-                      <button
-                        type="button"
-                        className="dp-button"
-                        disabled={Boolean(openingInput)}
-                        onClick={() => openOwnInput("achievement")}
-                      >
-                        <Icon name="trophy" size={17} />
-                        Input Achievement Saya
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="dp-buttons dp-no-print">
-                    <button
-                      type="button"
-                      className="dp-button"
-                      onClick={() =>
-                        setAchievementHistory(
-                          (old) => !old
-                        )
-                      }
-                      aria-expanded={
-                        achievementHistory
-                      }
-                    >
-                      {achievementHistory
-                        ? "Tutup Riwayat"
-                        : "Lihat Riwayat"}
-                    </button>
-
-                    <button
-                      type="button"
-                      className="dp-button secondary"
-                      onClick={() =>
-                        navigatePage(
-                          "monitoring"
-                        )
-                      }
-                    >
-                      Rekap Mingguan
-                    </button>
-                  </div>
-
-                  {achievementHistory && (
-                    <div className="dp-detail-stack">
-                      <AchievementHistory
-                        key={`all-${program.id}`}
-                        records={
-                          weeklyData.achievements
-                        }
-                        types={
-                          weeklyData.types
-                        }
-                      />
-                    </div>
                   )}
                 </section>
               )}
@@ -4801,6 +4893,39 @@ const dashboardCSS = `
     font-family: Arial, Helvetica, sans-serif;
     line-height: 1.5;
   }
+
+  /* Achievement OJT dipisahkan dari form Input Achievement. */
+  .dp-ach-subtitle { margin: 5px 0 14px; color: var(--dp-muted); font-size: 12px; line-height: 1.6; }
+  .dp-ach-overview { background: var(--dp-tint); border: 1px solid var(--dp-border); border-radius: 13px; padding: 16px; margin: 12px 0 16px; }
+  .dp-ach-period { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .dp-ach-eyebrow { font-size: 11px; color: var(--dp-accent); font-weight: 800; }
+  .dp-ach-period h3 { margin: 3px 0; font-size: 22px; color: var(--dp-text); }
+  .dp-ach-period small, .dp-ach-note { color: var(--dp-muted); font-size: 11px; }
+  .dp-ach-overview-metrics { display: grid; grid-template-columns: 166px repeat(3,minmax(0,1fr)); gap: 12px; align-items: stretch; }
+  .dp-ach-donut { width: 150px; height: 150px; max-width: 100%; border-radius: 50%; background: conic-gradient(#16bd83 0 var(--dp-ach-value), var(--dp-border) var(--dp-ach-value) 100%); display: grid; place-items: center; position: relative; margin: auto; }
+  .dp-ach-donut::before { content: ""; position: absolute; inset: 13px; border-radius: 50%; background: var(--dp-surface); }
+  .dp-ach-donut-label { position: relative; z-index: 1; text-align: center; }
+  .dp-ach-donut-label strong { display: block; color: var(--dp-text); font-size: 25px; }
+  .dp-ach-donut-label small { display: block; max-width: 90px; color: var(--dp-muted); font-size: 10px; line-height: 1.3; margin: auto; }
+  .dp-ach-kpi { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; border-radius: 12px; min-height: 144px; padding: 13px; text-align: center; }
+  .dp-ach-kpi.verified { background: #146a4e; color: #effff8; }
+  .dp-ach-kpi.pending { background: #6c4e1f; color: #ffefd3; }
+  .dp-ach-kpi.categories { background: #214967; color: #e8f6ff; }
+  .dp-ach-kpi strong { font-size: 25px; line-height: 1.15; }
+  .dp-ach-kpi span { font-size: 11px; line-height: 1.35; }
+  .dp-ach-six-grid { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 10px; margin: 12px 0; }
+  .dp-ach-cat { min-width: 0; border: 1px solid var(--dp-border); border-radius: 12px; padding: 13px; background: var(--dp-soft); }
+  .dp-ach-cat-head { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+  .dp-ach-cat-icon { display: grid; place-items: center; flex-shrink: 0; width: 31px; height: 31px; border-radius: 8px; color: var(--dp-accent); background: var(--dp-tint); }
+  .dp-ach-cat-head strong { font-size: 11px; overflow-wrap: anywhere; }
+  .dp-ach-cat h3 { margin: 9px 0 5px; font-size: 23px; color: var(--dp-text); }
+  .dp-ach-cat dl { margin: 13px 0 0; display: grid; gap: 6px; }
+  .dp-ach-cat dl div { display: flex; justify-content: space-between; gap: 4px; font-size: 10px; }
+  .dp-ach-cat dt { color: var(--dp-muted); }
+  .dp-ach-cat dd { margin: 0; text-align: right; font-weight: 800; color: var(--dp-text); }
+  @media (max-width: 1320px) { .dp-ach-six-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+  @media (max-width: 700px) { .dp-ach-overview-metrics { grid-template-columns: repeat(3,minmax(0,1fr)); } .dp-ach-donut { grid-column: 1 / -1; } .dp-ach-kpi { min-height: 115px; } .dp-ach-six-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+  @media (max-width: 410px) { .dp-ach-kpi { padding: 9px 5px; } .dp-ach-kpi strong { font-size: 21px; } .dp-ach-kpi span { font-size: 10px; } }
 
   .dp-self-form { display: flex; flex-direction: column; gap: 12px; margin: 16px 0 20px; background: var(--dp-soft); border: 1px solid var(--dp-border); border-radius: 12px; padding: 16px; }
   .dp-self-form h3 { margin: 0; }
