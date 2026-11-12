@@ -6,7 +6,9 @@ import { supabase } from "../../../lib/supabase";
 
 // OJT MINETRACK V2.0 — MONITORING PENILAIAN ADMIN / MENTOR
 // Route: app/mentor/monitoring-penilaian/page.jsx
-// Read-only monitoring berbasis Week global 01–25. Tidak mengubah database, skor, marker, atau status verifikasi.
+// Read-only monitoring berbasis Week global 01–25.
+// Ringkasan evaluasi + cetak mingguan (browser Print / Save as PDF),
+// tanpa mengubah database, skor, marker, atau status verifikasi.
 
 const TOTAL_WEEKS = 25;
 const WEEK_01_START = "2026-09-12";
@@ -219,11 +221,19 @@ function buildSamaptaSessions(rows, programMap, peopleMap) {
     const person = peopleMap.get(program?.participant_id);
     const rowsSorted = SAMAPTA_TYPES.map((type) => sourceRows.find((row) => normalizeKey(row.test_type) === normalizeKey(type))).filter(Boolean);
     const state = samaptaStatus(sourceRows);
-    const scores = rowsSorted
-      .filter((row) => row.score !== null && row.score !== undefined && row.score !== "")
-      .map((row) => Number(row.score))
-      .filter(Number.isFinite);
-    const score = scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : null;
+    // Rumus penilaian Samapta asli: Nilai A = Lari; Nilai B =
+    // rata-rata Pull-Up, Push-Up, Sit-Up, Shuttle Run; akhir (A+B)/2.
+    // Jika komponen tidak lengkap, jangan memperkirakan nilai resmi.
+    const componentScores = rowsSorted.map((row) =>
+      row.score === null || row.score === undefined || row.score === ""
+        ? null : Number(row.score)
+    );
+    const validScores = state.complete && componentScores.length === SAMAPTA_TYPES.length &&
+      componentScores.every((value) => value !== null && Number.isFinite(value));
+    const bScore = validScores
+      ? componentScores.slice(1).reduce((sum, value) => sum + value, 0) / 4
+      : null;
+    const score = validScores ? (componentScores[0] + bScore) / 2 : null;
     return {
       id: `samapta-${programId}-${date}`,
       kind: "samapta",
@@ -367,6 +377,48 @@ function Icon({ name, size = 19 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] || paths.file}</svg>;
 }
 
+// Statistik laporan lintas-jenis penilaian untuk Week terpilih.
+// Pending tidak pernah masuk rata-rata resmi.
+function summarizeWeekType(rows, programs) {
+  const participantIds = new Set(programs.map((program) => program.participant_id));
+  const attendedIds = new Set(rows.map((row) => row.participantId).filter(Boolean));
+  const official = rows.filter((row) => row.status === "verified");
+  const scores = official.map((row) => row.score)
+    .filter((value) => value !== null && value !== undefined && value !== "")
+    .map(Number).filter(Number.isFinite);
+  return {
+    participants: participantIds.size,
+    attended: attendedIds.size,
+    withoutRecord: Math.max(0, participantIds.size - attendedIds.size),
+    total: rows.length,
+    verified: official.length,
+    pending: rows.filter((row) => row.status === "pending").length,
+    other: rows.filter((row) => row.status === "other").length,
+    average: scores.length ? scores.reduce((total, value) => total + value, 0) / scores.length : null,
+  };
+}
+
+function reportScoreText(entries) {
+  if (!entries.length) return "Belum tercatat";
+  return entries.map((entry) => {
+    if (entry.status === "pending") return `${entry.title}: Pending`;
+    if (entry.status === "other") return `${entry.title}: Periksa`;
+    return `${entry.title}: ${formatNumber(entry.score, 1)}`;
+  }).join("; ");
+}
+
+function reportCountText(entries) {
+  if (!entries.length) return "Belum tercatat";
+  const verified = entries.filter((entry) => entry.status === "verified").length;
+  const pending = entries.filter((entry) => entry.status === "pending").length;
+  const other = entries.filter((entry) => entry.status === "other").length;
+  const groups = [];
+  if (verified) groups.push(`${verified} Verified`);
+  if (pending) groups.push(`${pending} Pending`);
+  if (other) groups.push(`${other} Periksa`);
+  return groups.join("; ") || "Belum tercatat";
+}
+
 function StatusBadge({ status }) {
   const config = {
     verified: { label: "Terverifikasi", className: "verified" },
@@ -399,6 +451,8 @@ export default function MonitoringPenilaianPage() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
+  // Catatan evaluasi hanya untuk dokumen cetak, bukan data Supabase.
+  const [evaluationNotesByWeek, setEvaluationNotesByWeek] = useState({});
 
   const isAdmin = account?.role === "admin";
   const accountName = account?.full_name || "Pengguna";
@@ -476,6 +530,86 @@ export default function MonitoringPenilaianPage() {
       String(entry.date || "").slice(0, 10) <= selectedPeriod.end
     );
   }, [data, activeTab, activePrograms, selectedPeriod]);
+
+  // Sumber laporan selalu mencakup ketiga jenis, terlepas dari tab, pencarian,
+  // filter status/site, maupun halaman tabel yang sedang dibuka.
+  const weekRecords = useMemo(() => {
+    if (!data || !selectedPeriod) return { posttest: [], praktik: [], samapta: [] };
+    const allowed = new Set(activePrograms.map((program) => program.id));
+    const pick = (rows) => rows.filter((row) => {
+      const date = String(row.date || "").slice(0, 10);
+      return allowed.has(row.programId) &&
+        date >= selectedPeriod.start && date <= selectedPeriod.end;
+    });
+    return {
+      posttest: pick(data.postTests),
+      praktik: pick(data.practices),
+      samapta: pick(data.samapta),
+    };
+  }, [data, activePrograms, selectedPeriod]);
+
+  const weeklyEvaluation = useMemo(() => {
+    const posttest = summarizeWeekType(weekRecords.posttest, activePrograms);
+    const praktik = summarizeWeekType(weekRecords.praktik, activePrograms);
+    const samapta = summarizeWeekType(weekRecords.samapta, activePrograms);
+    const tuesday = weekdayDate(selectedPeriod, 2);
+    const thursday = weekdayDate(selectedPeriod, 4);
+    const examDay = (date) => {
+      const values = weekRecords.posttest.filter((row) => row.date === date);
+      return { date, count: values.length, pending: values.filter((row) => row.status === "pending").length,
+        verified: values.filter((row) => row.status === "verified").length,
+        people: new Set(values.map((row) => row.participantId)).size };
+    };
+    const examDays = [examDay(tuesday), examDay(thursday)];
+    const today = todayWITA();
+    const insights = [];
+    const totalPending = posttest.pending + praktik.pending + samapta.pending;
+    const totalOther = posttest.other + praktik.other + samapta.other;
+    if (totalPending) insights.push(`${totalPending} hasil/sesi masih Pending dan belum masuk nilai resmi. Post-Test dan Samapta memerlukan verifikasi Admin; Praktik dapat diverifikasi Mentor/Admin.`);
+    if (totalOther) insights.push(`${totalOther} hasil/sesi berstatus perlu pemeriksaan. Periksa kelengkapan dan metadata sebelum evaluasi.`);
+    for (const [index, item] of examDays.entries()) {
+      if (item.date && item.date <= today && item.count === 0) {
+        insights.push(`Belum ada hasil Post-Test ${index === 0 ? "Selasa" : "Kamis"} (${formatDate(item.date)}) yang tercatat. Periksa pelaksanaan dan sinkronisasi Google Forms.`);
+      }
+    }
+    if (!weekRecords.posttest.length && !weekRecords.praktik.length && !weekRecords.samapta.length) {
+      insights.push("Belum ada hasil penilaian yang tercatat untuk Week ini.");
+    }
+    if (!insights.length) insights.push("Seluruh hasil yang tercatat sudah berada pada status Verified. Lanjutkan evaluasi capaian berdasarkan nilai resmi.");
+
+    // Satu baris per peserta agar ringkasan cetak tidak bergantung pada pagination.
+    const distinctPeople = new Map();
+    for (const program of activePrograms) {
+      if (!distinctPeople.has(program.participant_id)) {
+        distinctPeople.set(program.participant_id, {
+          id: program.participant_id,
+          name: program.peserta?.full_name || "Peserta OJT",
+          site: program.site || "—",
+        });
+      }
+    }
+    const people = [...distinctPeople.values()].map((person) => {
+      const byPerson = (list) => list.filter((row) => row.participantId === person.id);
+      const post = byPerson(weekRecords.posttest);
+      const practice = byPerson(weekRecords.praktik);
+      const fitness = byPerson(weekRecords.samapta);
+      const followups = [];
+      if ([...post, ...practice, ...fitness].some((item) => item.status === "pending")) followups.push("Verifikasi pending");
+      if ([...post, ...practice, ...fitness].some((item) => item.status === "other")) followups.push("Periksa data");
+      if (!post.length && !practice.length && !fitness.length) followups.push("Belum ada catatan");
+      return {
+        ...person,
+        tuesday: reportScoreText(post.filter((item) => item.date === tuesday)),
+        thursday: reportScoreText(post.filter((item) => item.date === thursday)),
+        postOtherDays: post.filter((item) => item.date !== tuesday && item.date !== thursday),
+        praktik: reportCountText(practice),
+        samapta: reportCountText(fitness),
+        followup: followups.join("; ") || "—",
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name, "id"));
+    return { posttest, praktik, samapta, examDays, insights, people,
+      totalPending, totalOther, participantCount: distinctPeople.size };
+  }, [weekRecords, activePrograms, selectedPeriod]);
 
   const postTestDays = useMemo(() => {
     if (activeTab !== "posttest" || !selectedPeriod) return [];
@@ -616,6 +750,13 @@ export default function MonitoringPenilaianPage() {
     setPage(1);
   }
 
+  function printWeeklySummary() {
+    // Browser menyediakan opsi Cetak maupun Simpan sebagai PDF; data tidak dikirim
+    // ke server, tidak memakai library tambahan, dan tidak mengubah Supabase.
+    if (!account || !data || loading || refreshing) return;
+    window.print();
+  }
+
   function exportCsv() {
     const headers = ["No", "Peserta", "Departemen", "Site", "Judul Penilaian", "Nilai", "Tanggal", "Status"];
     const rows = filteredRows.map((row, index) => [index + 1, row.person, row.department, row.site, row.title, row.score ?? "", row.date || "", row.status]);
@@ -720,6 +861,53 @@ export default function MonitoringPenilaianPage() {
             </div>
           </section>
 
+          {/* Ringkasan evaluasi lintas-penilaian, selalu berdasarkan Week terpilih. */}
+          <section className="mpen-week-evaluation" aria-labelledby="mpen-week-evaluation-title">
+            <div className="mpen-eval-head">
+              <div>
+                <span className="mpen-eval-eyebrow">EVALUASI MINGGUAN · READ ONLY</span>
+                <h2 id="mpen-week-evaluation-title">Ringkasan Evaluasi Week {String(selectedWeek).padStart(2, "0")}</h2>
+                <p>{periodLabel} · Post-Test, Praktik, dan Samapta dalam satu laporan.</p>
+              </div>
+              <button type="button" className="mpen-print-button" onClick={printWeeklySummary} disabled={!data || loading || refreshing}>
+                <Icon name="file" size={17}/> Cetak / Simpan PDF Mingguan
+              </button>
+            </div>
+            {loading || !data ? (
+              <p className="mpen-eval-muted">Memuat ringkasan evaluasi mingguan...</p>
+            ) : (
+              <>
+                <div className="mpen-eval-grid">
+                  {[
+                    { label: "Post-Test", stats: weeklyEvaluation.posttest, unit: "hasil" },
+                    { label: "Praktik", stats: weeklyEvaluation.praktik, unit: "penilaian" },
+                    { label: "Samapta", stats: weeklyEvaluation.samapta, unit: "sesi" },
+                  ].map((item) => (
+                    <div className="mpen-eval-card" key={item.label}>
+                      <strong>{item.label}</strong>
+                      <div className="mpen-eval-metrics"><span>{item.stats.verified} Verified</span><span>{item.stats.pending} Pending</span></div>
+                      <p>{item.stats.attended}/{item.stats.participants} peserta tercatat · {item.stats.total} {item.unit}</p>
+                      <small>Rata-rata resmi: <b>{formatNumber(item.stats.average, 1)}</b></small>
+                    </div>
+                  ))}
+                </div>
+                <div className="mpen-eval-bottom">
+                  <div className="mpen-eval-insights">
+                    <strong>Temuan untuk Evaluasi Mentor</strong>
+                    <ul>{weeklyEvaluation.insights.map((item, index) => <li key={index}>{item}</li>)}</ul>
+                  </div>
+                  <label className="mpen-eval-notes">
+                    <strong>Catatan dan Tindak Lanjut Mentor (untuk cetak)</strong>
+                    <textarea rows={4} maxLength={2500} value={evaluationNotesByWeek[selectedWeek] || ""}
+                      onChange={(event) => setEvaluationNotesByWeek((previous) => ({ ...previous, [selectedWeek]: event.target.value }))}
+                      placeholder="Contoh: tindak lanjut nilai Pending, kelengkapan penilaian, atau agenda pendampingan berikutnya..." />
+                    <small>Catatan ini tidak disimpan ke database. Salin atau cetak sebelum meninggalkan halaman.</small>
+                  </label>
+                </div>
+              </>
+            )}
+          </section>
+
           <section className="mpen-content-panel">
             <div className="mpen-section-heading">
               <div><span className="mpen-section-icon"><Icon name={activeTab === "posttest" ? "book" : activeTab === "praktik" ? "clipboard" : "shield"} size={22}/></span><div><h2>Monitoring {tabLabel}</h2><p>{activeTab === "posttest" ? "Evaluasi pengetahuan peserta OJT" : activeTab === "praktik" ? "Pemantauan hasil dan dokumentasi penilaian praktik" : "Pemantauan sesi kesamaptaan dan lima komponen tes"} · Emergency Response Group</p></div></div>
@@ -776,7 +964,7 @@ export default function MonitoringPenilaianPage() {
 
             <div className="mpen-table-wrap">
               <table className="mpen-table">
-                <thead><tr><th>No</th><th>Peserta</th><th>Site / Posisi</th><th>{activeTab === "samapta" ? "Rata-rata Skor" : "Nilai"}</th><th>{activeTab === "posttest" ? "Tanggal Post-Test" : activeTab === "praktik" ? "Tanggal Praktik" : "Tanggal Samapta"}</th>{activeTab === "posttest" && <th>Materi</th>}{activeTab === "praktik" && <th>Jenis Praktik</th>}{activeTab === "samapta" && <th>Komponen</th>}<th>Status</th><th>Aksi</th></tr></thead>
+                <thead><tr><th>No</th><th>Peserta</th><th>Site / Posisi</th><th>{activeTab === "samapta" ? "Nilai Akhir Samapta" : "Nilai"}</th><th>{activeTab === "posttest" ? "Tanggal Post-Test" : activeTab === "praktik" ? "Tanggal Praktik" : "Tanggal Samapta"}</th>{activeTab === "posttest" && <th>Materi</th>}{activeTab === "praktik" && <th>Jenis Praktik</th>}{activeTab === "samapta" && <th>Komponen</th>}<th>Status</th><th>Aksi</th></tr></thead>
                 <tbody>
                   {loading ? <tr><td colSpan={8} className="mpen-empty">Memuat data...</td></tr> : pagedRows.length ? pagedRows.map((row, index) => <tr key={row.id}>
                     <td>{(page - 1) * PAGE_SIZE + index + 1}</td>
@@ -799,6 +987,65 @@ export default function MonitoringPenilaianPage() {
           <footer className="mpen-footer"><span>OJT MineTrack v2.0 · Emergency Response Group · PT Berau Coal</span><span>{lastUpdated ? `Diperbarui ${lastUpdated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Makassar" })} WITA` : ""}</span></footer>
         </section>
       </div>
+
+      {/* Lembar cetak khusus: tidak bergantung tab aktif atau filter tabel. */}
+      {data && account && (
+        <article className="mpen-print-report" aria-label="Laporan Evaluasi Penilaian Mingguan">
+          <header className="mpen-print-header">
+            <div>
+              <span>EMERGENCY RESPONSE GROUP · PT BERAU COAL</span>
+              <h1>LAPORAN MONITORING & EVALUASI PENILAIAN OJT</h1>
+              <p>OJT MineTrack v2.0 · Week {String(selectedWeek).padStart(2, "0")} · {periodLabel}</p>
+            </div>
+            <div className="mpen-print-meta">
+              <div><b>Pelapor:</b> {accountName} ({accountRole})</div>
+              <div><b>Tanggal cetak:</b> {formatDate(todayWITA())} WITA</div>
+              <div><b>Peserta dalam cakupan:</b> {weeklyEvaluation.participantCount}</div>
+            </div>
+          </header>
+          <h2>1. Rekapitulasi Penilaian Week {String(selectedWeek).padStart(2, "0")}</h2>
+          <table className="mpen-print-table">
+            <thead><tr><th>Jenis Penilaian</th><th>Peserta Tercatat</th><th>Total Hasil / Sesi</th><th>Verified</th><th>Pending</th><th>Perlu Periksa</th><th>Rata-rata Resmi</th></tr></thead>
+            <tbody>
+              {[
+                ["Post-Test", weeklyEvaluation.posttest],
+                ["Praktik", weeklyEvaluation.praktik],
+                ["Samapta", weeklyEvaluation.samapta],
+              ].map(([label, stats]) => <tr key={label}><td>{label}</td><td>{stats.attended}/{stats.participants}</td><td>{stats.total}</td><td>{stats.verified}</td><td>{stats.pending}</td><td>{stats.other}</td><td>{formatNumber(stats.average, 1)}</td></tr>)}
+            </tbody>
+          </table>
+          <h2>2. Post-Test Selasa dan Kamis</h2>
+          <table className="mpen-print-table mpen-print-narrow">
+            <thead><tr><th>Jadwal</th><th>Tanggal</th><th>Peserta Tercatat</th><th>Jumlah Hasil</th><th>Verified</th><th>Pending</th></tr></thead>
+            <tbody>{weeklyEvaluation.examDays.map((item, index) => <tr key={index}><td>{index === 0 ? "Selasa" : "Kamis"}</td><td>{formatDate(item.date)}</td><td>{item.people}</td><td>{item.count}</td><td>{item.verified}</td><td>{item.pending}</td></tr>)}</tbody>
+          </table>
+          {weeklyEvaluation.people.length > 0 && (
+            <>
+              <h2>3. Rekapitulasi per Peserta</h2>
+              <table className="mpen-print-table mpen-print-people">
+                <thead><tr><th>No.</th><th>Peserta / Site</th><th>Post-Test Selasa</th><th>Post-Test Kamis</th><th>Praktik</th><th>Samapta</th><th>Tindak Lanjut</th></tr></thead>
+                <tbody>{weeklyEvaluation.people.map((person, index) => (
+                  <tr key={person.id}>
+                    <td>{index + 1}</td>
+                    <td><strong>{person.name}</strong><br/>{person.site}</td>
+                    <td>{person.tuesday}</td><td>{person.thursday}</td>
+                    <td>{person.praktik}</td><td>{person.samapta}</td><td>{person.followup}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {weeklyEvaluation.people.some((person) => person.postOtherDays.length > 0) && (
+                <p className="mpen-print-note">Catatan: terdapat Post-Test di luar jadwal Selasa/Kamis. Hasil tersebut tetap dihitung di rekap keseluruhan, tetapi tidak ditempatkan pada kolom Selasa/Kamis.</p>
+              )}
+            </>
+          )}
+          <h2>4. Temuan dan Tindak Lanjut</h2>
+          <ul className="mpen-print-findings">{weeklyEvaluation.insights.map((item, index) => <li key={index}>{item}</li>)}</ul>
+          <h2>5. Catatan Evaluasi Mentor</h2>
+          <p className="mpen-print-notes">{evaluationNotesByWeek[selectedWeek]?.trim() || "Belum ada catatan evaluasi tambahan."}</p>
+          <div className="mpen-print-signature"><div>Disusun oleh,<br/>Mentor / Admin OJT<br/><br/><br/><strong>{accountName}</strong></div><div>Mengetahui,<br/>Penanggung Jawab Program<br/><br/><br/><strong>_______________________</strong></div></div>
+          <p className="mpen-print-note"><b>Catatan data:</b> Laporan hanya mencakup program aktif/approved yang dapat diakses akun ini dan tanggal pada Week terpilih. "Belum tercatat" berarti belum ada hasil di database, bukan bukti peserta tidak hadir. Nilai Pending tidak dihitung dalam rata-rata resmi. Riwayat tanpa marker persetujuan diperlakukan Verified sesuai kebijakan historis MineTrack. Catatan evaluasi pada halaman tidak disimpan ke Supabase.</p>
+        </article>
+      )}
 
       {detail && <div className="mpen-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetail(null); }}><section className="mpen-modal" role="dialog" aria-modal="true" aria-labelledby="mpen-detail-title"><header><div><span className="mpen-modal-kicker">DETAIL PENILAIAN</span><h2 id="mpen-detail-title">{detail.title}</h2><p>{detail.person} · {detail.department} · {detail.site}</p></div><button type="button" onClick={() => setDetail(null)} aria-label="Tutup"><Icon name="close"/></button></header><div className="mpen-modal-body"><div className="mpen-detail-grid"><div><small>Status</small><StatusBadge status={detail.status}/></div><div><small>Tanggal Penilaian</small><strong>{formatDate(detail.date)}</strong></div><div><small>Nilai / Rata-rata Skor</small><strong>{formatNumber(detail.score, 2)}</strong></div><div><small>Jenis</small><strong>{tabLabel}</strong></div></div>
         {activeTab === "samapta" && <div className="mpen-detail-block"><strong>Rincian Lima Komponen Samapta</strong>{SAMAPTA_TYPES.map((type) => { const row = detail.rows?.find((item) => normalizeKey(item.test_type) === normalizeKey(type)); return <div className="mpen-component-row" key={type}><span>{type}</span><strong>{row ? `${formatNumber(row.result_value, 2)} ${row.result_unit || ""} · Skor ${formatNumber(row.score, 2)}` : "Belum ada data"}</strong></div>; })}</div>}
@@ -833,6 +1080,39 @@ html[data-theme="dark"] .mpen-sidebar{background:linear-gradient(170deg,#0b2a26,
 .mpen-week-info{display:grid;gap:4px}.mpen-week-info>span{font-size:10px;font-weight:900;letter-spacing:1px;color:var(--mpen-green)}.mpen-week-info>strong{font-size:22px}.mpen-week-info>small{font-size:11px;color:var(--mpen-muted)}
 .mpen-week-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:end}.mpen-week-controls>button{min-width:37px;min-height:39px;border:1px solid var(--mpen-border);border-radius:9px;background:var(--mpen-surface);color:var(--mpen-text);font-weight:900;font-size:22px}.mpen-week-controls>button:disabled{opacity:.4;cursor:not-allowed}.mpen-week-controls>label{display:grid;gap:4px}.mpen-week-controls>label>span{font-size:10px;color:var(--mpen-muted)}.mpen-week-controls select{height:39px;min-width:245px;max-width:100%;border:1px solid var(--mpen-border);border-radius:9px;padding:8px 9px;background:var(--mpen-surface);color:var(--mpen-text);font-size:11px}.mpen-week-controls>button.mpen-week-today{font-size:11px;font-weight:800;padding:0 11px;color:var(--mpen-green)}
 .mpen-day-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:13px}.mpen-day-card{padding:13px;border:1px solid var(--mpen-border);border-radius:10px;background:var(--mpen-surface);display:grid;gap:8px}.mpen-day-card>div:first-child{display:flex;justify-content:space-between;align-items:center;gap:10px}.mpen-day-card>div:first-child>strong{font-size:13px}.mpen-day-card>div:first-child>small{color:var(--mpen-muted);font-size:10px}.mpen-day-count{display:flex;align-items:center;gap:9px}.mpen-day-count strong{font-size:24px;color:var(--mpen-green)}.mpen-day-count span{font-size:10px;color:var(--mpen-muted)}.mpen-day-card p{margin:0;font-size:10px;color:var(--mpen-text)}.mpen-day-card>small{font-size:10px;color:var(--mpen-muted)}
+/* Evaluasi lintas-jenis pada halaman monitoring */
+.mpen-week-evaluation{padding:16px;border:1px solid var(--mpen-border);border-radius:13px;background:var(--mpen-panel)}
+.mpen-eval-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.mpen-eval-head h2{font-size:19px;margin:3px 0}.mpen-eval-head p{margin:2px 0;color:var(--mpen-muted);font-size:11px}.mpen-eval-eyebrow{font-size:10px;font-weight:800;letter-spacing:1px;color:var(--mpen-green)}
+.mpen-print-button{display:flex;gap:8px;align-items:center;justify-content:center;padding:11px 14px;border:1px solid #1aaa76;border-radius:9px;background:#0b815f;color:#fff!important;font-size:12px;font-weight:800}.mpen-print-button:disabled{opacity:.5}
+.mpen-eval-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:13px}.mpen-eval-card{padding:12px;border:1px solid var(--mpen-border);border-radius:10px;background:var(--mpen-surface)}.mpen-eval-card>strong{font-size:13px}.mpen-eval-card p{margin:7px 0;color:var(--mpen-muted);font-size:10px}.mpen-eval-card small{color:var(--mpen-muted);font-size:10px}.mpen-eval-metrics{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:15px;font-weight:900}.mpen-eval-metrics span:first-child{color:var(--mpen-green)}.mpen-eval-metrics span:last-child{color:#d8a64c}
+.mpen-eval-bottom{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.mpen-eval-insights,.mpen-eval-notes{display:block;padding:12px;border:1px solid var(--mpen-border);border-radius:9px;background:var(--mpen-surface)}.mpen-eval-insights>strong,.mpen-eval-notes>strong{display:block;font-size:12px}.mpen-eval-insights ul{padding-left:17px;margin:8px 0 0;color:var(--mpen-text);font-size:11px;line-height:1.6}.mpen-eval-notes textarea{display:block;width:100%;min-height:95px;resize:vertical;padding:9px;margin-top:8px;border:1px solid var(--mpen-border);border-radius:7px;background:var(--mpen-panel);color:var(--mpen-text);font-size:12px;font-family:inherit}.mpen-eval-notes small,.mpen-eval-muted{display:block;margin-top:6px;color:var(--mpen-muted);font-size:10px}
+.mpen-print-report{display:none}
+@media(max-width:760px){.mpen-eval-grid{grid-template-columns:1fr}.mpen-eval-bottom{grid-template-columns:1fr}.mpen-print-button{width:100%}}
+@media print {
+  @page { size: A4 landscape; margin: 12mm }
+  html,body { background:white!important; color:black!important; margin:0!important; padding:0!important }
+  .mpen-root{background:#fff!important;color:#111!important;min-height:0!important;color-scheme:light!important;font:10pt/1.4 Arial,Helvetica,sans-serif!important}
+  .mpen-shell,.mpen-overlay,.mpen-modal-backdrop{display:none!important}
+  .mpen-print-report{display:block!important;width:100%;margin:0!important;padding:0!important;background:#fff!important;color:#111!important;overflow:visible!important}
+  .mpen-print-report *{color:#111!important;background:transparent!important;box-shadow:none!important}
+  .mpen-print-header{display:flex;justify-content:space-between;gap:16px;border-bottom:2px solid #13533c;padding-bottom:12px;margin-bottom:15px}
+  .mpen-print-header span{font-size:9pt;font-weight:800;letter-spacing:.5px}.mpen-print-header h1{font-size:16pt;margin:6px 0 2px}.mpen-print-header p{font-size:10pt;margin:0}.mpen-print-meta{flex:none;font-size:8pt;line-height:1.65}
+  .mpen-print-report h2{font-size:11pt;margin:13px 0 6px;padding:0 0 4px;border-bottom:1px solid #91b3a4;break-after:avoid}
+  .mpen-print-table{width:100%;border-collapse:collapse;font-size:8pt;table-layout:fixed;margin:5px 0 11px}
+  .mpen-print-table th,.mpen-print-table td{border:1px solid #9cafa7;padding:5px 6px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+  .mpen-print-table th{background:#eaf3ee!important;font-weight:800}
+  .mpen-print-table thead{display:table-header-group}
+  .mpen-print-table tr{break-inside:avoid;page-break-inside:avoid}
+  .mpen-print-people th:nth-child(1),.mpen-print-people td:nth-child(1){width:4%}
+  .mpen-print-people th:nth-child(2),.mpen-print-people td:nth-child(2){width:17%}
+  .mpen-print-people th:nth-child(3),.mpen-print-people td:nth-child(3),.mpen-print-people th:nth-child(4),.mpen-print-people td:nth-child(4){width:18%}
+  .mpen-print-people th:nth-child(5),.mpen-print-people td:nth-child(5),.mpen-print-people th:nth-child(6),.mpen-print-people td:nth-child(6){width:13%}
+  .mpen-print-people th:nth-child(7),.mpen-print-people td:nth-child(7){width:17%}
+  .mpen-print-findings{font-size:9pt;line-height:1.55;margin:5px 0 12px;padding-left:21px}
+  .mpen-print-notes{min-height:45px;white-space:pre-wrap;border:1px solid #adbbb2!important;padding:10px;margin:5px 0 15px;font-size:9pt;overflow-wrap:anywhere}
+  .mpen-print-signature{display:flex;justify-content:space-around;gap:15px;break-inside:avoid;text-align:center;margin:20px 0 14px;font-size:9pt}.mpen-print-signature>div{width:38%}
+  .mpen-print-note{font-size:7.5pt;line-height:1.45;color:#555!important;margin:8px 0;overflow-wrap:anywhere}
+}
 @media(max-width:1100px){.mpen-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mpen-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.mpen-reset{justify-self:start}}
 @media(max-width:760px){.mpen-sidebar{width:275px;transform:translateX(-105%);transition:transform .2s ease;z-index:55}.mpen-sidebar.open{transform:translateX(0)}.mpen-overlay{display:block;position:fixed;inset:0;z-index:54;width:100%;height:100%;border:0;background:rgba(0,20,17,.65)}.mpen-main{margin-left:0;padding:12px}.mpen-mobile-head{display:flex;align-items:center;justify-content:space-between;min-height:48px;margin:-12px -12px 0;padding:8px 13px;background:#06392e;color:#fff}.mpen-mobile-head strong{font-size:17px}.mpen-mobile-head strong span{color:#53e7a5}.mpen-mobile-head button{width:35px;height:35px;display:grid;place-items:center;border:1px solid #ffffff35;border-radius:8px;background:#ffffff12;color:#fff}.mpen-page-head{align-items:flex-start;padding:14px}.mpen-head-actions{justify-items:start}.mpen-section-heading{align-items:flex-start;flex-direction:column}.mpen-table-heading{align-items:stretch}.mpen-table-actions{width:100%}.mpen-search{flex:1;min-width:0}}
 @media(max-width:520px){.mpen-week-controls{width:100%}.mpen-week-controls>label{flex:1;min-width:0}.mpen-week-controls select{width:100%;min-width:0}.mpen-day-grid{grid-template-columns:1fr}.mpen-page-head{flex-direction:column}.mpen-tab{flex-direction:column;gap:4px;padding:9px 4px;font-size:11px}.mpen-tab small{font-size:8px}.mpen-summary-grid{grid-template-columns:1fr 1fr;gap:7px}.mpen-stat{padding:9px;gap:8px}.mpen-stat-icon{width:34px;height:34px}.mpen-stat strong{font-size:21px}.mpen-stat small{font-size:9px}.mpen-stat em{font-size:8px}.mpen-secondary-summary{grid-template-columns:1fr 1fr}.mpen-progress-foot{align-items:flex-start;flex-direction:column}.mpen-filters{grid-template-columns:1fr 1fr}.mpen-table-actions{flex-wrap:wrap}.mpen-search{flex-basis:100%}.mpen-export{flex:1;justify-content:center}.mpen-table-footer{align-items:flex-start;flex-direction:column}.mpen-footer{display:grid}.mpen-detail-grid{grid-template-columns:1fr 1fr}}
