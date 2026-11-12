@@ -6,8 +6,12 @@ import { supabase } from "../../../lib/supabase";
 
 // OJT MINETRACK V2.0 — MONITORING PENILAIAN ADMIN / MENTOR
 // Route: app/mentor/monitoring-penilaian/page.jsx
-// Read-only monitoring. Tidak mengubah database, skor, marker, atau status verifikasi.
+// Read-only monitoring berbasis Week global 01–25. Tidak mengubah database, skor, marker, atau status verifikasi.
 
+const TOTAL_WEEKS = 25;
+const WEEK_01_START = "2026-09-12";
+// Week 01: 12–18 Sep. Week 02 mulai 20 Sep (19 Sep tidak termasuk kalender).
+const WEEK_02_START = "2026-09-20";
 const PAGE_SIZE = 10;
 const FETCH_CHUNK = 500;
 const POSTTEST_RE = /\[\[OJT_POSTTEST_REVIEW_V1:([\s\S]*?)\]\]/g;
@@ -47,6 +51,63 @@ function parseDate(value) {
   return date;
 }
 
+function addUtcDays(dateText, amount) {
+  const date = parseDate(dateText);
+  if (!date) return null;
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function globalWeekInfo(number) {
+  if (!Number.isInteger(number) || number < 1 || number > TOTAL_WEEKS) return null;
+  const start = number === 1 ? WEEK_01_START : addUtcDays(WEEK_02_START, (number - 2) * 7);
+  return { number, start, end: addUtcDays(start, 6) };
+}
+
+function weekForDate(dateText) {
+  const day = String(dateText ?? "").slice(0, 10);
+  if (!parseDate(day)) return null;
+  for (let week = 1; week <= TOTAL_WEEKS; week += 1) {
+    const period = globalWeekInfo(week);
+    if (day >= period.start && day <= period.end) return week;
+  }
+  return null;
+}
+
+function todayWITA() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Makassar", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const part = (key) => parts.find((p) => p.type === key)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function currentGlobalWeek() {
+  const today = todayWITA();
+  const week = weekForDate(today);
+  if (week !== null) return week;
+  if (today < WEEK_01_START) return 1;
+  if (today > "2027-03-06") return TOTAL_WEEKS;
+  // Tanggal 19 September 2026 sengaja tidak masuk Week 01 atau 02.
+  return 1;
+}
+
+function isProgramInWeek(program, period) {
+  if (!program || !period) return false;
+  const start = String(program.start_date || "").slice(0, 10);
+  const end = String(program.end_date || "").slice(0, 10);
+  return parseDate(start) !== null && start <= period.end &&
+    (!parseDate(end) || end >= period.start);
+}
+
+function weekdayDate(period, utcDay) {
+  if (!period) return null;
+  for (let date = period.start; date <= period.end; date = addUtcDays(date, 1)) {
+    if (parseDate(date)?.getUTCDay() === utcDay) return date;
+  }
+  return null;
+}
+
 function formatDate(value) {
   const date = parseDate(value);
   if (!date) return "—";
@@ -82,7 +143,9 @@ function stripMarker(raw, regex) {
 }
 
 function parsePostTestNotes(raw) {
-  const clean = stripMarker(raw, POSTTEST_RE).replace(/\r\n/g, "\n");
+  const clean = stripMarker(raw, POSTTEST_RE)
+    .replace(/\[\[OJT_POSTTEST_SYNC_V1:[\s\S]*?\]\]/g, "")
+    .replace(/\r\n/g, "\n").trim();
   const lines = clean.split("\n");
   const first = lines[0]?.trim() || "";
   const match = first.match(/^Materi:\s*(.+)$/i);
@@ -320,6 +383,7 @@ export default function MonitoringPenilaianPage() {
   const [account, setAccount] = useState(null);
   const [data, setData] = useState(null);
   const [activeTab, setActiveTab] = useState("posttest");
+  const [selectedWeek, setSelectedWeek] = useState(currentGlobalWeek);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
@@ -393,13 +457,56 @@ export default function MonitoringPenilaianPage() {
     return () => clearInterval(timer);
   }, [account, load]);
 
-  const activePrograms = data?.programs || [];
+  const selectedPeriod = useMemo(() => globalWeekInfo(selectedWeek), [selectedWeek]);
+  const allPrograms = data?.programs || [];
+  // Untuk Week lama, hanya peserta dengan periode program yang mencakup minggu
+  // tersebut yang dihitung sebagai peserta yang seharusnya mengikuti.
+  const activePrograms = useMemo(() =>
+    allPrograms.filter((program) => isProgramInWeek(program, selectedPeriod)),
+    [allPrograms, selectedPeriod]
+  );
   const activeEntries = useMemo(() => {
-    if (!data) return [];
-    if (activeTab === "posttest") return data.postTests;
-    if (activeTab === "praktik") return data.practices;
-    return data.samapta;
-  }, [data, activeTab]);
+    if (!data || !selectedPeriod) return [];
+    const source = activeTab === "posttest" ? data.postTests
+      : activeTab === "praktik" ? data.practices : data.samapta;
+    const eligible = new Set(activePrograms.map((program) => program.id));
+    return source.filter((entry) =>
+      eligible.has(entry.programId) &&
+      String(entry.date || "").slice(0, 10) >= selectedPeriod.start &&
+      String(entry.date || "").slice(0, 10) <= selectedPeriod.end
+    );
+  }, [data, activeTab, activePrograms, selectedPeriod]);
+
+  const postTestDays = useMemo(() => {
+    if (activeTab !== "posttest" || !selectedPeriod) return [];
+    return [
+      { label: "Selasa", utcDay: 2 },
+      { label: "Kamis", utcDay: 4 },
+    ].map(({ label, utcDay }) => {
+      const date = weekdayDate(selectedPeriod, utcDay);
+      const entries = activeEntries.filter((entry) => entry.date === date);
+      const materials = [...new Set(entries.map((entry) => entry.title).filter((title) =>
+        title && title !== "Post-Test"
+      ))];
+      return {
+        label, date,
+        participants: new Set(entries.map((entry) => entry.participantId)).size,
+        results: entries.length,
+        pending: entries.filter((entry) => entry.status === "pending").length,
+        verified: entries.filter((entry) => entry.status === "verified").length,
+        materials: materials.join(", ") || "Materi belum tercatat",
+      };
+    });
+  }, [activeTab, selectedPeriod, activeEntries]);
+
+  function changeWeek(nextWeek) {
+    if (!Number.isInteger(nextWeek) || nextWeek < 1 || nextWeek > TOTAL_WEEKS) return;
+    setSelectedWeek(nextWeek);
+    setDateFrom("");
+    setDateTo("");
+    setPage(1);
+    setDetail(null);
+  }
 
   const summary = useMemo(() => {
     if (!data) return null;
@@ -487,7 +594,7 @@ export default function MonitoringPenilaianPage() {
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const pagedRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  useEffect(() => { setPage(1); }, [activeTab, search, statusFilter, siteFilter, dateFrom, dateTo]);
+  useEffect(() => { setPage(1); }, [activeTab, selectedWeek, search, statusFilter, siteFilter, dateFrom, dateTo]);
 
   async function openDetail(row) {
     setDetail(row);
@@ -517,7 +624,7 @@ export default function MonitoringPenilaianPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `Monitoring_${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `Monitoring_${activeTab}_Week${String(selectedWeek).padStart(2, "0")}_${selectedPeriod.start}_${selectedPeriod.end}.csv`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -540,7 +647,7 @@ export default function MonitoringPenilaianPage() {
   }
 
   const tabLabel = TABS.find((tab) => tab.key === activeTab)?.label || "Post-Test";
-  const periodLabel = "12 Sep 2026 – 06 Mar 2027";
+  const periodLabel = `${formatDate(selectedPeriod.start)} – ${formatDate(selectedPeriod.end)}`;
 
   return (
     <main className="mpen-root">
@@ -590,16 +697,51 @@ export default function MonitoringPenilaianPage() {
             {TABS.map((tab) => <button key={tab.key} type="button" role="tab" aria-selected={activeTab === tab.key} className={`mpen-tab ${activeTab === tab.key ? "active" : ""}`} onClick={() => { setActiveTab(tab.key); setDetail(null); }}><Icon name={tab.icon} size={18}/><span>{tab.label}</span><small>{tab.subtitle}</small></button>)}
           </div>
 
+          <section className="mpen-week-panel" aria-label="Pilih minggu monitoring penilaian">
+            <div className="mpen-week-info">
+              <span>MONITORING PER MINGGU</span>
+              <strong>Week {String(selectedWeek).padStart(2, "0")}</strong>
+              <small>{periodLabel} · seluruh ringkasan dan tabel dibatasi ke Week ini</small>
+            </div>
+            <div className="mpen-week-controls">
+              <button type="button" aria-label="Week sebelumnya" disabled={selectedWeek <= 1} onClick={() => changeWeek(selectedWeek - 1)}>‹</button>
+              <label>
+                <span>Pilih Week</span>
+                <select value={selectedWeek} onChange={(event) => changeWeek(Number(event.target.value))}>
+                  {Array.from({ length: TOTAL_WEEKS }, (_, index) => globalWeekInfo(index + 1)).map((period) => (
+                    <option key={period.number} value={period.number}>
+                      Week {String(period.number).padStart(2, "0")} · {formatDate(period.start)} – {formatDate(period.end)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" aria-label="Week berikutnya" disabled={selectedWeek >= TOTAL_WEEKS} onClick={() => changeWeek(selectedWeek + 1)}>›</button>
+              <button type="button" className="mpen-week-today" onClick={() => changeWeek(currentGlobalWeek())}>Week Berjalan</button>
+            </div>
+          </section>
+
           <section className="mpen-content-panel">
             <div className="mpen-section-heading">
               <div><span className="mpen-section-icon"><Icon name={activeTab === "posttest" ? "book" : activeTab === "praktik" ? "clipboard" : "shield"} size={22}/></span><div><h2>Monitoring {tabLabel}</h2><p>{activeTab === "posttest" ? "Evaluasi pengetahuan peserta OJT" : activeTab === "praktik" ? "Pemantauan hasil dan dokumentasi penilaian praktik" : "Pemantauan sesi kesamaptaan dan lima komponen tes"} · Emergency Response Group</p></div></div>
-              <div className="mpen-period"><Icon name="calendar" size={17}/><div><small>Periode Program</small><strong>{periodLabel}</strong></div></div>
+              <div className="mpen-period"><Icon name="calendar" size={17}/><div><small>Periode Week {String(selectedWeek).padStart(2, "0")}</small><strong>{periodLabel}</strong></div></div>
             </div>
 
             {loading || !summary ? <div className="mpen-loading">Memuat data penilaian dari Supabase...</div> : (
               <>
+                {activeTab === "posttest" && (
+                  <div className="mpen-day-grid" aria-label="Post-Test Selasa dan Kamis pada Week ini">
+                    {postTestDays.map((day) => (
+                      <article key={day.label} className="mpen-day-card">
+                        <div><strong>Post-Test {day.label}</strong><small>{formatDate(day.date)}</small></div>
+                        <div className="mpen-day-count"><strong>{day.participants}</strong><span>peserta mengikuti · {day.results} hasil</span></div>
+                        <p>{day.results ? day.materials : "Belum ada hasil ujian tercatat pada tanggal ini"}</p>
+                        <small>{day.pending} Menunggu · {day.verified} Terverifikasi</small>
+                      </article>
+                    ))}
+                  </div>
+                )}
                 <div className="mpen-summary-grid">
-                  <article className="mpen-stat"><span className="mpen-stat-icon blue"><Icon name="users" size={22}/></span><div><small>Peserta Aktif</small><strong>{summary.activeCount}</strong><em>Total peserta program</em></div></article>
+                  <article className="mpen-stat"><span className="mpen-stat-icon blue"><Icon name="users" size={22}/></span><div><small>Peserta Aktif</small><strong>{summary.activeCount}</strong><em>Peserta aktif pada Week ini</em></div></article>
                   <article className="mpen-stat"><span className="mpen-stat-icon green"><Icon name="check" size={22}/></span><div><small>Sudah Mengikuti</small><strong>{summary.attended}</strong><em>Peserta unik</em></div></article>
                   <article className="mpen-stat warning"><span className="mpen-stat-icon amber"><Icon name="clock" size={22}/></span><div><small>Menunggu Verifikasi</small><strong>{summary.pending}</strong><em>{summary.unit} berstatus Pending</em></div></article>
                   <article className="mpen-stat verified"><span className="mpen-stat-icon blue"><Icon name="shield" size={22}/></span><div><small>Terverifikasi</small><strong>{summary.verified}</strong><em>{summary.unit} hasil resmi</em></div></article>
@@ -617,40 +759,41 @@ export default function MonitoringPenilaianPage() {
                   <div><small>Total {summary.unit}</small><strong>{summary.totalEntries}</strong></div>
                   <div><small>Rata-rata Nilai Resmi</small><strong>{summary.average === null ? "—" : formatNumber(summary.average, 1)}</strong><em>{summary.scoreCount} nilai Verified dihitung</em></div>
                 </div>
-                <p className="mpen-count-note">Catatan: “Sudah Mengikuti” dan “Belum Mengikuti” menghitung peserta unik. Pending, Verified, dan Total menghitung pengajuan untuk Post-Test/Praktik atau sesi untuk Samapta. Rata-rata hanya menggunakan nilai berstatus Verified.</p>
+                <p className="mpen-count-note">Catatan Week {String(selectedWeek).padStart(2, "0")}: seluruh angka dihitung hanya pada {periodLabel}. “Sudah Mengikuti” dan “Belum Mengikuti” menghitung peserta unik yang programnya berlangsung pada Week ini. Pending, Verified, dan Total menghitung hasil Post-Test/Praktik atau sesi Samapta. Rata-rata resmi hanya menggunakan Verified. Nilai historis di Week lain tetap tersimpan dan dapat dilihat melalui pilihan Week.</p>
               </>
             )}
           </section>
 
           <section className="mpen-table-panel">
-            <div className="mpen-table-heading"><div><h2>Daftar Peserta – {tabLabel}</h2><p>Menampilkan status dan hasil penilaian seluruh peserta pada program aktif.</p></div><div className="mpen-table-actions"><label className="mpen-search"><Icon name="search" size={17}/><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama peserta, site, atau penilaian..."/></label><button type="button" className="mpen-export" onClick={exportCsv} disabled={loading || !filteredRows.length}><Icon name="download" size={16}/> Ekspor</button></div></div>
+            <div className="mpen-table-heading"><div><h2>Daftar Peserta – {tabLabel} · Week {String(selectedWeek).padStart(2, "0")}</h2><p>Hanya data {periodLabel}. Pilih Week lain untuk melihat penilaian mingguan sebelumnya.</p></div><div className="mpen-table-actions"><label className="mpen-search"><Icon name="search" size={17}/><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama peserta, site, atau penilaian..."/></label><button type="button" className="mpen-export" onClick={exportCsv} disabled={loading || !filteredRows.length}><Icon name="download" size={16}/> Ekspor</button></div></div>
             <div className="mpen-filters">
               <label><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Semua Status</option><option value="verified">Terverifikasi</option><option value="pending">Menunggu</option><option value="other">Perlu Pemeriksaan</option><option value="not_started">Belum Mengikuti</option></select></label>
               <label><span>Site / Posisi</span><select value={siteFilter} onChange={(event) => setSiteFilter(event.target.value)}><option value="all">Semua Site</option>{sites.map((site) => <option key={site} value={site}>{site}</option>)}</select></label>
-              <label><span>Dari Tanggal</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)}/></label>
-              <label><span>Sampai Tanggal</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)}/></label>
+              <label><span>Dari Tanggal (opsional)</span><input type="date" min={selectedPeriod.start} max={selectedPeriod.end} value={dateFrom} onChange={(event) => setDateFrom(event.target.value)}/></label>
+              <label><span>Sampai Tanggal (opsional)</span><input type="date" min={selectedPeriod.start} max={selectedPeriod.end} value={dateTo} onChange={(event) => setDateTo(event.target.value)}/></label>
               <button type="button" className="mpen-reset" onClick={resetFilters}>Reset</button>
             </div>
 
             <div className="mpen-table-wrap">
               <table className="mpen-table">
-                <thead><tr><th>No</th><th>Peserta</th><th>Site / Posisi</th><th>{activeTab === "samapta" ? "Rata-rata Skor" : "Nilai"}</th><th>{activeTab === "posttest" ? "Tanggal Post-Test" : activeTab === "praktik" ? "Tanggal Praktik" : "Tanggal Samapta"}</th>{activeTab === "praktik" && <th>Jenis Praktik</th>}{activeTab === "samapta" && <th>Komponen</th>}<th>Status</th><th>Aksi</th></tr></thead>
+                <thead><tr><th>No</th><th>Peserta</th><th>Site / Posisi</th><th>{activeTab === "samapta" ? "Rata-rata Skor" : "Nilai"}</th><th>{activeTab === "posttest" ? "Tanggal Post-Test" : activeTab === "praktik" ? "Tanggal Praktik" : "Tanggal Samapta"}</th>{activeTab === "posttest" && <th>Materi</th>}{activeTab === "praktik" && <th>Jenis Praktik</th>}{activeTab === "samapta" && <th>Komponen</th>}<th>Status</th><th>Aksi</th></tr></thead>
                 <tbody>
-                  {loading ? <tr><td colSpan={activeTab === "posttest" ? 7 : 8} className="mpen-empty">Memuat data...</td></tr> : pagedRows.length ? pagedRows.map((row, index) => <tr key={row.id}>
+                  {loading ? <tr><td colSpan={8} className="mpen-empty">Memuat data...</td></tr> : pagedRows.length ? pagedRows.map((row, index) => <tr key={row.id}>
                     <td>{(page - 1) * PAGE_SIZE + index + 1}</td>
                     <td><strong>{row.person}</strong><small>{row.department}</small></td>
                     <td>{row.site}</td>
                     <td><strong>{formatNumber(row.score, 1)}</strong></td>
                     <td>{formatDate(row.date)}</td>
+                    {activeTab === "posttest" && <td>{row.status === "not_started" ? "—" : row.title}</td>}
                     {activeTab === "praktik" && <td>{row.title}</td>}
                     {activeTab === "samapta" && <td>{row.rows?.length || 0}/5</td>}
                     <td><StatusBadge status={row.status}/></td>
                     <td><button type="button" className="mpen-detail-btn" onClick={() => openDetail(row)}><Icon name="eye" size={15}/> Lihat Detail</button></td>
-                  </tr>) : <tr><td colSpan={activeTab === "posttest" ? 7 : 8} className="mpen-empty">Tidak ada data yang sesuai dengan filter.</td></tr>}
+                  </tr>) : <tr><td colSpan={8} className="mpen-empty">Tidak ada data yang sesuai dengan filter.</td></tr>}
                 </tbody>
               </table>
             </div>
-            <div className="mpen-table-footer"><span>Menampilkan {filteredRows.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{Math.min(page * PAGE_SIZE, filteredRows.length)} dari {filteredRows.length} data</span><div className="mpen-pagination"><button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>‹</button><span>Halaman {page} / {totalPages}</span><button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages}>›</button></div></div>
+            <div className="mpen-table-footer"><span>Week {String(selectedWeek).padStart(2, "0")} · Menampilkan {filteredRows.length ? (page - 1) * PAGE_SIZE + 1 : 0}–{Math.min(page * PAGE_SIZE, filteredRows.length)} dari {filteredRows.length} data</span><div className="mpen-pagination"><button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>‹</button><span>Halaman {page} / {totalPages}</span><button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages}>›</button></div></div>
           </section>
 
           <footer className="mpen-footer"><span>OJT MineTrack v2.0 · Emergency Response Group · PT Berau Coal</span><span>{lastUpdated ? `Diperbarui ${lastUpdated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Makassar" })} WITA` : ""}</span></footer>
@@ -686,7 +829,11 @@ html[data-theme="dark"] .mpen-sidebar{background:linear-gradient(170deg,#0b2a26,
 .mpen-table-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.mpen-table-heading h2{margin:0;font-size:19px}.mpen-table-heading p{margin:2px 0 0;color:var(--mpen-muted);font-size:11px}.mpen-table-actions{display:flex;gap:8px;align-items:center}.mpen-search{min-width:250px;display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid var(--mpen-border);border-radius:8px;background:var(--mpen-surface);color:var(--mpen-muted)}.mpen-search input{width:100%;min-height:37px;border:0;outline:none;background:transparent;color:var(--mpen-text);font-size:11px}.mpen-export,.mpen-reset{min-height:37px;padding:8px 11px;border:1px solid var(--mpen-border);border-radius:8px;background:var(--mpen-surface);color:var(--mpen-text);font-size:11px;font-weight:800}.mpen-export{display:flex;align-items:center;gap:6px;border-color:#32966e}.mpen-filters{display:grid;grid-template-columns:1.1fr 1.1fr 1fr 1fr auto;gap:9px;align-items:end;margin:13px 0;padding-bottom:13px;border-bottom:1px solid var(--mpen-border)}.mpen-filters label{display:grid;gap:5px;min-width:0}.mpen-filters label span{color:var(--mpen-muted);font-size:10px;font-weight:700}.mpen-filters input,.mpen-filters select{width:100%;min-width:0;min-height:37px;padding:8px 9px;border:1px solid var(--mpen-border);border-radius:8px;background:var(--mpen-surface);color:var(--mpen-text);font-size:11px}
 .mpen-table-wrap{width:100%;overflow-x:auto}.mpen-table{width:100%;border-collapse:collapse;min-width:850px}.mpen-table th{padding:10px 9px;background:var(--mpen-surface);color:var(--mpen-muted);font-size:10px;text-align:left;white-space:nowrap}.mpen-table td{padding:10px 9px;border-bottom:1px solid var(--mpen-border);font-size:11px;vertical-align:middle}.mpen-table td strong,.mpen-table td small{display:block}.mpen-table td small{margin-top:2px;color:var(--mpen-muted);font-size:9px}.mpen-status{display:inline-flex;padding:5px 8px;border-radius:7px;font-size:9px;font-weight:800;white-space:nowrap}.mpen-status.verified{background:#174b37;color:#a5f0c7}.mpen-status.pending{background:#584321;color:#ffdb93}.mpen-status.other{background:#4a3438;color:#f2c3c7}.mpen-status.not-started{background:#35434a;color:#cbd5d8}.mpen-detail-btn{display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid var(--mpen-border);border-radius:7px;background:var(--mpen-surface);color:var(--mpen-text);font-size:10px;font-weight:700;white-space:nowrap}.mpen-empty{padding:28px!important;text-align:center;color:var(--mpen-muted)}.mpen-table-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;color:var(--mpen-muted);font-size:10px}.mpen-pagination{display:flex;align-items:center;gap:9px}.mpen-pagination button{width:29px;height:29px;border:1px solid var(--mpen-border);border-radius:7px;background:var(--mpen-surface);color:var(--mpen-text)}.mpen-pagination button:disabled{opacity:.4}.mpen-footer{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:5px 2px;color:var(--mpen-muted);font-size:9px}
 .mpen-modal-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:rgba(0,15,13,.76)}.mpen-modal{width:min(100%,620px);max-height:90vh;overflow:auto;border:1px solid var(--mpen-border);border-radius:14px;background:var(--mpen-panel);box-shadow:0 22px 65px rgba(0,0,0,.35)}.mpen-modal>header{display:flex;justify-content:space-between;gap:14px;padding:17px;border-bottom:1px solid var(--mpen-border)}.mpen-modal>header h2{margin:5px 0;font-size:19px}.mpen-modal>header p{margin:0;color:var(--mpen-muted);font-size:11px}.mpen-modal>header button{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--mpen-border);border-radius:8px;background:var(--mpen-surface);color:var(--mpen-text)}.mpen-modal-kicker{color:var(--mpen-green);font-size:9px;font-weight:900;letter-spacing:1px}.mpen-modal-body{padding:17px}.mpen-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.mpen-detail-grid>div{display:grid;gap:5px;padding:11px;border:1px solid var(--mpen-border);border-radius:8px;background:var(--mpen-surface)}.mpen-detail-grid small{color:var(--mpen-muted);font-size:9px}.mpen-detail-grid strong{font-size:12px}.mpen-detail-block{margin-top:12px;padding:12px;border:1px solid var(--mpen-border);border-radius:9px;background:var(--mpen-surface)}.mpen-detail-block>strong{display:block;margin-bottom:8px;font-size:11px}.mpen-detail-block p{margin:0;color:var(--mpen-muted);font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}.mpen-evidence-link{display:inline-block;margin-top:6px;color:var(--mpen-green);font-weight:800;text-decoration:underline}.mpen-component-row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--mpen-border);font-size:10px}.mpen-component-row:last-child{border-bottom:0}.mpen-component-row strong{text-align:right}.mpen-readonly-note{margin-top:12px;padding:10px;border-left:3px solid #d6aa56;border-radius:6px;background:#4b3b21;color:#ffdfa1;font-size:10px}.mpen-modal>footer{display:flex;justify-content:flex-end;padding:0 17px 17px}.mpen-modal>footer button{padding:9px 14px;border:1px solid var(--mpen-border);border-radius:8px;background:var(--mpen-surface);color:var(--mpen-text);font-size:11px;font-weight:800}
+.mpen-week-panel{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:16px;border:1px solid var(--mpen-border);border-radius:13px;background:var(--mpen-panel)}
+.mpen-week-info{display:grid;gap:4px}.mpen-week-info>span{font-size:10px;font-weight:900;letter-spacing:1px;color:var(--mpen-green)}.mpen-week-info>strong{font-size:22px}.mpen-week-info>small{font-size:11px;color:var(--mpen-muted)}
+.mpen-week-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:end}.mpen-week-controls>button{min-width:37px;min-height:39px;border:1px solid var(--mpen-border);border-radius:9px;background:var(--mpen-surface);color:var(--mpen-text);font-weight:900;font-size:22px}.mpen-week-controls>button:disabled{opacity:.4;cursor:not-allowed}.mpen-week-controls>label{display:grid;gap:4px}.mpen-week-controls>label>span{font-size:10px;color:var(--mpen-muted)}.mpen-week-controls select{height:39px;min-width:245px;max-width:100%;border:1px solid var(--mpen-border);border-radius:9px;padding:8px 9px;background:var(--mpen-surface);color:var(--mpen-text);font-size:11px}.mpen-week-controls>button.mpen-week-today{font-size:11px;font-weight:800;padding:0 11px;color:var(--mpen-green)}
+.mpen-day-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:13px}.mpen-day-card{padding:13px;border:1px solid var(--mpen-border);border-radius:10px;background:var(--mpen-surface);display:grid;gap:8px}.mpen-day-card>div:first-child{display:flex;justify-content:space-between;align-items:center;gap:10px}.mpen-day-card>div:first-child>strong{font-size:13px}.mpen-day-card>div:first-child>small{color:var(--mpen-muted);font-size:10px}.mpen-day-count{display:flex;align-items:center;gap:9px}.mpen-day-count strong{font-size:24px;color:var(--mpen-green)}.mpen-day-count span{font-size:10px;color:var(--mpen-muted)}.mpen-day-card p{margin:0;font-size:10px;color:var(--mpen-text)}.mpen-day-card>small{font-size:10px;color:var(--mpen-muted)}
 @media(max-width:1100px){.mpen-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mpen-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.mpen-reset{justify-self:start}}
 @media(max-width:760px){.mpen-sidebar{width:275px;transform:translateX(-105%);transition:transform .2s ease;z-index:55}.mpen-sidebar.open{transform:translateX(0)}.mpen-overlay{display:block;position:fixed;inset:0;z-index:54;width:100%;height:100%;border:0;background:rgba(0,20,17,.65)}.mpen-main{margin-left:0;padding:12px}.mpen-mobile-head{display:flex;align-items:center;justify-content:space-between;min-height:48px;margin:-12px -12px 0;padding:8px 13px;background:#06392e;color:#fff}.mpen-mobile-head strong{font-size:17px}.mpen-mobile-head strong span{color:#53e7a5}.mpen-mobile-head button{width:35px;height:35px;display:grid;place-items:center;border:1px solid #ffffff35;border-radius:8px;background:#ffffff12;color:#fff}.mpen-page-head{align-items:flex-start;padding:14px}.mpen-head-actions{justify-items:start}.mpen-section-heading{align-items:flex-start;flex-direction:column}.mpen-table-heading{align-items:stretch}.mpen-table-actions{width:100%}.mpen-search{flex:1;min-width:0}}
-@media(max-width:520px){.mpen-page-head{flex-direction:column}.mpen-tab{flex-direction:column;gap:4px;padding:9px 4px;font-size:11px}.mpen-tab small{font-size:8px}.mpen-summary-grid{grid-template-columns:1fr 1fr;gap:7px}.mpen-stat{padding:9px;gap:8px}.mpen-stat-icon{width:34px;height:34px}.mpen-stat strong{font-size:21px}.mpen-stat small{font-size:9px}.mpen-stat em{font-size:8px}.mpen-secondary-summary{grid-template-columns:1fr 1fr}.mpen-progress-foot{align-items:flex-start;flex-direction:column}.mpen-filters{grid-template-columns:1fr 1fr}.mpen-table-actions{flex-wrap:wrap}.mpen-search{flex-basis:100%}.mpen-export{flex:1;justify-content:center}.mpen-table-footer{align-items:flex-start;flex-direction:column}.mpen-footer{display:grid}.mpen-detail-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.mpen-week-controls{width:100%}.mpen-week-controls>label{flex:1;min-width:0}.mpen-week-controls select{width:100%;min-width:0}.mpen-day-grid{grid-template-columns:1fr}.mpen-page-head{flex-direction:column}.mpen-tab{flex-direction:column;gap:4px;padding:9px 4px;font-size:11px}.mpen-tab small{font-size:8px}.mpen-summary-grid{grid-template-columns:1fr 1fr;gap:7px}.mpen-stat{padding:9px;gap:8px}.mpen-stat-icon{width:34px;height:34px}.mpen-stat strong{font-size:21px}.mpen-stat small{font-size:9px}.mpen-stat em{font-size:8px}.mpen-secondary-summary{grid-template-columns:1fr 1fr}.mpen-progress-foot{align-items:flex-start;flex-direction:column}.mpen-filters{grid-template-columns:1fr 1fr}.mpen-table-actions{flex-wrap:wrap}.mpen-search{flex-basis:100%}.mpen-export{flex:1;justify-content:center}.mpen-table-footer{align-items:flex-start;flex-direction:column}.mpen-footer{display:grid}.mpen-detail-grid{grid-template-columns:1fr 1fr}}
 `;
