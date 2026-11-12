@@ -1780,6 +1780,9 @@ export default function DashboardPeserta() {
   const [manualTestScore, setManualTestScore] = useState("");
   const [manualTestNotes, setManualTestNotes] = useState("");
   const [manualTestAuthorized, setManualTestAuthorized] = useState(false);
+  // Dokumentasi wajib hanya untuk pengajuan Post-Test manual Peserta.
+  const [manualTestFile, setManualTestFile] = useState(null);
+  const manualTestFileInputRef = useRef(null);
   const [manualTestSaving, setManualTestSaving] = useState(false);
   const [manualTestError, setManualTestError] = useState("");
   const [manualTestMessage, setManualTestMessage] = useState("");
@@ -2960,8 +2963,21 @@ export default function DashboardPeserta() {
       setManualTestError("Nilai harus berupa angka 0–100.");
       return;
     }
+    if (!manualTestFile) {
+      setManualTestError("Dokumentasi Post-Test wajib dilampirkan.");
+      return;
+    }
+    if (
+      manualTestFile.size > 5 * 1024 * 1024 ||
+      !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(manualTestFile.type)
+    ) {
+      setManualTestError("Dokumentasi harus JPG, PNG, WEBP, atau PDF maksimal 5 MB.");
+      return;
+    }
 
     setManualTestSaving(true);
+    let uploadedPostTestPath = "";
+    let postTestRecordCreated = false;
     try {
       const { data: auth, error: authError } = await supabase.auth.getUser();
       if (authError || !auth?.user || auth.user.id !== account?.id) {
@@ -2995,6 +3011,22 @@ export default function DashboardPeserta() {
         throw new Error("Nilai materi dan tanggal ini sudah tercatat. Lihat Hasil Penilaian.");
       }
 
+      // Gunakan bucket dan pola folder yang sama dengan Achievement untuk
+      // mempertahankan aturan akses Storage yang sudah dipakai aplikasi.
+      const safeFileName = manualTestFile.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-90) || "dokumentasi";
+      const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      const filePath = `${authorizedProgram.id}/${auth.user.id}/${uniqueId}-posttest-${safeFileName}`;
+      const { error: uploadError } = await supabase.storage
+        .from(ACHIEVEMENT_BUCKET)
+        .upload(filePath, manualTestFile, {
+          upsert: false,
+          contentType: manualTestFile.type,
+        });
+      if (uploadError) {
+        throw new Error(`Upload dokumentasi Post-Test gagal: ${uploadError.message}`);
+      }
+      uploadedPostTestPath = filePath;
+
       const marker = encodeURIComponent(JSON.stringify({
         status: "pending",
         submittedBy: auth.user.id,
@@ -3005,6 +3037,7 @@ export default function DashboardPeserta() {
         `Materi: ${material}`,
         "Sumber: Input Manual Peserta (atas arahan Mentor)",
         String(manualTestNotes || "").trim(),
+        `[[OJT_FILE_V1:${encodeURIComponent(JSON.stringify({ name: manualTestFile.name, path: uploadedPostTestPath }))}]]`,
         `[[OJT_POSTTEST_REVIEW_V1:${marker}]]`,
       ].filter(Boolean);
 
@@ -3022,15 +3055,27 @@ export default function DashboardPeserta() {
       if (!saved?.length) {
         throw new Error("Nilai tidak tersimpan. Periksa izin RLS tabel Post-Test.");
       }
+      postTestRecordCreated = true;
 
       const updated = await fetchProgramProgress(program);
       setProgress(updated.progress);
       setWeeklyData(updated.weekly);
       setManualTestScore("");
       setManualTestNotes("");
+      setManualTestFile(null);
+      if (manualTestFileInputRef.current) manualTestFileInputRef.current.value = "";
       setManualTestAuthorized(false);
-      setManualTestMessage("Nilai berhasil diajukan sebagai Pending. Menunggu verifikasi Admin.");
+      setManualTestMessage("Nilai dan dokumentasi berhasil diajukan sebagai Pending. Menunggu verifikasi Admin.");
     } catch (err) {
+      // Jika nilai gagal disimpan, coba bersihkan unggahan tanpa record.
+      // Jangan hapus bukti apabila record Post-Test sudah berhasil dibuat.
+      if (uploadedPostTestPath && !postTestRecordCreated) {
+        try {
+          await supabase.storage.from(ACHIEVEMENT_BUCKET).remove([uploadedPostTestPath]);
+        } catch {
+          // RLS Storage dapat membatasi penghapusan; error utama tetap ditampilkan.
+        }
+      }
       const detail = String(err?.message || "Gagal menyimpan Post-Test.");
       setManualTestError(/row.level security|permission denied|403|42501/i.test(detail)
         ? "Akses penyimpanan Post-Test ditolak Supabase (RLS). Minta Admin periksa izin akun."
@@ -4677,6 +4722,18 @@ export default function DashboardPeserta() {
                         <textarea rows={3} value={manualTestNotes}
                           placeholder="Catatan pengajuan dari Mentor..."
                           onChange={(event) => setManualTestNotes(event.target.value)} />
+                      </label>
+                      <label>
+                        Dokumentasi Post-Test (wajib, maksimal 5 MB)
+                        <input
+                          ref={manualTestFileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,application/pdf"
+                          required
+                          disabled={manualTestSaving}
+                          onChange={(event) => setManualTestFile(event.target.files?.[0] || null)}
+                        />
+                        <small>JPG, PNG, WEBP, atau PDF; wajib untuk input nilai manual.</small>
                       </label>
                       <label className="dp-manual-consent">
                         <input type="checkbox" checked={manualTestAuthorized}
